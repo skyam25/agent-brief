@@ -1,0 +1,14 @@
+{
+  "name": "web-agent-companion",
+  "description": "Claude Code plugin for Web Agent Companion: /sketch, the Sketch button, sketch delivery and the browser feedback inbox.",
+  "owner": {
+    "name": "Simon Yam"
+  },
+  "plugins": [
+    {
+      "name": "feedback-inbox",
+      "source": "./mod/feedback-inbox",
+      "description": "Opens the companion sketch board for a session, delivers sketches into the prompt, and applies browser feedback recordings."
+    }
+  ]
+}

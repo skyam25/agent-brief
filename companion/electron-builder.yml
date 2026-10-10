@@ -1,0 +1,35 @@
+# pnpm dist builds dist/mac-arm64/Web Agent Companion.app, signed with the
+# Developer ID cert. APPLE_KEYCHAIN_PROFILE also notarizes it (pnpm dist:notarize).
+appId: com.webagentcompanion.app
+productName: Web Agent Companion
+directories:
+  output: dist
+  buildResources: build
+# Main, preload and renderer are bundled, so the app needs no node_modules.
+files:
+  - out/**
+  - package.json
+  - build/icons/trayTemplate.png
+  - build/icons/trayTemplate@2x.png
+  - '!**/node_modules/**'
+  - '!**/*.map'
+extraResources:
+  - from: bin/companion.mjs
+    to: bin/companion.mjs
+  - from: bin/companion
+    to: bin/companion
+electronDist: node_modules/electron/dist
+npmRebuild: false
+nodeGypRebuild: false
+asar: true
+mac:
+  target: dir
+  icon: build/icons/icon.icns
+  category: public.app-category.productivity
+  identity: Simon K Yam (KFDNEQ68KH)
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Records your voice while you sketch so Claude hears what you mean.
+    NSAppleEventsUsageDescription: Opens Claude Code sessions in your terminal and brings them forward when you click a session.

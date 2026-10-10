@@ -1,0 +1,43 @@
+{
+  "name": "web-agent-companion-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Floating sketch, notes and voice panel that hands work to Claude Code.",
+  "author": "Simon Yam",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "electron .",
+    "test": "vitest run",
+    "test:e2e": "pnpm build && playwright test",
+    "compile": "tsc --noEmit",
+    "dist": "pnpm build && node -e \"require('electron')\" && electron-builder --mac --dir",
+    "dist:notarize": "APPLE_KEYCHAIN_PROFILE=companion-notary pnpm dist"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "^26.6.4",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vite": "8.3.4",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "qrcode": "^1.5.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "ws": "^8.22.0"
+  },
+  "productName": "Web Agent Companion",
+  "main": "out/main/index.cjs"
+}
