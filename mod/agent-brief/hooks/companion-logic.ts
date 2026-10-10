@@ -13,7 +13,7 @@ export const FILL_RETRY_MS = 2_000
 export const LAUNCH_ATTEMPTS = 40
 export const LAUNCH_STEP_S = '0.25'
 
-export const SKETCH_OPENED = 'Companion open — sketch, then press Send.'
+export const SKETCH_OPENED = 'Agent Brief open — sketch, then press Send.'
 
 /** Empty setting means the app's default socket. */
 export function socketPathOf(setting: string, home: string): string {
@@ -36,7 +36,7 @@ export function fillRequest(boxText: string, draft: string): { text: string; mod
 }
 
 export function toastFor(mode: Delivery['mode']): string {
-  return mode === 'fill' ? 'Sketch from the companion is ready — press Enter' : 'Sent sketch to Claude'
+  return mode === 'fill' ? 'Sketch from Agent Brief is ready — press Enter' : 'Sent sketch to Claude'
 }
 
 export function sessionInfo(
@@ -93,7 +93,7 @@ export function deliveriesPath(sessionId: string): string {
 
 export function launchFailureText(launch: string, socket: string): string {
   const tried = launch.trim() === '' ? 'No launch command is set.' : `Ran \`${launch}\` and waited 10 s.`
-  return `Could not reach the companion app at ${socket}. ${tried} Start the app by hand, or fix the companionLaunch and companionSocket settings.`
+  return `Could not reach Agent Brief at ${socket}. ${tried} Start the app by hand, or fix the companionLaunch and companionSocket settings.`
 }
 
 export function parseJson(text: string): unknown {

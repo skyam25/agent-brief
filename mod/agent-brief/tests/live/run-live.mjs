@@ -93,7 +93,7 @@ async function main() {
 
   // 2. Interactive claude in tmux, with the socket set by a temp settings file.
   const settings = join(tmp, 'settings.json')
-  writeFileSync(settings, JSON.stringify({ pluginConfigs: { 'feedback-inbox': { options: { companionSocket: socketPath, inboxDir: join(tmp, 'inbox') } } } }))
+  writeFileSync(settings, JSON.stringify({ pluginConfigs: { 'agent-brief': { options: { companionSocket: socketPath, inboxDir: join(tmp, 'inbox') } } } }))
   tmux('new-session', '-d', '-s', SESSION, '-x', '160', '-y', '50', '-c', project,
     `claude --plugin-dir ${MOD} --settings ${settings}`)
 

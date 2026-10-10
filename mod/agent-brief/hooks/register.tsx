@@ -41,8 +41,8 @@ type Config = {
   whisperModel: string
 }
 
-const sessionsRef = atom({ plugin: 'feedback-inbox', key: 'sessions' } as const, [])
-const ingestingRef = atom({ plugin: 'feedback-inbox', key: 'ingesting' } as const, null)
+const sessionsRef = atom({ plugin: 'agent-brief', key: 'sessions' } as const, [])
+const ingestingRef = atom({ plugin: 'agent-brief', key: 'ingesting' } as const, null)
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -231,10 +231,10 @@ async function sketchCompanion($: EngineInterface, prompt: string): Promise<stri
     if (!(await waitForApp($))) return launchFailureText(companionConfig.companionLaunch, await socketPath($))
   }
   isUp = true
-  if (!(await registerSession($))) return 'The companion is running but did not accept this session.'
+  if (!(await registerSession($))) return 'Agent Brief is running but did not accept this session.'
   const body: OpenRequest = { sessionId: await $.session.id(), ...(prompt === '' ? {} : { prompt }) }
   const opened = await call($, 'POST', '/open', body)
-  if (!opened?.ok) return 'The companion is running but did not open the panel.'
+  if (!opened?.ok) return 'Agent Brief is running but did not open the panel.'
   return SKETCH_OPENED
 }
 
@@ -242,7 +242,7 @@ async function sketchCompanion($: EngineInterface, prompt: string): Promise<stri
 let isIngesting = false
 
 function log($: EngineInterface, text: string): void {
-  $.ui.log(`feedback-inbox: ${text}`, { to: 'debug' })
+  $.ui.log(`agent-brief: ${text}`, { to: 'debug' })
 }
 
 async function save($: EngineInterface, sessions: FeedbackInboxSession[]): Promise<void> {
@@ -391,7 +391,7 @@ const noSession = (name: string | undefined) =>
 export const register: Register = (on, options) => {
   const companionSettings: CompanionConfig = {
     companionSocket: String(options.companionSocket ?? ''),
-    companionLaunch: String(options.companionLaunch ?? 'open -a "Web Agent Companion"'),
+    companionLaunch: String(options.companionLaunch ?? 'open -a "Agent Brief"'),
   }
   const config: Config = {
     inboxDir: String(options.inboxDir ?? ''),
@@ -433,7 +433,7 @@ export const register: Register = (on, options) => {
     try {
       await $.command.register({
         name: 'sketch',
-        description: 'Open the companion sketch board for this session',
+        description: 'Open the Agent Brief sketch board for this session',
         argumentHint: '[what to draw or ask]',
       })
       startCompanion($, companionSettings)
@@ -443,7 +443,7 @@ export const register: Register = (on, options) => {
     return started
   })
 
-  on('tool.call', { tool: 'mcp__feedback-inbox__feedback_latest' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__agent-brief__feedback_latest' }, async ($, e) => {
     const input = e as { name?: unknown }
     const name = typeof input.name === 'string' && input.name ? input.name : undefined
     const sessions = await load($)
@@ -458,7 +458,7 @@ export const register: Register = (on, options) => {
     return { result: latestText(session, report) }
   }).catch(() => ({ result: 'The feedback inbox failed to read the session. Read .feedback/<name>/report.md directly.' }))
 
-  on('tool.call', { tool: 'mcp__feedback-inbox__feedback_list' }, async $ => {
+  on('tool.call', { tool: 'mcp__agent-brief__feedback_list' }, async $ => {
     const sessions = await load($)
     await update($, sessionsRef, () => sessions)
     return { result: listText(sessions) + (await inboxNote($, config)) }
@@ -494,7 +494,7 @@ export const register: Register = (on, options) => {
     return (
       <Box>
         <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void sketch()} />
-        <Text dimColor> open the companion board for this session</Text>
+        <Text dimColor> open the Agent Brief board for this session</Text>
         {ingesting !== null && <Text dimColor> · Transcribing feedback: {ingesting}…</Text>}
       </Box>
     )

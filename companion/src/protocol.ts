@@ -1,6 +1,6 @@
 /**
- * Companion socket protocol, shared by the app, the `companion` CLI and the
- * feedback-inbox mod. HTTP/1.1 with JSON bodies over a Unix socket.
+ * Agent Brief socket protocol, shared by the app, the `agent-brief` CLI and the
+ * agent-brief mod. HTTP/1.1 with JSON bodies over a Unix socket.
  *
  * Add fields and routes only. Never rename or remove.
  */
@@ -10,9 +10,9 @@ export const PROTOCOL_VERSION = 1;
 /** Overrides the socket path. Tests set it to a temp file. */
 export const SOCKET_ENV = 'COMPANION_SOCKET';
 
-/** `~/Library/Application Support/WebAgentCompanion/companion.sock`, file mode 0600. */
+/** `~/Library/Application Support/AgentBrief/agent-brief.sock`, file mode 0600. */
 export function defaultSocketPath(home: string): string {
-  return `${home}/Library/Application Support/WebAgentCompanion/companion.sock`;
+  return `${home}/Library/Application Support/AgentBrief/agent-brief.sock`;
 }
 
 /** Board name that resolves to the board the panel shows now. */

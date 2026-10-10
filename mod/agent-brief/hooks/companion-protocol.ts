@@ -8,9 +8,9 @@
 
 export const PROTOCOL_VERSION = 1
 
-/** `~/Library/Application Support/WebAgentCompanion/companion.sock`, file mode 0600. */
+/** `~/Library/Application Support/AgentBrief/agent-brief.sock`, file mode 0600. */
 export function defaultSocketPath(home: string): string {
-  return `${home}/Library/Application Support/WebAgentCompanion/companion.sock`
+  return `${home}/Library/Application Support/AgentBrief/agent-brief.sock`
 }
 
 // GET /health

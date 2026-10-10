@@ -52,7 +52,7 @@ import {
 import { HubLink } from './hub-link';
 import { Ipad } from './ipad';
 import { Panel } from './panel';
-import { BoardStore, StateFile } from './store';
+import { BoardStore, migrateData, StateFile } from './store';
 
 const testMode = process.env.COMPANION_TEST === '1';
 
@@ -70,6 +70,8 @@ if (testMode && process.env.COMPANION_TEST_AUDIO) {
 }
 
 if (process.env.COMPANION_DATA_DIR) app.setPath('userData', process.env.COMPANION_DATA_DIR);
+// Boards and settings from before the app was renamed Agent Brief.
+else migrateData(join(app.getPath('appData'), 'Web Agent Companion'), app.getPath('userData'));
 const dataDir = app.getPath('userData');
 const socketPath = process.env[SOCKET_ENV] ?? defaultSocketPath(homedir());
 
@@ -114,7 +116,7 @@ async function composeFrom(p: SendPayload): Promise<{ input: DeliveryInput; warn
     transcribe: {
       ffmpegPath: ffmpegPath ?? 'ffmpeg',
       yapPath: yapPath ?? 'yap',
-      tmpDir: join(app.getPath('temp'), 'web-agent-companion-voice'),
+      tmpDir: join(app.getPath('temp'), 'agent-brief-voice'),
       onError: (segment, message) => {
         if (ffmpegPath && yapPath) warnings.push(`${segment}: ${message}`);
       },
@@ -152,7 +154,7 @@ function rememberProjects(cwds: string[]): void {
 
 /** The CLI script: inside the app bundle when packaged, else the repo's build. */
 function cliSource(): string {
-  return app.isPackaged ? join(process.resourcesPath, 'bin/companion') : join(app.getAppPath(), 'bin/companion');
+  return app.isPackaged ? join(process.resourcesPath, 'bin/agent-brief') : join(app.getAppPath(), 'bin/agent-brief');
 }
 
 /** PATH as the user's login shell sets it. GUI apps start with a much shorter one. */
@@ -181,7 +183,7 @@ async function microphoneAccess(): Promise<MicrophoneAccess> {
 async function start(): Promise<void> {
   await app.whenReady();
   if (offscreen) app.dock?.hide();
-  app.setAboutPanelOptions({ applicationName: 'Web Agent Companion', applicationVersion: app.getVersion() });
+  app.setAboutPanelOptions({ applicationName: 'Agent Brief', applicationVersion: app.getVersion() });
   store.create(state.state.currentBoard);
 
   const panel = new Panel({
@@ -381,8 +383,8 @@ async function start(): Promise<void> {
         buttons: ['Install', 'Cancel'],
         defaultId: 0,
         cancelId: 1,
-        message: 'Install the companion command line tool?',
-        detail: `This links ${cliLinkPath(home)} to ${source}, so Claude Code can run \`companion\`.`,
+        message: 'Install the agent-brief command line tool?',
+        detail: `This links ${cliLinkPath(home)} to ${source}, so Claude Code can run \`agent-brief\`.`,
       });
       if (response !== 0) return undefined;
     }
@@ -391,7 +393,7 @@ async function start(): Promise<void> {
       if (opts.confirm) {
         await dialog.showMessageBox({
           type: 'info',
-          message: 'Installed the companion command',
+          message: 'Installed the agent-brief command',
           detail: result.onPath
             ? `${result.link} is ready.`
             : `${result.link} is ready, but ${result.binDir} is not on your PATH. Add this line to ~/.zshrc:\n\nexport PATH="$HOME/.local/bin:$PATH"`,
@@ -399,7 +401,7 @@ async function start(): Promise<void> {
       }
       return result;
     } catch (err) {
-      if (opts.confirm) dialog.showErrorBox('Could not install the companion command', (err as Error).message);
+      if (opts.confirm) dialog.showErrorBox('Could not install the agent-brief command', (err as Error).message);
       else throw err;
       return undefined;
     }
@@ -432,7 +434,7 @@ async function start(): Promise<void> {
     const trayImage = nativeImage.createFromPath(join(icons, 'trayTemplate.png'));
     tray = new Tray(trayImage);
     if (trayImage.isEmpty()) tray.setTitle('✎');
-    tray.setToolTip('Web Agent Companion');
+    tray.setToolTip('Agent Brief');
     if (!app.isPackaged) app.dock?.setIcon(join(icons, 'icon-1024.png'));
   }
   buildMenus();

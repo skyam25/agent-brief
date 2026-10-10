@@ -25,7 +25,7 @@ export function freeId(sketchesDir: string, ms: number): string {
 
 export function buildDraft(id: string, input: DeliveryInput): string {
   const rel = `.feedback/sketches/${id}`;
-  const lines = [`@${rel}/sketch.png`, `Sketch from the companion board "${input.boardName}".`];
+  const lines = [`@${rel}/sketch.png`, `Sketch from the Agent Brief board "${input.boardName}".`];
   if (input.speech) lines.push(`Said while drawing: "${input.speech}"`);
   if (input.notes) {
     const oneLine = input.notes.replace(/\s+/g, ' ').trim().slice(0, 300);

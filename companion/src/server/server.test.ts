@@ -474,7 +474,7 @@ describe('deliveries', () => {
     expect(d.draft).toBe(
       [
         `@.feedback/sketches/${d.id}/sketch.png`,
-        'Sketch from the companion board "idea board".',
+        'Sketch from the Agent Brief board "idea board".',
         'Said while drawing: "this is the header"',
         `Notes: ${notes.slice(0, 300)}`,
         `Timeline: .feedback/sketches/${d.id}/timeline.md`,
@@ -488,7 +488,7 @@ describe('deliveries', () => {
     const d = await h.server.deliver({ png, scene: {}, boardName: 'main' });
     expect(d.mode).toBe('fill');
     expect(d.draft).toBe(
-      `@.feedback/sketches/${d.id}/sketch.png\nSketch from the companion board "main".`,
+      `@.feedback/sketches/${d.id}/sketch.png\nSketch from the Agent Brief board "main".`,
     );
     for (const f of ['notes.md', 'timeline.md', 'transcript.json', 'audio']) {
       expect(existsSync(join(cwd, '.feedback/sketches', d.id, f))).toBe(false);

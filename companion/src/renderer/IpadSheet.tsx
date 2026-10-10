@@ -1,7 +1,7 @@
 import type { IpadStatus } from '../shared/ipc';
 
 const FIREWALL_NOTE =
-  'macOS will ask whether Web Agent Companion may accept incoming network connections. Choose Allow, or the iPad cannot reach the Mac.';
+  'macOS will ask whether Agent Brief may accept incoming network connections. Choose Allow, or the iPad cannot reach the Mac.';
 
 /** The pairing sheet: QR code, link, paired devices and Stop. */
 export function IpadSheet(props: {

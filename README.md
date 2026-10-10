@@ -1,4 +1,4 @@
-# Web Agent Companion
+# Agent Brief
 
 Sketch, talk and paste screenshots on your Mac, then hand all of it to Claude Code in one press. Claude sees what you drew, hears what you said, and can draw back on the same board.
 
@@ -51,7 +51,7 @@ A timeline reads like this:
 
 ## Claude draws back
 
-- Claude draws labelled shapes, sticky notes, arrows and frames with the `companion` command line tool.
+- Claude draws labelled shapes, sticky notes, arrows and frames with the `agent-brief` command line tool.
 - Claude reads the board as text and exports PNGs of any region.
 - Its changes appear live, and one undo removes a whole batch.
 
@@ -62,7 +62,7 @@ A timeline reads like this:
 
 ## Browser feedback
 
-- The Claude Code side also takes recordings from the Web Agent Companion Chrome extension.
+- The Claude Code side also takes recordings from the companion Chrome extension, which lives in its own repository.
 - `/apply-feedback` transcribes the waiting recordings and hands them to the session you run it in.
 
 ## Private by default
@@ -73,16 +73,16 @@ A timeline reads like this:
 
 ## Get it
 
-- **App.** Download the latest [release](https://github.com/skyam25/web-agent-companion/releases/latest), unzip it, and move Web Agent Companion.app into Applications. It needs macOS on Apple Silicon.
-- **Claude Code side.** In Claude Code, run `/plugin marketplace add skyam25/web-agent-companion`, then `/plugin install feedback-inbox@web-agent-companion`.
+- **App.** Download the latest [release](https://github.com/skyam25/agent-brief/releases/latest), unzip it, and move Agent Brief.app into Applications. It needs macOS on Apple Silicon.
+- **Claude Code side.** In Claude Code, run `/plugin marketplace add skyam25/agent-brief`, then `/plugin install agent-brief@agent-brief`.
 - **Voice.** Transcription uses [yap](https://github.com/finnvoor/yap) and ffmpeg: `brew install yap ffmpeg`.
 
 ## In this repository
 
 | Folder | Holds |
 |---|---|
-| [`companion/`](companion) | The macOS app, the `companion` command line tool and the iPad client |
-| [`mod/feedback-inbox/`](mod/feedback-inbox) | The Claude Code plugin: `/sketch`, the Sketch button, delivery and the feedback inbox |
+| [`companion/`](companion) | The macOS app, the `agent-brief` command line tool and the iPad client |
+| [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, the Sketch button, delivery and the feedback inbox |
 
 Building the app, tests and packaging are in [companion/docs/DEVELOPMENT.md](companion/docs/DEVELOPMENT.md).
 

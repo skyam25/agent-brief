@@ -1,5 +1,5 @@
 {
-  "name": "web-agent-companion-app",
+  "name": "agent-brief-app",
   "version": "0.1.0",
   "private": true,
   "description": "Floating sketch, notes and voice panel that hands work to Claude Code.",
@@ -38,6 +38,6 @@
     "react-dom": "19.3.0",
     "ws": "^8.22.0"
   },
-  "productName": "Web Agent Companion",
+  "productName": "Agent Brief",
   "main": "out/main/index.cjs"
 }

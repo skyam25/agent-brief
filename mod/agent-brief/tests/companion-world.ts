@@ -4,7 +4,7 @@ import type { MockClock } from 'claude-code/testing'
 import type { Delivery } from '../hooks/companion-protocol'
 
 export const SESSION_ID = 's1'
-export const DEFAULT_SOCKET = '/home/me/Library/Application Support/WebAgentCompanion/companion.sock'
+export const DEFAULT_SOCKET = '/home/me/Library/Application Support/AgentBrief/agent-brief.sock'
 
 export type Call = { method: string; path: string; body: unknown; socketPath: string | undefined; at: number }
 

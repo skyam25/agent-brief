@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BoardStore, StateFile, cleanName } from './store';
+import { BoardStore, StateFile, cleanName, migrateData } from './store';
 
 const temp = () => mkdtempSync(join(tmpdir(), 'store-'));
 
@@ -51,5 +51,41 @@ describe('StateFile', () => {
     const again = new StateFile(dir);
     expect(again.state).toMatchObject({ width: 900, height: 760, currentBoard: 'b', hotkey: 'Control+Alt+S', deliveryMode: 'submit', openAtLogin: false });
     expect(JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')).width).toBe(900);
+  });
+});
+
+describe('migrateData', () => {
+  const oldWithBoards = () => {
+    const root = temp();
+    const oldDir = join(root, 'Web Agent Companion');
+    mkdirSync(join(oldDir, 'boards'), { recursive: true });
+    writeFileSync(join(oldDir, 'boards', 'scratch.excalidraw'), '{}');
+    writeFileSync(join(oldDir, 'state.json'), '{"currentBoard":"scratch"}');
+    mkdirSync(join(oldDir, 'Cache'));
+    return { root, oldDir, newDir: join(root, 'Agent Brief') };
+  };
+
+  it('renames the whole folder when the new one does not exist yet', () => {
+    const { oldDir, newDir } = oldWithBoards();
+    expect(migrateData(oldDir, newDir)).toBe(true);
+    expect(existsSync(join(newDir, 'boards', 'scratch.excalidraw'))).toBe(true);
+    expect(existsSync(oldDir)).toBe(false);
+  });
+
+  it('moves only the app data into a new folder Chromium already made', () => {
+    const { oldDir, newDir } = oldWithBoards();
+    mkdirSync(join(newDir, 'Cache'), { recursive: true });
+    expect(migrateData(oldDir, newDir)).toBe(true);
+    expect(readFileSync(join(newDir, 'state.json'), 'utf8')).toContain('scratch');
+    expect(existsSync(join(newDir, 'boards', 'scratch.excalidraw'))).toBe(true);
+    expect(existsSync(join(oldDir, 'Cache'))).toBe(true);
+  });
+
+  it('does nothing once the new folder has boards, or without old boards', () => {
+    const { oldDir, newDir } = oldWithBoards();
+    mkdirSync(join(newDir, 'boards'), { recursive: true });
+    expect(migrateData(oldDir, newDir)).toBe(false);
+    expect(existsSync(join(oldDir, 'boards', 'scratch.excalidraw'))).toBe(true);
+    expect(migrateData(join(temp(), 'none'), join(temp(), 'x'))).toBe(false);
   });
 });

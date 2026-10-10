@@ -34,7 +34,7 @@ export function panelWindow(spec: WindowSpec): WindowPlan {
       height: spec.size.height,
       minWidth: 480,
       minHeight: 360,
-      title: 'Web Agent Companion',
+      title: 'Agent Brief',
       alwaysOnTop: !off,
       focusable: !off,
       // macOS pulls windows back on screen; a frameless window that may be larger than the screen stays put.

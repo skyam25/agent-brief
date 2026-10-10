@@ -1,4 +1,4 @@
-/** Links the `companion` CLI into `~/.local/bin`. */
+/** Links the `agent-brief` CLI into `~/.local/bin`. */
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readlinkSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
@@ -12,13 +12,13 @@ export interface InstallResult {
 }
 
 export function cliLinkPath(home: string): string {
-  return join(home, '.local', 'bin', 'companion');
+  return join(home, '.local', 'bin', 'agent-brief');
 }
 
 /** Creates or refreshes the link. Refuses to replace a real file that is not ours. */
 export function installCli(opts: { source: string; home: string; pathEnv: string }): InstallResult {
   const { source, home } = opts;
-  if (!existsSync(source)) throw new Error(`The CLI is missing at ${source}. Run pnpm build:cli.`);
+  if (!existsSync(source)) throw new Error(`The CLI is missing at ${source}. Run pnpm build.`);
   const binDir = join(home, '.local', 'bin');
   const link = cliLinkPath(home);
   mkdirSync(binDir, { recursive: true });

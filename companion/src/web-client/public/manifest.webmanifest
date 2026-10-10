@@ -1,6 +1,6 @@
 {
-  "name": "Web Agent Companion",
-  "short_name": "Companion",
+  "name": "Agent Brief",
+  "short_name": "Agent Brief",
   "description": "Sketch on the board your Mac shares with Claude Code.",
   "start_url": "/",
   "display": "fullscreen",
