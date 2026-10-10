@@ -7,12 +7,12 @@ How the app is built, tested and packaged. For what it does, see the [project RE
 | Script | Does |
 |---|---|
 | `pnpm dev` | Vite dev server, main and preload rebuilt on change, Electron restarted |
-| `pnpm build` | Builds `out/` (main, preload, the panel and the iPad client, Excalidraw fonts) and the CLI, `bin/companion.mjs` |
+| `pnpm build` | Builds `out/` (main, preload, the panel and the iPad client, Excalidraw fonts) and the CLI, `bin/agent-brief.mjs` |
 | `pnpm start` | Runs the built app |
 | `pnpm test` | Vitest unit suites (board, main, server, voice, web, cli) |
 | `pnpm test:e2e` | Builds, then runs Playwright `_electron` tests in `e2e/` |
 | `pnpm compile` | Type check |
-| `pnpm dist` | Builds `dist/mac-arm64/Web Agent Companion.app`, signed with the Developer ID cert |
+| `pnpm dist` | Builds `dist/mac-arm64/Agent Brief.app`, signed with the Developer ID cert |
 | `pnpm dist:notarize` | The same, notarized and stapled |
 
 On a fresh checkout, Electron fetches its binary on first use. `node node_modules/electron/install.js` does it up front.
@@ -24,8 +24,8 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 | Boards | `<data>/boards/<name>.excalidraw`, notes in `<name>.notes.md` |
 | Settings | `<data>/state.json`: board, panel size, hotkey, delivery mode, open at login, recent projects |
 | History | `<data>/history/`: the last 10 sends, each with its PNG and scene |
-| Data folder | `~/Library/Application Support/Web Agent Companion`, or `COMPANION_DATA_DIR` |
-| Socket | `~/Library/Application Support/WebAgentCompanion/companion.sock` (mode 0600), or `COMPANION_SOCKET` |
+| Data folder | `~/Library/Application Support/Agent Brief`, or `COMPANION_DATA_DIR` |
+| Socket | `~/Library/Application Support/AgentBrief/agent-brief.sock` (mode 0600), or `COMPANION_SOCKET` |
 | Deliveries | `<session cwd>/.feedback/sketches/<id>/` |
 
 ## Sending
@@ -74,7 +74,7 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 
 `pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons and the CLI (`Resources/bin/companion`). It does not bundle ffmpeg or yap, which it finds at runtime. Nothing is installed into /Applications.
 
-- `bin/companion` is a shell wrapper. Inside the bundle it runs `companion.mjs` with the app's Electron as Node (`ELECTRON_RUN_AS_NODE=1`). In a checkout it uses `node`.
-- Install Command Line Tool… links `~/.local/bin/companion` to that wrapper.
+- `bin/companion` is a shell wrapper. Inside the bundle it runs `agent-brief.mjs` with the app's Electron as Node (`ELECTRON_RUN_AS_NODE=1`). In a checkout it uses `node`.
+- Install Command Line Tool… links `~/.local/bin/agent-brief` to that wrapper.
 - `pnpm dist` signs with the Developer ID cert and the hardened runtime. `build/entitlements.mac.plist` grants JIT and the mic.
 - `pnpm dist:notarize` also notarizes, using the `companion-notary` keychain profile from `xcrun notarytool store-credentials`.

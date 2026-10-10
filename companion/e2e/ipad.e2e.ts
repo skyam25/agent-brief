@@ -167,7 +167,7 @@ test('C6.3 Claude drawing with the CLI shows on the iPad', async () => {
     ],
   });
   await new Promise<void>((resolve, reject) => {
-    const child = execFile('node', [join(ROOT, 'bin/companion.mjs'), 'draw'], { env: { ...process.env, COMPANION_SOCKET: socketPath } }, (err) =>
+    const child = execFile('node', [join(ROOT, 'bin/agent-brief.mjs'), 'draw'], { env: { ...process.env, COMPANION_SOCKET: socketPath } }, (err) =>
       err ? reject(err) : resolve(),
     );
     child.stdin!.end(input);

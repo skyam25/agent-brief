@@ -32,7 +32,7 @@ export interface IO {
 }
 
 export const NOT_RUNNING_MESSAGE =
-  'Companion app is not running. Start it, or run /sketch in Claude Code.';
+  'Agent Brief is not running. Start it, or run /sketch in Claude Code.';
 
 const EXIT = { ok: 0, server: 1, usage: 2, notRunning: 3 };
 
@@ -89,7 +89,7 @@ export async function main(argv: string[], io: IO): Promise<number> {
       out(topic && DOCS[topic] ? commandHelp(topic) : topHelp());
       return EXIT.ok;
     }
-    if (!DOCS[command]) throw new UsageError(`unknown command "${command}". Run "companion help".`);
+    if (!DOCS[command]) throw new UsageError(`unknown command "${command}". Run "agent-brief help".`);
     if (args.flags.has('help')) {
       out(commandHelp(command));
       return EXIT.ok;

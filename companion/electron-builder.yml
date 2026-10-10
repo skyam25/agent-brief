@@ -1,7 +1,7 @@
-# pnpm dist builds dist/mac-arm64/Web Agent Companion.app, signed with the
+# pnpm dist builds dist/mac-arm64/Agent Brief.app, signed with the
 # Developer ID cert. APPLE_KEYCHAIN_PROFILE also notarizes it (pnpm dist:notarize).
-appId: com.webagentcompanion.app
-productName: Web Agent Companion
+appId: com.agentbrief.app
+productName: Agent Brief
 directories:
   output: dist
   buildResources: build
@@ -14,9 +14,12 @@ files:
   - '!**/node_modules/**'
   - '!**/*.map'
 extraResources:
-  - from: bin/companion.mjs
-    to: bin/companion.mjs
-  - from: bin/companion
+  - from: bin/agent-brief.mjs
+    to: bin/agent-brief.mjs
+  - from: bin/agent-brief
+    to: bin/agent-brief
+  # The CLI's old name, kept for scripts that still call it.
+  - from: bin/agent-brief
     to: bin/companion
 electronDist: node_modules/electron/dist
 npmRebuild: false

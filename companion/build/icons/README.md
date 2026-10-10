@@ -1,4 +1,4 @@
-# Web Agent Companion icons
+# Agent Brief icons
 
 ## Concept
 

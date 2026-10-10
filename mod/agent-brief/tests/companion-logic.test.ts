@@ -14,8 +14,8 @@ import {
 
 describe('socketPathOf', () => {
   test('empty setting means the app default', () => {
-    expect(socketPathOf('', '/Users/me')).toBe('/Users/me/Library/Application Support/WebAgentCompanion/companion.sock')
-    expect(socketPathOf('  ', '/Users/me')).toBe('/Users/me/Library/Application Support/WebAgentCompanion/companion.sock')
+    expect(socketPathOf('', '/Users/me')).toBe('/Users/me/Library/Application Support/AgentBrief/agent-brief.sock')
+    expect(socketPathOf('  ', '/Users/me')).toBe('/Users/me/Library/Application Support/AgentBrief/agent-brief.sock')
   })
 
   test('a custom path wins, with ~ expanded', () => {
@@ -50,14 +50,14 @@ test('parseDeliveries keeps only well-formed entries', () => {
 })
 
 test('toasts and session info', () => {
-  expect(toastFor('fill')).toBe('Sketch from the companion is ready — press Enter')
+  expect(toastFor('fill')).toBe('Sketch from Agent Brief is ready — press Enter')
   expect(toastFor('submit')).toBe('Sent sketch to Claude')
   expect(sessionInfo('s1', '/Users/me/app')).toEqual({ sessionId: 's1', cwd: '/Users/me/app', title: 'app' })
 })
 
 test('the launch failure names the command and both settings', () => {
-  const text = launchFailureText('open -a "Web Agent Companion"', '/tmp/c.sock')
-  expect(text).toContain('open -a "Web Agent Companion"')
+  const text = launchFailureText('open -a "Agent Brief"', '/tmp/c.sock')
+  expect(text).toContain('open -a "Agent Brief"')
   expect(text).toContain('/tmp/c.sock')
   expect(text).toContain('companionLaunch')
   expect(text).toContain('companionSocket')

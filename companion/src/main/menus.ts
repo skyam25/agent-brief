@@ -58,6 +58,6 @@ export function trayMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
     { label: 'Settings…', click: a.openSettings },
     { label: 'Install Command Line Tool…', click: a.installCli },
     { type: 'separator' },
-    { label: 'Quit Web Agent Companion', role: 'quit' },
+    { label: 'Quit Agent Brief', role: 'quit' },
   ];
 }

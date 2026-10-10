@@ -1,6 +1,6 @@
-# feedback-inbox
+# agent-brief
 
-A Claude Code mod that picks up feedback sessions exported by the Web Agent Companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
+The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch` or the Sketch button above the prompt, and delivers what you send. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
 
 ## How it works
 
@@ -18,8 +18,8 @@ Recordings never land in a project on their own, so a session open in another pr
 - **Chrome:** turn off Settings › Downloads › "Ask where to save each file before downloading". Otherwise every export opens a save dialog.
 - **Transcription:** install yap and ffmpeg (`brew install yap ffmpeg`). yap refuses WebM, so ffmpeg always runs first.
 - **Node:** Node 20 or newer must be on `PATH`, or set `nodePath`.
-- **Install the mod:** run `claude plugin marketplace add skyam25/web-agent-companion` once, then `claude plugin install feedback-inbox@web-agent-companion`. From a checkout, add the repository folder instead; the plugin is then read from it, so `/reload-plugins` picks up edits.
-- **Load it for one session:** run `claude --plugin-dir <checkout>/mod/feedback-inbox`.
+- **Install the mod:** run `claude plugin marketplace add skyam25/agent-brief` once, then `claude plugin install agent-brief@agent-brief`. From a checkout, add the repository folder instead; the plugin is then read from it, so `/reload-plugins` picks up edits.
+- **Load it for one session:** run `claude --plugin-dir <checkout>/mod/agent-brief`.
 
 ### Optional: whisper.cpp
 
@@ -33,7 +33,7 @@ curl -L -o ~/models/ggml-base.en.bin \
 
 ## Options
 
-Set these in `/config`, or under `pluginConfigs["feedback-inbox"].options` in settings.
+Set these in `/config`, or under `pluginConfigs["agent-brief"].options` in settings.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -41,12 +41,12 @@ Set these in `/config`, or under `pluginConfigs["feedback-inbox"].options` in se
 | `nodePath` | `node` | Node binary that runs the CLI |
 | `transcriber` | `yap` | `yap` or `whisper` |
 | `whisperModel` | empty | ggml model path for whisper |
-| `companionSocket` | empty | Companion socket. Empty means `~/Library/Application Support/WebAgentCompanion/companion.sock` |
-| `companionLaunch` | `open -a "Web Agent Companion"` | Shell command (`sh -c`) that starts the companion app |
+| `companionSocket` | empty | Companion socket. Empty means `~/Library/Application Support/AgentBrief/agent-brief.sock` |
+| `companionLaunch` | `open -a "Agent Brief"` | Shell command (`sh -c`) that starts Agent Brief |
 
-## Companion app
+## The Agent Brief app
 
-The mod links each session to the Web Agent Companion sketch panel over a Unix socket. It speaks the protocol in `hooks/companion-protocol.ts`, which is copied from `companion/src/protocol.ts`. Nothing here needs the app to run. Every failure is silent apart from the debug log.
+The mod links each session to the Agent Brief sketch panel over a Unix socket. It speaks the protocol in `hooks/companion-protocol.ts`, which is copied from `companion/src/protocol.ts`. Nothing here needs the app to run. Every failure is silent apart from the debug log.
 
 ### Session link
 
@@ -59,7 +59,7 @@ The mod links each session to the Web Agent Companion sketch panel over a Unix s
 
 | Mode | What happens | Toast |
 | --- | --- | --- |
-| `fill` | The draft goes into the prompt box. You edit it and press Enter. | Sketch from the companion is ready — press Enter |
+| `fill` | The draft goes into the prompt box. You edit it and press Enter. | Sketch from Agent Brief is ready — press Enter |
 | `submit` | The draft is sent at once as if you typed it. | Sent sketch to Claude |
 
 A fill never replaces the box. If the box is empty, the draft goes in as it is. If you have typed something, the draft is appended after a blank line, and your text stays where it is. If the box refuses the fill (a dialog is open, or the session is headless), the mod does not acknowledge the delivery and tries again every 2 s until the box accepts it.
@@ -69,11 +69,11 @@ A fill never replaces the box. If the box is empty, the draft goes in as it is. 
 1. Checks `/health`. If the app is down, runs `companionLaunch` and checks `/health` every 250 ms for 10 s.
 2. If the app never answers, replies with the launch command and the socket path, and points at the `companionLaunch` and `companionSocket` settings.
 3. Registers the session, then opens the panel with this session as the Send target. Any text after `/sketch` shows at the top of the panel.
-4. Replies `Companion open — sketch, then press Send.`
+4. Replies `Agent Brief open — sketch, then press Send.`
 
 ### Skill
 
-`skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `companion` CLI.
+`skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `agent-brief` CLI.
 
 ## Command line
 

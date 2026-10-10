@@ -115,7 +115,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}): W
   on('ui.log', () => ({ value: undefined }))
   on('tool.register', ($, e) => {
     world.tools.push(e.name)
-    return { value: { tool: `mcp__feedback-inbox__${e.name}` } }
+    return { value: { tool: `mcp__agent-brief__${e.name}` } }
   })
   on('command.register', ($, e) => {
     world.commands.push(e.name)

@@ -1,7 +1,7 @@
 {
-  "name": "feedback-inbox",
+  "name": "agent-brief",
   "version": "0.1.0",
-  "description": "Watches ~/Downloads/feedback-inbox for sessions exported by the Web Agent Companion extension, transcribes them locally with yap, writes .feedback/<session>/ into the project, and hands the report to Claude. Also links the session to the Web Agent Companion sketch panel.",
+  "description": "Watches ~/Downloads/feedback-inbox for sessions exported by the companion Chrome extension, transcribes them locally with yap, writes .feedback/<session>/ into the project, and hands the report to Claude. Also links the session to the Agent Brief sketch panel.",
   "author": {
     "name": "Simon Yam"
   },
@@ -38,14 +38,14 @@
     "companionSocket": {
       "type": "string",
       "title": "Companion socket",
-      "description": "Unix socket of the Web Agent Companion app. Empty means ~/Library/Application Support/WebAgentCompanion/companion.sock.",
+      "description": "Unix socket of the Agent Brief app. Empty means ~/Library/Application Support/AgentBrief/agent-brief.sock.",
       "default": ""
     },
     "companionLaunch": {
       "type": "string",
       "title": "Companion launch command",
-      "description": "Shell command (sh -c) that starts the companion app when /sketch finds it not running.",
-      "default": "open -a \"Web Agent Companion\""
+      "description": "Shell command (sh -c) that starts Agent Brief when /sketch finds it not running.",
+      "default": "open -a \"Agent Brief\""
     }
   }
 }

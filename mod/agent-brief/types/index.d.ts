@@ -17,7 +17,7 @@ export type FeedbackInboxSession = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'feedback-inbox': {
+    'agent-brief': {
       sessions: FeedbackInboxSession[]
       ingesting: string | null
     }

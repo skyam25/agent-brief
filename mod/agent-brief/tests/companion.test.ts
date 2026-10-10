@@ -4,7 +4,7 @@ import type { TestBody } from 'claude-code/testing'
 import { DEFAULT_SOCKET, SESSION_ID, delivery, fakeCompanion } from './companion-world'
 import { BAND, CWD, SESSION, command, textOf, worldOf } from './world'
 
-const LAUNCH = 'open -a "Web Agent Companion"'
+const LAUNCH = 'open -a "Agent Brief"'
 
 /** Seats the world, the mocked clock and the fake app, then starts the session. */
 async function setup($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) {
@@ -73,7 +73,7 @@ describe('delivery', () => {
 
     expect(app.fills).toEqual([{ text: '@.feedback/sketches/d1/sketch.png\nMake the header bigger.', mode: 'append' }])
     expect(app.box.text).toBe('@.feedback/sketches/d1/sketch.png\nMake the header bigger.')
-    expect(world.toasts).toEqual(['Sketch from the companion is ready — press Enter'])
+    expect(world.toasts).toEqual(['Sketch from Agent Brief is ready — press Enter'])
     expect(world.submitted).toEqual([])
     expect(app.to('POST', '/deliveries/d1/ack')).toHaveLength(1)
     expect(app.queue).toEqual([])
@@ -217,7 +217,7 @@ describe('/sketch', () => {
     expect(world.commands).toContain('sketch')
 
     const out = await $.command.run(command('sketch', ' a login form '))
-    expect(out).toEqual({ text: 'Companion open — sketch, then press Send.' })
+    expect(out).toEqual({ text: 'Agent Brief open — sketch, then press Send.' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, prompt: 'a login form' })
     expect(world.runs.filter(r => r.argv[0] === 'sh'), 'no launch').toEqual([])
   })
@@ -243,7 +243,7 @@ describe('/sketch', () => {
     await clock.settle()
 
     const out = await $.command.run(command('sketch', 'draw the flow'))
-    expect(out).toEqual({ text: 'Companion open — sketch, then press Send.' })
+    expect(out).toEqual({ text: 'Agent Brief open — sketch, then press Send.' })
     expect(world.runs.find(r => r.argv[0] === 'sh')?.argv).toEqual(['sh', '-c', LAUNCH])
     expect(sleeps).toBe(3)
     expect(app.to('POST', '/sessions').length).toBeGreaterThan(0)
@@ -316,7 +316,7 @@ describe('the Sketch button above the prompt', () => {
     const { clock, start } = await setup($, on)
     await start()
     await clock.settle()
-    expect(textOf(await $.ui.render(BAND))).toContain('open the companion board for this session')
+    expect(textOf(await $.ui.render(BAND))).toContain('open the Agent Brief board for this session')
     const survey = { ...BAND, props: { ...BAND.props, hasSurvey: true } }
     expect(textOf(await $.ui.render(survey))).toBe('engine band')
   })
@@ -326,7 +326,7 @@ describe('the Sketch button above the prompt', () => {
     await start()
     await clock.settle()
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'feedback-inbox', key: 'sketch' })
+    await $.ui.press({ plugin: 'agent-brief', key: 'sketch' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID })
     expect(world.toasts).toEqual([])
   })
@@ -337,9 +337,9 @@ describe('the Sketch button above the prompt', () => {
     await start()
     await clock.settle()
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'feedback-inbox', key: 'sketch' })
+    await $.ui.press({ plugin: 'agent-brief', key: 'sketch' })
     expect(world.toasts).toHaveLength(1)
-    expect(world.toasts[0]).toContain('Could not reach the companion app')
+    expect(world.toasts[0]).toContain('Could not reach Agent Brief')
     expect(app.to('POST', '/open')).toHaveLength(0)
   })
 })

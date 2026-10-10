@@ -2,8 +2,8 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { BAND, CWD, INBOX, SESSION, command, textOf, worldOf } from './world'
 
-const LATEST = 'mcp__feedback-inbox__feedback_latest'
-const LIST = 'mcp__feedback-inbox__feedback_list'
+const LATEST = 'mcp__agent-brief__feedback_latest'
+const LIST = 'mcp__agent-brief__feedback_list'
 
 const COMPOSE = {
   model: 'claude-opus-5-5',

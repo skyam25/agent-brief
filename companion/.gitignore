@@ -6,4 +6,4 @@ playwright-report/
 *.log
 .DS_Store
 .feedback/
-bin/companion.mjs
+bin/agent-brief.mjs

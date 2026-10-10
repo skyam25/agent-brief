@@ -1,4 +1,4 @@
-/** Socket server for the companion app. See contract.ts for the seam to the app. */
+/** Socket server for the Agent Brief app. See contract.ts for the seam to the app. */
 
 import { chmod, mkdir, unlink } from 'node:fs/promises';
 import http from 'node:http';

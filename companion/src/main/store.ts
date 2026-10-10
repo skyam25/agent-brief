@@ -11,12 +11,32 @@ const NOTES_EXT = '.notes.md';
 
 export const DEFAULT_BOARD = 'scratch';
 
+/** What the app keeps in its data folder, as opposed to Chromium's caches. */
+const DATA_ENTRIES = ['boards', 'history', 'state.json', 'devices.json'];
+
+/**
+ * Moves the app's data from the folder it used under an earlier name. Runs
+ * once: it does nothing when the old folder has no boards or the new one has.
+ */
+export function migrateData(oldDir: string, newDir: string): boolean {
+  if (!existsSync(join(oldDir, 'boards')) || existsSync(join(newDir, 'boards'))) return false;
+  if (!existsSync(newDir)) {
+    renameSync(oldDir, newDir);
+    return true;
+  }
+  for (const name of DATA_ENTRIES) {
+    const from = join(oldDir, name);
+    if (existsSync(from)) renameSync(from, join(newDir, name));
+  }
+  return true;
+}
+
 export function emptyScene(): string {
   return JSON.stringify(
     {
       type: 'excalidraw',
       version: 2,
-      source: 'web-agent-companion',
+      source: 'agent-brief',
       elements: [],
       appState: { viewBackgroundColor: '#ffffff' },
       files: {},

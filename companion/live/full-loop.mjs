@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Full-loop live check: the real companion app (Electron, test mode, off screen),
- * the real feedback-inbox mod, and an interactive Claude Code in tmux.
+ * the real agent-brief mod, and an interactive Claude Code in tmux.
  * Nothing is submitted to the model.
  *
  *   cd companion && node live/full-loop.mjs
@@ -18,7 +18,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const MOD = process.env.MOD_DIR ?? resolve(ROOT, '../mod/feedback-inbox')
+const MOD = process.env.MOD_DIR ?? resolve(ROOT, '../mod/agent-brief')
 const TMUX = process.env.TMUX_BIN ?? '/opt/homebrew/bin/tmux'
 const TMUX_SESSION = `fullloop-${process.pid}`
 
@@ -91,7 +91,7 @@ function sock(method, path) {
 }
 
 function companion(args, input) {
-  return spawnSync('node', [join(ROOT, 'bin/companion.mjs'), ...args], {
+  return spawnSync('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], {
     encoding: 'utf8',
     input,
     env: { ...process.env, COMPANION_SOCKET: socketPath },
@@ -120,7 +120,7 @@ async function main() {
   const settings = join(tmp, 'settings.json')
   writeFileSync(
     settings,
-    JSON.stringify({ pluginConfigs: { 'feedback-inbox': { options: { companionSocket: socketPath, inboxDir: inbox } } } }),
+    JSON.stringify({ pluginConfigs: { 'agent-brief': { options: { companionSocket: socketPath, inboxDir: inbox } } } }),
   )
   const claude = `claude --plugin-dir ${MOD} --settings ${settings}`
   tmux('new-session', '-d', '-s', TMUX_SESSION, '-n', 'w0', '-x', '160', '-y', '50', '-c', project, claude)

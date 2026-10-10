@@ -43,8 +43,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     format: 'esm',
     target: 'node20',
     banner: { js: '#!/usr/bin/env node' },
-    outfile: 'bin/companion.mjs',
+    outfile: 'bin/agent-brief.mjs',
     logLevel: 'warning',
   });
-  console.log('built out/ and bin/companion.mjs');
+  console.log('built out/ and bin/agent-brief.mjs');
 }

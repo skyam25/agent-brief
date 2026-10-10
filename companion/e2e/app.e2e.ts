@@ -39,7 +39,7 @@ test('the app menu has About, Settings, Quit, the Edit roles and a Window menu',
   );
   expect(menu.some((m) => m.role?.toLowerCase() === 'windowmenu')).toBe(true);
   const about = await app.evaluate(({ app }) => app.name);
-  expect(about).toBe('Web Agent Companion');
+  expect(about).toBe('Agent Brief');
   await app.close();
 });
 
@@ -134,7 +134,7 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
     'Settings…',
     'Install Command Line Tool…',
     'separator',
-    'Quit Web Agent Companion',
+    'Quit Agent Brief',
   ]);
   await app.close();
 
@@ -184,8 +184,8 @@ test('File > New Board opens the name field; the CLI installs into a temp home',
 
   const home = mkdtempSync(join(tmpdir(), 'home-'));
   const result = await app.evaluate((_e, home) => (globalThis as any).__companion.installCli(home), home);
-  expect(result.link).toBe(join(home, '.local/bin/companion'));
-  expect(readlinkSync(result.link)).toBe(join(ROOT, 'bin/companion'));
+  expect(result.link).toBe(join(home, '.local/bin/agent-brief'));
+  expect(readlinkSync(result.link)).toBe(join(ROOT, 'bin/agent-brief'));
   await app.close();
 });
 

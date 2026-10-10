@@ -49,7 +49,7 @@ export function formatRead(r: ReadResponse): string {
 }
 
 export function formatStatus(h: Health): string {
-  return `Companion app running · pid ${h.pid} · protocol v${h.version} · panel ${h.panelVisible ? 'visible' : 'hidden'} · current board ${JSON.stringify(h.currentBoard)}`;
+  return `Agent Brief running · pid ${h.pid} · protocol v${h.version} · panel ${h.panelVisible ? 'visible' : 'hidden'} · current board ${JSON.stringify(h.currentBoard)}`;
 }
 
 export function formatSessions(r: SessionsResponse): string {

@@ -1,19 +1,19 @@
 ---
 name: sketch-board
-description: Draw on and read the user's Web Agent Companion sketch board. Use when the user mentions the companion board, the sketch panel, sketching, drawing a diagram or flow for them, wireframing, or asks what they drew or sketched. Also use to look at their sketch before answering a question about it.
+description: Draw on and read the user's Agent Brief sketch board. Use when the user mentions the Agent Brief board, the companion board, the sketch panel, sketching, drawing a diagram or flow for them, wireframing, or asks what they drew or sketched. Also use to look at their sketch before answering a question about it.
 ---
 
 # Sketch board
 
-The Web Agent Companion is a floating sketch panel on the user's Mac. You draw on it and read from it with the `companion` CLI. The user sees your changes live and can draw back.
+Agent Brief is a floating sketch panel on the user's Mac. You draw on it and read from it with the `agent-brief` CLI. The user sees your changes live and can draw back.
 
-If `companion` is not on PATH, use the copy inside the app in its place. Quote it, because the path has spaces.
+If `agent-brief` is not on PATH, use the copy inside the app in its place. Quote it, because the path has spaces.
 
 ```bash
-"/Applications/Web Agent Companion.app/Contents/Resources/bin/companion" status
+"/Applications/Agent Brief.app/Contents/Resources/bin/agent-brief" status
 ```
 
-If the app is in `~/Applications`, use that path instead. The app's menu item Install Command Line Tool… puts `companion` on PATH.
+If the app is in `~/Applications`, use that path instead. The app's menu item Install Command Line Tool… puts `agent-brief` on PATH.
 
 ## When to use it
 
@@ -21,7 +21,7 @@ If the app is in `~/Applications`, use that path instead. The app's menu item In
 - The user says they sketched something, or asks you to look at the board.
 - A picture would explain your answer better than text.
 
-Run `companion status` first if you are unsure the app is up. Exit code 3 means it is not running. Tell the user to start it. Do not retry in a loop.
+Run `agent-brief status` first if you are unsure the app is up. Exit code 3 means it is not running. Tell the user to start it. Do not retry in a loop.
 
 ## Commands
 
@@ -29,21 +29,21 @@ All board commands take `--board <name>`. The default is `current`, the board th
 
 | Command | Does |
 |---|---|
-| `companion status` | Shows whether the app runs |
-| `companion sessions` | Lists Claude Code sessions. A `*` marks where Send delivers |
-| `companion boards` | Lists boards |
-| `companion open [--board] [--prompt <text>] [--session <id>]` | Shows the panel. `--prompt` puts a note at the top of it |
-| `companion read [--board] [--region x,y,w,h]` | Prints the elements as text |
-| `companion png [--board] [--region x,y,w,h] [--max-edge 1400] [--out <path>]` | Writes a PNG and prints its path |
-| `companion draw [--board] [--file f.json]` | Adds elements from JSON on stdin or in a file |
-| `companion update [--board] [--file f.json]` | Changes elements by id |
-| `companion delete [--board] <id>...` | Removes elements by id |
+| `agent-brief status` | Shows whether the app runs |
+| `agent-brief sessions` | Lists Claude Code sessions. A `*` marks where Send delivers |
+| `agent-brief boards` | Lists boards |
+| `agent-brief open [--board] [--prompt <text>] [--session <id>]` | Shows the panel. `--prompt` puts a note at the top of it |
+| `agent-brief read [--board] [--region x,y,w,h]` | Prints the elements as text |
+| `agent-brief png [--board] [--region x,y,w,h] [--max-edge 1400] [--out <path>]` | Writes a PNG and prints its path |
+| `agent-brief draw [--board] [--file f.json]` | Adds elements from JSON on stdin or in a file |
+| `agent-brief update [--board] [--file f.json]` | Changes elements by id |
+| `agent-brief delete [--board] <id>...` | Removes elements by id |
 
 Exit codes are 0 ok, 1 server error, 2 bad input, 3 app not running. Input errors name the element index, for example `elements[2]: "x" must be a number`.
 
 ## Looking at the board
 
-Run `companion read` first. It costs few tokens and gives you ids, positions, labels and who drew each element.
+Run `agent-brief read` first. It costs few tokens and gives you ids, positions, labels and who drew each element.
 
 ```
 board "current" · 7 elements · bounds 0,0 1200×800
@@ -52,7 +52,7 @@ a1 arrow r1 → r2 (claude)
 f3 freedraw at 300,420 120×60 (user)
 ```
 
-Freehand strokes have no label, so text cannot tell you what they show. When shapes matter, run `companion png --region x,y,w,h`, then Read the file it prints. An image costs about 1 to 2k tokens, so crop to the area you need. Use the full board only for a first look at a messy one.
+Freehand strokes have no label, so text cannot tell you what they show. When shapes matter, run `agent-brief png --region x,y,w,h`, then Read the file it prints. An image costs about 1 to 2k tokens, so crop to the area you need. Use the full board only for a first look at a messy one.
 
 Elements marked `(user)` are the user's. Elements marked `(claude)` are yours.
 
@@ -83,7 +83,7 @@ Notes on types.
 Three boxes in a row, joined by arrows, inside a frame.
 
 ```bash
-companion draw <<'JSON'
+agent-brief draw <<'JSON'
 {"elements": [
   {"id": "f", "type": "frame", "x": 0, "y": 0, "width": 920, "height": 220, "label": "Signup flow"},
   {"id": "a", "type": "rectangle", "x": 60,  "y": 70, "width": 200, "height": 80, "label": "Form",      "color": "blue",   "frameId": "f"},
@@ -95,13 +95,13 @@ companion draw <<'JSON'
 JSON
 ```
 
-The call prints the new ids and a batch id. Run `companion read` after a big draw to check the result.
+The call prints the new ids and a batch id. Run `agent-brief read` after a big draw to check the result.
 
 ### Changing and removing
 
 ```bash
-echo '[{"id": "b", "label": "Check input", "color": "violet", "x": 340}]' | companion update
-companion delete c
+echo '[{"id": "b", "label": "Check input", "color": "violet", "x": 340}]' | agent-brief update
+agent-brief delete c
 ```
 
 An update can set `x`, `y`, `width`, `height`, `label` and `color`.
@@ -114,7 +114,7 @@ An update can set `x`, `y`, `width`, `height`, `label` and `color`.
 - Flow left to right, or top to bottom for long chains.
 - Label every shape and every arrow that is not obvious.
 - Keep frames 40 px larger than their content on each side, with room for the title.
-- Run `companion read` before drawing on a board that has content. Place new elements in empty space, using the `bounds` line. Start below or to the right of it.
+- Run `agent-brief read` before drawing on a board that has content. Place new elements in empty space, using the `bounds` line. Start below or to the right of it.
 
 ## Rules
 

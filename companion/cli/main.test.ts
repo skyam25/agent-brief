@@ -337,7 +337,7 @@ describe('errors and help', () => {
     for (const argv of [['status'], ['read'], ['png'], ['boards']]) {
       const r = await run(argv);
       expect(r.code).toBe(3);
-      expect(r.stderr).toBe('Companion app is not running. Start it, or run /sketch in Claude Code.\n');
+      expect(r.stderr).toBe('Agent Brief is not running. Start it, or run /sketch in Claude Code.\n');
     }
     server = http.createServer();
     await new Promise<void>((ok) => server.listen(socket, ok));
@@ -373,7 +373,7 @@ describe('errors and help', () => {
     for (const cmd of ['status', 'sessions', 'boards', 'open', 'read', 'png', 'draw', 'update', 'delete']) {
       const r = await run([cmd, '--help']);
       expect(r.code).toBe(0);
-      expect(r.stdout).toContain(`companion ${cmd}`);
+      expect(r.stdout).toContain(`agent-brief ${cmd}`);
       expect(r.stdout).toContain('Example:');
     }
     expect(seen).toHaveLength(0);
@@ -388,9 +388,9 @@ describe('errors and help', () => {
 });
 
 describe('built binary', () => {
-  it('runs bin/companion.mjs against the fake server', async () => {
+  it('runs bin/agent-brief.mjs against the fake server', async () => {
     handler = () => ({ json: { ids: ['a'], batchId: 'bb' } });
-    const bin = path.resolve(__dirname, '../bin/companion.mjs');
+    const bin = path.resolve(__dirname, '../bin/agent-brief.mjs');
     const result = await new Promise<{ code: number; stdout: string }>((ok) => {
       const child = execFile(
         'node', [bin, 'draw'],
@@ -405,7 +405,7 @@ describe('built binary', () => {
   });
 
   it('exits 3 when the app is not running', async () => {
-    const bin = path.resolve(__dirname, '../bin/companion.mjs');
+    const bin = path.resolve(__dirname, '../bin/agent-brief.mjs');
     const result = await new Promise<{ code: number; stderr: string }>((ok) => {
       execFile('node', [bin, 'status'], { env: { ...process.env, COMPANION_SOCKET: path.join(dir, 'none.sock') } },
         (error, _o, stderr) => ok({ code: (error as { code?: number } | null)?.code ?? 0, stderr }));
@@ -415,8 +415,8 @@ describe('built binary', () => {
   });
 });
 
-describe('bin/companion wrapper', () => {
-  const wrapper = path.resolve(__dirname, '../bin/companion');
+describe('bin/agent-brief wrapper', () => {
+  const wrapper = path.resolve(__dirname, '../bin/agent-brief');
 
   function exec(file: string, args: string[], stdin?: string) {
     return new Promise<{ code: number; stdout: string }>((ok) => {
@@ -426,9 +426,9 @@ describe('bin/companion wrapper', () => {
     });
   }
 
-  it('runs through a symlink, as ~/.local/bin/companion does', async () => {
+  it('runs through a symlink, as ~/.local/bin/agent-brief does', async () => {
     handler = () => ({ json: { ids: ['a'], batchId: 'bb' } });
-    const link = path.join(dir, 'companion');
+    const link = path.join(dir, 'agent-brief');
     fs.symlinkSync(wrapper, link);
     const result = await exec(link, ['draw'], '[{"type":"text","label":"hi","x":0,"y":0}]');
     expect(result.code).toBe(0);
@@ -439,13 +439,13 @@ describe('bin/companion wrapper', () => {
     const contents = path.join(dir, 'X.app', 'Contents');
     fs.mkdirSync(path.join(contents, 'Resources', 'bin'), { recursive: true });
     fs.mkdirSync(path.join(contents, 'MacOS'));
-    fs.copyFileSync(wrapper, path.join(contents, 'Resources', 'bin', 'companion'));
-    const electron = path.join(contents, 'MacOS', 'Web Agent Companion');
+    fs.copyFileSync(wrapper, path.join(contents, 'Resources', 'bin', 'agent-brief'));
+    const electron = path.join(contents, 'MacOS', 'Agent Brief');
     fs.writeFileSync(electron, '#!/bin/sh\necho "run-as-node=$ELECTRON_RUN_AS_NODE $*"\n', { mode: 0o755 });
-    const link = path.join(dir, 'companion');
-    fs.symlinkSync(path.join(contents, 'Resources', 'bin', 'companion'), link);
+    const link = path.join(dir, 'agent-brief');
+    fs.symlinkSync(path.join(contents, 'Resources', 'bin', 'agent-brief'), link);
 
     const result = await exec(link, ['status']);
-    expect(result.stdout.trim()).toBe(`run-as-node=1 ${path.join(contents, 'Resources', 'bin', 'companion.mjs')} status`);
+    expect(result.stdout.trim()).toBe(`run-as-node=1 ${path.join(contents, 'Resources', 'bin', 'agent-brief.mjs')} status`);
   });
 });
