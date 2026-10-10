@@ -1,0 +1,45 @@
+import { contextBridge, ipcRenderer } from 'electron';
+import { CH, type BoardRequest, type CompanionApi } from '../shared/ipc';
+
+const api: CompanionApi = {
+  init: () => ipcRenderer.invoke(CH.init),
+  listBoards: () => ipcRenderer.invoke(CH.listBoards),
+  loadBoard: (name) => ipcRenderer.invoke(CH.loadBoard, name),
+  saveBoard: (name, json) => ipcRenderer.invoke(CH.saveBoard, name, json),
+  saveNotes: (name, text) => ipcRenderer.invoke(CH.saveNotes, name, text),
+  createBoard: (name) => ipcRenderer.invoke(CH.createBoard, name),
+  renameBoard: (from, to) => ipcRenderer.invoke(CH.renameBoard, from, to),
+  setCurrent: (name) => ipcRenderer.invoke(CH.setCurrent, name),
+  send: (payload) => ipcRenderer.invoke(CH.send, payload),
+  setTarget: (sessionId) => ipcRenderer.invoke(CH.setTarget, sessionId),
+  onRequest: (handler) => {
+    ipcRenderer.on(CH.request, async (_e, req: BoardRequest) => {
+      ipcRenderer.send(CH.reply, await handler(req));
+    });
+  },
+  ready: () => ipcRenderer.send(CH.ready),
+  onPrompt: (fn) => ipcRenderer.on(CH.prompt, (_e, prompt) => fn(prompt)),
+  onSessions: (fn) => ipcRenderer.on(CH.sessions, (_e, s) => fn(s)),
+  onTheme: (fn) => ipcRenderer.on(CH.theme, (_e, theme) => fn(theme)),
+  onRemoteElements: (fn) => ipcRenderer.on(CH.remoteElements, (_e, board, elements) => fn(board, elements)),
+  hidePanel: () => ipcRenderer.send(CH.hide),
+  getSettings: () => ipcRenderer.invoke(CH.getSettings),
+  setSettings: (patch) => ipcRenderer.invoke(CH.setSettings, patch),
+  requestMicrophone: () => ipcRenderer.invoke(CH.mic),
+  onOpenSettings: (fn) => ipcRenderer.on(CH.openSettings, () => fn()),
+  onNewBoard: (fn) => ipcRenderer.on(CH.newBoard, () => fn()),
+  pushElements: (board, elements) => ipcRenderer.send(CH.pushElements, board, elements),
+  openIpad: () => ipcRenderer.invoke(CH.ipadOpen),
+  stopIpad: () => ipcRenderer.invoke(CH.ipadStop),
+  revokeDevice: (id) => ipcRenderer.invoke(CH.ipadRevoke, id),
+  onIpad: (fn) => ipcRenderer.on(CH.ipad, (_e, status, show) => fn(status, show)),
+  listHistory: () => ipcRenderer.invoke(CH.historyList),
+  restoreHistory: (id) => ipcRenderer.invoke(CH.historyRestore, id),
+  launchOptions: () => ipcRenderer.invoke(CH.launchOptions),
+  chooseFolder: () => ipcRenderer.invoke(CH.chooseFolder),
+  sendNew: (payload, target) => ipcRenderer.invoke(CH.sendNew, payload, target),
+  focusSession: (id) => ipcRenderer.invoke(CH.focusSession, id),
+  onVisibility: (fn) => ipcRenderer.on(CH.visibility, (_e, visible) => fn(visible)),
+};
+
+contextBridge.exposeInMainWorld('companion', api);

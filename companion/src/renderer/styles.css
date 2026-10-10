@@ -1,0 +1,433 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1e1e1e;
+  --muted: #868e96;
+  --line: #e9ecef;
+  --raised: #ffffff;
+  --accent: #6741d9;
+  --accent-fg: #ffffff;
+  --error: #e03131;
+  color-scheme: light;
+  color: var(--fg);
+}
+
+:root[data-theme='dark'] {
+  --bg: #121212;
+  --fg: #e3e3e8;
+  --muted: #8b8b95;
+  --line: #2e2e36;
+  --raised: #232329;
+  --accent: #a68bfa;
+  --accent-fg: #121212;
+  --error: #ff8787;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* On body, not :root, so Excalidraw's rem-based panels keep their designed width. */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+}
+
+button > .icon {
+  display: block;
+}
+
+button.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 6px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+}
+
+.strip button,
+.strip select,
+.strip input {
+  -webkit-app-region: no-drag;
+}
+
+.boards,
+.top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.top {
+  flex: 1;
+  min-width: 0;
+}
+
+.prompt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+
+.prompt span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.status {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 3px 8px;
+}
+
+button.ghost {
+  border-color: transparent;
+}
+
+button.ghost:hover,
+button.ghost[aria-pressed='true'] {
+  background: var(--line);
+}
+
+button.small {
+  padding: 0 4px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.anchor {
+  position: relative;
+}
+
+.popover-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  -webkit-app-region: no-drag;
+}
+
+.popover-panel .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popover-panel label {
+  min-width: 92px;
+  color: var(--muted);
+}
+
+.popover-panel .check {
+  color: var(--fg);
+}
+
+.popover-panel input:not([type='checkbox']),
+.popover-panel select {
+  flex: 1;
+  min-width: 0;
+}
+
+.popover-panel p {
+  margin: 0;
+}
+
+.error {
+  color: var(--error);
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.canvas {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.notes {
+  width: 260px;
+  border-left: 1px solid var(--line);
+  display: flex;
+}
+
+.notes textarea {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  resize: none;
+  padding: 10px;
+  outline: none;
+  font: 13px/1.5 ui-monospace, Menlo, monospace;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+button.recording {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.35);
+}
+
+.sheet {
+  width: min(420px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 16px 20px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+}
+
+.sheet header,
+.sheet footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sheet footer {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.sheet h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.sheet h3 {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sheet .qr {
+  width: 220px;
+  margin: 8px auto;
+  padding: 8px;
+  background: #ffffff;
+  border-radius: 8px;
+}
+
+.sheet .qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.sheet .url {
+  display: block;
+  word-break: break-all;
+  font-size: 11px;
+  user-select: all;
+}
+
+.sheet .devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sheet .devices li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.history {
+  width: 360px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.history img,
+.history .thumb {
+  width: 72px;
+  height: 48px;
+  flex: none;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.history .meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.history .meta span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.history .actions {
+  display: flex;
+  gap: 2px;
+}
+
+.send-to {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.send-to .chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 280px;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.send-to .chip span {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.send-to .chip .muted {
+  font-size: 11px;
+}
+
+.chooser {
+  width: 380px;
+}
+
+.chooser h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.chooser ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chooser .session {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.chooser .session span {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chooser .launchers {
+  flex-wrap: wrap;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The value under the opacity slider is centred on the knob; this keeps "100" inside the panel. */
+.excalidraw .App-menu__left .range-wrapper {
+  margin-right: 12px;
+}

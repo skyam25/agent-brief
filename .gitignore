@@ -1,0 +1,10 @@
+# Its own project: github.com/skyam25/web-agent-companion-extension
+extension/
+
+# Working notes, kept out of the repo
+PLAN*.md
+
+# Delivered sketch bundles hold voice audio
+.feedback/
+
+.DS_Store

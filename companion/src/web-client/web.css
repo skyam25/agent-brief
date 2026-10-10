@@ -1,0 +1,41 @@
+/* Touch-sized controls and a full-screen layout for the iPad. */
+
+html,
+body,
+#root {
+  height: 100dvh;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+body.web .strip {
+  padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+  gap: 12px;
+  font-size: 15px;
+}
+
+body.web .strip button,
+body.web .strip select {
+  min-height: 44px;
+  min-width: 44px;
+  font-size: 15px;
+  padding: 6px 14px;
+}
+
+body.web .canvas {
+  touch-action: none;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px;
+  text-align: center;
+  font-size: 17px;
+  color: var(--fg);
+  background: var(--bg);
+}

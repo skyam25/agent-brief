@@ -1,0 +1,19 @@
+#!/bin/sh
+# Runs companion.mjs. Inside the app bundle it uses the app's own Electron as
+# Node, so no separate Node install is needed. In a checkout it uses `node`.
+
+src=$0
+while [ -L "$src" ]; do
+  target=$(readlink "$src")
+  case $target in
+    /*) src=$target ;;
+    *) src=$(dirname "$src")/$target ;;
+  esac
+done
+dir=$(cd "$(dirname "$src")" && pwd)
+
+electron="$dir/../../MacOS/Web Agent Companion"
+if [ -x "$electron" ]; then
+  ELECTRON_RUN_AS_NODE=1 exec "$electron" "$dir/companion.mjs" "$@"
+fi
+exec node "$dir/companion.mjs" "$@"

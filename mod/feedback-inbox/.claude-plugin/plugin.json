@@ -1,0 +1,51 @@
+{
+  "name": "feedback-inbox",
+  "version": "0.1.0",
+  "description": "Watches ~/Downloads/feedback-inbox for sessions exported by the Web Agent Companion extension, transcribes them locally with yap, writes .feedback/<session>/ into the project, and hands the report to Claude. Also links the session to the Web Agent Companion sketch panel.",
+  "author": {
+    "name": "skyam25"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "inboxDir": {
+      "type": "string",
+      "title": "Inbox folder",
+      "description": "Folder the extension drops zips into. Empty means ~/Downloads/feedback-inbox.",
+      "default": ""
+    },
+    "nodePath": {
+      "type": "string",
+      "title": "Node binary",
+      "description": "Node used to run bin/ingest.mjs (Node 20 or newer).",
+      "default": "node"
+    },
+    "transcriber": {
+      "type": "string",
+      "title": "Transcriber",
+      "description": "yap uses macOS on-device speech. whisper uses whisper.cpp and needs a model path.",
+      "default": "yap",
+      "options": [
+        "yap",
+        "whisper"
+      ]
+    },
+    "whisperModel": {
+      "type": "string",
+      "title": "Whisper model",
+      "description": "Path to a ggml model for whisper-cli, used when the transcriber is whisper.",
+      "default": ""
+    },
+    "companionSocket": {
+      "type": "string",
+      "title": "Companion socket",
+      "description": "Unix socket of the Web Agent Companion app. Empty means ~/Library/Application Support/WebAgentCompanion/companion.sock.",
+      "default": ""
+    },
+    "companionLaunch": {
+      "type": "string",
+      "title": "Companion launch command",
+      "description": "Shell command (sh -c) that starts the companion app when /sketch finds it not running.",
+      "default": "open -a \"Web Agent Companion\""
+    }
+  }
+}

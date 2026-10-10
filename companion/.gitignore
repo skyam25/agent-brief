@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+.feedback/
+bin/companion.mjs

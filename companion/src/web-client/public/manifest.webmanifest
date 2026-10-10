@@ -1,0 +1,11 @@
+{
+  "name": "Web Agent Companion",
+  "short_name": "Companion",
+  "description": "Sketch on the board your Mac shares with Claude Code.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [{ "src": "/icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }]
+}
