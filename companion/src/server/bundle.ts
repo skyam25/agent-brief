@@ -23,9 +23,13 @@ export function freeId(sketchesDir: string, ms: number): string {
   return id;
 }
 
+/** The prompt Claude Code receives. A written draft goes first, word for word, then the sketch lines. */
 export function buildDraft(id: string, input: DeliveryInput): string {
+  const text = input.text?.trim();
+  if (!input.png) return text ?? '';
   const rel = `.feedback/sketches/${id}`;
   const lines = [`@${rel}/sketch.png`, `Sketch from the Agent Brief board "${input.boardName}".`];
+  if (text) lines.unshift(text, '');
   if (input.speech) lines.push(`Said while drawing: "${input.speech}"`);
   if (input.notes) {
     const oneLine = input.notes.replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -37,10 +41,14 @@ export function buildDraft(id: string, input: DeliveryInput): string {
 
 export async function writeBundle(dir: string, input: DeliveryInput): Promise<void> {
   await mkdir(dir, { recursive: true });
-  const writes: Promise<void>[] = [
-    writeFile(join(dir, 'sketch.png'), input.png),
-    writeFile(join(dir, 'board.excalidraw'), JSON.stringify(input.scene, null, 2)),
-  ];
+  const writes: Promise<void>[] = [];
+  if (input.png) {
+    writes.push(
+      writeFile(join(dir, 'sketch.png'), input.png),
+      writeFile(join(dir, 'board.excalidraw'), JSON.stringify(input.scene, null, 2)),
+    );
+  }
+  if (input.text) writes.push(writeFile(join(dir, 'draft.md'), input.text));
   if (input.notes) writes.push(writeFile(join(dir, 'notes.md'), input.notes));
   if (input.timelineMd) writes.push(writeFile(join(dir, 'timeline.md'), input.timelineMd));
   if (input.transcript !== undefined) {

@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CURRENT_BOARD } from '../protocol';
-import type { BoardEntry, Settings } from '../shared/ipc';
+import type { BoardEntry, Mode, Settings } from '../shared/ipc';
 import { badRequest, notFound, BoardError } from '../board/errors';
 
 const SCENE_EXT = '.excalidraw';
@@ -12,7 +12,7 @@ const NOTES_EXT = '.notes.md';
 export const DEFAULT_BOARD = 'scratch';
 
 /** What the app keeps in its data folder, as opposed to Chromium's caches. */
-const DATA_ENTRIES = ['boards', 'history', 'state.json', 'devices.json'];
+const DATA_ENTRIES = ['boards', 'drafts', 'templates', 'history', 'state.json', 'devices.json'];
 
 /**
  * Moves the app's data from the folder it used under an earlier name. Runs
@@ -154,6 +154,8 @@ export interface AppState extends Settings {
   height: number;
   /** Project folders Claude Code sessions ran in, most recent first. */
   recentProjects?: string[];
+  /** The mode the panel was last in. */
+  mode: Mode;
 }
 
 export const DEFAULT_STATE: AppState = {
@@ -163,6 +165,8 @@ export const DEFAULT_STATE: AppState = {
   hotkey: 'Control+Alt+S',
   deliveryMode: 'submit',
   openAtLogin: false,
+  captureHotkey: 'Control+Alt+N',
+  mode: 'sketch',
 };
 
 /** Panel size, current board and settings in `<dataDir>/state.json`. */
