@@ -253,7 +253,7 @@ async function start(): Promise<void> {
       if (req.mode !== 'write') return baseBackend.open(req);
       if (req.prompt !== undefined) setPrompt(req.prompt);
       panel.show();
-      send(CH.newNote);
+      send(CH.newNote, req.text);
       return { board: state.state.currentBoard, ...(req.sessionId ? { targetSessionId: req.sessionId } : {}) };
     },
   };

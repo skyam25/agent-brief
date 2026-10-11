@@ -153,8 +153,8 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
       changeMode('sketch');
       setNewBoardRequest((n) => n + 1);
     });
-    host.onNewNote(() => {
-      book.create();
+    host.onNewNote((text) => {
+      book.create(text);
       changeMode('write');
     });
     controller.panelVisible = info.panelVisible;

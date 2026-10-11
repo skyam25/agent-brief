@@ -17,7 +17,7 @@ Sketch, talk and paste screenshots on your Mac, then hand all of it to Claude Co
 
 ## Hand it to Claude Code
 
-- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session. `/write`, or the Write button, opens a new note for it instead.
+- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session. `/write`, or the Write button, opens a new note for it instead. The button carries over what you typed in the prompt box, and `/write last` starts the note with Claude's last reply.
 - Send writes a bundle into the project and gives Claude a prompt that points at it.
 - The prompt goes in by itself, or waits in the prompt box if you prefer to add to it first.
 - The panel closes and the board clears, ready for the next idea.

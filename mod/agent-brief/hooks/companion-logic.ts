@@ -118,3 +118,32 @@ export function parseDeliveries(body: unknown): Delivery[] {
       ((d as Delivery).mode === 'fill' || (d as Delivery).mode === 'submit'),
   )
 }
+
+/** How the prompt box shows a large paste: `[Pasted text #2 +40 lines]`. */
+const PASTE = /\[Pasted text #(\d+)[^\]]*\]/g
+
+/**
+ * Records what a paste held when the edit left a new paste placeholder in the box.
+ * An input that is itself a placeholder carries nothing to keep.
+ */
+export function rememberPaste(pastes: Map<number, string>, before: string, after: string, input: string): void {
+  if (input === '' || new RegExp(PASTE.source).test(input)) return
+  for (const m of after.matchAll(PASTE)) {
+    const n = Number(m[1])
+    if (!before.includes(m[0]) && !pastes.has(n)) pastes.set(n, input)
+  }
+}
+
+/** The box's text with each paste placeholder replaced by what it held, where known. */
+export function expandPastes(text: string, pastes: ReadonlyMap<number, string>): string {
+  return text.replace(PASTE, (placeholder, n: string) => pastes.get(Number(n)) ?? placeholder)
+}
+
+/** Claude's newest reply with text, or undefined before the first one. */
+export function lastReply(messages: readonly { role: string; text: string }[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!
+    if (m.role === 'assistant' && m.text.trim() !== '') return m.text.trim()
+  }
+  return undefined
+}

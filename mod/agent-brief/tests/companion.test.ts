@@ -222,14 +222,35 @@ describe('/sketch', () => {
     expect(world.runs.filter(r => r.argv[0] === 'sh'), 'no launch').toEqual([])
   })
 
-  test('/write opens a new note for this session', async ($, on) => {
+  test('/write opens a new note for this session, starting with the words after it', async ($, on) => {
     const { app, world, clock, start } = await setup($, on)
     await start()
     await clock.settle()
     expect(world.commands).toContain('write')
     const out = await $.command.run(command('write', ' release notes '))
     expect(out).toEqual({ text: 'Agent Brief open — write, then press Send.' })
-    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, prompt: 'release notes', mode: 'write' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write', text: 'release notes' })
+  })
+
+  test('/write last puts Claude\'s newest reply in the note', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    on('session.messages', () => ({ value: [
+      { role: 'user', text: 'plan it', toolUses: [] },
+      { role: 'assistant', text: 'Plan:\n1. Add the button', toolUses: [] },
+    ] }))
+    await start()
+    await clock.settle()
+    await $.command.run(command('write', 'last'))
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write', text: 'Plan:\n1. Add the button' })
+  })
+
+  test('/write last says so before Claude has replied', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    on('session.messages', () => ({ value: [] }))
+    await start()
+    await clock.settle()
+    expect(await $.command.run(command('write', 'last'))).toEqual({ text: 'Claude has not replied yet in this session.' })
+    expect(app.to('POST', '/open')).toEqual([])
   })
 
   test('sends no prompt when none is given', async ($, on) => {
@@ -343,7 +364,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     expect(world.toasts).toEqual([])
   })
 
-  test('a Write press opens a new note for this session, as /write does', async ($, on) => {
+  test('a Write press with an empty box opens an empty note', async ($, on) => {
     const { app, world, clock, start } = await setup($, on)
     await start()
     await clock.settle()
@@ -351,6 +372,28 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await $.ui.press({ plugin: 'agent-brief', key: 'write' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write' })
     expect(world.toasts).toEqual([])
+  })
+
+  test('a Write press moves the prompt box draft into the note and empties the box', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    await start()
+    await clock.settle()
+    app.box.text = 'half a thought'
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write', text: 'half a thought' })
+    expect(app.box.text).toBe('')
+  })
+
+  test('the box keeps its draft when the app cannot be reached', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    app.isUp = false
+    await start()
+    await clock.settle()
+    app.box.text = 'keep me'
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    expect(app.box.text).toBe('keep me')
   })
 
   test('a press says why when the app cannot be reached', async ($, on) => {

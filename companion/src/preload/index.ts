@@ -39,7 +39,7 @@ const api: CompanionApi = {
   onUpdate: (fn) => ipcRenderer.on(CH.update, (_e, status) => fn(status)),
   onVisibility: (fn) => ipcRenderer.on(CH.visibility, (_e, visible) => fn(visible)),
   setMode: (mode) => ipcRenderer.send(CH.setMode, mode),
-  onNewNote: (fn) => ipcRenderer.on(CH.newNote, () => fn()),
+  onNewNote: (fn) => ipcRenderer.on(CH.newNote, (_e, text?: string) => fn(text)),
   listDrafts: () => ipcRenderer.invoke(CH.listDrafts),
   saveDraft: (draft) => ipcRenderer.invoke(CH.saveDraft, draft),
   deleteDraft: (id) => ipcRenderer.invoke(CH.deleteDraft, id),
