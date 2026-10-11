@@ -63,6 +63,7 @@ export interface OpenRequest {
 export interface OpenResponse {
   board: string
   targetSessionId?: string
+  noteText?: boolean
 }
 
 // GET /deliveries?session=<id>&wait=<seconds>, POST /deliveries/:id/ack

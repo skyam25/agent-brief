@@ -99,6 +99,8 @@ export interface OpenResponse {
   board: string;
   /** The server's target after the request, whatever the backend returned. */
   targetSessionId?: string;
+  /** True when Write mode started the new note with the request's text. */
+  noteText?: boolean;
 }
 
 // ── Deliveries ────────────────────────────────────────────────────────────
