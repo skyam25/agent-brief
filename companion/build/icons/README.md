@@ -2,7 +2,7 @@
 
 ## Concept
 
-A hand-drawn ink stroke runs into a teal speech bubble on a paper tile. The stroke is your pen on the board, and the bubble is the voice and the agent answering in the same space.
+A paper plane, folded from the brief, leaves a short dotted trail on a paper tile. The brief you sketched and wrote is on its way to the agent.
 
 ## Files
 
@@ -10,7 +10,7 @@ A hand-drawn ink stroke runs into a teal speech bubble on a paper tile. The stro
 | --- | --- |
 | `icon.svg` | Master, light tile |
 | `icon-dark.svg` | Master, dark tile |
-| `icon-small.svg`, `icon-dark-small.svg` | Masters for 32 px and below (no gap, no shadows, thicker stroke) |
+| `icon-small.svg`, `icon-dark-small.svg` | Masters for 32 px and below (no trail, no shadows, a larger plane, a tinted wing on the light tile) |
 | `tray.svg` | Menu bar mark, black on transparent |
 | `icon-1024.png`, `icon-dark-1024.png` | 1024 px renders |
 | `icon.iconset/` | Standard iconset, 16 to 512@2x |
@@ -24,8 +24,9 @@ A hand-drawn ink stroke runs into a teal speech bubble on a paper tile. The stro
 | Role | Light | Dark |
 | --- | --- | --- |
 | Tile | `#FFFDF8` to `#F1EBDF` | `#2B2F3A` to `#191C24` |
-| Ink stroke | `#1F2540` | `#F3EEE3` |
-| Bubble | `#1BB5A7` to `#0A9185` | `#2CC8BA` to `#14A396` |
+| Wing | `#FFFFFF` (`#B9E3DD` at small sizes) | `#F3EEE3` |
+| Fold and trail | `#1BB5A7` to `#0A9185` | `#2CC8BA` to `#14A396` |
+| Keel | `#0A7A70` | `#0E7F75` |
 
 ## Regenerate
 
