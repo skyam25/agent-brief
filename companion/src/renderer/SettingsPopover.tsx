@@ -19,7 +19,7 @@ function updateText(u: UpdateStatus): string | undefined {
   }
 }
 
-/** Hotkey, delivery mode, launch at login and updates. `onChange` returns an error message when a change is refused. */
+/** Hotkeys, delivery mode, launch at login and updates. `onChange` returns an error message when a change is refused. */
 export function SettingsPopover(props: {
   settings: Settings;
   update?: UpdateStatus;
@@ -31,6 +31,7 @@ export function SettingsPopover(props: {
   const { update } = props;
   const updateLine = update && updateText(update);
   const [hotkey, setHotkey] = useState(props.settings.hotkey);
+  const [captureHotkey, setCaptureHotkey] = useState(props.settings.captureHotkey);
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -63,6 +64,24 @@ export function SettingsPopover(props: {
         <label htmlFor="hotkey">Show or hide</label>
         <input id="hotkey" data-testid="settings-hotkey" value={hotkey} onChange={(e) => setHotkey(e.target.value)} />
         <button type="submit" data-testid="settings-hotkey-save">
+          Set
+        </button>
+      </form>
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void change({ captureHotkey });
+        }}
+      >
+        <label htmlFor="capture-hotkey">New note</label>
+        <input
+          id="capture-hotkey"
+          data-testid="settings-capture-hotkey"
+          value={captureHotkey}
+          onChange={(e) => setCaptureHotkey(e.target.value)}
+        />
+        <button type="submit" data-testid="settings-capture-hotkey-save">
           Set
         </button>
       </form>

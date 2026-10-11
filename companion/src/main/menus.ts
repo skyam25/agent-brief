@@ -1,14 +1,18 @@
 /** The app menu and the menu bar (tray) menu. */
 
 import type { MenuItemConstructorOptions } from 'electron';
-import type { UpdateStatus } from '../shared/ipc';
+import type { Mode, UpdateStatus } from '../shared/ipc';
 import { acceleratorLabel } from './accelerator';
 
 export interface MenuActions {
   hotkey: string;
+  captureHotkey: string;
+  /** ⌘N makes a new board in Sketch mode and a new note in Write mode. */
+  mode: Mode;
   togglePanel: () => void;
   showPanel: () => void;
   newBoard: () => void;
+  newNote: () => void;
   openSettings: () => void;
   installCli: () => void;
   openIpad: () => void;
@@ -49,7 +53,8 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
     {
       label: 'File',
       submenu: [
-        { label: 'New Board', accelerator: 'Command+N', click: a.newBoard },
+        { label: 'New Board', accelerator: a.mode === 'sketch' ? 'Command+N' : undefined, click: a.newBoard },
+        { label: 'New Note', accelerator: a.mode === 'write' ? 'Command+N' : undefined, click: a.newNote },
         { label: 'Open on iPad…', click: a.openIpad },
         { label: `Show or Hide Panel (${acceleratorLabel(a.hotkey)})`, click: a.togglePanel },
         { type: 'separator' },
@@ -65,6 +70,7 @@ export function trayMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
   return [
     { label: 'Show Panel', click: a.showPanel },
     { label: 'New Board', click: a.newBoard },
+    { label: `New Note (${acceleratorLabel(a.captureHotkey)})`, click: a.newNote },
     { label: 'Open on iPad…', click: a.openIpad },
     { label: `Toggle with ${acceleratorLabel(a.hotkey)}`, enabled: false },
     { type: 'separator' },
