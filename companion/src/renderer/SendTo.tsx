@@ -12,8 +12,8 @@ const LAUNCHER_LABELS: Record<Launcher, string> = {
 };
 
 /**
- * Send and where it goes. With a target, a chip names the session and brings
- * its terminal forward. Without one, Send asks where to go first.
+ * Send and where it goes. With a target, Send names the session; the chevron
+ * picks another. Without one, Send asks where to go first.
  */
 export function SendTo(props: {
   sessions: SessionsResponse;
@@ -23,7 +23,6 @@ export function SendTo(props: {
   onSend: () => void;
   onSendTo: (sessionId: string) => void;
   onSendNew: (cwd: string, via: Launcher) => void;
-  onFocus: (sessionId: string) => void;
   loadOptions: () => Promise<LaunchOptions>;
   chooseFolder: () => Promise<string | undefined>;
 }) {
@@ -33,16 +32,12 @@ export function SendTo(props: {
       {target ? (
         <>
           <button
-            className="ghost chip"
-            title={`${target.cwd}\nBring this session's terminal forward`}
-            onClick={() => props.onFocus(target.sessionId)}
-            data-testid="target-chip"
+            className="primary send-named"
+            title={`${sessionTitle(target)}\n${target.cwd}${target.summary ? `\n${target.summary}` : ''}`}
+            onClick={props.onSend}
+            data-testid="send"
           >
-            <span>→ {sessionTitle(target)}</span>
-            {target.summary && <span className="muted">{target.summary}</span>}
-          </button>
-          <button className="primary" onClick={props.onSend} data-testid="send">
-            Send
+            Send to {target.title || folderName(target.cwd)}
           </button>
           <button
             className="ghost icon-button"

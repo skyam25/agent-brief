@@ -87,12 +87,15 @@ export class DraftBook {
     this.emit();
   }
 
-  /** Starts a note and opens it. Reuses the open note when it is still empty. */
-  create(body = ''): Draft {
+  /**
+   * Starts a note and opens it. Reuses the open note when it is still empty,
+   * unless main asked for a note with another `id`, which it keeps for a session.
+   */
+  create(body = '', id?: string): Draft {
     const open = this.selected;
-    if (open && isEmpty(open) && !body) return open;
+    if (open && isEmpty(open) && !body && (id === undefined || open.id === id)) return open;
     const t = this.now();
-    const draft: Draft = { id: newDraftId(t), body, status: 'note', rank: 0, createdAt: t, updatedAt: t };
+    const draft: Draft = { id: id ?? newDraftId(t), body, status: 'note', rank: 0, createdAt: t, updatedAt: t };
     this.drafts = sortDrafts([draft, ...this.drafts]);
     this.select(draft.id);
     if (body) this.save(draft.id);

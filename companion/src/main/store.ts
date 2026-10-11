@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { CURRENT_BOARD } from '../protocol';
 import type { BoardEntry, Mode, Settings } from '../shared/ipc';
 import { badRequest, notFound, BoardError } from '../board/errors';
+import type { SessionBriefs } from './session-briefs';
 
 const SCENE_EXT = '.excalidraw';
 const NOTES_EXT = '.notes.md';
@@ -127,6 +128,18 @@ export class BoardStore {
     };
   }
 
+  /** True when the board has no live elements and no notes. A missing board is empty. */
+  isEmpty(name: string): boolean {
+    const { scene, notes } = this.load(name);
+    if (notes.trim()) return false;
+    try {
+      const elements = (JSON.parse(scene ?? '{}') as { elements?: { isDeleted?: boolean }[] }).elements ?? [];
+      return !elements.some((e) => !e.isDeleted);
+    } catch {
+      return false;
+    }
+  }
+
   saveScene(name: string, json: string): void {
     writeAtomic(this.scenePath(name), json);
   }
@@ -156,6 +169,8 @@ export interface AppState extends Settings {
   recentProjects?: string[];
   /** The mode the panel was last in. */
   mode: Mode;
+  /** The board and note each Claude Code session last opened. */
+  sessionBriefs?: SessionBriefs;
 }
 
 export const DEFAULT_STATE: AppState = {

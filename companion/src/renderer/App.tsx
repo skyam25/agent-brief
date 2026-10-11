@@ -2,9 +2,10 @@ import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { SessionsResponse } from '../protocol';
 import { findSlots } from '../shared/slots';
-import type { CompanionApi, InitInfo, Launcher, Mode, Outgoing, SendResult, Settings, Theme, UpdateStatus } from '../shared/ipc';
+import type { CompanionApi, InitInfo, Launcher, Mode, Outgoing, SendResult, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
 import { BoardPicker } from './BoardPicker';
+import { BriefTabs } from './BriefTabs';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { DraftBook, type SentRevision } from './drafts';
 import { focusFirstSlot } from './SlotArea';
@@ -92,6 +93,9 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   const [notesOpen, setNotesOpen] = useState(false);
   const [prompt, setPrompt] = useState(info.prompt);
   const [sessions, setSessions] = useState<SessionsResponse>(info.sessions);
+  const [briefs, setBriefs] = useState<SessionBriefEntry[]>([]);
+  /** An ended session's tab the user opened. It has no target, so it is the active tab only here. */
+  const [endedActive, setEndedActive] = useState<string>();
   const [status, setStatus] = useState<string>();
   const [settings, setSettings] = useState<Settings>(info.settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -145,6 +149,8 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   useEffect(() => {
     host.onPrompt(setPrompt);
     host.onSessions(setSessions);
+    void host.listBriefs().then(setBriefs);
+    host.onBriefs(setBriefs);
     host.onTheme(setTheme);
     host.onOpenSettings(() => setSettingsOpen(true));
     host.onUpdate(setUpdate);
@@ -153,18 +159,37 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
       changeMode('sketch');
       setNewBoardRequest((n) => n + 1);
     });
-    host.onNewNote((text) => {
-      book.create(text);
+    host.onNewNote(({ text, id }) => {
+      book.create(text, id);
       changeMode('write');
+    });
+    host.onOpenDraft((id) => {
+      void (async () => {
+        if (!book.get(id)) await book.load();
+        book.select(id);
+        changeMode('write');
+      })();
     });
     controller.panelVisible = info.panelVisible;
     host.onVisibility((visible) => {
       controller.panelVisible = visible;
+      if (!visible) setEndedActive(undefined);
       if (!visible) void Promise.all([book.flush(), shelf.flush()]);
     });
 
     // Escape hides the panel unless something on it wants the key first.
     const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'Tab' || /^[1-9]$/.test(e.key))) {
+        const { briefs: tabs, activeBrief: active, switchBrief: open } = tabKeys.current;
+        if (tabs.length === 0) return;
+        e.preventDefault();
+        // With no tab active, ⌃Tab starts at the first and ⌃⇧Tab at the last.
+        const at = tabs.findIndex((b) => b.sessionId === active);
+        const from = at >= 0 ? at : e.shiftKey ? 0 : -1;
+        const next = e.key === 'Tab' ? tabs[(from + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length] : tabs[Number(e.key) - 1];
+        if (next && next.sessionId !== active) open(next.sessionId);
+        return;
+      }
       if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === '1' || e.key === '2')) {
         e.preventDefault();
         changeMode(e.key === '1' ? 'sketch' : 'write');
@@ -208,6 +233,22 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   );
 
   const report = (what: string) => (err: unknown) => setStatus(`Could not ${what}: ${errorText(err)}`);
+
+  // The active tab is the Send target's brief, or an ended session's brief the user opened.
+  const target = sessions.targetSessionId;
+  const activeBrief = briefs.some((b) => b.sessionId === target) ? target : briefs.some((b) => b.sessionId === endedActive) ? endedActive : undefined;
+  const switchBrief = (sessionId: string) => {
+    const brief = briefs.find((b) => b.sessionId === sessionId);
+    setEndedActive(brief && !brief.isLive ? sessionId : undefined);
+    void host.switchBrief(sessionId).catch(report('open that brief'));
+  };
+  const closeBrief = (sessionId: string) => {
+    if (endedActive === sessionId) setEndedActive(undefined);
+    void host.forgetBrief(sessionId).catch(report('close the tab'));
+  };
+  // ⌃1–⌃9 and ⌃Tab read these from the key handler, which is set up once.
+  const tabKeys = useRef({ briefs, activeBrief, switchBrief });
+  tabKeys.current = { briefs, activeBrief, switchBrief };
   const listBoards = useCallback(() => host.listBoards(), [host]);
 
   /** The text whose empty slots were already pointed out, so a second Send goes through. */
@@ -442,7 +483,6 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
               onSend={() => void send()}
               onSendTo={(id) => void sendTo(id)}
               onSendNew={(cwd, via) => void sendNew(cwd, via)}
-              onFocus={(id) => void host.focusSession(id)}
               loadOptions={() => host.launchOptions()}
               chooseFolder={() => host.chooseFolder()}
             />
@@ -454,6 +494,14 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
           status={status}
         />
       </header>
+      <BriefTabs
+        briefs={briefs}
+        activeId={activeBrief}
+        home={info.home}
+        onSwitch={switchBrief}
+        onClose={closeBrief}
+        onFocus={(id) => void host.focusSession(id)}
+      />
       <main className="body">
         <BoardCanvas controller={controller} scene={scene} theme={theme} onReady={onReady} />
         {mode === 'write' && (

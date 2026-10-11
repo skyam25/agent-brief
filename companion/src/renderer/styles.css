@@ -80,14 +80,14 @@ button:disabled {
 
 /* App chrome sizing. Scoped so Excalidraw's own buttons keep their styles. */
 
-:is(.strip, .popover-panel, .notes) :is(button, select, input:not([type='checkbox'])) {
+:is(.strip, .popover-panel, .notes, .brief-tabs) :is(button, select, input:not([type='checkbox'])) {
   height: 32px;
   box-sizing: border-box;
   border-radius: 8px;
   padding: 0 10px;
 }
 
-:is(.strip, .popover-panel, .notes) button {
+:is(.strip, .popover-panel, .notes, .brief-tabs) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -95,18 +95,18 @@ button:disabled {
   white-space: nowrap;
 }
 
-:is(.strip, .popover-panel, .notes) button.icon-button {
+:is(.strip, .popover-panel, .notes, .brief-tabs) button.icon-button {
   width: 32px;
   padding: 0;
 }
 
-:is(.strip, .popover-panel, .notes) button.small {
+:is(.strip, .popover-panel, .notes, .brief-tabs) button.small {
   height: 24px;
   padding: 0 6px;
   border-radius: 6px;
 }
 
-:is(.strip, .popover-panel, .notes) button.icon-button.small {
+:is(.strip, .popover-panel, .notes, .brief-tabs) button.icon-button.small {
   width: 24px;
   padding: 0;
 }
@@ -343,24 +343,12 @@ button.recording {
   min-width: 0;
 }
 
-.send-to .chip {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
-  max-width: 280px;
-  line-height: 1.15;
-  text-align: left;
-}
-
-.send-to .chip span {
-  max-width: 100%;
+.send-to .send-named {
+  display: block;
+  max-width: 240px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.send-to .chip .muted {
-  font-size: 11px;
 }
 
 .chooser {
@@ -481,6 +469,115 @@ button.recording {
 }
 
 /* Board and notes */
+
+/* Session brief tabs */
+
+.brief-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px 6px;
+  min-width: 0;
+}
+
+.brief-tabs .tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.brief-tabs .tab {
+  position: relative;
+  flex: 0 0 176px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.brief-tabs .tab:hover {
+  background: var(--hover);
+}
+
+.brief-tabs .tab[aria-current='true'] {
+  background: var(--selected);
+}
+
+.brief-tabs .tab .label {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 26px 0 8px;
+  font-weight: 500;
+  background: transparent;
+}
+
+.brief-tabs .tab .label:hover:not(:disabled) {
+  background: transparent;
+}
+
+.brief-tabs .tab[aria-current='true'] .label {
+  font-weight: 600;
+}
+
+.brief-tabs .title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.brief-tabs .tab .close {
+  position: absolute;
+  right: 3px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  opacity: 0;
+}
+
+.brief-tabs .tab:hover .close,
+.brief-tabs .close:focus-visible {
+  opacity: 1;
+}
+
+.brief-tabs button.more {
+  height: 28px;
+  gap: 2px;
+  padding: 0 6px 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+
+.dot.live {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.unsent {
+  flex: none;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.brief-list .session .dot {
+  margin: 0 4px;
+}
+
+.brief-list .when {
+  flex: none;
+  font-size: 11px;
+}
 
 .body {
   flex: 1;
