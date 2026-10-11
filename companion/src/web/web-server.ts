@@ -1,7 +1,10 @@
 /**
  * LAN web server for the iPad client. It binds to one private or loopback
- * address, drops connections from outside the subnet before reading a byte,
- * and serves only devices that hold a paired cookie.
+ * address and drops connections from outside the subnet before reading a byte.
+ * The client's static files are open to that subnet. The API and the WebSocket
+ * need a paired device's credential, which the client keeps in localStorage and
+ * sends as a bearer token or a WebSocket subprotocol. No cookies are used, so
+ * other pages and other services on the Mac's address never receive it.
  */
 
 import { createReadStream } from 'node:fs';
@@ -16,12 +19,31 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { Delivery } from '../protocol';
 import type { DeliveryInput } from '../server/contract';
 import { isLoopback, isPrivateIpv4, isSameSubnet, pickLanInterface, stripMapped } from './lan';
+import {
+  HTTP_RATE,
+  MAX_BOARD_BYTES,
+  MAX_MESSAGE_BYTES,
+  MAX_SEND_BYTES,
+  MAX_SMALL_BODY_BYTES,
+  MAX_SOCKETS_PER_DEVICE,
+  RateLimiter,
+  SEND_RATE,
+  WS_RATE,
+} from './limits';
 import { PairingStore, type DeviceInfo } from './pairing';
 import { isSyncElement, type HubClient, type SyncElement, type SyncHub } from './sync-hub';
 
 export const DEFAULT_PORT = 47613;
 const DEFAULT_IDLE_OFF_MS = 8 * 3600_000;
-const MAX_BODY_BYTES = 20 * 1024 * 1024;
+/** The WebSocket subprotocol. A second one, `auth.<credential>`, carries the credential. */
+export const WS_PROTOCOL = 'agent-brief';
+const WS_AUTH_PREFIX = 'auth.';
+
+/** The Claude Code session a Send from the iPad goes to. */
+export interface Destination {
+  sessionId: string;
+  label: string;
+}
 
 export interface WebServerOptions {
   /** A private IPv4 address or loopback. Wildcard and public addresses are refused. */
@@ -35,8 +57,8 @@ export interface WebServerOptions {
   idleOffMs?: number;
   /** The board the Mac shows now. Added to `GET /api/boards` as `current`. */
   current?: () => string;
-  /** Names a session for the Send reply, such as its title or folder name. */
-  describeSession?: (sessionId: string) => string;
+  /** The session the Mac sends to now, if one is chosen. */
+  destination: () => Destination | undefined;
   /**
    * Decides whether a remote address may connect. The default accepts loopback
    * and the subnet of the interface that owns `host`.
@@ -58,6 +80,8 @@ export interface WebServer {
   newPairingUrl(): Promise<{ url: string; qrSvg: string }>;
   devices(): DeviceInfo[];
   revoke(id: string): boolean;
+  /** Tells connected clients where Send goes now. */
+  destinationChanged(): void;
   /** Whether a remote address may connect. The same check runs on every new socket. */
   allows(remote: string | undefined): boolean;
   /** Fires when the server starts or stops and when the device list changes. */
@@ -66,14 +90,16 @@ export interface WebServer {
 
 interface WebError {
   error: string;
-  code: 'unauthorized' | 'not_found' | 'bad_request' | 'conflict' | 'internal';
+  code: 'unauthorized' | 'forbidden' | 'not_found' | 'bad_request' | 'conflict' | 'too_many' | 'internal';
 }
 
 const STATUS: Record<WebError['code'], number> = {
   unauthorized: 401,
+  forbidden: 403,
   not_found: 404,
   bad_request: 400,
   conflict: 409,
+  too_many: 429,
   internal: 500,
 };
 
@@ -105,7 +131,12 @@ export function guardConnection(
 }
 
 class HttpFailure extends Error {
-  constructor(readonly code: WebError['code'], message: string) {
+  constructor(
+    readonly code: WebError['code'],
+    message: string,
+    /** Extra fields for the error body. */
+    readonly extra: Record<string, unknown> = {},
+  ) {
     super(message);
   }
 }
@@ -153,22 +184,25 @@ export function defaultAllow(
   };
 }
 
-/** Whether a WebSocket Origin header may connect. A missing header is allowed. */
-export function originAllowed(origin: string | undefined, host: string | undefined): boolean {
-  if (origin === undefined) return true;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
+/** The credential in an `Authorization: Bearer` header. */
+export function bearerCredential(header: string | undefined): string | undefined {
+  const match = /^Bearer ([\w.-]+)$/.exec(header ?? '');
+  return match?.[1];
 }
 
-async function readBody(req: http.IncomingMessage): Promise<unknown> {
+/** The credential in a `Sec-WebSocket-Protocol` header, when the client also offers ours. */
+export function protocolCredential(header: string | undefined): string | undefined {
+  const offered = (header ?? '').split(',').map((p) => p.trim());
+  if (!offered.includes(WS_PROTOCOL)) return undefined;
+  return offered.find((p) => p.startsWith(WS_AUTH_PREFIX))?.slice(WS_AUTH_PREFIX.length) || undefined;
+}
+
+async function readBody(req: http.IncomingMessage, limit: number): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new HttpFailure('bad_request', 'body exceeds 20 MB');
+    if (size > limit) throw new HttpFailure('bad_request', `body exceeds ${Math.round(limit / 1024)} KB`);
     chunks.push(chunk as Buffer);
   }
   try {
@@ -186,6 +220,9 @@ export function createWebServer(opts: WebServerOptions): WebServer {
   const staticRoot = resolve(opts.staticDir);
   const listeners = new Set<(s: WebServerState) => void>();
   const allow = opts.allowRemote ?? defaultAllow(opts.host);
+  const httpLimit = new RateLimiter(HTTP_RATE, now);
+  const wsLimit = new RateLimiter(WS_RATE, now);
+  const sendLimit = new RateLimiter(SEND_RATE, now);
 
   let server: http.Server | undefined;
   let wss: WebSocketServer | undefined;
@@ -197,6 +234,7 @@ export function createWebServer(opts: WebServerOptions): WebServer {
   const wsByDevice = new Map<string, Set<WebSocket>>();
   let wsCount = 0;
   let refused: string | undefined;
+  const authority = () => `${opts.host.includes(':') ? `[${opts.host}]` : opts.host}:${boundPort}`;
 
   function state(): WebServerState {
     return { running: server !== undefined, devices: pairing.list(), ...(refused ? { refused } : {}) };
@@ -264,60 +302,73 @@ export function createWebServer(opts: WebServerOptions): WebServer {
   // ── Routes ──────────────────────────────────────────────────────────────
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (req.headers.host !== authority()) throw new HttpFailure('forbidden', 'unexpected host');
     const url = new URL(req.url ?? '/', 'http://companion');
-    const headers = securityHeaders(req.headers.host);
+    const headers = securityHeaders(authority());
     const method = req.method ?? 'GET';
-
-    if (url.pathname === '/pair' && method === 'GET') {
-      const token = url.searchParams.get('token');
-      const paired = token ? pairing.redeem(token, req.headers['user-agent']) : undefined;
-      if (!paired) throw new HttpFailure('unauthorized', 'pairing link is invalid, used or expired');
-      res.writeHead(302, { Location: '/', 'Set-Cookie': paired.cookie, 'Cache-Control': 'no-store', ...headers });
-      res.end();
-      return;
+    if (!httpLimit.take(`address:${stripMapped(req.socket.remoteAddress ?? '')}`)) {
+      throw new HttpFailure('too_many', 'too many requests');
     }
-
-    if (!pairing.verify(req.headers.cookie)) {
-      throw new HttpFailure('unauthorized', 'pair this device first');
-    }
-    armIdle();
 
     const parts = url.pathname.split('/').filter(Boolean);
-    if (parts[0] === 'api') {
-      let name: string | undefined;
-      try {
-        name = parts[2] === undefined ? undefined : decodeURIComponent(parts[2]);
-      } catch {
-        throw new HttpFailure('bad_request', 'malformed board name');
-      }
-      if (parts[1] === 'boards' && parts.length === 2 && method === 'GET') {
-        return send(res, 200, { boards: hub.boards(), ...(opts.current ? { current: opts.current() } : {}) }, headers);
-      }
-      if (parts[1] === 'boards' && parts.length === 3 && method === 'GET') {
-        if (!hub.has(name!)) throw new HttpFailure('not_found', `no board ${name}`);
-        return send(res, 200, { board: name, elements: hub.snapshot(name!) }, headers);
-      }
-      if (parts[1] === 'send' && parts.length === 2 && method === 'POST') {
-        const input = parseSend(await readBody(req));
-        let delivery: Delivery;
-        try {
-          delivery = await opts.deliver(input);
-        } catch (err) {
-          throw new HttpFailure('conflict', err instanceof Error ? err.message : String(err));
-        }
-        const to = opts.describeSession?.(delivery.sessionId);
-        return send(
-          res,
-          200,
-          { ok: true, id: delivery.id, sessionId: delivery.sessionId, ...(to ? { to } : {}) },
-          headers,
-        );
-      }
-      throw new HttpFailure('not_found', 'no such route');
+    if (parts[0] !== 'api') {
+      if (method !== 'GET' && method !== 'HEAD') throw new HttpFailure('not_found', 'no such route');
+      return serveStatic(url.pathname, res, headers);
     }
 
-    if (method !== 'GET' && method !== 'HEAD') throw new HttpFailure('not_found', 'no such route');
-    await serveStatic(url.pathname, res, headers);
+    if (parts[1] === 'pair' && parts.length === 2 && method === 'POST') {
+      const body = (await readBody(req, MAX_SMALL_BODY_BYTES)) as { token?: unknown } | null;
+      const token = typeof body?.token === 'string' ? body.token : undefined;
+      const paired = token ? pairing.redeem(token, req.headers['user-agent']) : undefined;
+      if (!paired) throw new HttpFailure('unauthorized', 'pairing code is invalid, used or expired');
+      return send(res, 200, { credential: paired.credential }, headers);
+    }
+
+    const device = pairing.verify(bearerCredential(req.headers.authorization));
+    if (!device) throw new HttpFailure('unauthorized', 'pair this device first');
+    if (!httpLimit.take(`device:${device.id}`)) throw new HttpFailure('too_many', 'too many requests');
+    armIdle();
+
+    let name: string | undefined;
+    try {
+      name = parts[2] === undefined ? undefined : decodeURIComponent(parts[2]);
+    } catch {
+      throw new HttpFailure('bad_request', 'malformed board name');
+    }
+    if (parts[1] === 'boards' && parts.length === 2 && method === 'GET') {
+      return send(
+        res,
+        200,
+        { boards: hub.boards(), ...(opts.current ? { current: opts.current() } : {}), destination: opts.destination() ?? null },
+        headers,
+      );
+    }
+    if (parts[1] === 'boards' && parts.length === 3 && method === 'GET') {
+      if (!hub.has(name!)) throw new HttpFailure('not_found', `no board ${name}`);
+      return send(res, 200, { board: name, elements: hub.snapshot(name!) }, headers);
+    }
+    if (parts[1] === 'send' && parts.length === 2 && method === 'POST') {
+      if (!sendLimit.take(device.id)) throw new HttpFailure('too_many', 'Too many sends. Wait a few seconds.');
+      const input = parseSend(await readBody(req, MAX_SEND_BYTES));
+      // Send goes only where the iPad showed it would. A changed choice on the Mac is refused.
+      const destination = opts.destination();
+      if (!destination) {
+        throw new HttpFailure('conflict', 'Choose a Claude Code session on the Mac first.', { destination: null });
+      }
+      if (input.sessionId !== destination.sessionId) {
+        throw new HttpFailure('conflict', `The Mac now sends to ${destination.label}. Send again to send there.`, {
+          destination,
+        });
+      }
+      let delivery: Delivery;
+      try {
+        delivery = await opts.deliver(input);
+      } catch (err) {
+        throw new HttpFailure('conflict', err instanceof Error ? err.message : String(err));
+      }
+      return send(res, 200, { ok: true, id: delivery.id, sessionId: delivery.sessionId, to: destination.label }, headers);
+    }
+    throw new HttpFailure('not_found', 'no such route');
   }
 
   function onRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -325,7 +376,8 @@ export function createWebServer(opts: WebServerOptions): WebServer {
       if (res.headersSent) return void res.destroy();
       const code = err instanceof HttpFailure ? err.code : 'internal';
       const error = err instanceof Error ? err.message : String(err);
-      send(res, STATUS[code], { error, code } satisfies WebError, securityHeaders(req.headers.host));
+      const extra = err instanceof HttpFailure ? err.extra : {};
+      send(res, STATUS[code], { ...extra, error, code } satisfies WebError, securityHeaders(authority()));
     });
   }
 
@@ -336,13 +388,22 @@ export function createWebServer(opts: WebServerOptions): WebServer {
       socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
       socket.destroy();
     };
-    const url = new URL(req.url ?? '/', 'http://companion');
+    if (req.headers.host !== authority()) return reject('403 Forbidden');
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://companion');
+    } catch {
+      return reject('400 Bad Request');
+    }
     if (url.pathname !== '/ws') return reject('404 Not Found');
-    const device = pairing.verify(req.headers.cookie);
+    const device = pairing.verify(protocolCredential(req.headers['sec-websocket-protocol']));
     if (!device) return reject('401 Unauthorized');
-    if (!originAllowed(req.headers.origin, req.headers.host)) return reject('403 Forbidden');
+    if ((wsByDevice.get(device.id)?.size ?? 0) >= MAX_SOCKETS_PER_DEVICE) return reject('429 Too Many Requests');
 
     const board = url.searchParams.get('board') || 'current';
+    // Only boards seeded by the Mac may be edited. Arbitrary names otherwise
+    // reach the disk persistence callback and can throw outside the request.
+    if (!hub.has(board)) return reject('404 Not Found');
     wss!.handleUpgrade(req, socket, head, (ws) => attachSocket(ws, device.id, board));
   }
 
@@ -360,14 +421,21 @@ export function createWebServer(opts: WebServerOptions): WebServer {
       },
     };
     const leave = hub.join(board, client);
+    sendDestination(ws);
 
     ws.on('message', (data) => {
-      if (!pairing.has(deviceId)) return ws.close(4001, 'revoked');
+      if (!pairing.touch(deviceId)) return ws.close(4001, 'revoked');
+      if (!wsLimit.take(deviceId)) return ws.close(4008, 'too many messages');
       try {
         const msg: unknown = JSON.parse(String(data));
         const elements = (msg as { type?: unknown; elements?: unknown })?.elements;
         if ((msg as { type?: unknown })?.type !== 'update' || !Array.isArray(elements)) return;
-        hub.apply(board, client.id, elements.filter(isSyncElement) as SyncElement[]);
+        const valid = elements.filter(isSyncElement) as SyncElement[];
+        if (!hub.fits(board, valid, MAX_BOARD_BYTES)) {
+          ws.send(JSON.stringify({ type: 'notice', board, text: 'This board is full. Clear some of it on the Mac.' }));
+          return;
+        }
+        hub.apply(board, client.id, valid);
       } catch {
         // Malformed frames are ignored.
       }
@@ -380,6 +448,11 @@ export function createWebServer(opts: WebServerOptions): WebServer {
       armIdle();
     });
     ws.on('error', () => ws.terminate());
+  }
+
+  function sendDestination(ws: WebSocket): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'destination', destination: opts.destination() ?? null }));
   }
 
   pairing.onChange(() => {
@@ -412,7 +485,12 @@ export function createWebServer(opts: WebServerOptions): WebServer {
       socket.once('close', () => sockets.delete(socket));
     });
     s.on('upgrade', onUpgrade);
-    wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BODY_BYTES });
+    wss = new WebSocketServer({
+      noServer: true,
+      maxPayload: MAX_MESSAGE_BYTES,
+      // Answers with our protocol only, so the credential is never echoed back.
+      handleProtocols: (offered) => (offered.has(WS_PROTOCOL) ? WS_PROTOCOL : false),
+    });
     await new Promise<void>((resolveListen, reject) => {
       s.once('error', reject);
       s.listen(opts.port, opts.host, () => {
@@ -446,12 +524,16 @@ export function createWebServer(opts: WebServerOptions): WebServer {
     stop,
     async newPairingUrl() {
       const host = opts.host.includes(':') ? `[${opts.host}]` : opts.host;
-      const url = `http://${host}:${boundPort}/pair?token=${pairing.newToken()}`;
+      // The code rides in the fragment, so it never reaches a request line or a log.
+      const url = `http://${host}:${boundPort}/#pair=${pairing.newToken()}`;
       const qrSvg = await QRCode.toString(url, { type: 'svg', margin: 1 });
       return { url, qrSvg };
     },
     devices: () => pairing.list(),
     revoke: (id) => pairing.revoke(id),
+    destinationChanged() {
+      for (const set of wsByDevice.values()) for (const ws of set) sendDestination(ws);
+    },
     allows: (remote) => allow(remote),
     onChange(fn) {
       listeners.add(fn);
@@ -470,8 +552,17 @@ function parseSend(body: unknown): DeliveryInput {
   if (o.notes !== undefined && typeof o.notes !== 'string') {
     throw new HttpFailure('bad_request', 'notes must be a string');
   }
+  if (o.sessionId !== undefined && typeof o.sessionId !== 'string') {
+    throw new HttpFailure('bad_request', 'sessionId must be a string');
+  }
   const png = Buffer.from(o.png.replace(/^data:image\/png;base64,/, ''), 'base64');
   if (png.length === 0) throw new HttpFailure('bad_request', 'png must be base64');
-  return { png, scene: o.scene, boardName: o.board, ...(o.notes ? { notes: o.notes } : {}) };
+  return {
+    png,
+    scene: o.scene,
+    boardName: o.board,
+    ...(o.sessionId ? { sessionId: o.sessionId } : {}),
+    ...(o.notes ? { notes: o.notes } : {}),
+  };
 }
 

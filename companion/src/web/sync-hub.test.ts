@@ -133,3 +133,32 @@ describe('SyncHub', () => {
     expect(performance.now() - t0).toBeLessThan(100);
   });
 });
+
+describe('board size', () => {
+  const sized = (id: string, version: number, chars: number) => el(id, version, 1, { pad: 'x'.repeat(chars) });
+
+  it('tracks the JSON size of each board as elements change', () => {
+    const hub = new SyncHub();
+    const a = sized('a', 1, 100);
+    hub.local('b', [a]);
+    expect(hub.bytes('b')).toBe(JSON.stringify(a).length);
+    const a2 = sized('a', 2, 10);
+    hub.local('b', [a2, sized('c', 1, 50)]);
+    expect(hub.bytes('b')).toBe(JSON.stringify(a2).length + JSON.stringify(sized('c', 1, 50)).length);
+    hub.local('b', [sized('a', 1, 5000)]);
+    expect(hub.bytes('b')).toBe(JSON.stringify(a2).length + JSON.stringify(sized('c', 1, 50)).length);
+    expect(hub.bytes('other')).toBe(0);
+  });
+
+  it('says whether a merge fits under a cap, counting only winning elements', () => {
+    const hub = new SyncHub();
+    hub.local('b', [sized('a', 2, 100)]);
+    const now = hub.bytes('b');
+    expect(hub.fits('b', [sized('a', 1, 10_000)], now)).toBe(true);
+    expect(hub.fits('b', [sized('a', 3, 50)], now)).toBe(true);
+    expect(hub.fits('b', [sized('a', 3, 150)], now)).toBe(false);
+    expect(hub.fits('b', [sized('n', 1, 10)], now)).toBe(false);
+    expect(hub.fits('new', [sized('n', 1, 10)], 1000)).toBe(true);
+    expect(hub.fits('b', [sized('n', 1, 10), sized('n', 2, 10)], now + JSON.stringify(sized('n', 2, 10)).length)).toBe(true);
+  });
+});

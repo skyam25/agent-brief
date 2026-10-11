@@ -45,11 +45,16 @@ test.afterEach(async () => {
   await mac.app.close();
 });
 
-const openIpad = (): Promise<IpadStatus> => mac.app.evaluate(async () => {
-  const c = (globalThis as any).__companion;
-  await c.openIpad();
-  return c.ipad.current();
-});
+async function openIpad(): Promise<IpadStatus> {
+  const sheet = mac.page.getByTestId('ipad-sheet');
+  const visible = await sheet.isVisible();
+  const previous = visible ? await mac.page.getByTestId('ipad-url').textContent() : null;
+  await mac.page.getByTestId(visible ? 'ipad-new-code' : 'ipad-open').click();
+  await expect(sheet).toBeVisible();
+  await expect(mac.page.getByTestId('ipad-url')).toHaveText(/^http:\/\//);
+  if (previous) await expect(mac.page.getByTestId('ipad-url')).not.toHaveText(previous);
+  return mac.app.evaluate(() => (globalThis as any).__companion.ipad.current());
+}
 
 /** A new iPad-sized browser that pairs with a fresh code and waits for the board. */
 async function pairedPage(): Promise<Page> {
@@ -62,6 +67,9 @@ async function pairedPage(): Promise<Page> {
   return page;
 }
 
+/** The device credential the page keeps in localStorage. */
+const credentialOf = (page: Page) => page.evaluate(() => localStorage.getItem('agent-brief-device'));
+
 const liveIds = async (page: Page) =>
   (await sceneElements(page)).filter((e) => !e.isDeleted).map((e) => e.id as string);
 
@@ -73,7 +81,7 @@ async function stroke(page: Page, y: number, from = 200, to = 500) {
   await page.mouse.up();
 }
 
-test('pairing: no cookie gets 401, a code works once, and revoking disconnects', async () => {
+test('pairing: no credential gets 401, a code works once, no cookie is set, and revoking disconnects', async () => {
   const { url, firstRun } = await openIpad();
   expect(firstRun).toBe(true);
   const origin = new URL(url!).origin;
@@ -84,7 +92,7 @@ test('pairing: no cookie gets 401, a code works once, and revoking disconnects',
 
   const stranger = await browser.newContext();
   contexts.push(stranger);
-  expect((await stranger.request.get(`${origin}/`)).status()).toBe(401);
+  expect((await stranger.request.get(`${origin}/`)).status()).toBe(200);
   expect((await stranger.request.get(`${origin}/api/boards`)).status()).toBe(401);
 
   const ipadContext = await browser.newContext({ ...IPAD });
@@ -92,13 +100,19 @@ test('pairing: no cookie gets 401, a code works once, and revoking disconnects',
   const ipad = await ipadContext.newPage();
   await ipad.goto(url!);
   await ipad.waitForFunction(() => !!(window as any).__board?.api);
-  expect(new URL(ipad.url()).search).toBe('');
-  expect((await ipadContext.request.get(`${origin}/api/boards`)).status()).toBe(200);
+  expect(new URL(ipad.url()).hash).toBe('');
+  expect(await ipadContext.cookies()).toEqual([]);
+  const credential = await credentialOf(ipad);
+  const auth = { headers: { Authorization: `Bearer ${credential}` } };
+  expect((await ipadContext.request.get(`${origin}/api/boards`)).status()).toBe(401);
+  expect((await ipadContext.request.get(`${origin}/api/boards`, auth)).status()).toBe(200);
 
-  // The same code a second time is refused.
-  const late = await browser.newContext();
-  contexts.push(late);
-  expect((await late.request.get(url!, { maxRedirects: 0 })).status()).toBe(401);
+  // The same code a second time is refused, and a stale link says so.
+  const code = new URLSearchParams(new URL(url!).hash.slice(1)).get('pair');
+  expect((await stranger.request.post(`${origin}/api/pair`, { data: { token: code } })).status()).toBe(401);
+  const late = await stranger.newPage();
+  await late.goto(url!);
+  await expect(late.getByTestId('notice')).toHaveText(/used or expired/);
 
   await expect(mac.page.getByTestId('ipad-devices').locator('li')).toHaveCount(1);
   await expect(mac.page.getByTestId('ipad-devices')).toContainText('iPad');
@@ -107,7 +121,7 @@ test('pairing: no cookie gets 401, a code works once, and revoking disconnects',
   const [device] = (await openIpad()).devices;
   await mac.page.getByTestId(`ipad-revoke-${device.id}`).click();
   await expect(ipad.getByTestId('notice')).toHaveText(/not paired/);
-  expect((await ipadContext.request.get(`${origin}/api/boards`)).status()).toBe(401);
+  expect((await ipadContext.request.get(`${origin}/api/boards`, auth)).status()).toBe(401);
 });
 
 test('C6.2 a stroke reaches the other clients within 500 ms, and concurrent edits both survive', async () => {
@@ -191,6 +205,7 @@ test('C6.4 Send on the iPad delivers to the Mac\'s target session', async () => 
   await expect.poll(async () => (await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBe('sb');
 
   const ipad = await pairedPage();
+  await expect(ipad.getByTestId('target')).toHaveText('Sends to Beta');
   await expect(ipad.getByTestId('voice-note')).toHaveText('Voice records on the Mac');
   await expect(ipad.getByTestId('mic')).toHaveCount(0);
   await stroke(ipad, 300);
@@ -207,6 +222,24 @@ test('C6.4 Send on the iPad delivers to the Mac\'s target session', async () => 
   const polled = await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=sb&wait=0');
   expect(polled.body.deliveries.map((d) => d.id)).toEqual([id]);
   expect((await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=sa&wait=0')).body.deliveries).toEqual([]);
+});
+
+test('the iPad follows the Mac\'s session choice, and a Send naming the old one is refused', async () => {
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'sa', cwd: mkdtempSync(join(tmpdir(), 'project-')), title: 'Alpha' });
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'sb', cwd: mkdtempSync(join(tmpdir(), 'project-')), title: 'Beta' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 'sb' });
+  const ipad = await pairedPage();
+  await expect(ipad.getByTestId('target')).toHaveText('Sends to Beta');
+
+  await sock(socketPath, 'POST', '/open', { sessionId: 'sa' });
+  await expect(ipad.getByTestId('target')).toHaveText('Sends to Alpha');
+
+  const r = await ipad.request.post(new URL('/api/send', ipad.url()).href, {
+    headers: { Authorization: `Bearer ${await credentialOf(ipad)}` },
+    data: { board: 'scratch', png: 'AAAA', scene: {}, sessionId: 'sb' },
+  });
+  expect(r.status()).toBe(409);
+  expect(await r.json()).toMatchObject({ destination: { sessionId: 'sa', label: 'Alpha' } });
 });
 
 test('Stop closes the iPad server and the page loses its connection', async () => {
@@ -233,7 +266,7 @@ test('an Apple Pencil touch turns on Excalidraw pen mode on the iPad', async () 
 test('Send on the iPad is refused until a session is chosen on the Mac', async () => {
   await sock(socketPath, 'POST', '/sessions', { sessionId: 'sa', cwd: mkdtempSync(join(tmpdir(), 'project-')), title: 'Alpha' });
   const ipad = await pairedPage();
-  await expect(ipad.getByTestId('target')).toHaveText('Sends to the session chosen on the Mac');
+  await expect(ipad.getByTestId('target')).toHaveText('Choose a session on the Mac');
   await stroke(ipad, 300);
   await ipad.getByTestId('send').click();
   await expect(ipad.getByTestId('send-status')).toContainText('Choose a Claude Code session on the Mac first.');
@@ -250,7 +283,7 @@ test('a Send from the iPad carries the Mac\'s voice and the timeline of the iPad
   // Recording starts on the Mac, then the panel goes away while the user works on the iPad.
   await mac.page.getByTestId('ipad-close').click();
   await mac.page.getByTestId('mic').click();
-  await expect(mac.page.getByTestId('mic')).toHaveText('● 00:00');
+  await expect(mac.page.getByTestId('mic')).toHaveText('00:00');
   await mac.app.evaluate(() => (globalThis as any).__companion.panel.hide());
 
   await stroke(ipad, 250, 400, 800);

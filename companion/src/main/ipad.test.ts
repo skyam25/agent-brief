@@ -16,7 +16,7 @@ function make(over: Partial<ConstructorParameters<typeof Ipad>[0]> = {}) {
     devicesFile: join(dir, 'devices.json'),
     deliver: vi.fn(),
     currentBoard: () => 'scratch',
-    describeSession: (id) => id,
+    destination: () => ({ sessionId: 's', label: 'S' }),
     introShown: () => intro,
     markIntroShown: () => {
       intro = true;
@@ -39,7 +39,7 @@ describe('Ipad', () => {
     const { ipad, statuses } = make({ host: '127.0.0.1', port: 0 });
     const first = await ipad.open();
     expect(first).toMatchObject({ running: true, host: '127.0.0.1', firstRun: true, devices: [] });
-    expect(first.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/pair\?token=/);
+    expect(first.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/#pair=/);
     expect(first.qrSvg).toContain('<svg');
     const second = await ipad.open();
     expect(second.firstRun).toBe(false);

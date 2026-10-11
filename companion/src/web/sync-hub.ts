@@ -52,7 +52,12 @@ export function isSyncElement(value: unknown): value is SyncElement {
 interface Board {
   elements: Map<string, SyncElement>;
   clients: Map<string, HubClient>;
+  /** JSON length of each element, and their sum. */
+  sizes: Map<string, number>;
+  bytes: number;
 }
+
+const sizeOf = (e: SyncElement) => JSON.stringify(e).length;
 
 export class SyncHub {
   private boardMap = new Map<string, Board>();
@@ -61,7 +66,7 @@ export class SyncHub {
   private board(name: string): Board {
     let b = this.boardMap.get(name);
     if (!b) {
-      b = { elements: new Map(), clients: new Map() };
+      b = { elements: new Map(), clients: new Map(), sizes: new Map(), bytes: 0 };
       this.boardMap.set(name, b);
     }
     return b;
@@ -93,6 +98,25 @@ export class SyncHub {
     }));
   }
 
+  /** The board's elements as JSON, deleted ones included, in characters. */
+  bytes(board: string): number {
+    return this.boardMap.get(board)?.bytes ?? 0;
+  }
+
+  /** Whether merging `elements` keeps the board at or under `maxBytes`. */
+  fits(board: string, elements: readonly SyncElement[], maxBytes: number): boolean {
+    const b = this.boardMap.get(board);
+    let bytes = b?.bytes ?? 0;
+    const seen = new Map<string, SyncElement>();
+    for (const incoming of elements) {
+      const current = seen.get(incoming.id) ?? b?.elements.get(incoming.id);
+      if (current && !remoteWins(current, incoming)) continue;
+      bytes += sizeOf(incoming) - (current ? sizeOf(current) : 0);
+      seen.set(incoming.id, incoming);
+    }
+    return bytes <= maxBytes;
+  }
+
   /**
    * Merges elements from one client and sends the changed ones to the others.
    * The sender gets back any element the hub kept because its own copy won.
@@ -106,6 +130,9 @@ export class SyncHub {
       const current = b.elements.get(incoming.id);
       if (!current || remoteWins(current, incoming)) {
         b.elements.set(incoming.id, incoming);
+        const size = sizeOf(incoming);
+        b.bytes += size - (b.sizes.get(incoming.id) ?? 0);
+        b.sizes.set(incoming.id, size);
         changed.push(incoming);
       } else if (current.version !== incoming.version || current.versionNonce !== incoming.versionNonce) {
         kept.push(current);

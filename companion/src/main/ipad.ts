@@ -6,7 +6,7 @@ import type { DeliveryInput } from '../server/contract';
 import type { IpadStatus } from '../shared/ipc';
 import { pickLanInterface, type LanInterface } from '../web/lan';
 import type { SyncHub } from '../web/sync-hub';
-import { createWebServer, DEFAULT_PORT, type WebServer } from '../web/web-server';
+import { createWebServer, DEFAULT_PORT, type Destination, type WebServer } from '../web/web-server';
 
 export interface IpadOptions {
   hub: SyncHub;
@@ -15,8 +15,8 @@ export interface IpadOptions {
   deliver: (input: DeliveryInput) => Promise<Delivery>;
   /** The board the Mac shows, which the iPad opens first. */
   currentBoard: () => string;
-  /** A session's title or folder name, for "Sent to …" on the iPad. */
-  describeSession: (sessionId: string) => string;
+  /** The session the Mac sends to now, named for "Sends to …" on the iPad. */
+  destination: () => Destination | undefined;
   /** Fixed address, for tests. Otherwise the Mac's private LAN address. */
   host?: string;
   port?: number;
@@ -67,7 +67,7 @@ export class Ipad {
         hub: this.opts.hub,
         deliver: this.opts.deliver,
         current: this.opts.currentBoard,
-        describeSession: this.opts.describeSession,
+        destination: this.opts.destination,
       });
       server.onChange((s) => {
         if (!s.running && this.server === server) this.server = undefined;
@@ -97,6 +97,11 @@ export class Ipad {
     this.server = undefined;
     await server?.stop();
     return this.publish({ running: false, url: undefined, qrSvg: undefined });
+  }
+
+  /** Tells connected iPads where Send goes now. */
+  destinationChanged(): void {
+    this.server?.destinationChanged();
   }
 
   revoke(id: string): IpadStatus {

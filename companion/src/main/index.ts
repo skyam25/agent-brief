@@ -326,7 +326,10 @@ async function start(): Promise<void> {
     devicesFile: join(dataDir, 'devices.json'),
     deliver: (input) => deliverFromDevice(input),
     currentBoard: () => state.state.currentBoard,
-    describeSession: (id) => sessionName(id),
+    destination: () => {
+      const id = server.sessions().targetSessionId;
+      return id ? { sessionId: id, label: sessionName(id) } : undefined;
+    },
     // Tests bind to loopback on a free port.
     host: testMode ? (process.env.COMPANION_WEB_HOST ?? '127.0.0.1') : undefined,
     port: testMode ? Number(process.env.COMPANION_WEB_PORT ?? 0) : undefined,
@@ -334,6 +337,7 @@ async function start(): Promise<void> {
     markIntroShown: () => state.update({ ipadIntroShown: true }),
     onStatus: (status) => send(CH.ipad, status, false),
   });
+  server.onSessionsChange(() => ipad.destinationChanged());
   /**
    * A Send from the iPad. When the Mac records voice on that board, the Mac's
    * clip, stroke log and numbered PNG go with it; otherwise the iPad's sketch goes as is.
@@ -351,7 +355,7 @@ async function start(): Promise<void> {
     }
     const { input: composed, warnings } = await composeFrom({ ...mac, notes: input.notes ?? mac.notes });
     for (const w of warnings) console.warn(`[companion] ${w}`);
-    const delivery = await deliver(composed);
+    const delivery = await deliver({ ...composed, sessionId: input.sessionId });
     lastDelivery = composed;
     await clear();
     return delivery;

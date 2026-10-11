@@ -55,10 +55,15 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 
 ## iPad
 
-- File > Open on iPad… starts a web server on the Mac's private LAN address, port 47613, and shows a QR code. It never binds to a public address.
-- The code pairs one device once. The sheet lists paired devices, and each can be revoked.
+- The board's Open on iPad button (or File > Open on iPad…) starts a web server on the Mac's private LAN address, port 47613, and shows a QR code. The board button preserves the current session target. It never binds to a public address.
+- The QR code holds a one-use pairing code in the URL fragment, good for 10 minutes. A new code cancels the old one. The page trades the code for a device credential at `POST /api/pair`, keeps it in localStorage, and clears the fragment.
+- The credential travels as `Authorization: Bearer` on HTTP and as a second WebSocket subprotocol, `auth.<credential>`, next to `agent-brief`. There are no cookies, so other services on the Mac's address never receive it. The client files are open to the allowed subnet; the API and the WebSocket need the credential.
+- A device unused for 30 days is forgotten and must pair again. The sheet lists paired devices, and each can be revoked. `devices.json` stores only a hash of each secret.
+- The iPad shows the session Send goes to, and the server pushes changes over the WebSocket. Send names that session. If the Mac's choice changed, the server answers 409 with the new destination and the iPad shows it, so the next Send goes there.
+- `src/web/limits.ts` caps HTTP requests and WebSocket messages per device, Sends per device, open sockets per device, and each board's size. Real drawing stays well under each.
 - The iPad client is a second Vite entry, `src/web-client/`, built into `out/web`. It reuses the board canvas, picker and strip through a `BoardHost` built on fetch and WebSocket.
 - One `SyncHub` in main joins the Mac panel, Claude's draws and every iPad client. Changes from an iPad reach the panel without entering its undo history, and the Mac saves them.
+- Traffic is plain HTTP and ws on the LAN, so use iPad sharing only on networks you trust.
 - The server stops after 8 hours with no client, and on quit.
 
 ## Tests

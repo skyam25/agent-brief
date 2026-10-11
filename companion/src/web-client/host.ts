@@ -4,6 +4,41 @@ import type { BoardEntry, BoardHost, SendPayload, Theme } from '../shared/ipc';
 
 export class NotPairedError extends Error {}
 
+/** Where Send goes, as the Mac last said. */
+export interface Destination {
+  sessionId: string;
+  label: string;
+}
+
+/** localStorage is scoped to this origin, port included, so other services on the Mac never see the key. */
+const CREDENTIAL_KEY = 'agent-brief-device';
+
+function storedCredential(): string | undefined {
+  try {
+    return localStorage.getItem(CREDENTIAL_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Trades a `#pair=<code>` fragment for a device credential, stores it, and
+ * takes the code out of the address bar. Without a fragment it does nothing.
+ */
+export async function pairFromLocation(): Promise<void> {
+  const code = new URLSearchParams(location.hash.slice(1)).get('pair');
+  if (!code) return;
+  history.replaceState(null, '', location.pathname);
+  const res = await fetch('/api/pair', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: code }),
+  });
+  const body = (await res.json().catch(() => ({}))) as { credential?: string; error?: string };
+  if (!res.ok || !body.credential) throw new NotPairedError(body.error ?? `HTTP ${res.status}`);
+  localStorage.setItem(CREDENTIAL_KEY, body.credential);
+}
+
 type RemoteFn = (board: string, elements: unknown[]) => void;
 
 /** Base64 of bytes, in chunks so large PNGs do not overflow the call stack. */
@@ -23,14 +58,34 @@ export class WebHost implements BoardHost {
   onUnpaired: () => void = () => {};
   /** Called when the live connection drops or comes back. */
   onConnection: (live: boolean) => void = () => {};
+  /** Called when the Mac's chosen session changes. */
+  onDestination: (destination: Destination | null) => void = () => {};
+  /** Called with a message from the Mac, such as a full board. */
+  onNotice: (text: string) => void = () => {};
+  /** Where Send goes. Send names it, so a changed choice on the Mac is refused. */
+  destination: Destination | null = null;
+
+  private setDestination(destination: Destination | null): void {
+    this.destination = destination;
+    this.onDestination(destination);
+  }
 
   private async json<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(path, { credentials: 'same-origin', ...init });
+    const credential = storedCredential();
+    if (!credential) {
+      this.onUnpaired();
+      throw new NotPairedError('This device is not paired with the Mac.');
+    }
+    const res = await fetch(path, {
+      ...init,
+      headers: { ...init?.headers, Authorization: `Bearer ${credential}` },
+    });
     if (res.status === 401) {
       this.onUnpaired();
       throw new NotPairedError('This device is not paired with the Mac.');
     }
-    const body = (await res.json().catch(() => ({}))) as T & { error?: string };
+    const body = (await res.json().catch(() => ({}))) as T & { error?: string; destination?: Destination | null };
+    if (body.destination !== undefined) this.setDestination(body.destination);
     if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
     return body;
   }
@@ -73,7 +128,13 @@ export class WebHost implements BoardHost {
       const r = await this.json<{ to?: string }>('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ board: p.boardName, png: base64(p.png), scene: p.scene, notes: p.notes }),
+        body: JSON.stringify({
+          board: p.boardName,
+          png: base64(p.png),
+          scene: p.scene,
+          notes: p.notes,
+          sessionId: this.destination?.sessionId,
+        }),
       });
       return { ok: true, message: `Sent to ${r.to ?? "the Mac's Claude session"}` };
     } catch (err) {
@@ -107,7 +168,9 @@ export class WebHost implements BoardHost {
     this.board = board;
     const old = this.ws;
     old?.close();
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?board=${encodeURIComponent(board)}`);
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?board=${encodeURIComponent(board)}`;
+    // Browsers cannot set headers on a WebSocket, so the credential rides as a second subprotocol.
+    const ws = new WebSocket(url, ['agent-brief', `auth.${storedCredential() ?? ''}`]);
     this.ws = ws;
     ws.onopen = () => {
       this.onConnection(true);
@@ -117,8 +180,13 @@ export class WebHost implements BoardHost {
       }
     };
     ws.onmessage = (e) => {
-      const msg = JSON.parse(String(e.data)) as { type: string; board: string; elements: unknown[] };
+      const msg = JSON.parse(String(e.data)) as
+        | { type: 'destination'; destination: Destination | null }
+        | { type: 'notice'; board: string; text: string }
+        | { type: 'snapshot' | 'update'; board: string; elements: unknown[] };
+      if (msg.type === 'destination') return this.setDestination(msg.destination);
       if (msg.board !== this.board) return;
+      if (msg.type === 'notice') return this.onNotice(msg.text);
       for (const fn of this.remote) fn(msg.board, msg.elements);
     };
     ws.onclose = (e) => {

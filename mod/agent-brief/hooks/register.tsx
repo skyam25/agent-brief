@@ -494,8 +494,7 @@ export const register: Register = (on, options) => {
     return (
       <Box>
         <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void sketch()} />
-        <Text dimColor> open the Agent Brief board for this session</Text>
-        {ingesting !== null && <Text dimColor> · Transcribing feedback: {ingesting}…</Text>}
+        {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}
       </Box>
     )
   })

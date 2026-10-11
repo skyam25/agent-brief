@@ -96,5 +96,6 @@ export class Recorder {
   /** Forgets saved segments, after they were sent. */
   clear(): void {
     this.segments.length = 0;
+    this.emit();
   }
 }
