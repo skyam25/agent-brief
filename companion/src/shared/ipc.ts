@@ -235,8 +235,8 @@ export interface CompanionApi extends BoardHost {
   onUpdate(fn: (status: UpdateStatus) => void): void;
   /** Remembers the mode for the next launch and the File menu. */
   setMode(mode: Mode): void;
-  /** Fires when the capture shortcut or a menu asks for a new note. */
-  onNewNote(fn: () => void): void;
+  /** Fires when the capture shortcut, a menu or /write asks for a new note, with any starting text. */
+  onNewNote(fn: (text?: string) => void): void;
   /** Ready drafts first by rank, then notes, newest first. */
   listDrafts(): Promise<Draft[]>;
   /** Creates or replaces a draft. */

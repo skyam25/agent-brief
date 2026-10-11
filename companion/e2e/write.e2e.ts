@@ -193,6 +193,15 @@ test('/sketch with no prompt leaves Write mode, and capture afterwards picks no 
   await expect(page.getByTestId('send')).toHaveText('Send to…');
 });
 
+test('/write can start the note with text from Claude Code', async () => {
+  const { page } = ctx;
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1', mode: 'write', text: 'Plan:\n1. Add the button' });
+  await expect(page.getByTestId('write')).toBeVisible();
+  await expect(page.getByTestId('draft-body')).toHaveValue('Plan:\n1. Add the button');
+  await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['Plan:\n1. Add the button']);
+});
+
 test('/write opens a new note bound to the session, and Send delivers it there', async () => {
   const { app, page } = ctx;
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });

@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  expandPastes,
   fillRequest,
+  lastReply,
+  rememberPaste,
   launchFailureText,
   nextBackoff,
   parseDeliveries,
@@ -100,5 +103,32 @@ describe('session label', () => {
     const long = summaryOf([user('word '.repeat(40))])!
     expect(long).toHaveLength(80)
     expect(long.endsWith('…')).toBe(true)
+  })
+})
+
+describe('pastes and replies for Write', () => {
+  test('keeps what a large paste held and puts it back in place of its placeholder', () => {
+    const pastes = new Map<number, string>()
+    rememberPaste(pastes, 'see ', 'see [Pasted text #1 +3 lines] now', 'a\nb\nc\nd')
+    expect(expandPastes('see [Pasted text #1 +3 lines] now', pastes)).toBe('see a\nb\nc\nd now')
+  })
+
+  test('leaves a placeholder it never saw, and ignores an input that is a placeholder', () => {
+    const pastes = new Map<number, string>()
+    rememberPaste(pastes, '', '[Pasted text #2 +9 lines]', '[Pasted text #2 +9 lines]')
+    expect(pastes.size).toBe(0)
+    expect(expandPastes('[Pasted text #2 +9 lines] [Image #1]', pastes)).toBe('[Pasted text #2 +9 lines] [Image #1]')
+  })
+
+  test('typing next to a placeholder records nothing new', () => {
+    const pastes = new Map([[1, 'held']])
+    rememberPaste(pastes, '[Pasted text #1 +1 lines]', '[Pasted text #1 +1 lines] x', ' x')
+    expect(pastes.get(1)).toBe('held')
+  })
+
+  test('the last reply is the newest assistant message with text', () => {
+    const msg = (role: string, text: string) => ({ role, text })
+    expect(lastReply([])).toBeUndefined()
+    expect(lastReply([msg('user', 'hi'), msg('assistant', '  Plan: ship it  '), msg('assistant', ''), msg('user', '/write last')])).toBe('Plan: ship it')
   })
 })

@@ -22,11 +22,14 @@ import {
   SKETCH_OPENED,
   WRITE_OPENED,
   deliveriesPath,
+  expandPastes,
   fillRequest,
+  lastReply,
   launchFailureText,
   nextBackoff,
   parseDeliveries,
   parseJson,
+  rememberPaste,
   hostOf,
   sessionInfo,
   socketPathOf,
@@ -225,8 +228,15 @@ async function endCompanion($: EngineInterface, sessionId: string, isFinal: bool
 
 type OpenMode = 'sketch' | 'write'
 
+/** What large pastes in the prompt box held, by placeholder number. Cleared when the box empties. */
+const pastes = new Map<number, string>()
+
 /** Answers `/sketch` and `/write`: starts the app when needed, then opens the panel in that mode. */
-async function openCompanion($: EngineInterface, prompt: string, mode: OpenMode): Promise<string> {
+async function openCompanion(
+  $: EngineInterface,
+  mode: OpenMode,
+  { prompt = '', text = '' }: { prompt?: string; text?: string } = {},
+): Promise<string> {
   if (!(await isHealthy($))) {
     if (companionConfig.companionLaunch.trim() !== '') {
       await $.process.run(['sh', '-c', companionConfig.companionLaunch], { timeoutMs: 5_000 }).catch(() => undefined)
@@ -239,10 +249,28 @@ async function openCompanion($: EngineInterface, prompt: string, mode: OpenMode)
     sessionId: await $.session.id(),
     ...(prompt === '' ? {} : { prompt }),
     ...(mode === 'write' ? { mode } : {}),
+    ...(mode === 'write' && text !== '' ? { text } : {}),
   }
   const opened = await call($, 'POST', '/open', body)
   if (!opened?.ok) return 'Agent Brief is running but did not open the panel.'
   return mode === 'write' ? WRITE_OPENED : SKETCH_OPENED
+}
+
+/** `/write last` takes Claude's newest reply; anything else after `/write` starts the note. */
+async function writeCommand($: EngineInterface, args: string): Promise<string> {
+  if (args.toLowerCase() !== 'last') return openCompanion($, 'write', { text: args })
+  const reply = lastReply(await $.session.messages().catch(() => []))
+  if (reply === undefined) return 'Claude has not replied yet in this session.'
+  return openCompanion($, 'write', { text: reply })
+}
+
+/** The Write button moves the prompt box's draft, pastes included, into the new note. */
+async function writeFromBox($: EngineInterface): Promise<string> {
+  const box = await $.prompt.read()
+  const text = expandPastes(box.text, pastes).trim()
+  const result = await openCompanion($, 'write', { text })
+  if (result === WRITE_OPENED && text !== '') await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)
+  return result
 }
 
 // One ingest run at a time per module instance.
@@ -445,8 +473,8 @@ export const register: Register = (on, options) => {
       })
       await $.command.register({
         name: 'write',
-        description: 'Open a new Agent Brief note for this session',
-        argumentHint: '[what to write about]',
+        description: 'Open a new Agent Brief note for this session: with text, or Claude\'s last reply',
+        argumentHint: '[text | last]',
       })
       startCompanion($, companionSettings)
     } catch (err) {
@@ -500,7 +528,7 @@ export const register: Register = (on, options) => {
     const ingesting = await read($, ingestingRef)
     const { Box, Button, Text } = $.ui.resolve(e)
     const open = async (mode: OpenMode) => {
-      const result = await openCompanion($, '', mode)
+      const result = mode === 'write' ? await writeFromBox($) : await openCompanion($, 'sketch')
       if (result !== SKETCH_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
     }
     return (
@@ -518,6 +546,14 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'sketch' }, async ($, e) => ({ text: await openCompanion($, e.args.trim(), 'sketch') }))
-  on('command.run', { command: 'write' }, async ($, e) => ({ text: await openCompanion($, e.args.trim(), 'write') }))
+  on('command.run', { command: 'sketch' }, async ($, e) => ({ text: await openCompanion($, 'sketch', { prompt: e.args.trim() }) }))
+  on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
+
+  // Large pastes show as placeholders in the box; keep what each held so Write can carry it.
+  on('prompt.edit', async ($, e, next) => {
+    const box = await next(e)
+    if (box.text === '') pastes.clear()
+    else rememberPaste(pastes, e.text, box.text, e.inputText)
+    return box
+  })
 }

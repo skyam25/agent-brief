@@ -71,11 +71,17 @@ A fill never replaces the box. If the box is empty, the draft goes in as it is. 
 3. Registers the session, then opens the panel with this session as the Send target. Any text after `/sketch` shows at the top of the panel.
 4. Replies `Agent Brief open — sketch, then press Send.`
 
-### `/write [what to write about]`
+### `/write [text | last]`
 
-Works like `/sketch`, but opens Write mode on a new note instead of the board. It replies `Agent Brief open — write, then press Send.` It needs Agent Brief 0.2.2 or newer.
+Works like `/sketch`, but opens Write mode on a new note instead of the board, and replies `Agent Brief open — write, then press Send.`
 
-The band above the prompt has a button for each, **✎ Sketch** and **¶ Write**.
+- Text after `/write` starts the note.
+- `/write last` starts it with Claude's newest reply, to edit and send back.
+- The **¶ Write** button moves the prompt box's draft into the note and empties the box. Large pastes, which the box shows as `[Pasted text #1 +N lines]`, go in as the text they held. Pasted images stay behind as `[Image #N]`, because the plugin cannot read their bytes.
+
+Starting text needs Agent Brief 0.2.3 or newer.
+
+The band above the prompt has a button for each mode, **✎ Sketch** and **¶ Write**.
 
 ### Skill
 

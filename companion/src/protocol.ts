@@ -91,6 +91,8 @@ export interface OpenRequest {
   prompt?: string;
   /** `write` opens Write mode on a new note instead of the board. Defaults to `sketch`. */
   mode?: 'sketch' | 'write';
+  /** In Write mode, the new note's text. */
+  text?: string;
 }
 
 export interface OpenResponse {

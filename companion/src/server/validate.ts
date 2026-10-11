@@ -20,6 +20,9 @@ const NUMBER_FIELDS = ['x', 'y', 'width', 'height'] as const;
 
 type Obj = Record<string, unknown>;
 
+/** Matches the draft body limit in main/drafts.ts. */
+const MAX_NOTE = 200_000;
+
 function fail(message: string): never {
   throw new BadRequest(message);
 }
@@ -144,7 +147,14 @@ export function parseOpen(body: unknown): OpenRequest {
     sessionId: optString(o, 'sessionId', 'body'),
     prompt: optString(o, 'prompt', 'body'),
     mode: openMode(o),
+    text: openText(o),
   };
+}
+
+function openText(o: Obj): string | undefined {
+  const text = optString(o, 'text', 'body');
+  if (text !== undefined && text.length > MAX_NOTE) fail(`body.text must be under ${MAX_NOTE} characters`);
+  return text;
 }
 
 function openMode(o: Obj): OpenRequest['mode'] {
