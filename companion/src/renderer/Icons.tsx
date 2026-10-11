@@ -49,13 +49,6 @@ export const ChevronIcon = () => (
   </Icon>
 );
 
-export const TabletIcon = () => (
-  <Icon>
-    <rect x="4" y="2" width="16" height="20" rx="2" />
-    <path d="M12 18h.01" />
-  </Icon>
-);
-
 export const NotesIcon = () => (
   <Icon>
     <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />

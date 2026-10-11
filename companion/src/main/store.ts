@@ -152,8 +152,6 @@ export interface AppState extends Settings {
   currentBoard: string;
   width: number;
   height: number;
-  /** Set once the macOS firewall note for the iPad server was shown. */
-  ipadIntroShown?: boolean;
   /** Project folders Claude Code sessions ran in, most recent first. */
   recentProjects?: string[];
 }

@@ -11,7 +11,6 @@ export interface MenuActions {
   newBoard: () => void;
   openSettings: () => void;
   installCli: () => void;
-  openIpad: () => void;
   update: UpdateStatus;
   checkForUpdates: () => void;
   installUpdate: () => void;
@@ -50,7 +49,6 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
       label: 'File',
       submenu: [
         { label: 'New Board', accelerator: 'Command+N', click: a.newBoard },
-        { label: 'Open on iPad…', click: a.openIpad },
         { label: `Show or Hide Panel (${acceleratorLabel(a.hotkey)})`, click: a.togglePanel },
         { type: 'separator' },
         { role: 'close' },
@@ -65,7 +63,6 @@ export function trayMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
   return [
     { label: 'Show Panel', click: a.showPanel },
     { label: 'New Board', click: a.newBoard },
-    { label: 'Open on iPad…', click: a.openIpad },
     { label: `Toggle with ${acceleratorLabel(a.hotkey)}`, enabled: false },
     { type: 'separator' },
     { label: 'Settings…', click: a.openSettings },

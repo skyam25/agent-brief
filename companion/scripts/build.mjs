@@ -1,4 +1,5 @@
 // Builds main and preload with esbuild, the renderer with Vite, and the companion CLI.
+import { rmSync } from 'node:fs';
 import { build as esbuild, context } from 'esbuild';
 import { build as viteBuild } from 'vite';
 
@@ -33,9 +34,10 @@ export async function watchMain(onRebuild) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  // Packaging ships all of out/, so start empty.
+  rmSync('out', { recursive: true, force: true });
   await buildMain();
   await viteBuild({ configFile: 'vite.config.ts', logLevel: 'warn' });
-  await viteBuild({ configFile: 'vite.web.config.ts', logLevel: 'warn' });
   await esbuild({
     entryPoints: ['cli/run.ts'],
     bundle: true,

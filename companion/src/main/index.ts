@@ -21,7 +21,6 @@ import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protoco
 import type { BoardBackend, DeliveryInput } from '../server/contract';
 import { buildDraft, freeId, writeBundle } from '../server/bundle';
 import { createCompanionServer, type CompanionServer } from '../server/index';
-import { SyncHub } from '../web/sync-hub';
 import {
   CH,
   type BoardReply,
@@ -50,8 +49,6 @@ import {
   startSession,
   type Exec,
 } from './launch';
-import { HubLink } from './hub-link';
-import { Ipad } from './ipad';
 import { Panel } from './panel';
 import { Updater } from './updater';
 import { BoardStore, migrateData, StateFile } from './store';
@@ -312,60 +309,6 @@ async function start(): Promise<void> {
     return { ok: true, message: `Started Claude Code in ${LAUNCHER_NAMES[via]}` };
   }
 
-  // One sync hub per app: the Mac panel, Claude's draws and every iPad client meet here.
-  const hub = new SyncHub();
-  const hubLink = new HubLink({
-    hub,
-    store,
-    currentBoard: () => state.state.currentBoard,
-    toRenderer: (board, elements) => send(CH.remoteElements, board, elements),
-  });
-  const ipad = new Ipad({
-    hub,
-    staticDir: join(__dirname, '../web'),
-    devicesFile: join(dataDir, 'devices.json'),
-    deliver: (input) => deliverFromDevice(input),
-    currentBoard: () => state.state.currentBoard,
-    destination: () => {
-      const id = server.sessions().targetSessionId;
-      return id ? { sessionId: id, label: sessionName(id) } : undefined;
-    },
-    // Tests bind to loopback on a free port.
-    host: testMode ? (process.env.COMPANION_WEB_HOST ?? '127.0.0.1') : undefined,
-    port: testMode ? Number(process.env.COMPANION_WEB_PORT ?? 0) : undefined,
-    introShown: () => !!state.state.ipadIntroShown,
-    markIntroShown: () => state.update({ ipadIntroShown: true }),
-    onStatus: (status) => send(CH.ipad, status, false),
-  });
-  server.onSessionsChange(() => ipad.destinationChanged());
-  /**
-   * A Send from the iPad. When the Mac records voice on that board, the Mac's
-   * clip, stroke log and numbered PNG go with it; otherwise the iPad's sketch goes as is.
-   */
-  async function deliverFromDevice(input: DeliveryInput) {
-    if (!input.sessionId && !server.sessions().targetSessionId) {
-      throw new Error('Choose a Claude Code session on the Mac first.');
-    }
-    const mac = await bridge.request('voicePayload', { board: input.boardName }).catch(() => null);
-    const clear = () => bridge.request('clearBoard', { board: input.boardName }).catch(() => undefined);
-    if (!mac) {
-      const delivery = await deliver(input);
-      await clear();
-      return delivery;
-    }
-    const { input: composed, warnings } = await composeFrom({ ...mac, notes: input.notes ?? mac.notes });
-    for (const w of warnings) console.warn(`[companion] ${w}`);
-    const delivery = await deliver({ ...composed, sessionId: input.sessionId });
-    lastDelivery = composed;
-    await clear();
-    return delivery;
-  }
-
-  const openIpad = async () => {
-    openStandalone();
-    send(CH.ipad, await ipad.open(), true);
-  };
-
   // COMPANION_UPDATE_URL points a packaged build at a local feed, also in test runs.
   const updateUrl = process.env.COMPANION_UPDATE_URL;
   if (app.isPackaged && updateUrl) autoUpdater.setFeedURL({ provider: 'generic', url: updateUrl });
@@ -446,7 +389,6 @@ async function start(): Promise<void> {
       send(CH.openSettings);
     },
     installCli: () => void runInstallCli({ confirm: true }),
-    openIpad: () => void openIpad(),
     update: updater.current(),
     checkForUpdates,
     installUpdate: () => void updater.install(),
@@ -509,7 +451,6 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.loadBoard, (_e, name: string) => store.load(name));
   ipcMain.handle(CH.saveBoard, (_e, name: string, json: string) => {
     store.saveScene(name, json);
-    hubLink.saved(name, json);
   });
   ipcMain.handle(CH.saveNotes, (_e, name: string, text: string) => store.saveNotes(name, text));
   ipcMain.handle(CH.createBoard, (_e, name: string) => store.create(name));
@@ -546,13 +487,9 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.setSettings, (_e, patch: Partial<Settings>) => applySettings(patch ?? {}));
   ipcMain.handle(CH.mic, () => microphoneAccess());
   ipcMain.on(CH.hide, () => panel.hide());
-  ipcMain.on(CH.pushElements, (_e, board: string, elements: unknown[]) => hubLink.pushed(board, elements));
   ipcMain.handle(CH.updateGet, () => updater.current());
   ipcMain.handle(CH.updateCheck, () => updater.check());
   ipcMain.handle(CH.updateInstall, () => updater.install());
-  ipcMain.handle(CH.ipadOpen, () => ipad.open());
-  ipcMain.handle(CH.ipadStop, () => ipad.stop());
-  ipcMain.handle(CH.ipadRevoke, (_e, id: string) => ipad.revoke(id));
   ipcMain.handle(CH.historyList, () => history.list().map((e) => ({ ...e, png: history.png(e.id) })));
   ipcMain.handle(CH.historyRestore, (_e, id: string) => {
     const entry = history.get(id);
@@ -561,7 +498,6 @@ async function start(): Promise<void> {
     const name = store.create(restoredBoardName(entry.board, entry.sentAt, (n) => store.exists(n)));
     store.saveScene(name, scene);
     if (entry.notes) store.saveNotes(name, entry.notes);
-    hubLink.saved(name, scene);
     return name;
   });
   ipcMain.handle(
@@ -600,10 +536,7 @@ async function start(): Promise<void> {
     await bridge
       .request('flush', {}, 2000)
       .catch(() => undefined)
-      .then(() => {
-        hubLink.flush();
-        return Promise.all([server.close(), ipad.stop()]);
-      })
+      .then(() => server.close())
       .catch(() => undefined);
     flushed = true;
   }
@@ -634,9 +567,6 @@ async function start(): Promise<void> {
         applySettings,
         installCli: (home: string) => runInstallCli({ confirm: false, home }),
         trayMenu: () => trayMenuTemplate(actions()).map((i) => i.label ?? i.type),
-        hub,
-        ipad,
-        openIpad,
         history,
         launches,
         clipboard: () => testClipboard,
