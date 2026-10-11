@@ -20,7 +20,7 @@ function updateText(u: UpdateStatus): string | undefined {
   }
 }
 
-/** Hotkeys, delivery mode, launch at login and updates. `onChange` returns an error message when a change is refused. */
+/** Hotkeys, delivery mode, appearance, launch at login and updates. `onChange` returns an error message when a change is refused. */
 export function SettingsPopover(props: {
   settings: Settings;
   update?: UpdateStatus;
@@ -75,6 +75,19 @@ export function SettingsPopover(props: {
         >
           <option value="submit">Send it to Claude at once</option>
           <option value="fill">Put it in the prompt box</option>
+        </select>
+      </div>
+      <div className="row">
+        <label className="label" htmlFor="appearance">Appearance</label>
+        <select
+          id="appearance"
+          data-testid="settings-appearance"
+          value={props.settings.appearance}
+          onChange={(e) => void change({ appearance: e.target.value as Settings['appearance'] })}
+        >
+          <option value="system">Match the system</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
         </select>
       </div>
       <label className="row check">

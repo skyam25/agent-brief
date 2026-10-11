@@ -5,7 +5,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ErrorBody, ReadResponse } from '../src/protocol';
-import { main } from './main';
+import { main, nextSnapSlot } from './main';
+
+/** A PNG header, which is all the CLI reads to size an image. */
+function pngHeader(width: number, height: number): Buffer {
+  const b = Buffer.alloc(33);
+  b.writeUInt32BE(0x89504e47, 0);
+  b.writeUInt32BE(0x0d0a1a0a, 4);
+  b.writeUInt32BE(13, 8);
+  b.write('IHDR', 12, 'ascii');
+  b.writeUInt32BE(width, 16);
+  b.writeUInt32BE(height, 20);
+  return b;
+}
 
 interface Seen {
   method: string;
@@ -177,6 +189,13 @@ describe('read', () => {
     expect(JSON.parse(r.stdout)).toEqual(response);
   });
 
+  it('takes a region in the shape read prints', async () => {
+    handler = () => ({ json: { board: 'b', elements: [], bounds: { x: 0, y: 0, width: 0, height: 0 } } });
+    await run(['read', '--region', '840,0 760×720']);
+    await run(['read', '--region', '840,0 760,600']);
+    expect(seen.map((s) => s.url)).toEqual(['/boards/current/elements?region=840,0,760,720', '/boards/current/elements?region=840,0,760,600']);
+  });
+
   it('rejects a bad region before sending', async () => {
     const r = await run(['read', '--region', '1,2,3']);
     expect(r.code).toBe(2);
@@ -294,6 +313,93 @@ describe('draw', () => {
     const r = await run(['draw'], JSON.stringify(elements));
     expect(r.code).toBe(1);
     expect(r.stderr).toBe('error (not_found): unknown frame f9\n');
+  });
+});
+
+describe('images', () => {
+  beforeEach(() => {
+    fs.writeFileSync(path.join(dir, 'shot.png'), pngHeader(1440, 900));
+    handler = () => ({ json: { ids: ['i'], batchId: 'b1' } });
+  });
+
+  it('sends an image file as a data URL, sized from a width', async () => {
+    const r = await run(['draw'], JSON.stringify([{ type: 'image', file: 'shot.png', x: 0, y: 0, width: 400 }]));
+    expect(r.code).toBe(0);
+    const [el] = (seen[0].body as { elements: Record<string, unknown>[] }).elements;
+    expect(el.file).toBeUndefined();
+    expect(el.image).toBe(`data:image/png;base64,${pngHeader(1440, 900).toString('base64')}`);
+    expect([el.width, el.height]).toEqual([400, 250]);
+  });
+
+  it('defaults an image to 720 wide', async () => {
+    await run(['draw'], JSON.stringify([{ type: 'image', file: 'shot.png' }]));
+    const [el] = (seen[0].body as { elements: Record<string, unknown>[] }).elements;
+    expect([el.width, el.height]).toEqual([720, 450]);
+  });
+
+  it('rejects an image without a file and a file that is not an image', async () => {
+    expect((await run(['draw'], '[{"type":"image"}]')).stderr).toContain('elements[0]: image needs "file"');
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'hello');
+    expect((await run(['draw'], '[{"type":"image","file":"notes.txt"}]')).stderr).toContain('not a png, jpeg, gif or webp');
+    expect((await run(['draw'], '[{"type":"image","file":"gone.png"}]')).stderr).toContain('cannot read image gone.png');
+    expect(seen).toHaveLength(0);
+  });
+
+  it('prints warnings from the app', async () => {
+    handler = () => ({ json: { ids: ['a'], batchId: 'b1', warnings: ['arrow a is 100 px long'] } });
+    const r = await run(['draw'], '[{"type":"text","label":"x"}]');
+    expect(r.stdout).toContain('warning: arrow a is 100 px long');
+  });
+});
+
+describe('snap', () => {
+  const empty: ReadResponse = { board: 'run', elements: [], bounds: { x: 0, y: 0, width: 0, height: 0 } };
+
+  beforeEach(() => {
+    fs.writeFileSync(path.join(dir, 'shot.png'), pngHeader(1440, 900));
+  });
+
+  it('draws a captioned frame with the picture and a note', async () => {
+    handler = (req) => (req.method === 'GET' ? { json: empty } : { json: { ids: ['f1', 'i1', 'n1'], batchId: 'b1' } });
+    const r = await run(['snap', 'shot.png', '--board', 'run', '--caption', 'Cart', '--note', 'Total is wrong']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe('snapshot 1 at 0,0 · frame f1 · image i1 · note n1\n');
+    expect(seen[0]).toMatchObject({ method: 'GET', url: '/boards/run/elements' });
+    const [frame, image, note] = (seen[1].body as { elements: Record<string, unknown>[] }).elements;
+    expect(frame).toMatchObject({ type: 'frame', x: 0, y: 0, width: 760, height: 610, label: '1. Cart' });
+    expect(image).toMatchObject({ type: 'image', x: 20, y: 20, width: 720, height: 450, frameId: 'snap' });
+    expect(note).toMatchObject({ type: 'sticky', y: 490, label: 'Total is wrong', frameId: 'snap' });
+  });
+
+  it('needs a file and a positive width', async () => {
+    expect((await run(['snap'])).stderr).toContain('snap needs an image file');
+    expect((await run(['snap', 'shot.png', '--width', '0'])).stderr).toContain('--width must be a positive integer');
+  });
+});
+
+describe('nextSnapSlot', () => {
+  const frame = (id: string, x: number, y: number, height = 500) =>
+    [
+      { id, type: 'frame' as const, x, y, width: 760, height, by: 'claude' as const },
+      { id: `${id}-img`, type: 'image' as const, x: x + 20, y: y + 20, width: 720, height: 450, by: 'claude' as const, frameId: id },
+    ];
+  const board = (elements: ReadResponse['elements'], bounds = { x: 0, y: 0, width: 0, height: 0 }): ReadResponse => ({ board: 'b', elements, bounds });
+
+  it('starts at the origin of an empty board, else below what is there', () => {
+    expect(nextSnapSlot(board([]))).toEqual({ x: 0, y: 0, step: 1 });
+    const sketch = [{ id: 'r', type: 'rectangle' as const, x: 40, y: 10, width: 200, height: 80, by: 'user' as const }];
+    expect(nextSnapSlot(board(sketch, { x: 40, y: 10, width: 200, height: 80 }))).toEqual({ x: 40, y: 194, step: 1 });
+  });
+
+  it('runs three to a row, then starts a row under the tallest', () => {
+    expect(nextSnapSlot(board(frame('a', 0, 0)))).toEqual({ x: 840, y: 0, step: 2 });
+    const row = [...frame('a', 0, 0), ...frame('b', 840, 0, 600), ...frame('c', 1680, 0)];
+    expect(nextSnapSlot(board(row))).toEqual({ x: 0, y: 704, step: 4 });
+  });
+
+  it('ignores frames without a picture of Claude\'s', () => {
+    const userFrame = [{ id: 'u', type: 'frame' as const, x: 0, y: 0, width: 400, height: 300, by: 'user' as const }];
+    expect(nextSnapSlot(board(userFrame, { x: 0, y: 0, width: 400, height: 300 })).step).toBe(1);
   });
 });
 

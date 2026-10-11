@@ -9,6 +9,7 @@ const api: CompanionApi = {
   saveNotes: (name, text) => ipcRenderer.invoke(CH.saveNotes, name, text),
   createBoard: (name) => ipcRenderer.invoke(CH.createBoard, name),
   renameBoard: (from, to) => ipcRenderer.invoke(CH.renameBoard, from, to),
+  deleteBoard: (name) => ipcRenderer.invoke(CH.deleteBoard, name),
   setCurrent: (name) => ipcRenderer.invoke(CH.setCurrent, name),
   send: (payload) => ipcRenderer.invoke(CH.send, payload),
   setTarget: (sessionId) => ipcRenderer.invoke(CH.setTarget, sessionId),

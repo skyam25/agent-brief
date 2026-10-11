@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BRIEF_TTL_MS, MAX_BRIEFS, prune, remember, sessionBoardName, sketchBoard, type SessionBriefs } from './session-briefs';
+import { BRIEF_TTL_MS, forgetBoard, MAX_BRIEFS, prune, remember, sessionBoardName, sketchBoard, type SessionBriefs } from './session-briefs';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 100 * DAY;
@@ -21,6 +21,21 @@ describe('prune and remember', () => {
     let briefs = remember({}, 'a', { board: 'login' }, NOW);
     briefs = remember(briefs, 'a', { draftId: 'd1' }, NOW + 1);
     expect(briefs.a).toEqual({ board: 'login', draftId: 'd1', at: NOW + 1 });
+  });
+});
+
+describe('forgetBoard', () => {
+  it('drops a deleted board and reopens the draft instead', () => {
+    const briefs = {
+      a: { board: 'gone', draftId: 'd1', last: 'board' as const, at: 1 },
+      b: { board: 'gone', last: 'board' as const, at: 2 },
+      c: { board: 'kept', at: 3 },
+    };
+    expect(forgetBoard(briefs, 'gone')).toEqual({
+      a: { draftId: 'd1', last: 'draft', at: 1 },
+      b: { at: 2 },
+      c: { board: 'kept', at: 3 },
+    });
   });
 });
 

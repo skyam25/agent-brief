@@ -93,6 +93,9 @@ export interface Draft {
 
 export type Theme = 'light' | 'dark';
 
+/** `system` follows macOS; the others pin the panel to one theme. */
+export type Appearance = 'system' | Theme;
+
 export interface Settings {
   /** Global shortcut that shows and hides the panel. */
   hotkey: string;
@@ -101,6 +104,7 @@ export interface Settings {
   openAtLogin: boolean;
   /** Global shortcut that opens a new note in Write mode. */
   captureHotkey: string;
+  appearance: Appearance;
 }
 
 export type SettingsResult = { ok: true; settings: Settings } | { ok: false; error: string; settings: Settings };
@@ -183,6 +187,8 @@ export interface BoardHost {
   /** Creates a board and returns its cleaned-up name. */
   createBoard(name: string): Promise<string>;
   renameBoard(from: string, to: string): Promise<string>;
+  /** Moves a board other than the current one to the Trash. */
+  deleteBoard(name: string): Promise<void>;
   setCurrent(name: string): Promise<void>;
   send(payload: SendPayload): Promise<{ ok: boolean; message: string }>;
   onTheme(fn: (theme: Theme) => void): void;
@@ -293,6 +299,7 @@ export const CH = {
   saveNotes: 'notes:save',
   createBoard: 'boards:create',
   renameBoard: 'boards:rename',
+  deleteBoard: 'boards:delete',
   setCurrent: 'boards:current',
   send: 'panel:send',
   setTarget: 'sessions:target',

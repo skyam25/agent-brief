@@ -14,15 +14,14 @@ export interface WindowSpec {
 
 export interface WindowPlan {
   options: BrowserWindowConstructorOptions;
-  /** Level for `setAlwaysOnTop(true, level)`, or undefined to stay a normal window. */
-  topLevel?: 'floating';
   /** Options for `setVisibleOnAllWorkspaces(true, …)`, or undefined to stay on one Space. */
   allWorkspaces?: { visibleOnFullScreen: boolean; skipTransformProcessType: boolean };
 }
 
 /**
- * The real panel floats above other windows on every Space and takes focus.
- * The test panel sits off every display, never on top and never focused.
+ * The real panel is a normal window on every Space. It comes to the front when
+ * shown, and other windows can cover it. The test panel sits off every display,
+ * never focused.
  */
 export function panelWindow(spec: WindowSpec): WindowPlan {
   const off = spec.offscreen;
@@ -35,7 +34,6 @@ export function panelWindow(spec: WindowSpec): WindowPlan {
       minWidth: 480,
       minHeight: 360,
       title: 'Agent Brief',
-      alwaysOnTop: !off,
       focusable: !off,
       // macOS pulls windows back on screen; a frameless window that may be larger than the screen stays put.
       frame: !off,
@@ -51,7 +49,6 @@ export function panelWindow(spec: WindowSpec): WindowPlan {
         backgroundThrottling: false,
       },
     },
-    topLevel: off ? undefined : 'floating',
     allWorkspaces: off ? undefined : { visibleOnFullScreen: true, skipTransformProcessType: true },
   };
 }

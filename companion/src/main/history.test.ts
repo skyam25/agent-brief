@@ -11,7 +11,7 @@ const entry = (n: number): HistoryEntry => ({
   id: `2026-10-10-1137${String(n).padStart(2, '0')}`,
   sentAt: n,
   board: 'scratch',
-  target: 'webAgentCompanion',
+  target: 'agent-brief',
   dir: `/p/.feedback/sketches/${n}`,
   draft: `draft ${n}`,
 });

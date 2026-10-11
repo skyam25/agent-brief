@@ -10,6 +10,28 @@ function ctx(existing: Record<string, Shaped> = {}, sceneBounds = { x: 0, y: 0, 
 }
 
 describe('planDraw', () => {
+  it('plans an image with its file, inside a frame', () => {
+    const image = 'data:image/png;base64,AAAA';
+    const plan = planDraw(
+      [
+        { type: 'frame', id: 'f', x: 0, y: 0, width: 760, height: 490 },
+        { type: 'image', id: 'shot', x: 20, y: 20, width: 720, height: 450, image, frameId: 'f' },
+      ],
+      ctx(),
+    );
+    expect(plan.files).toEqual([{ id: 'file-shot', dataURL: image, mimeType: 'image/png' }]);
+    expect(plan.shapes[0]).toMatchObject({
+      id: 'shot',
+      frameId: 'f',
+      skel: { type: 'image', fileId: 'file-shot', status: 'saved', width: 720, height: 450 },
+    });
+  });
+
+  it('rejects an image without a data URL or a size', () => {
+    expect(() => planDraw([{ type: 'image', width: 10, height: 10 }], ctx())).toThrow(/data URL/);
+    expect(() => planDraw([{ type: 'image', image: 'data:image/png;base64,AAAA' }], ctx())).toThrow(/width and height/);
+  });
+
   it('keeps caller ids and returns ids in request order', () => {
     const plan = planDraw(
       [

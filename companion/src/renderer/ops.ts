@@ -14,7 +14,7 @@ import type { DeleteRequest, DrawRequest, DrawResponse, MutateResponse, ReadResp
 import type { Region } from '../server/contract';
 import { ARROW_GAP, badgeCentre, boxOf, fitScale, intersects, pad, strokeStart, union, type Box, type Point, type Shaped } from '../board/geometry';
 import { STICKY_TEXT, swatch } from '../board/palette';
-import { endOf, linearGeometry, planDraw, type EndRef, type ExSkeleton } from '../board/skeleton';
+import { endOf, linearGeometry, planDraw, type EndRef, type ExSkeleton, type PlannedFile } from '../board/skeleton';
 import { metaOf, readScene, type SceneElement } from '../board/summary';
 
 type El = ExcalidrawElement;
@@ -22,6 +22,9 @@ type El = ExcalidrawElement;
 type Draft = Record<string, any> & { id: string; type: string; x: number; y: number; width: number; height: number };
 
 const FRAME_PADDING = 30;
+
+/** Line an arrow must show on each side of its label. */
+const LABEL_CLEARANCE = 20;
 
 export function randomId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
@@ -54,7 +57,7 @@ export function drawElements(
   req: DrawRequest,
   batchId: string,
   now = Date.now(),
-): { next: El[]; response: DrawResponse } {
+): { next: El[]; response: DrawResponse; files: PlannedFile[] } {
   const liveEls = live(elements);
   const liveById = new Map(liveEls.map((e) => [e.id, e]));
   const allIds = new Set(elements.map((e) => e.id));
@@ -138,7 +141,28 @@ export function drawElements(
   }
 
   const next = [...elements.map((e) => replaced.get(e.id) ?? e), ...(drafts as unknown as El[])];
-  return { next, response: { ids: plan.ids, batchId } };
+  const warnings = hiddenArrows(linear);
+  return { next, response: { ids: plan.ids, batchId, ...(warnings.length ? { warnings } : {}) }, files: plan.files };
+}
+
+/** Arrows whose label covers the line, which happens when the shapes they join sit too close. */
+function hiddenArrows(linear: Draft[]): string[] {
+  const warnings: string[] = [];
+  for (const arrow of linear) {
+    if (arrow.type !== 'arrow') continue;
+    const label = linear.find((d) => d.containerId === arrow.id);
+    if (!label) continue;
+    const [dx, dy] = arrow.points[arrow.points.length - 1];
+    const length = Math.hypot(dx, dy);
+    const needed = (Math.abs(dx) >= Math.abs(dy) ? label.width : label.height) + 2 * LABEL_CLEARANCE;
+    if (length < needed) {
+      warnings.push(
+        `arrow ${arrow.id} is ${Math.round(length)} px long, so its label ${JSON.stringify(label.originalText ?? label.text)} hides it. ` +
+          `Move the shapes it joins at least ${Math.ceil(needed - length)} px further apart.`,
+      );
+    }
+  }
+  return warnings;
 }
 
 // ── update ───────────────────────────────────────────────────────────────

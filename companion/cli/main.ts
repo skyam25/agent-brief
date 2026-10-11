@@ -13,10 +13,12 @@ import {
   type OpenResponse,
   type ReadResponse,
   type SessionsResponse,
+  type Skeleton,
 } from '../src/protocol';
 import { formatBoards, formatRead, formatSessions, formatStatus } from './format';
 import { commandHelp, DOCS, topHelp } from './help';
 import { ApiError, call, callJson, NotRunningError } from './http';
+import { fitSize, loadImage } from './image';
 import { InputError, parseRegion, validateDraw, validateUpdates } from './validate';
 
 export interface IO {
@@ -43,7 +45,7 @@ interface Args {
   rest: string[];
 }
 
-const VALUE_FLAGS = new Set(['board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session']);
+const VALUE_FLAGS = new Set(['board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width']);
 const BOOL_FLAGS = new Set(['json', 'help']);
 
 function parseArgs(argv: string[]): Args {
@@ -147,6 +149,54 @@ async function readInput(ctx: Ctx): Promise<unknown> {
   }
 }
 
+/** Swaps each image's `file` for its data URL and fills in a missing width or height. */
+async function resolveImages(ctx: Ctx, elements: Skeleton[]): Promise<Skeleton[]> {
+  const cwd = ctx.io.cwd ?? process.cwd();
+  return Promise.all(
+    elements.map(async (e) => {
+      const file = (e as Skeleton & { file?: unknown }).file;
+      if (e.type !== 'image' || typeof file !== 'string') return e;
+      const { file: _path, ...rest } = e as Skeleton & { file: string };
+      const img = await loadImage(file, cwd);
+      return { ...rest, image: img.dataURL, ...fitSize(img, e.width, e.height) };
+    }),
+  );
+}
+
+/** Prints a draw response, warnings included. */
+function drawn(r: DrawResponse): string {
+  const lines = [`drew ${r.ids.length} element${r.ids.length === 1 ? '' : 's'}, batch ${r.batchId}`, `ids: ${r.ids.join(' ')}`];
+  for (const w of r.warnings ?? []) lines.push(`warning: ${w}`);
+  return lines.join('\n');
+}
+
+/** Snapshots per row before the next one starts a new row. */
+const SNAPS_PER_ROW = 3;
+const SNAP_GAP = 80;
+const SNAP_PADDING = 20;
+const SNAP_NOTE_HEIGHT = 100;
+/** Room above a frame for its name. */
+const FRAME_NAME_ROOM = 24;
+
+/** Where the next snapshot frame goes: after the last one, three to a row, below anything else on the board. */
+export function nextSnapSlot(board: ReadResponse): { x: number; y: number; step: number } {
+  const imageFrames = new Set(
+    board.elements.filter((e) => e.type === 'image' && e.by === 'claude' && e.frameId).map((e) => e.frameId!),
+  );
+  const snaps = board.elements.filter((e) => e.type === 'frame' && imageFrames.has(e.id));
+  const n = snaps.length;
+  if (n === 0) {
+    const { bounds: b } = board;
+    const empty = b.width === 0 && b.height === 0;
+    return { x: empty ? 0 : b.x, y: empty ? 0 : b.y + b.height + SNAP_GAP + FRAME_NAME_ROOM, step: 1 };
+  }
+  const last = snaps[n - 1];
+  if (n % SNAPS_PER_ROW !== 0) return { x: last.x + last.width + SNAP_GAP, y: last.y, step: n + 1 };
+  const rowStart = snaps[n - SNAPS_PER_ROW];
+  const bottom = Math.max(...snaps.map((s) => s.y + s.height));
+  return { x: rowStart.x, y: bottom + SNAP_GAP + FRAME_NAME_ROOM, step: n + 1 };
+}
+
 function regionQuery(ctx: Ctx, extra: string[] = []): string {
   const region = str(ctx.args, 'region');
   const parts = region ? [`region=${parseRegion(region)}`] : [];
@@ -211,9 +261,55 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
   },
 
   async draw(ctx) {
-    const elements = validateDraw(await readInput(ctx));
+    const elements = await resolveImages(ctx, validateDraw(await readInput(ctx)));
     const res = await callJson<DrawResponse>(ctx.socket, 'POST', boardPath(ctx, 'draw'), { elements });
-    show(ctx, res, (r) => `drew ${r.ids.length} element${r.ids.length === 1 ? '' : 's'}, batch ${r.batchId}\nids: ${r.ids.join(' ')}`);
+    show(ctx, res, drawn);
+  },
+
+  async snap(ctx) {
+    const file = ctx.positional[0];
+    if (!file) throw new UsageError('snap needs an image file');
+    const widthFlag = str(ctx.args, 'width');
+    const width = widthFlag === undefined ? undefined : Number(widthFlag);
+    if (width !== undefined && !(Number.isInteger(width) && width > 0)) {
+      throw new UsageError(`--width must be a positive integer, got "${widthFlag}"`);
+    }
+    const img = await loadImage(file, ctx.io.cwd ?? process.cwd());
+    const size = fitSize(img, width);
+    const board = await callJson<ReadResponse>(ctx.socket, 'GET', boardPath(ctx, 'elements'));
+    const { x, y, step } = nextSnapSlot(board);
+    const caption = str(ctx.args, 'caption');
+    const note = str(ctx.args, 'note');
+    const p = SNAP_PADDING;
+    const elements: Skeleton[] = [
+      {
+        id: 'snap',
+        type: 'frame',
+        x,
+        y,
+        width: size.width + 2 * p,
+        height: size.height + 2 * p + (note ? SNAP_NOTE_HEIGHT + p : 0),
+        label: caption ? `${step}. ${caption}` : `Step ${step}`,
+      },
+      { id: 'shot', type: 'image', x: x + p, y: y + p, ...size, image: img.dataURL, frameId: 'snap' },
+    ];
+    if (note) {
+      elements.push({
+        id: 'note',
+        type: 'sticky',
+        x: x + p,
+        y: y + p + size.height + p,
+        width: Math.min(size.width, 420),
+        height: SNAP_NOTE_HEIGHT,
+        label: note,
+        frameId: 'snap',
+      });
+    }
+    const res = await callJson<DrawResponse>(ctx.socket, 'POST', boardPath(ctx, 'draw'), { elements });
+    show(ctx, { ...res, step }, (r) => {
+      const [frame, shot, sticky] = r.ids;
+      return `snapshot ${step} at ${x},${y} · frame ${frame} · image ${shot}${sticky ? ` · note ${sticky}` : ''}`;
+    });
   },
 
   async update(ctx) {

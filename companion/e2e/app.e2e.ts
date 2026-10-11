@@ -130,6 +130,15 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   await expect(page.getByTestId('settings')).toBeVisible();
 
   await page.getByTestId('settings-mode').selectOption('fill');
+
+  // Appearance pins the panel and the board to one theme, whatever macOS shows.
+  const themes = () =>
+    page.evaluate(() => [document.documentElement.dataset.theme, (window as any).__excalidraw.getAppState().theme]);
+  await page.getByTestId('settings-appearance').selectOption('light');
+  await expect.poll(themes).toEqual(['light', 'light']);
+  await page.getByTestId('settings-appearance').selectOption('dark');
+  await expect.poll(themes).toEqual(['dark', 'dark']);
+
   await page.getByTestId('settings-login').check();
   await expect(page.getByTestId('settings-saved')).toBeVisible();
   const delivery = await app.evaluate(async () => (await (globalThis as any).__companion.buildDelivery()).mode);
@@ -152,7 +161,8 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   ({ app, page } = await launch(dataDir));
   expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
   const settings = await page.evaluate(() => (window as any).companion.getSettings());
-  expect(settings).toEqual({ hotkey: 'Control+Shift+K', deliveryMode: 'fill', openAtLogin: true, captureHotkey: 'Control+Alt+N' });
+  expect(settings).toEqual({ hotkey: 'Control+Shift+K', deliveryMode: 'fill', openAtLogin: true, captureHotkey: 'Control+Alt+N', appearance: 'dark' });
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
   await app.close();
 });
 
@@ -197,6 +207,40 @@ test('File > New Board opens the name field; the CLI installs into a temp home',
   const result = await app.evaluate((_e, home) => (globalThis as any).__companion.installCli(home), home);
   expect(result.link).toBe(join(home, '.local/bin/agent-brief'));
   expect(readlinkSync(result.link)).toBe(join(ROOT, 'bin/agent-brief'));
+  await app.close();
+});
+
+test('⌘N makes a new board in Sketch mode and a new note in Write mode', async () => {
+  const { app, page } = await launch(tempDataDir());
+  await showPanel(app, page);
+
+  // The item that holds ⌘N follows the mode, and clicking it is what the key does.
+  const cmdN = () =>
+    app.evaluate(({ Menu }) => {
+      const file = Menu.getApplicationMenu()!.items.find((i) => i.label === 'File')!;
+      const item = file.submenu!.items.find((i) => i.accelerator === 'Command+N')!;
+      return item.label;
+    });
+  const pressCmdN = () =>
+    app.evaluate(({ Menu }) => {
+      const file = Menu.getApplicationMenu()!.items.find((i) => i.label === 'File')!;
+      file.submenu!.items.find((i) => i.accelerator === 'Command+N')!.click();
+    });
+
+  expect(await cmdN()).toBe('New Board');
+  await pressCmdN();
+  await expect(page.getByTestId('board-name')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.getByTestId('mode-write').click();
+  await expect.poll(cmdN).toBe('New Note');
+
+  // An empty note is reused, so the open one needs text first.
+  await page.getByTestId('draft-body').fill('first thought');
+  await expect(page.getByTestId('draft-row')).toHaveCount(1);
+  await pressCmdN();
+  await expect(page.getByTestId('draft-row')).toHaveCount(2);
+  await expect(page.getByTestId('draft-body')).toHaveValue('');
   await app.close();
 });
 

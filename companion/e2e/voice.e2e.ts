@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DeliveriesResponse } from '../src/protocol';
 import { joinSpeech } from '../src/voice/timeline';
-import { interactiveCanvas, launch, penStroke, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir } from './helpers';
+import { interactiveCanvas, launch, penStroke, pickPen, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir } from './helpers';
 
 const SPEECH = join(ROOT, 'e2e/fixtures/speech.wav');
 
@@ -23,6 +23,7 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   await expect(page.getByTestId('mic')).toHaveText('00:00');
 
   const cdp = await page.context().newCDPSession(page);
+  await pickPen(page);
   const box = (await interactiveCanvas(page).boundingBox())!;
   await penStroke(cdp, { x: box.x + 320, y: box.y + 250 }, { x: box.x + 600, y: box.y + 250 }, 0.6);
   await page.waitForTimeout(1500);

@@ -14,7 +14,8 @@ import type { Region } from './contract';
 
 export class BadRequest extends Error {}
 
-const SHAPE_TYPES = ['rectangle', 'ellipse', 'diamond', 'text', 'sticky', 'arrow', 'line', 'frame'];
+const SHAPE_TYPES = ['rectangle', 'ellipse', 'diamond', 'text', 'sticky', 'arrow', 'line', 'frame', 'image'];
+export const IMAGE_DATA_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/;
 const COLORS = ['black', 'gray', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'pink'];
 const NUMBER_FIELDS = ['x', 'y', 'width', 'height'] as const;
 
@@ -88,6 +89,14 @@ function checkSkeleton(v: unknown, i: number): Skeleton {
       Array.isArray(o.points) &&
       o.points.every((p) => Array.isArray(p) && p.length === 2 && finite(p[0]) && finite(p[1]));
     if (!ok) fail(`${where}.points must be an array of [x, y] pairs`);
+  }
+  if (o.type === 'image') {
+    if (typeof o.image !== 'string' || !IMAGE_DATA_URL.test(o.image)) {
+      fail(`${where}.image must be a base64 data URL of a png, jpeg, webp or gif`);
+    }
+    if (!finite(o.width) || !finite(o.height) || o.width <= 0 || o.height <= 0) {
+      fail(`${where} needs a positive width and height`);
+    }
   }
   return o as unknown as Skeleton;
 }

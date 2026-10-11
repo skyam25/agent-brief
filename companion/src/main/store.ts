@@ -148,6 +148,12 @@ export class BoardStore {
     writeAtomic(this.notesPath(name), text);
   }
 
+  /** The board's scene and notes files that exist on disk. */
+  files(raw: string): string[] {
+    if (!this.exists(raw)) throw notFound(`no board named ${JSON.stringify(cleanName(raw))}`);
+    return [this.scenePath(raw), this.notesPath(raw)].filter((p) => existsSync(p));
+  }
+
   rename(fromRaw: string, toRaw: string): string {
     const from = cleanName(fromRaw);
     const to = cleanName(toRaw);
@@ -181,6 +187,7 @@ export const DEFAULT_STATE: AppState = {
   deliveryMode: 'submit',
   openAtLogin: false,
   captureHotkey: 'Control+Alt+N',
+  appearance: 'system',
   mode: 'sketch',
 };
 
