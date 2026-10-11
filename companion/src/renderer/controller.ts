@@ -13,6 +13,8 @@ import type { BinaryFiles, ExcalidrawImperativeAPI, NormalizedZoomValue } from '
 import type { BoardHost, BoardReply, BoardRequest, SendPayload } from '../shared/ipc';
 import { boxOf, union, type Shaped } from '../board/geometry';
 import { buildTimeline } from '../voice/timeline';
+import type { PlannedFile } from '../board/skeleton';
+import { shrinkImages, textOf } from './images';
 import { drawElements, readElements, removeElements, renderPng, updateElements } from './ops';
 import { Recorder } from './recorder';
 import { StrokeLog, rebase } from './strokes';
@@ -48,11 +50,27 @@ async function loadFonts(text: string): Promise<void> {
   await Promise.all(['Excalifont', 'Xiaolai'].map((f) => document.fonts.load(`20px ${f}`, text).catch(() => [])));
 }
 
+/** Room above a frame for its name, which Excalidraw draws outside it. */
+const FRAME_NAME_ROOM = 24;
+
+/** How far Excalidraw's floating toolbar reaches down over the canvas, in screen pixels. */
+function toolbarInset(): number {
+  const root = document.querySelector('.excalidraw');
+  const bar = root?.querySelector('.App-toolbar');
+  if (!root || !bar) return 0;
+  return Math.max(0, bar.getBoundingClientRect().bottom - root.getBoundingClientRect().top);
+}
+
 /** A board to work on: the visible one, or one loaded from disk. */
 interface SceneHandle {
   elements: readonly El[];
   files: BinaryFiles;
-  commit(next: El[]): Promise<void>;
+  /** Saves the elements, plus any pictures new image elements show. */
+  commit(next: El[], files?: PlannedFile[]): Promise<void>;
+}
+
+function binaryFiles(files: PlannedFile[] = [], now = Date.now()): BinaryFiles {
+  return Object.fromEntries(files.map((f) => [f.id, { ...f, created: now }])) as unknown as BinaryFiles;
 }
 
 export class BoardController {
@@ -184,6 +202,23 @@ export class BoardController {
     });
   }
 
+  /**
+   * Moves a board to the Trash. Deleting the open board first opens the most
+   * recently changed other board, or a fresh one when none is left.
+   */
+  deleteBoard(name: string): Promise<void> {
+    return this.enqueue(async () => {
+      if (name === this.board) {
+        const others = (await this.bridge.listBoards()).filter((b) => b.name !== name);
+        others.sort((a, b) => b.updatedAt - a.updatedAt);
+        const next = others[0]?.name ?? (await this.bridge.createBoard(name === 'scratch' ? 'board' : 'scratch'));
+        await this.show(next);
+      }
+      await this.bridge.deleteBoard(name);
+      this.emit();
+    });
+  }
+
   private async show(board: string): Promise<void> {
     const api = this.api!;
     if (board === this.board) return;
@@ -198,10 +233,13 @@ export class BoardController {
     const files = Object.values(loaded.files);
     if (files.length) api.addFiles(files);
     api.history.clear();
-    // Fits what the board holds without zooming past 100%. An empty board starts at the origin, unzoomed.
+    // Fits what the board holds without zooming past 100%. An empty board starts unzoomed, with the origin below the toolbar.
     const live = loaded.elements.filter((e) => !e.isDeleted);
     if (live.length) api.scrollToContent(live, { fitToViewport: true, viewportZoomFactor: 0.8, maxZoom: 1, animate: false });
-    else api.updateScene({ appState: { scrollX: 0, scrollY: 0, zoom: { value: 1 as NormalizedZoomValue } }, captureUpdate: CaptureUpdateAction.NEVER });
+    else {
+      const scrollY = Math.round(toolbarInset() + FRAME_NAME_ROOM);
+      api.updateScene({ appState: { scrollX: 0, scrollY, zoom: { value: 1 as NormalizedZoomValue } }, captureUpdate: CaptureUpdateAction.NEVER });
+    }
     await this.bridge.setCurrent(board);
     this.emit();
   }
@@ -212,7 +250,8 @@ export class BoardController {
       return {
         elements: api.getSceneElementsIncludingDeleted(),
         files: api.getFiles(),
-        commit: async (next) => {
+        commit: async (next, files) => {
+          if (files?.length) api.addFiles(Object.values(binaryFiles(files)));
           api.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
           this.scheduleSceneSave();
         },
@@ -223,21 +262,30 @@ export class BoardController {
     return {
       elements: loaded.elements,
       files: loaded.files,
-      commit: async (next) => {
-        await this.bridge.saveBoard(board, serializeAsJSON(next, loaded.appState, loaded.files, 'local'));
+      commit: async (next, files) => {
+        const all = { ...loaded.files, ...binaryFiles(files) };
+        await this.bridge.saveBoard(board, serializeAsJSON(next, loaded.appState, all, 'local'));
       },
     };
   }
 
-  /** Scrolls to new elements unless all of them show, so the user sees what Claude drew. */
+  /**
+   * Fits new elements in view unless all of them show clear of the toolbar,
+   * so the user sees what Claude drew.
+   */
   private revealIfHidden(ids: string[]): void {
     const api = this.api!;
     const wanted = new Set(ids);
     const drawn = api.getSceneElements().filter((e) => wanted.has(e.id));
     if (drawn.length === 0) return;
-    const [minX, minY, maxX, maxY] = getVisibleSceneBounds(api.getAppState());
-    const inView = drawn.every((e) => e.x >= minX && e.x + e.width <= maxX && e.y >= minY && e.y + e.height <= maxY);
-    if (!inView) api.scrollToContent(drawn, { animate: true });
+    const appState = api.getAppState();
+    const [minX, minY, maxX, maxY] = getVisibleSceneBounds(appState);
+    const top = minY + toolbarInset() / appState.zoom.value;
+    const inView = drawn.every((e) => {
+      const y = e.type === 'frame' ? e.y - FRAME_NAME_ROOM : e.y;
+      return e.x >= minX && e.x + e.width <= maxX && y >= top && e.y + e.height <= maxY;
+    });
+    if (!inView) api.scrollToContent(drawn, { fitToViewport: true, viewportZoomFactor: 0.8, maxZoom: 1, animate: true });
   }
 
   /** Builds the hand-off. Stops recording first so the last clip is complete. */
@@ -327,15 +375,22 @@ export class BoardController {
           const seen = a.board === this.board ? (id: string) => this.firstSeen.get(id) : undefined;
           return readElements(a.board, h.elements, a.region, seen);
         }
-        case 'draw':
+        case 'draw': {
+          const drawReq = await shrinkImages(a.req);
+          await loadFonts(textOf(drawReq));
+          const h = await this.sceneFor(a.board);
+          const { next, response, files } = drawElements(h.elements, drawReq, a.batchId);
+          await h.commit(next, files);
+          if (a.board === this.board) this.revealIfHidden(response.ids);
+          return response;
+        }
         case 'update':
         case 'remove': {
           await loadFonts(JSON.stringify(a.req));
           const h = await this.sceneFor(a.board);
-          const fn = req.op === 'draw' ? drawElements : req.op === 'update' ? updateElements : removeElements;
+          const fn = req.op === 'update' ? updateElements : removeElements;
           const { next, response } = fn(h.elements, a.req, a.batchId);
           await h.commit(next);
-          if (req.op === 'draw' && a.board === this.board) this.revealIfHidden(response.ids);
           return response;
         }
         case 'png': {

@@ -38,12 +38,20 @@ export interface PlannedLinear {
   frameId?: string;
 }
 
+/** A picture an `image` element shows, in Excalidraw's BinaryFileData shape. */
+export interface PlannedFile {
+  id: string;
+  dataURL: string;
+  mimeType: string;
+}
+
 export interface DrawPlan {
   /** Final ids in request order. */
   ids: string[];
   shapes: PlannedShape[];
   frames: PlannedFrame[];
   linear: PlannedLinear[];
+  files: PlannedFile[];
 }
 
 export const DEFAULT_SIZE: Record<string, { width: number; height: number }> = {
@@ -58,7 +66,7 @@ const DEFAULT_LINE_LENGTH = 120;
 const LAYOUT_GAP = 60;
 const LAYOUT_MARGIN = 80;
 
-const KNOWN_TYPES = new Set(['rectangle', 'ellipse', 'diamond', 'text', 'sticky', 'arrow', 'line', 'frame']);
+const KNOWN_TYPES = new Set(['rectangle', 'ellipse', 'diamond', 'text', 'sticky', 'arrow', 'line', 'frame', 'image']);
 
 export interface PlanContext {
   /** Live elements already on the board, by id. */
@@ -111,7 +119,7 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
     return at;
   };
 
-  const plan: DrawPlan = { ids, shapes: [], frames: [], linear: [] };
+  const plan: DrawPlan = { ids, shapes: [], frames: [], linear: [], files: [] };
 
   for (const [i, s] of skeletons.entries()) {
     const id = ids[i];
@@ -154,6 +162,20 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
         const text = s.label ?? '';
         const [x, y] = hasPoint(s) ? [s.x!, s.y!] : place(estimateTextWidth(text));
         const skel: ExSkeleton = { type: 'text', id, x, y, text, strokeColor: swatch(s.color).stroke };
+        plan.shapes.push({ id, skel, frameId, sticky: false });
+        break;
+      }
+      case 'image': {
+        const dataURL = typeof s.image === 'string' ? s.image : '';
+        const mimeType = /^data:(image\/[a-z]+);base64,/.exec(dataURL)?.[1];
+        const width = num(s.width);
+        const height = num(s.height);
+        if (!mimeType) throw badRequest(`${where}.image must be a base64 image data URL`);
+        if (!width || !height) throw badRequest(`${where} needs a width and height`);
+        const [x, y] = hasPoint(s) ? [s.x!, s.y!] : place(width);
+        const fileId = `file-${id}`;
+        plan.files.push({ id: fileId, dataURL, mimeType });
+        const skel: ExSkeleton = { type: 'image', id, x, y, width, height, fileId, status: 'saved', scale: [1, 1] };
         plan.shapes.push({ id, skel, frameId, sticky: false });
         break;
       }

@@ -6,6 +6,7 @@ import {
   interactiveCanvas,
   launch,
   penStroke,
+  pickPen,
   sceneElements,
   showPanel,
   syntheticStroke,
@@ -18,6 +19,7 @@ let ctx: Launched;
 test.beforeEach(async () => {
   ctx = await launch(tempDataDir());
   await showPanel(ctx.app, ctx.page);
+  await pickPen(ctx.page);
 });
 
 test.afterEach(async () => {

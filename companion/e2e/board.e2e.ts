@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ReadResponse, Skeleton } from '../src/protocol';
-import { backend, interactiveCanvas, launch, openNotes, penStroke, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
+import { backend, interactiveCanvas, launch, openNotes, penStroke, pickPen, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
 
 let ctx: Launched;
 let dataDir: string;
@@ -101,6 +101,7 @@ test('S6/C4.1 draw labelled shapes and bound arrows in a frame, then read them b
 test('C4.2 one undo removes Claude\'s batch and keeps the user\'s stroke', async () => {
   const { app, page } = ctx;
   const cdp = await page.context().newCDPSession(page);
+  await pickPen(page);
   const box = (await interactiveCanvas(page).boundingBox())!;
   await penStroke(cdp, { x: box.x + 150, y: box.y + 500 }, { x: box.x + 450, y: box.y + 560 }, 0.6);
   await page.waitForTimeout(150);
@@ -214,6 +215,9 @@ test('a paste lands deselected with the pen still in hand', async () => {
         images: api.getSceneElements().filter((e: any) => e.type === 'image').length,
       };
     });
+  // The board opens on the pointer; the person picks the pen to draw.
+  expect((await state()).tool).toBe('selection');
+  await pickPen(page);
   expect((await state()).tool).toBe('freedraw');
   const box = (await interactiveCanvas(page).boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -238,4 +242,124 @@ test('a paste lands deselected with the pen still in hand', async () => {
   expect(delivery.timeline).toContain('pasted image A');
   expect(delivery.timeline).toMatch(/stroke 1 · freehand · on image A/);
   writeFileSync(join(RESULTS, 'paste-letters.png'), Buffer.from(delivery.png, 'base64'));
+});
+
+/** A solid-colour PNG made in the renderer, as a data URL. */
+function solidPng(width: number, height: number, color: string): Promise<string> {
+  return ctx.page.evaluate(
+    ({ width, height, color }) => {
+      const c = document.createElement('canvas');
+      c.width = width;
+      c.height = height;
+      const g = c.getContext('2d')!;
+      g.fillStyle = color;
+      g.fillRect(0, 0, width, height);
+      return c.toDataURL('image/png');
+    },
+    { width, height, color },
+  );
+}
+
+/** The RGB of one pixel of a base64 PNG, decoded in the renderer. */
+function pixel(b64: string, x: number, y: number): Promise<number[]> {
+  return ctx.page.evaluate(
+    async ({ b64, x, y }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      return Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+    },
+    { b64, x, y },
+  );
+}
+
+test('an image in a frame draws, saves with its file, reads back and renders', async () => {
+  const { app, page } = ctx;
+  const image = await solidPng(400, 250, '#ff0000');
+  const drawn = await backend(app, 'draw', 'current', {
+    elements: [
+      { type: 'frame', id: 'snap', x: 0, y: 0, width: 440, height: 290, label: '1. Cart' },
+      { type: 'image', id: 'shot', x: 20, y: 20, width: 400, height: 250, image, frameId: 'snap' },
+    ],
+  });
+  expect(drawn.ids).toEqual(['snap', 'shot']);
+
+  const el = (await live()).find((e) => e.id === 'shot');
+  expect(el).toMatchObject({ type: 'image', status: 'saved', fileId: 'file-shot', frameId: 'snap' });
+  expect(await page.evaluate(() => Object.keys((window as any).__excalidraw.getFiles()))).toContain('file-shot');
+
+  const read: ReadResponse = await backend(app, 'read', 'current');
+  expect(read.elements.find((e) => e.id === 'shot')).toMatchObject({ type: 'image', frameId: 'snap', by: 'claude' });
+
+  const png = await backend(app, 'png', 'current', { region: { x: 0, y: 0, width: 440, height: 290 }, maxEdge: 440 });
+  expect(await pixel(png.base64, 220, 145)).toEqual([255, 0, 0]);
+  writeFileSync(join(RESULTS, 'image-board.png'), Buffer.from(png.base64, 'base64'));
+
+  await expect
+    .poll(() => {
+      const file = JSON.parse(readFileSync(join(dataDir, 'boards', 'scratch.excalidraw'), 'utf8'));
+      return file.files?.['file-shot']?.dataURL?.slice(0, 22);
+    })
+    .toBe('data:image/png;base64,');
+});
+
+test('an image on a board out of view is saved to disk with its file', async () => {
+  const { app } = ctx;
+  const image = await solidPng(200, 100, '#0000ff');
+  await backend(app, 'draw', 'run', { elements: [{ type: 'image', id: 'pic', x: 0, y: 0, width: 200, height: 100, image }] });
+  const file = JSON.parse(readFileSync(join(dataDir, 'boards', 'run.excalidraw'), 'utf8'));
+  expect(file.files['file-pic'].mimeType).toBe('image/png');
+  const png = await backend(app, 'png', 'run', { maxEdge: 200 });
+  expect(await pixel(png.base64, 100, 50)).toEqual([0, 0, 255]);
+});
+
+test('a large screenshot is scaled down to 1600 px before it is stored', async () => {
+  const { app, page } = ctx;
+  const image = await solidPng(3200, 2000, '#00ff00');
+  await backend(app, 'draw', 'current', { elements: [{ type: 'image', id: 'big', x: 0, y: 0, width: 720, height: 450, image }] });
+  const size = await page.evaluate(async () => {
+    const f = (window as any).__excalidraw.getFiles()['file-big'];
+    const img = new Image();
+    img.src = f.dataURL;
+    await img.decode();
+    return { width: img.naturalWidth, height: img.naturalHeight, mimeType: f.mimeType };
+  });
+  expect(size).toEqual({ width: 1600, height: 1000, mimeType: 'image/webp' });
+});
+
+test('draw warns when an arrow label hides the arrow', async () => {
+  const { app } = ctx;
+  const drawn = await backend(app, 'draw', 'current', {
+    elements: [
+      { id: 'a', type: 'rectangle', x: 0, y: 0, width: 200, height: 80, label: 'Browser' },
+      { id: 'b', type: 'rectangle', x: 300, y: 0, width: 200, height: 80, label: 'API' },
+      { id: 'c', type: 'rectangle', x: 900, y: 0, width: 200, height: 80, label: 'DB' },
+      { id: 'near', type: 'arrow', start: { id: 'a' }, end: { id: 'b' }, label: 'POST /login with password' },
+      { id: 'far', type: 'arrow', start: { id: 'b' }, end: { id: 'c' }, label: 'lookup' },
+    ],
+  });
+  expect(drawn.warnings).toHaveLength(1);
+  expect(drawn.warnings[0]).toMatch(/^arrow near is \d+ px long, so its label "POST \/login with password" hides it/);
+});
+
+test('a drawing at the origin of an empty board shows below the toolbar', async () => {
+  const { app, page } = ctx;
+  await backend(app, 'draw', 'current', {
+    elements: [{ type: 'frame', id: 'f', x: 0, y: 0, width: 300, height: 200, label: 'Top' }, { type: 'rectangle', x: 40, y: 40, frameId: 'f' }],
+  });
+  await page.waitForTimeout(600);
+  const { frameTop, toolbarBottom } = await page.evaluate(() => {
+    const api = (window as any).__excalidraw;
+    const { scrollY, zoom, offsetTop } = api.getAppState();
+    const root = document.querySelector('.excalidraw')!.getBoundingClientRect();
+    const bar = document.querySelector('.excalidraw .App-toolbar')!.getBoundingClientRect();
+    return { frameTop: root.top + (0 - 24 + scrollY) * zoom.value, toolbarBottom: bar.bottom, offsetTop };
+  });
+  expect(frameTop).toBeGreaterThanOrEqual(toolbarBottom);
+  await page.screenshot({ path: join(RESULTS, 'reveal-below-toolbar.png') });
 });

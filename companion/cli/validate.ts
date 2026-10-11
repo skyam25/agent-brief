@@ -3,7 +3,7 @@ import type { ColorName, ElementUpdate, Skeleton } from '../src/protocol';
 /** A problem in user input. The message names the offending index. */
 export class InputError extends Error {}
 
-const TYPES = ['rectangle', 'ellipse', 'diamond', 'text', 'sticky', 'arrow', 'line', 'frame'];
+const TYPES = ['rectangle', 'ellipse', 'diamond', 'text', 'sticky', 'arrow', 'line', 'frame', 'image'];
 const COLORS: ColorName[] = [
   'black', 'gray', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'pink',
 ];
@@ -78,6 +78,9 @@ export function validateDraw(input: unknown): Skeleton[] {
     if ((e.type === 'arrow' || e.type === 'line') && !e.start && !e.points) {
       throw new InputError(`${at}: ${e.type} needs "start" and "end" (or "points")`);
     }
+    if (e.type === 'image' && typeof e.file !== 'string' && typeof e.image !== 'string') {
+      throw new InputError(`${at}: image needs "file", the path of a png, jpeg, gif or webp`);
+    }
   });
   return list as Skeleton[];
 }
@@ -96,9 +99,9 @@ export function validateUpdates(input: unknown): ElementUpdate[] {
   return list as ElementUpdate[];
 }
 
-/** Parses `x,y,w,h` with a positive width and height. */
+/** Parses `x,y,w,h` with a positive width and height. Also takes `x,y w×h`, the shape `read` prints. */
 export function parseRegion(text: string): string {
-  const parts = text.split(',').map((s) => Number(s.trim()));
+  const parts = text.trim().split(/[\s,×]+/).map(Number);
   if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n)) || parts[2] <= 0 || parts[3] <= 0) {
     throw new InputError(`--region must be x,y,w,h with positive w and h, got "${text}"`);
   }

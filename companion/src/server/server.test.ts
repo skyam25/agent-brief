@@ -100,6 +100,8 @@ describe('errors', () => {
       ['POST', '/boards/b/draw', { elements: [{ type: 'text', id: 4 }] }, /id/],
       ['POST', '/boards/b/draw', { elements: [{ type: 'arrow', start: {} }] }, /start/],
       ['POST', '/boards/b/draw', { elements: [{ type: 'text', color: 'teal' }] }, /color/],
+      ['POST', '/boards/b/draw', { elements: [{ type: 'image', image: 'data:text/html;base64,AAAA', width: 1, height: 1 }] }, /data URL/],
+      ['POST', '/boards/b/draw', { elements: [{ type: 'image', image: 'data:image/png;base64,AAAA' }] }, /width and height/],
       ['POST', '/boards/b/draw', {}, /elements/],
       ['PATCH', '/boards/b/elements', { updates: [{ id: 3 }] }, /id/],
       ['PATCH', '/boards/b/elements', { updates: [{ id: 'a', width: 'wide' }] }, /width/],

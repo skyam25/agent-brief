@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { BoardEntry, BoardHost } from '../shared/ipc';
-import { CheckIcon, ChevronIcon, PencilIcon, PlusIcon } from './Icons';
+import { CheckIcon, ChevronIcon, PencilIcon, PlusIcon, TrashIcon } from './Icons';
 import { useEscape } from './WriteView';
 
 type Mode = { kind: 'idle' } | { kind: 'new' } | { kind: 'rename' };
 
-/** The board's name opens a menu of boards, with New and Rename at its foot. */
+/** The board's name opens a menu of boards, with New and Rename at its foot. Each row can be deleted. */
 export function BoardPicker(props: {
   host: Pick<BoardHost, 'listBoards'>;
   board: string;
@@ -14,13 +14,19 @@ export function BoardPicker(props: {
   onSwitch: (name: string) => void;
   onCreate: (name: string) => void;
   onRename: (name: string) => void;
+  onDelete: (name: string) => Promise<void>;
 }) {
   const [boards, setBoards] = useState<BoardEntry[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: 'idle' });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  /** The board whose trash button was clicked once and now asks to confirm. */
+  const [confirming, setConfirming] = useState<string>();
   const ref = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => {
+    setOpen(false);
+    setConfirming(undefined);
+  }, []);
 
   const refresh = () => void props.host.listBoards().then(setBoards);
   useEffect(refresh, [props.board]);
@@ -95,7 +101,7 @@ export function BoardPicker(props: {
         <BoardMenu onClose={close}>
           <ul role="menu" aria-label="Boards">
             {names.map((n) => (
-              <li key={n}>
+              <li key={n} className="board-row" onMouseLeave={() => confirming === n && setConfirming(undefined)}>
                 <button
                   className="ghost"
                   role="menuitemradio"
@@ -108,6 +114,19 @@ export function BoardPicker(props: {
                 >
                   <span className="name">{n}</span>
                   {n === props.board && <CheckIcon />}
+                </button>
+                <button
+                  className={confirming === n ? 'ghost delete confirm' : 'ghost icon-button small delete'}
+                  aria-label={confirming === n ? `Confirm delete ${n}` : `Delete ${n}`}
+                  title={confirming === n ? undefined : 'Move to the Trash'}
+                  onClick={() => {
+                    if (confirming !== n) return setConfirming(n);
+                    setConfirming(undefined);
+                    void props.onDelete(n).then(refresh);
+                  }}
+                  data-testid="board-delete"
+                >
+                  {confirming === n ? 'Delete' : <TrashIcon />}
                 </button>
               </li>
             ))}

@@ -406,6 +406,12 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
                   .then(() => book.renameBoard(from, controller.board))
                   .catch(report('rename the board'));
               }}
+              onDelete={(name) =>
+                controller
+                  .deleteBoard(name)
+                  .then(() => book.forgetBoard(name))
+                  .catch(report('delete the board'))
+              }
             />
             <PullIn book={book} board={board} onOpen={openDraft} />
           </>

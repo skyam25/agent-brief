@@ -546,6 +546,45 @@ button.recording {
   justify-content: space-between;
 }
 
+.board-menu .board-row {
+  position: relative;
+}
+
+/* The trash button sits over the row's right edge and shows on hover. */
+.popover-panel.board-menu button.delete {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: auto;
+  opacity: 0;
+}
+
+.board-menu .board-row:hover button.delete,
+.board-menu button.delete:focus-visible,
+.board-menu button.delete.confirm {
+  opacity: 1;
+}
+
+.popover-panel.board-menu button.delete.confirm {
+  height: 26px;
+  padding: 0 10px;
+  color: var(--accent-fg);
+  background: var(--error);
+}
+
+.board-menu button.delete > .icon {
+  color: var(--muted);
+}
+
+.board-menu button.delete:hover > .icon {
+  color: var(--error);
+}
+
+.board-menu .board-row:hover button[aria-checked] > .icon {
+  visibility: hidden;
+}
+
 .board-menu .name {
   overflow: hidden;
   text-overflow: ellipsis;

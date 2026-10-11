@@ -1,4 +1,4 @@
-/** The floating panel: one window, created hidden and kept alive. */
+/** The panel: one window, created hidden and kept alive. */
 
 import { app, BrowserWindow, screen } from 'electron';
 import { areaUnder, centredBounds } from './placement';
@@ -14,7 +14,7 @@ export interface PanelOptions {
   /** Called after the panel shows or hides. */
   onVisibility?: (visible: boolean) => void;
   /**
-   * Keeps the window off every display, never on top, never focused and out of
+   * Keeps the window off every display, never focused and out of
    * the Dock. Tests use it so runs never disturb the person at the screen.
    */
   offscreen?: boolean;
@@ -38,7 +38,6 @@ export class Panel {
       offscreen: this.offscreen,
     });
     this.win = new BrowserWindow(plan.options);
-    if (plan.topLevel) this.win.setAlwaysOnTop(true, plan.topLevel);
     if (plan.allWorkspaces) this.win.setVisibleOnAllWorkspaces(true, plan.allWorkspaces);
 
     let resizeTimer: NodeJS.Timeout | undefined;

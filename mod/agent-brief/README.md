@@ -85,7 +85,7 @@ The band above the prompt has a button for each mode, **✎ Sketch** and **¶ Wr
 
 ### Skill
 
-`skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `agent-brief` CLI.
+`skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `agent-brief` CLI, and to post a browser session it drives as numbered screenshots with `agent-brief snap`, which needs Agent Brief 0.2.5 or newer.
 
 ## Command line
 

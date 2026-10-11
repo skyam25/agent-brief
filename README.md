@@ -51,7 +51,7 @@ A timeline reads like this:
 
 ## Claude draws back
 
-- Claude draws labelled shapes, sticky notes, arrows and frames with the `agent-brief` command line tool.
+- Claude draws labelled shapes, sticky notes, arrows, frames and screenshots with the `agent-brief` command line tool. When it drives a browser for you, `agent-brief snap` posts each step as a numbered screenshot you can mark up and Send back.
 - Claude reads the board as text and exports PNGs of any region.
 - Its changes appear live, and one undo removes a whole batch.
 

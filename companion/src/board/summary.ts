@@ -52,7 +52,7 @@ const TYPE_MAP: Record<string, ShapeType> = {
   frame: 'frame',
   magicframe: 'frame',
   freedraw: 'freedraw',
-  image: 'rectangle',
+  image: 'image',
   iframe: 'rectangle',
   embeddable: 'rectangle',
 };
@@ -70,7 +70,6 @@ export function labelOf(el: SceneElement, byId: ReadonlyMap<string, SceneElement
   const textRef = el.boundElements?.find((b) => b.type === 'text');
   const text = textRef ? byId.get(textRef.id) : undefined;
   if (text && !text.isDeleted) return text.originalText ?? text.text;
-  if (el.type === 'image') return '[image]';
   return undefined;
 }
 

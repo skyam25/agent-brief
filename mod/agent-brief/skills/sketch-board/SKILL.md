@@ -1,6 +1,6 @@
 ---
 name: sketch-board
-description: Draw on and read the user's Agent Brief sketch board. Use when the user mentions the Agent Brief board, the companion board, the sketch panel, sketching, drawing a diagram or flow for them, wireframing, or asks what they drew or sketched. Also use to look at their sketch before answering a question about it.
+description: Draw on and read the user's Agent Brief sketch board. Use when the user mentions the Agent Brief board, the companion board, the sketch panel, sketching, drawing a diagram or flow for them, wireframing, or asks what they drew or sketched. Also use to look at their sketch before answering a question about it, and to post screenshots of a browser session you drive so the user can follow it and mark it up.
 ---
 
 # Sketch board
@@ -20,6 +20,7 @@ If the app is in `~/Applications`, use that path instead. The app's menu item In
 - The user asks for a diagram, flow, layout or wireframe.
 - The user says they sketched something, or asks you to look at the board.
 - A picture would explain your answer better than text.
+- You drive a browser for the user and they want to follow along or review the steps. See [Following a browser session](#following-a-browser-session).
 
 Run `agent-brief status` first if you are unsure the app is up. Exit code 3 means it is not running. Tell the user to start it. Do not retry in a loop.
 
@@ -36,6 +37,7 @@ All board commands take `--board <name>`. The default is `current`, the board th
 | `agent-brief read [--board] [--region x,y,w,h]` | Prints the elements as text |
 | `agent-brief png [--board] [--region x,y,w,h] [--max-edge 1400] [--out <path>]` | Writes a PNG and prints its path |
 | `agent-brief draw [--board] [--file f.json]` | Adds elements from JSON on stdin or in a file |
+| `agent-brief snap <image> [--board] [--caption <text>] [--note <text>] [--width 720]` | Adds a screenshot as the next numbered step |
 | `agent-brief update [--board] [--file f.json]` | Changes elements by id |
 | `agent-brief delete [--board] <id>...` | Removes elements by id |
 
@@ -52,7 +54,13 @@ a1 arrow r1 → r2 (claude)
 f3 freedraw at 300,420 120×60 (user)
 ```
 
-Freehand strokes have no label, so text cannot tell you what they show. When shapes matter, run `agent-brief png --region x,y,w,h`, then Read the file it prints. An image costs about 1 to 2k tokens, so crop to the area you need. Use the full board only for a first look at a messy one.
+`read` gives structure, not appearance. Run `agent-brief png --region x,y,w,h` and Read the file it prints when any of these hold.
+
+- The board has `freedraw` elements. Strokes have no label, so only the picture shows what they mean, such as a circle around a button or a cross through a field.
+- The user drew on or near an `image`. Text cannot tell you which part of the screenshot they marked.
+- You need to check your own drawing looks right. `read` reports an arrow as present even when something covers it.
+
+An image costs about 1 to 2k tokens, so crop to the area you need. A frame's line in `read` gives its region. Use the full board only for a first look at a messy one.
 
 Elements marked `(user)` are the user's. Elements marked `(claude)` are yours.
 
@@ -62,7 +70,7 @@ Send a JSON object `{"elements": [...]}` or a bare array. Each element is a skel
 
 | Field | Meaning |
 |---|---|
-| `type` | `rectangle`, `ellipse`, `diamond`, `text`, `sticky`, `arrow`, `line`, `frame` |
+| `type` | `rectangle`, `ellipse`, `diamond`, `text`, `sticky`, `arrow`, `line`, `frame`, `image` |
 | `id` | Your own id. Arrows in the same call can bind to it |
 | `x`, `y`, `width`, `height` | Position and size in board pixels |
 | `label` | Text inside a shape or sticky, the title of a frame, or the content of a `text` |
@@ -70,6 +78,7 @@ Send a JSON object `{"elements": [...]}` or a bare array. Each element is a skel
 | `start`, `end` | Arrow and line ends. `{"id": "r1"}` binds to an element. `{"x": 0, "y": 0}` is a free point |
 | `points` | Line points `[[0,0],[100,40]]`, relative to `x`,`y` |
 | `frameId` | Puts the element inside that frame |
+| `file` | An `image` element's picture: a png, jpeg, gif or webp path. Give a `width` or `height` and the other keeps the proportions; give neither and it is 720 wide |
 
 Notes on types.
 
@@ -95,7 +104,7 @@ agent-brief draw <<'JSON'
 JSON
 ```
 
-The call prints the new ids and a batch id. Run `agent-brief read` after a big draw to check the result.
+The call prints the new ids and a batch id, then any warnings. A warning names an arrow whose label hides it. Move the shapes apart with `update` when you get one. After a big draw, run `agent-brief png` and Read it to check the result.
 
 ### Changing and removing
 
@@ -110,11 +119,33 @@ An update can set `x`, `y`, `width`, `height`, `label` and `color`.
 
 - Make boxes 200×80.
 - Leave 60 px between boxes. A row steps by 260 px, a column by 140 px.
+- A labelled arrow needs room for its label. Leave about 10 px per character of the label, plus 40 px, between the boxes it joins.
 - Snap positions to a grid of 20.
 - Flow left to right, or top to bottom for long chains.
 - Label every shape and every arrow that is not obvious.
 - Keep frames 40 px larger than their content on each side, with room for the title.
 - Run `agent-brief read` before drawing on a board that has content. Place new elements in empty space, using the `bounds` line. Start below or to the right of it.
+
+## Following a browser session
+
+When you drive a browser for the user, with Playwright or another browser tool, post a screenshot to the board after each step that matters. The user opens the board, sees each step, marks up what is wrong and sends it back to you.
+
+`snap` and `image` elements need Agent Brief 0.2.5 or newer. If `agent-brief snap` is an unknown command, tell the user to update the app from its menu with Check for Updates.
+
+1. Pick a board name for the run, such as `checkout-run`, and open it with your own session as the Send target:
+
+   ```bash
+   agent-brief open --board checkout-run --session "$CLAUDE_CODE_SESSION_ID" --prompt "Steps of the checkout run. Mark anything wrong, then Send."
+   ```
+2. After each meaningful step, save a screenshot and post it:
+
+   ```bash
+   agent-brief snap /tmp/step-2.png --board checkout-run --caption "Added two items to the cart" --note "Total shows $40, expected $36"
+   ```
+
+   `snap` puts the picture in a frame titled with the step number and caption, three steps to a row. Use `--note` for a question or anything you are unsure about. Post steps, not every click. Five to ten snapshots make a readable run.
+3. Tell the user the board is ready, and that they can mark it up, add notes or record voice, then press Send. Their Send arrives in this session as your next prompt, with a PNG of the board and the user's notes. Send also empties the board, and History keeps a copy, so start the next round of snapshots on a fresh board.
+4. When you read their feedback, run `agent-brief read --board <run>`. The user's strokes inside a step's frame list under that frame. Crop each marked frame with `png --region` and Read it, because a stroke only means something against the screenshot under it.
 
 ## Rules
 

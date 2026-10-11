@@ -44,6 +44,17 @@ export function renameBoard(briefs: SessionBriefs, from: string, to: string): Se
   return Object.fromEntries(Object.entries(briefs).map(([id, b]) => [id, b.board === from ? { ...b, board: to } : b]));
 }
 
+/** Forgets a deleted board, so no session tries to reopen it. */
+export function forgetBoard(briefs: SessionBriefs, board: string): SessionBriefs {
+  return Object.fromEntries(
+    Object.entries(briefs).map(([id, b]) => {
+      if (b.board !== board) return [id, b];
+      const { board: _gone, last, ...rest } = b;
+      return [id, rest.draftId ? { ...rest, last: 'draft' } : rest];
+    }),
+  );
+}
+
 export interface BoardChoice {
   /** The board to open. */
   board: string;

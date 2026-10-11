@@ -97,6 +97,11 @@ export function interactiveCanvas(page: Page) {
   return page.locator('canvas.excalidraw__canvas.interactive');
 }
 
+/** Picks the pen, as the person would before drawing. The board opens on the pointer. */
+export async function pickPen(page: Page): Promise<void> {
+  await page.evaluate(() => (window as any).__excalidraw.setActiveTool({ type: 'freedraw' }));
+}
+
 export type Cdp = Awaited<ReturnType<ReturnType<Page['context']>['newCDPSession']>>;
 
 /** Draws a straight pen stroke through CDP with a fixed force (0..1). */

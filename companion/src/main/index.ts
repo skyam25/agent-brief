@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, rmSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,7 @@ import {
   nativeImage,
   nativeTheme,
   session,
+  shell,
   systemPreferences,
   Tray,
 } from 'electron';
@@ -40,7 +41,7 @@ import {
 import { createBoardBackend } from './backend';
 import { newDraftId } from '../shared/drafts';
 import { folderName } from '../shared/sessions';
-import { remember, renameBoard as renameInBriefs, sketchBoard, type SessionBrief } from './session-briefs';
+import { forgetBoard, remember, renameBoard as renameInBriefs, sketchBoard, type SessionBrief } from './session-briefs';
 import { DraftStore } from './drafts';
 import { TemplateStore } from './templates';
 import { RendererBridge } from './bridge';
@@ -60,7 +61,7 @@ import {
 } from './launch';
 import { Panel } from './panel';
 import { Updater } from './updater';
-import { BoardStore, migrateData, StateFile } from './store';
+import { BoardStore, cleanName, migrateData, StateFile } from './store';
 
 const testMode = process.env.COMPANION_TEST === '1';
 
@@ -100,6 +101,7 @@ const settingsOf = (): Settings => ({
   deliveryMode: state.state.deliveryMode,
   openAtLogin: state.state.openAtLogin,
   captureHotkey: state.state.captureHotkey,
+  appearance: state.state.appearance,
 });
 
 /**
@@ -210,6 +212,7 @@ async function start(): Promise<void> {
   if (offscreen) app.dock?.hide();
   app.setAboutPanelOptions({ applicationName: 'Agent Brief', applicationVersion: app.getVersion() });
   store.create(state.state.currentBoard);
+  nativeTheme.themeSource = state.state.appearance;
 
   const panel = new Panel({
     preload: join(__dirname, '../preload/index.cjs'),
@@ -564,12 +567,20 @@ async function start(): Promise<void> {
       }
       next.deliveryMode = patch.deliveryMode;
     }
+    if (patch.appearance !== undefined) {
+      if (!['system', 'light', 'dark'].includes(patch.appearance)) {
+        return { ok: false, error: 'Appearance is system, light or dark', settings: settingsOf() };
+      }
+      next.appearance = patch.appearance;
+    }
     if (patch.openAtLogin !== undefined) {
       next.openAtLogin = !!patch.openAtLogin;
       // An unpackaged build would register the bare Electron binary, so only the real app does this.
       if (!testMode && app.isPackaged) app.setLoginItemSettings({ openAtLogin: next.openAtLogin });
     }
     state.update(next);
+    // Setting the source fires nativeTheme's `updated`, which repaints the panel.
+    if (next.appearance) nativeTheme.themeSource = next.appearance;
     buildMenus();
     return { ok: true, settings: settingsOf() };
   };
@@ -606,6 +617,17 @@ async function start(): Promise<void> {
     state.update({ sessionBriefs: renameInBriefs(briefs(), from, name) });
     publishBriefs();
     return name;
+  });
+  ipcMain.handle(CH.deleteBoard, async (_e, raw: string) => {
+    const name = cleanName(raw);
+    if (name === state.state.currentBoard) throw new Error('Open another board before deleting this one');
+    const files = store.files(name);
+    // Test runs delete outright, so they never fill the user's Trash.
+    if (testMode) for (const f of files) rmSync(f, { force: true });
+    else for (const f of files) await shell.trashItem(f);
+    drafts.forgetBoard(name);
+    state.update({ sessionBriefs: forgetBoard(briefs(), name) });
+    publishBriefs();
   });
   ipcMain.handle(CH.setCurrent, (_e, raw: string) => {
     const board = store.create(raw);

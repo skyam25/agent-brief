@@ -49,7 +49,7 @@ export function BoardCanvas(props: {
         theme={props.theme}
         initialData={{
           elements: props.scene.elements,
-          appState: { ...props.scene.appState, activeTool: { type: 'freedraw' } as never },
+          appState: { ...props.scene.appState, activeTool: { type: 'selection' } as never },
           files: props.scene.files,
           scrollToContent: true,
         }}

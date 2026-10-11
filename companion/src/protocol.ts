@@ -152,6 +152,7 @@ export type ShapeType =
   | 'arrow'
   | 'line'
   | 'frame'
+  | 'image'
   | 'freedraw';
 
 /** Named colours keep agent drawings consistent with the palette. */
@@ -187,6 +188,8 @@ export interface Skeleton {
   points?: [number, number][];
   /** Puts the element inside a frame. */
   frameId?: string;
+  /** An `image` element's picture, as a `data:image/png|jpeg|webp|gif;base64,` URL. Needs width and height. */
+  image?: string;
 }
 
 export interface DrawRequest {
@@ -198,6 +201,8 @@ export interface DrawResponse {
   ids: string[];
   /** One undo step removes the whole batch. */
   batchId: string;
+  /** Problems the drawing has, such as an arrow its label hides. */
+  warnings?: string[];
 }
 
 export interface ElementSummary {

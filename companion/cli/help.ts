@@ -48,8 +48,13 @@ export const DOCS: Record<string, Doc> = {
   },
   draw: {
     usage: 'agent-brief draw [--board <name>] [--file f.json] [--json]',
-    about: 'Adds elements. Reads {"elements":[...]} or a bare array from --file or stdin. One call is one undo step.',
+    about: 'Adds elements. Reads {"elements":[...]} or a bare array from --file or stdin. One call is one undo step. An image element takes "file", a png, jpeg, gif or webp path, and keeps its proportions when you give only a width or height. Warnings name arrows whose label hides them.',
     example: DRAW_EXAMPLE,
+  },
+  snap: {
+    usage: 'agent-brief snap <image> [--caption <text>] [--note <text>] [--width 720] [--board <name>] [--json]',
+    about: 'Adds a screenshot as the next numbered step, in a frame titled with the caption. Steps run three to a row. --note adds a sticky under the picture.',
+    example: 'agent-brief snap /tmp/step.png --board checkout-run --caption "Cart" --note "Total skips the discount"',
   },
   update: {
     usage: 'agent-brief update [--board <name>] [--file f.json] [--json]',

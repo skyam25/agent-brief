@@ -73,6 +73,15 @@ export class DraftStore {
     rmSync(this.path(id), { force: true });
   }
 
+  /** Unlinks every draft from a deleted board. */
+  forgetBoard(board: string): void {
+    for (const d of this.list()) {
+      if (d.board !== board) continue;
+      const { board: _gone, ...rest } = d;
+      this.save(rest);
+    }
+  }
+
   /** Points every draft linked to board `from` at `to`, after a rename. */
   renameBoard(from: string, to: string): void {
     for (const d of this.list()) if (d.board === from) this.save({ ...d, board: to });

@@ -154,6 +154,16 @@ export class DraftBook {
   }
 
   /** Board renames move links in main; this keeps the open list in step. */
+  /** Unlinks drafts from a deleted board. Main has already saved the change. */
+  forgetBoard(board: string): void {
+    this.drafts = this.drafts.map((d) => {
+      if (d.board !== board) return d;
+      const { board: _gone, ...rest } = d;
+      return rest;
+    });
+    this.emit();
+  }
+
   renameBoard(from: string, to: string): void {
     this.drafts = this.drafts.map((d) => (d.board === from ? { ...d, board: to } : d));
     this.emit();

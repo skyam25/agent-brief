@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { boardMenu, interactiveCanvas, launch, openNotes, penStroke, pickBoard, sceneElements, showPanel, tempDataDir } from './helpers';
+import { boardMenu, interactiveCanvas, launch, openNotes, penStroke, pickPen, pickBoard, sceneElements, showPanel, tempDataDir } from './helpers';
 
 test('C1.1 the hotkey toggle shows and hides the panel; test runs stay off screen and unfocused', async () => {
   const { app } = await launch(tempDataDir());
@@ -54,6 +54,7 @@ test('C1.4 boards, notes, panel size and the current board survive a restart', a
   await showPanel(app, page);
   await openNotes(page);
   const cdp = await page.context().newCDPSession(page);
+  await pickPen(page);
   const box = (await interactiveCanvas(page).boundingBox())!;
   await penStroke(cdp, { x: box.x + 320, y: box.y + 200 }, { x: box.x + 600, y: box.y + 260 }, 0.6);
   await page.getByTestId('notes').fill('first board notes');
@@ -101,6 +102,7 @@ test('edits made just before quitting survive, without waiting for the 500 ms sa
   await showPanel(app, page);
   await openNotes(page);
   const cdp = await page.context().newCDPSession(page);
+  await pickPen(page);
   const box = (await interactiveCanvas(page).boundingBox())!;
   await penStroke(cdp, { x: box.x + 320, y: box.y + 200 }, { x: box.x + 500, y: box.y + 260 }, 0.6);
   await page.getByTestId('notes').fill('typed at the last moment');
@@ -134,5 +136,37 @@ test('renaming a board onto a taken name is refused and says why', async () => {
   await page.getByTestId('board-name').fill('../escape');
   await page.getByTestId('board-name').press('Enter');
   await expect(page.getByTestId('send-status')).toHaveText(/Could not rename the board: board name may use letters/);
+  await app.close();
+});
+
+test('a board deletes from the board menu after a second click, and deleting the open one opens another', async () => {
+  const { app, page } = await launch(tempDataDir());
+  await showPanel(app, page);
+  const names = () => app.evaluate(() => (globalThis as any).__companion.store.list().map((b: any) => b.name));
+  const row = (name: string) => page.getByTestId('board-menu').locator('li', { has: page.getByTestId('board-item').filter({ hasText: new RegExp(`^${name}$`) }) });
+  for (const name of ['second', 'third']) {
+    await boardMenu(page, 'board-new');
+    await page.getByTestId('board-name').fill(name);
+    await page.getByTestId('board-name').press('Enter');
+    await expect(page.getByTestId('board-picker')).toHaveText(name);
+  }
+
+  // The first click only asks; leaving the row takes the question back.
+  await page.getByTestId('board-picker').click();
+  await row('second').hover();
+  await row('second').getByTestId('board-delete').click();
+  await expect(row('second').getByTestId('board-delete')).toHaveText('Delete');
+  expect(await names()).toEqual(['scratch', 'second', 'third']);
+  await row('second').getByTestId('board-delete').click();
+  await expect.poll(names).toEqual(['scratch', 'third']);
+  await expect(page.getByTestId('board-item')).toHaveCount(2);
+  await expect(page.getByTestId('board-picker')).toHaveText('third');
+
+  // Deleting the open board moves to another first.
+  await row('third').hover();
+  await row('third').getByTestId('board-delete').click();
+  await row('third').getByTestId('board-delete').click();
+  await expect(page.getByTestId('board-picker')).toHaveText('scratch');
+  await expect.poll(names).toEqual(['scratch']);
   await app.close();
 });

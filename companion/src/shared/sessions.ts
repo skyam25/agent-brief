@@ -29,7 +29,7 @@ export function shortPath(path: string, home?: string): string {
   return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
-/** The project and where it runs, as in `webAgentCompanion · Ghostty`. */
+/** The project and where it runs, as in `agent-brief · Ghostty`. */
 export function sessionTitle(s: SessionInfo): string {
   return [s.title || folderName(s.cwd), hostLabel(s.host)].filter(Boolean).join(' · ');
 }
