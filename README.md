@@ -17,7 +17,7 @@ Sketch, talk and paste screenshots on your Mac, then hand all of it to Claude Co
 
 ## Hand it to Claude Code
 
-- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session.
+- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session. `/write`, or the Write button, opens a new note for it instead.
 - Send writes a bundle into the project and gives Claude a prompt that points at it.
 - The prompt goes in by itself, or waits in the prompt box if you prefer to add to it first.
 - The panel closes and the board clears, ready for the next idea.
@@ -80,7 +80,7 @@ A timeline reads like this:
 | Folder | Holds |
 |---|---|
 | [`companion/`](companion) | The macOS app and the `agent-brief` command line tool |
-| [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, the Sketch button, delivery and the feedback inbox |
+| [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, `/write`, their buttons, delivery and the feedback inbox |
 
 Building the app, tests and packaging are in [companion/docs/DEVELOPMENT.md](companion/docs/DEVELOPMENT.md).
 

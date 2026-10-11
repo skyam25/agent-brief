@@ -143,7 +143,14 @@ export function parseOpen(body: unknown): OpenRequest {
     board: optString(o, 'board', 'body'),
     sessionId: optString(o, 'sessionId', 'body'),
     prompt: optString(o, 'prompt', 'body'),
+    mode: openMode(o),
   };
+}
+
+function openMode(o: Obj): OpenRequest['mode'] {
+  const mode = optString(o, 'mode', 'body');
+  if (mode !== undefined && mode !== 'sketch' && mode !== 'write') fail('body.mode must be sketch or write');
+  return mode;
 }
 
 /** Parses `x,y,w,h`. */

@@ -89,6 +89,8 @@ export interface OpenRequest {
   sessionId?: string;
   /** Text shown at the top of the panel, such as what Claude asked for. */
   prompt?: string;
+  /** `write` opens Write mode on a new note instead of the board. Defaults to `sketch`. */
+  mode?: 'sketch' | 'write';
 }
 
 export interface OpenResponse {

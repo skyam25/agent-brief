@@ -14,6 +14,7 @@ export const LAUNCH_ATTEMPTS = 40
 export const LAUNCH_STEP_S = '0.25'
 
 export const SKETCH_OPENED = 'Agent Brief open — sketch, then press Send.'
+export const WRITE_OPENED = 'Agent Brief open — write, then press Send.'
 
 /** Empty setting means the app's default socket. */
 export function socketPathOf(setting: string, home: string): string {
