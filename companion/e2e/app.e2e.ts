@@ -103,6 +103,9 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   expect(await registered()).toEqual(['Control+Alt+S']);
 
   await page.getByTestId('settings-toggle').click();
+  // Test runs never update, so Settings shows the version without a check button.
+  await expect(page.getByTestId('settings-update')).toContainText(/Version \d+\.\d+\.\d+/);
+  await expect(page.getByTestId('settings-update-check')).toHaveCount(0);
   await page.getByTestId('settings-hotkey').fill('ctrl+shift+k');
   await page.getByTestId('settings-hotkey-save').click();
   await expect(page.getByTestId('settings-saved')).toBeVisible();

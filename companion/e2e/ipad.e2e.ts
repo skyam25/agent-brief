@@ -80,6 +80,7 @@ test('pairing: no cookie gets 401, a code works once, and revoking disconnects',
   await expect(mac.page.getByTestId('ipad-sheet')).toBeVisible();
   await expect(mac.page.getByTestId('ipad-url')).toHaveText(url!);
   await expect(mac.page.getByTestId('ipad-firewall')).toBeVisible();
+  await expect(mac.page.getByTestId('ipad-network')).toContainText("this Mac's Wi-Fi");
 
   const stranger = await browser.newContext();
   contexts.push(stranger);

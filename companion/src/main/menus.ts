@@ -1,6 +1,7 @@
 /** The app menu and the menu bar (tray) menu. */
 
 import type { MenuItemConstructorOptions } from 'electron';
+import type { UpdateStatus } from '../shared/ipc';
 import { acceleratorLabel } from './accelerator';
 
 export interface MenuActions {
@@ -11,6 +12,17 @@ export interface MenuActions {
   openSettings: () => void;
   installCli: () => void;
   openIpad: () => void;
+  update: UpdateStatus;
+  checkForUpdates: () => void;
+  installUpdate: () => void;
+}
+
+/** Restart to Update once a download is ready, otherwise Check for Updates. Nothing in development. */
+function updateItem(a: MenuActions): MenuItemConstructorOptions[] {
+  const { state, available } = a.update;
+  if (state === 'off') return [];
+  if (state === 'ready') return [{ label: `Restart to Update to ${available}`, click: a.installUpdate }];
+  return [{ label: 'Check for Updates…', enabled: state !== 'checking' && state !== 'downloading', click: a.checkForUpdates }];
 }
 
 /** The standard Edit menu is what makes ⌘C, ⌘V and ⌘Z work in Electron on macOS. */
@@ -20,6 +32,7 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
       role: 'appMenu',
       submenu: [
         { role: 'about' },
+        ...updateItem(a),
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'Command+,', click: a.openSettings },
         { label: 'Install Command Line Tool…', click: a.installCli },
@@ -57,6 +70,7 @@ export function trayMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
     { type: 'separator' },
     { label: 'Settings…', click: a.openSettings },
     { label: 'Install Command Line Tool…', click: a.installCli },
+    ...updateItem(a),
     { type: 'separator' },
     { label: 'Quit Agent Brief', role: 'quit' },
   ];

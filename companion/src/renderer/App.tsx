@@ -1,7 +1,7 @@
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { SessionsResponse } from '../protocol';
-import type { CompanionApi, InitInfo, IpadStatus, Launcher, SendResult, Settings, Theme } from '../shared/ipc';
+import type { CompanionApi, InitInfo, IpadStatus, Launcher, SendResult, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
 import { BoardPicker } from './BoardPicker';
 import { BoardController, parseScene, type LoadedScene } from './controller';
@@ -61,6 +61,7 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
   const [status, setStatus] = useState<string>();
   const [settings, setSettings] = useState<Settings>(info.settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [update, setUpdate] = useState<UpdateStatus>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [newBoardRequest, setNewBoardRequest] = useState(0);
@@ -78,6 +79,8 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
     host.onSessions(setSessions);
     host.onTheme(setTheme);
     host.onOpenSettings(() => setSettingsOpen(true));
+    host.onUpdate(setUpdate);
+    void host.getUpdate().then(setUpdate);
     host.onNewBoard(() => setNewBoardRequest((n) => n + 1));
     controller.panelVisible = info.panelVisible;
     host.onVisibility((visible) => (controller.panelVisible = visible));
@@ -241,6 +244,9 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
           {settingsOpen && (
             <SettingsPopover
               settings={settings}
+              update={update}
+              onCheckUpdate={() => void host.checkForUpdate().then(setUpdate)}
+              onInstallUpdate={() => void host.installUpdate()}
               onChange={async (patch) => {
                 // Show toggles at once; the reply corrects them if main refuses.
                 setSettings((s) => ({ ...s, ...patch, hotkey: s.hotkey }));

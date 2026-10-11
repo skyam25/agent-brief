@@ -1,12 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Settings } from '../shared/ipc';
+import type { Settings, UpdateStatus } from '../shared/ipc';
 
-/** Hotkey, delivery mode and launch at login. `onChange` returns an error message when a change is refused. */
+/** What the update line says, or undefined when the version stands alone. */
+function updateText(u: UpdateStatus): string | undefined {
+  switch (u.state) {
+    case 'checking':
+      return 'Checking for updates…';
+    case 'current':
+      return 'Up to date.';
+    case 'downloading':
+      return `Downloading ${u.available ?? 'the update'}${u.percent ? ` · ${u.percent}%` : ''}…`;
+    case 'ready':
+      return `Version ${u.available} is ready. It installs when Agent Brief quits.`;
+    case 'error':
+      return `Could not check for updates: ${u.error}`;
+    default:
+      return undefined;
+  }
+}
+
+/** Hotkey, delivery mode, launch at login and updates. `onChange` returns an error message when a change is refused. */
 export function SettingsPopover(props: {
   settings: Settings;
+  update?: UpdateStatus;
   onChange: (patch: Partial<Settings>) => Promise<string | undefined>;
+  onCheckUpdate: () => void;
+  onInstallUpdate: () => void;
   onClose: () => void;
 }) {
+  const { update } = props;
+  const updateLine = update && updateText(update);
   const [hotkey, setHotkey] = useState(props.settings.hotkey);
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
@@ -70,6 +93,33 @@ export function SettingsPopover(props: {
         </p>
       )}
       {saved && !error && <p className="muted" data-testid="settings-saved">Saved.</p>}
+      {update && (
+        <div className="update" data-testid="settings-update">
+          <div className="row">
+            <span className="muted">Version {update.version}</span>
+            {update.state === 'ready' ? (
+              <button className="primary" onClick={props.onInstallUpdate} data-testid="settings-update-install">
+                Restart to Update
+              </button>
+            ) : (
+              update.state !== 'off' && (
+                <button
+                  onClick={props.onCheckUpdate}
+                  disabled={update.state === 'checking' || update.state === 'downloading'}
+                  data-testid="settings-update-check"
+                >
+                  Check for Updates
+                </button>
+              )
+            )}
+          </div>
+          {updateLine && (
+            <p className={update.state === 'error' ? 'error' : 'muted'} data-testid="settings-update-status">
+              {updateLine}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

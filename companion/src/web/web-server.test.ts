@@ -468,6 +468,18 @@ describe('C6.6 subnet guard', () => {
     }
   });
 
+  it('reports the address it turned away, once per address', async () => {
+    const s = await setup({ allowRemote: () => false });
+    const seen: (string | undefined)[] = [];
+    s.server.onChange((st) => seen.push(st.refused));
+    for (let i = 0; i < 2; i++) {
+      const sock = net.connect(s.port, '127.0.0.1');
+      sock.on('error', () => undefined);
+      await new Promise((r) => sock.once('close', r));
+    }
+    expect(seen).toEqual(['127.0.0.1']);
+  });
+
   it('allows loopback by default', async () => {
     const s = await setup();
     const cookie = await pair(s);

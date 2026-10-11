@@ -64,6 +64,11 @@ export class Panel {
     else void this.win.loadFile(opts.file);
   }
 
+  /** Lets the window close. An update install closes windows before `before-quit` fires. */
+  prepareQuit(): void {
+    this.quitting = true;
+  }
+
   isVisible(): boolean {
     return !this.win.isDestroyed() && this.win.isVisible();
   }
