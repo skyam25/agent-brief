@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { draftTitle } from '../shared/drafts';
 import type { CompanionApi, HistoryEntry } from '../shared/ipc';
 
 type Item = HistoryEntry & { url?: string };
@@ -9,7 +10,7 @@ function when(ms: number): string {
   return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-/** The last sends. Open puts one on a new board; Copy puts its prompt on the clipboard. */
+/** The last sends. Open puts one on a new board, a new note, or both; Copy puts its prompt on the clipboard. */
 export function HistoryPopover(props: {
   host: CompanionApi;
   onOpen: (id: string) => void;
@@ -57,13 +58,18 @@ export function HistoryPopover(props: {
           <li key={item.id} data-testid="history-item">
             {item.url ? <img src={item.url} alt="" /> : <div className="thumb" />}
             <div className="meta">
-              <span>{item.board}</span>
+              <span>{item.text ? draftTitle(item.text) : item.board}</span>
               <span className="muted">
                 {when(item.sentAt)} · {item.target}
               </span>
             </div>
             <div className="actions">
-              <button className="ghost small" title="Open on a new board" onClick={() => props.onOpen(item.id)} data-testid="history-open">
+              <button
+                className="ghost small"
+                title={item.text ? 'Open as a new note' : 'Open on a new board'}
+                onClick={() => props.onOpen(item.id)}
+                data-testid="history-open"
+              >
                 Open
               </button>
               <button className="ghost small" title="Copy the prompt" onClick={() => void copy(item)} data-testid="history-copy">

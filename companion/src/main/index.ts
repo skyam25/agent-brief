@@ -23,17 +23,23 @@ import { buildDraft, freeId, writeBundle } from '../server/bundle';
 import { createCompanionServer, type CompanionServer } from '../server/index';
 import {
   CH,
+  isTextPayload,
   type BoardReply,
   type InitInfo,
   type Launcher,
   type LaunchOptions,
   type MicrophoneAccess,
+  type Mode,
+  type Outgoing,
   type SendPayload,
   type Settings,
   type SettingsResult,
   type Theme,
 } from '../shared/ipc';
 import { createBoardBackend } from './backend';
+import { newDraftId } from '../shared/drafts';
+import { DraftStore } from './drafts';
+import { TemplateStore } from './templates';
 import { RendererBridge } from './bridge';
 import { cliLinkPath, installCli, type InstallResult } from './cli-install';
 import { FakeRegistrar, Hotkey, type Registrar } from './hotkey';
@@ -77,6 +83,8 @@ const socketPath = process.env[SOCKET_ENV] ?? defaultSocketPath(homedir());
 const store = new BoardStore(dataDir);
 const state = new StateFile(dataDir);
 const history = new SendHistory(dataDir);
+const drafts = new DraftStore(dataDir);
+const templates = new TemplateStore(dataDir);
 let prompt: string | undefined;
 let sessions: SessionsResponse = { sessions: [] };
 let lastDelivery: DeliveryInput | undefined;
@@ -88,6 +96,7 @@ const settingsOf = (): Settings => ({
   hotkey: state.state.hotkey,
   deliveryMode: state.state.deliveryMode,
   openAtLogin: state.state.openAtLogin,
+  captureHotkey: state.state.captureHotkey,
 });
 
 /**
@@ -112,6 +121,7 @@ async function composeFrom(p: SendPayload): Promise<{ input: DeliveryInput; warn
     segments,
     bounds: p.bounds,
     mode: state.state.deliveryMode,
+    text: p.text || undefined,
     transcribe: {
       ffmpegPath: ffmpegPath ?? 'ffmpeg',
       yapPath: yapPath ?? 'yap',
@@ -123,6 +133,19 @@ async function composeFrom(p: SendPayload): Promise<{ input: DeliveryInput; warn
   });
   return { input, warnings };
 }
+
+/** A delivery from either mode. A written draft alone needs no voice work. */
+async function composeOutgoing(p: Outgoing): Promise<{ input: DeliveryInput; warnings: string[] }> {
+  if (!isTextPayload(p)) return composeFrom(p);
+  return { input: { boardName: '', text: p.text, mode: state.state.deliveryMode }, warnings: [] };
+}
+
+/** History fields that depend on what went out. */
+const sent = (input: DeliveryInput) => ({
+  ...(input.boardName ? { board: input.boardName } : {}),
+  ...(input.text ? { text: input.text } : {}),
+  ...(input.notes ? { notes: input.notes } : {}),
+});
 
 const LAUNCHER_NAMES: Record<Launcher, string> = { ghostty: 'Ghostty', terminal: 'Terminal', herdr: 'herdr', copy: 'the clipboard' };
 const RECENT_PROJECTS = 8;
@@ -256,6 +279,16 @@ async function start(): Promise<void> {
     console.error(`[companion] socket server did not start: ${(err as Error).message}`);
   }
 
+  /** Deletes the draft a successful Send used up. History keeps its text. The Send went out even if this fails. */
+  function usedUp(payload: Outgoing): void {
+    if (!payload.draftId) return;
+    try {
+      drafts.remove(payload.draftId);
+    } catch (err) {
+      console.warn(`[companion] could not delete the sent draft: ${(err as Error).message}`);
+    }
+  }
+
   function record(entry: Parameters<SendHistory['add']>[0], input: DeliveryInput): void {
     try {
       history.add(entry, { png: input.png, scene: input.scene });
@@ -271,11 +304,10 @@ async function start(): Promise<void> {
       {
         id: delivery.id,
         sentAt: delivery.createdAt,
-        board: input.boardName,
         target: sessionName(delivery.sessionId),
         dir: delivery.dir,
         draft: delivery.draft,
-        ...(input.notes ? { notes: input.notes } : {}),
+        ...sent(input),
       },
       input,
     );
@@ -283,9 +315,9 @@ async function start(): Promise<void> {
   }
 
   /** Writes the bundle into `cwd`, then starts Claude Code there on it, or copies the command that does. */
-  async function deliverToNew(payload: SendPayload, cwd: string, via: Launcher) {
+  async function deliverToNew(payload: Outgoing, cwd: string, via: Launcher) {
     if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return { ok: false, message: `No folder at ${cwd}` };
-    const { input, warnings } = await composeFrom(payload);
+    const { input, warnings } = await composeOutgoing(payload);
     const sentAt = Date.now();
     const sketches = join(cwd, '.feedback', 'sketches');
     const id = freeId(sketches, sentAt);
@@ -297,15 +329,18 @@ async function start(): Promise<void> {
     lastDelivery = input;
     rememberProjects([cwd]);
     const target = `new session (${LAUNCHER_NAMES[via]})`;
-    record({ id, sentAt, board: input.boardName, target, dir, draft, ...(input.notes ? { notes: input.notes } : {}) }, input);
+    record({ id, sentAt, target, dir, draft, ...sent(input) }, input);
     for (const w of warnings) console.warn(`[companion] ${w}`);
     if (via === 'copy') {
       const command = startCommand(cwd, promptPath);
       if (testMode) testClipboard = command;
       else clipboard.writeText(command);
-      return { ok: true, message: 'Copied a command that starts Claude Code on this sketch. Paste it into a terminal.' };
+      usedUp(payload);
+      const what = input.png ? 'sketch' : 'draft';
+      return { ok: true, message: `Copied a command that starts Claude Code on this ${what}. Paste it into a terminal.` };
     }
     await startSession(run, via, cwd, promptPath, herdrPath());
+    usedUp(payload);
     return { ok: true, message: `Started Claude Code in ${LAUNCHER_NAMES[via]}` };
   }
 
@@ -342,6 +377,16 @@ async function start(): Promise<void> {
   const hotkey = new Hotkey(registrar, togglePanel);
   const startup = hotkey.set(state.state.hotkey);
   if (!startup.ok) console.warn(`[companion] ${startup.error}`);
+  /** Opens Write mode on a new note, from the capture shortcut and menus. A new thought picks no session, even with the panel up. */
+  const newNote = () => {
+    server.setTarget(undefined);
+    setPrompt(undefined);
+    panel.show();
+    send(CH.newNote);
+  };
+  const captureKey = new Hotkey(registrar, newNote);
+  const captureStartup = captureKey.set(state.state.captureHotkey);
+  if (!captureStartup.ok) console.warn(`[companion] ${captureStartup.error}`);
 
   const runInstallCli = async (opts: { confirm: boolean; home?: string }): Promise<InstallResult | undefined> => {
     const home = opts.home ?? homedir();
@@ -378,6 +423,9 @@ async function start(): Promise<void> {
 
   const actions = (): MenuActions => ({
     hotkey: state.state.hotkey,
+    captureHotkey: state.state.captureHotkey,
+    mode: state.state.mode,
+    newNote,
     togglePanel,
     showPanel: openStandalone,
     newBoard: () => {
@@ -418,6 +466,11 @@ async function start(): Promise<void> {
       if (!r.ok) return { ok: false, error: r.error, settings: settingsOf() };
       next.hotkey = r.hotkey;
     }
+    if (patch.captureHotkey !== undefined) {
+      const r = captureKey.set(patch.captureHotkey);
+      if (!r.ok) return { ok: false, error: r.error, settings: settingsOf() };
+      next.captureHotkey = r.hotkey;
+    }
     if (patch.deliveryMode !== undefined) {
       if (patch.deliveryMode !== 'fill' && patch.deliveryMode !== 'submit') {
         return { ok: false, error: 'Delivery mode is fill or submit', settings: settingsOf() };
@@ -445,6 +498,7 @@ async function start(): Promise<void> {
       theme: theme(),
       settings: settingsOf(),
       panelVisible: panel.isVisible(),
+      mode: state.state.mode,
     }),
   );
   ipcMain.handle(CH.listBoards, () => store.list());
@@ -457,6 +511,7 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.renameBoard, (_e, from: string, to: string) => {
     const name = store.rename(from, to);
     if (state.state.currentBoard === from) state.update({ currentBoard: name });
+    drafts.renameBoard(from, name);
     return name;
   });
   ipcMain.handle(CH.setCurrent, (_e, name: string) => state.update({ currentBoard: store.create(name) }));
@@ -467,15 +522,16 @@ async function start(): Promise<void> {
       console.warn(`[companion] ${(err as Error).message}`);
     }
   });
-  ipcMain.handle(CH.send, async (_e, payload: SendPayload) => {
+  ipcMain.handle(CH.send, async (_e, payload: Outgoing) => {
     if (!server.sessions().targetSessionId) {
-      lastDelivery = (await composeFrom({ ...payload, segments: [] })).input;
+      lastDelivery = (await composeOutgoing(isTextPayload(payload) ? payload : { ...payload, segments: [] })).input;
       return { ok: false, message: 'Choose a session to send to.' };
     }
     try {
-      const { input, warnings } = await composeFrom(payload);
+      const { input, warnings } = await composeOutgoing(payload);
       lastDelivery = input;
       const delivery = await deliver(input);
+      usedUp(payload);
       for (const w of warnings) console.warn(`[companion] ${w}`);
       const note = warnings.length ? ` (${warnings[0]})` : '';
       return { ok: true, message: `Sent to ${sessionName(delivery.sessionId)}${note}` };
@@ -494,11 +550,28 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.historyRestore, (_e, id: string) => {
     const entry = history.get(id);
     const scene = history.scene(id);
-    if (!entry || scene === undefined) throw new Error('that send is no longer in the history');
-    const name = store.create(restoredBoardName(entry.board, entry.sentAt, (n) => store.exists(n)));
-    store.saveScene(name, scene);
-    if (entry.notes) store.saveNotes(name, entry.notes);
-    return name;
+    if (!entry || (scene === undefined && !entry.text)) throw new Error('that send is no longer in the history');
+    let board: string | undefined;
+    if (entry.board && scene !== undefined) {
+      board = store.create(restoredBoardName(entry.board, entry.sentAt, (n) => store.exists(n)));
+      store.saveScene(board, scene);
+      if (entry.notes) store.saveNotes(board, entry.notes);
+    }
+    if (!entry.text) return { board };
+    const now = Date.now();
+    const draft = drafts.save({ id: newDraftId(now), body: entry.text, status: 'note', board, rank: 0, createdAt: now, updatedAt: now });
+    return { board, draftId: draft.id };
+  });
+  ipcMain.handle(CH.listDrafts, () => drafts.list());
+  ipcMain.handle(CH.saveDraft, (_e, draft: unknown) => void drafts.save(draft));
+  ipcMain.handle(CH.deleteDraft, (_e, id: string) => drafts.remove(id));
+  ipcMain.handle(CH.listTemplates, () => templates.list());
+  ipcMain.handle(CH.saveTemplate, (_e, template: unknown) => templates.save(template));
+  ipcMain.handle(CH.deleteTemplate, (_e, id: string) => templates.remove(id));
+  ipcMain.on(CH.setMode, (_e, mode: Mode) => {
+    if (mode !== 'sketch' && mode !== 'write') return;
+    state.update({ mode });
+    buildMenus();
   });
   ipcMain.handle(
     CH.launchOptions,
@@ -512,7 +585,7 @@ async function start(): Promise<void> {
     });
     return picked.canceled ? undefined : picked.filePaths[0];
   });
-  ipcMain.handle(CH.sendNew, async (_e, payload: SendPayload, target: { cwd: string; via: Launcher }) => {
+  ipcMain.handle(CH.sendNew, async (_e, payload: Outgoing, target: { cwd: string; via: Launcher }) => {
     try {
       return await deliverToNew(payload, target.cwd, target.via);
     } catch (err) {
@@ -560,6 +633,10 @@ async function start(): Promise<void> {
         state,
         dataDir,
         hotkey,
+        captureKey,
+        newNote,
+        drafts,
+        templates,
         registrar,
         toggle: togglePanel,
         buildDelivery: async () => (await composeFrom(await bridge.request('payload', {}))).input,

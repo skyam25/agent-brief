@@ -38,6 +38,14 @@ const api: CompanionApi = {
   installUpdate: () => ipcRenderer.invoke(CH.updateInstall),
   onUpdate: (fn) => ipcRenderer.on(CH.update, (_e, status) => fn(status)),
   onVisibility: (fn) => ipcRenderer.on(CH.visibility, (_e, visible) => fn(visible)),
+  setMode: (mode) => ipcRenderer.send(CH.setMode, mode),
+  onNewNote: (fn) => ipcRenderer.on(CH.newNote, () => fn()),
+  listDrafts: () => ipcRenderer.invoke(CH.listDrafts),
+  saveDraft: (draft) => ipcRenderer.invoke(CH.saveDraft, draft),
+  deleteDraft: (id) => ipcRenderer.invoke(CH.deleteDraft, id),
+  listTemplates: () => ipcRenderer.invoke(CH.listTemplates),
+  saveTemplate: (template) => ipcRenderer.invoke(CH.saveTemplate, template),
+  deleteTemplate: (id) => ipcRenderer.invoke(CH.deleteTemplate, id),
 };
 
 contextBridge.exposeInMainWorld('companion', api);

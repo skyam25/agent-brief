@@ -40,11 +40,14 @@ export interface BoardBackend {
 export interface DeliveryInput {
   /** Defaults to the target session. */
   sessionId?: string;
-  /** Board image, long edge 1400 px or less. */
-  png: Buffer;
-  /** Full Excalidraw scene JSON. */
-  scene: unknown;
+  /** Board image, long edge 1400 px or less. Absent for a written draft alone. */
+  png?: Buffer;
+  /** Full Excalidraw scene JSON, present with `png`. */
+  scene?: unknown;
+  /** Empty for a written draft alone. */
   boardName: string;
+  /** A written draft that leads the prompt. */
+  text?: string;
   notes?: string;
   /** Rendered stroke and speech timeline (Phase 3). */
   timelineMd?: string;

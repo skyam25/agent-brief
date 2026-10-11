@@ -532,3 +532,392 @@ button.recording {
   padding: 0;
   border: none;
 }
+
+/* Modes */
+
+.modes button {
+  font-weight: 600;
+}
+
+.modes button[aria-selected='true'] {
+  background: var(--selected);
+}
+
+.pulled .chip {
+  max-width: 220px;
+  color: var(--accent);
+}
+
+.pulled .chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-panel.pull-in {
+  left: 0;
+  right: auto;
+}
+
+.pull-in ul,
+.draft-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.popover-panel.pull-in ul button {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.pull-in ul button span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Write mode covers the board, which stays mounted so Send can still build a sketch. */
+
+.body {
+  position: relative;
+}
+
+.write {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+.draft-list {
+  width: 260px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  min-height: 0;
+}
+
+.list-head {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+}
+
+.write :is(button, select, input) {
+  height: 32px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.write button.icon-button {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.write button.small {
+  height: 24px;
+  padding: 0 6px;
+}
+
+.list-head input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.draft-list .sections {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+
+.draft-list h3 {
+  margin: 12px 4px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.draft-list .count {
+  color: var(--accent);
+}
+
+.draft-list .empty {
+  margin: 4px;
+  font-size: 12px;
+}
+
+.draft-list li[data-dragging] {
+  opacity: 0.4;
+}
+
+.draft-list li.drop-before {
+  box-shadow: 0 -2px 0 var(--accent);
+}
+
+.write button.draft-row {
+  width: 100%;
+  height: auto;
+  padding: 6px 8px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.draft-row[aria-current='true'] {
+  background: var(--selected);
+}
+
+.draft-row .grip {
+  padding-top: 3px;
+  color: var(--muted);
+  cursor: grab;
+}
+
+.draft-row .lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.draft-row .lines > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.draft-row .lines > span:first-child {
+  font-weight: 500;
+}
+
+.board-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 6px;
+  color: var(--accent);
+}
+
+.editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.empty-editor {
+  align-items: center;
+  justify-content: center;
+}
+
+/* The text area sits over a copy of its text that marks {{slots}}; both must lay out the same. */
+
+.slot-area {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+
+.slot-area textarea,
+.slot-area .backdrop {
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  padding: 20px 24px;
+  font: 14px/1.6 ui-monospace, Menlo, monospace;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 4;
+}
+
+.slot-area textarea {
+  flex: 1;
+  position: relative;
+  resize: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  overflow-y: auto;
+}
+
+.slot-area .backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: transparent;
+  pointer-events: none;
+  scrollbar-gutter: stable;
+}
+
+.slot-area textarea {
+  scrollbar-gutter: stable;
+}
+
+.slot-area mark {
+  color: transparent;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.slash-menu {
+  position: absolute;
+  left: 20px;
+  z-index: 3;
+  width: 320px;
+  padding: 4px;
+  background: var(--raised);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
+}
+
+.slash-menu [role='option'] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.slash-menu [role='option'] span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.slash-menu [role='option'][aria-selected='true'],
+.slash-menu [role='option']:hover {
+  background: var(--selected);
+}
+
+.slash-menu p {
+  margin: 6px 8px;
+}
+
+.editor footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.editor footer .spacer {
+  flex: 1;
+}
+
+.board-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.board-pick select {
+  border-color: transparent;
+  background: transparent;
+  padding: 0 6px;
+}
+
+.board-pick select:hover {
+  background: var(--hover);
+}
+
+.write button.danger {
+  color: var(--error);
+  padding: 0 10px;
+}
+
+/* Templates */
+
+.cluster.split {
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+
+.write button.icon-button.narrow {
+  width: 20px;
+}
+
+.popover-panel.new-menu {
+  width: 240px;
+  gap: 6px;
+}
+
+.new-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.new-menu ul button,
+.new-menu > button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.new-menu .hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+.draft-list h3 .section-toggle {
+  height: auto;
+  padding: 2px 0;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  gap: 4px;
+}
+
+.draft-list h3 .section-toggle:hover {
+  background: transparent;
+  color: var(--fg);
+}
+
+.write button.add-template {
+  height: 28px;
+  margin-top: 2px;
+}
+
+.template-title {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  height: auto;
+  padding: 16px 24px 12px;
+  font-size: 16px;
+  font-weight: 600;
+  outline: none;
+  background: var(--bg);
+}
+
+.write .template-title {
+  height: auto;
+  border-radius: 0;
+}
+
+.editor footer code {
+  font: 12px ui-monospace, Menlo, monospace;
+  color: var(--accent);
+}
+
+.name-template input {
+  width: 180px;
+  padding: 0 10px;
+}

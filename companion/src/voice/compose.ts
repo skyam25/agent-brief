@@ -13,6 +13,8 @@ export interface ComposeInput {
   /** Full Excalidraw scene JSON. */
   scene: unknown;
   notes?: string;
+  /** A written draft that leads the prompt. */
+  text?: string;
   strokes: StrokeEvent[];
   segments: VoiceSegment[];
   /** The board's bounding box, for position words. */
@@ -42,6 +44,7 @@ export async function composeDelivery(input: ComposeInput): Promise<DeliveryInpu
     scene: input.scene,
     boardName: input.boardName,
     ...(input.notes ? { notes: input.notes } : {}),
+    ...(input.text ? { text: input.text } : {}),
     ...(timeline ? { timelineMd: timeline.timelineMd } : {}),
     ...(timeline && timeline.transcript.length > 0 ? { transcript: timeline.transcript } : {}),
     ...(timeline?.speech ? { speech: timeline.speech } : {}),
