@@ -11,24 +11,18 @@
       <stop offset="0.5" stop-color="#fff" stop-opacity="0"/>
       <stop offset="1" stop-color="#000" stop-opacity="0.1"/>
     </linearGradient>
+    <linearGradient id="accent" gradientUnits="userSpaceOnUse" x1="0" y1="240" x2="0" y2="810"><stop offset="0" stop-color="#1BB5A7"/><stop offset="1" stop-color="#0A9185"/></linearGradient>
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
       <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
     </filter>
+    
     <clipPath id="clip"><use href="#tile"/></clipPath>
-    <path id="stroke" d="M215 530 C265 385 370 365 420 460 C470 555 560 575 620 480 C650 435 685 400 735 392"/>
-    <linearGradient id="accent" gradientUnits="userSpaceOnUse" x1="0" y1="230" x2="0" y2="750"><stop offset="0" stop-color="#1BB5A7"/><stop offset="1" stop-color="#0A9185"/></linearGradient>
-    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect width="1024" height="1024" fill="#fff"/><use href="#stroke" fill="none" stroke="#000" stroke-width="140" stroke-linecap="round"/></mask>
-    <filter id="lift" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000" flood-opacity="0.16"/></filter>
   </defs>
   <use href="#tile" fill="url(#paper)" filter="url(#shadow)"/>
   <g clip-path="url(#clip)">
-    <g transform="translate(0 15)">
-      <g fill="#1BB5A7" stroke="#1BB5A7" stroke-width="40" stroke-linejoin="round">
-        <rect x="340" y="230" width="500" height="380" rx="120"/>
-        <path d="M400 560 L520 600 L345 740 Z"/>
-      </g>
-      <use href="#stroke" fill="none" stroke="#1F2540" stroke-width="112" stroke-linecap="round"/>
-    </g>
+    <g transform="translate(-4 -6)"><path d="M200 500 L820 240 L460 600 Z" fill="#B9E3DD" stroke="#B9E3DD" stroke-width="34" stroke-linejoin="round"/>
+<path d="M460 600 L820 240 L560 810 Z" fill="url(#accent)" stroke="url(#accent)" stroke-width="34" stroke-linejoin="round"/>
+<path d="M460 600 L820 240 L480 720 Z" fill="#0A7A70" stroke="#0A7A70" stroke-width="34" stroke-linejoin="round"/></g>
   </g>
   <use href="#tile" fill="none" stroke="url(#rim)" stroke-width="6"/>
 </svg>
