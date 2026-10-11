@@ -15,7 +15,7 @@ test('C1.1 the hotkey toggle shows and hides the panel; test runs stay off scree
       fake: [...c.registrar.registered.keys()],
     };
   });
-  expect(shortcut).toEqual({ real: false, fake: ['Control+Alt+S'] });
+  expect(shortcut).toEqual({ real: false, fake: ['Control+Alt+S', 'Control+Alt+N'] });
   expect(await c('isVisible')).toBe(false);
 
   // The fake registrar holds the same action the real shortcut would run.

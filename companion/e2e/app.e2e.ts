@@ -99,8 +99,8 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   const dataDir = tempDataDir();
   let { app, page } = await launch(dataDir);
   await showPanel(app, page);
-  const registered = () => app.evaluate(() => [...(globalThis as any).__companion.registrar.registered.keys()]);
-  expect(await registered()).toEqual(['Control+Alt+S']);
+  const registered = () => app.evaluate(() => [...(globalThis as any).__companion.registrar.registered.keys()].sort());
+  expect(await registered()).toEqual(['Control+Alt+N', 'Control+Alt+S']);
 
   await page.getByTestId('settings-toggle').click();
   // Test runs never update, so Settings shows the version without a check button.
@@ -109,13 +109,13 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   await page.getByTestId('settings-hotkey').fill('ctrl+shift+k');
   await page.getByTestId('settings-hotkey-save').click();
   await expect(page.getByTestId('settings-saved')).toBeVisible();
-  expect(await registered()).toEqual(['Control+Shift+K']);
+  expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
 
   await app.evaluate(() => (globalThis as any).__companion.registrar.taken.add('Command+Space'));
   await page.getByTestId('settings-hotkey').fill('Command+Space');
   await page.getByTestId('settings-hotkey-save').click();
   await expect(page.getByTestId('settings-error')).toHaveText(/already used/);
-  expect(await registered()).toEqual(['Control+Shift+K']);
+  expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
 
   await page.getByTestId('settings-hotkey').fill('Control+Banana');
   await page.getByTestId('settings-hotkey-save').click();
@@ -131,6 +131,7 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   expect(tray).toEqual([
     'Show Panel',
     'New Board',
+    'New Note (⌃⌥N)',
     'Open on iPad…',
     'Toggle with ⌃⇧K',
     'separator',
@@ -142,9 +143,9 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   await app.close();
 
   ({ app, page } = await launch(dataDir));
-  expect(await registered()).toEqual(['Control+Shift+K']);
+  expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
   const settings = await page.evaluate(() => (window as any).companion.getSettings());
-  expect(settings).toEqual({ hotkey: 'Control+Shift+K', deliveryMode: 'fill', openAtLogin: true });
+  expect(settings).toEqual({ hotkey: 'Control+Shift+K', deliveryMode: 'fill', openAtLogin: true, captureHotkey: 'Control+Alt+N' });
   await app.close();
 });
 

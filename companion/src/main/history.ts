@@ -1,4 +1,4 @@
-/** The last sends: `<dataDir>/history/index.json` plus a folder per send with its PNG and scene. */
+/** The last sends: `<dataDir>/history/index.json` plus a folder per send with its PNG and scene, when it had a sketch. */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -37,12 +37,14 @@ export class SendHistory {
   }
 
   /** Records a send and drops the oldest ones past the limit. */
-  add(entry: HistoryEntry, files: { png: Buffer; scene: unknown }): void {
+  add(entry: HistoryEntry, files: { png?: Buffer; scene?: unknown }): void {
     if (!ID.test(entry.id)) throw new Error(`bad history id ${JSON.stringify(entry.id)}`);
     const folder = join(this.dir, entry.id);
     mkdirSync(folder, { recursive: true });
-    writeFileSync(join(folder, 'sketch.png'), files.png);
-    writeFileSync(join(folder, 'board.excalidraw'), JSON.stringify(files.scene));
+    if (files.png) {
+      writeFileSync(join(folder, 'sketch.png'), files.png);
+      writeFileSync(join(folder, 'board.excalidraw'), JSON.stringify(files.scene));
+    }
     this.entries = [entry, ...this.entries.filter((e) => e.id !== entry.id)].slice(0, this.limit);
     this.save();
     this.prune();
