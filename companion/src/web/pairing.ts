@@ -4,9 +4,11 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-export const COOKIE_NAME = 'companion_device';
 export const TOKEN_TTL_MS = 10 * 60_000;
-const COOKIE_MAX_AGE_S = 365 * 24 * 3600;
+/** A device unused for this long is forgotten and must pair again. */
+export const DEVICE_TTL_MS = 30 * 24 * 3600_000;
+/** The devices file layout. Files without it hold old cookie devices, which are dropped. */
+const FILE_VERSION = 2;
 /** Writes of `lastSeen` are spaced out to spare the disk. */
 const LAST_SEEN_WRITE_MS = 60_000;
 
@@ -57,15 +59,6 @@ export function deviceName(userAgent: string | undefined): string {
   return browser ? `${device} (${browser})` : device;
 }
 
-export function parseCookies(header: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const part of (header ?? '').split(';')) {
-    const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
-  }
-  return out;
-}
-
 export interface PairingOptions {
   devicesFile: string;
   now?: () => number;
@@ -80,26 +73,33 @@ export class PairingStore {
   constructor(private opts: PairingOptions) {
     this.now = opts.now ?? Date.now;
     try {
-      const data: unknown = JSON.parse(readFileSync(opts.devicesFile, 'utf8'));
-      if (Array.isArray(data)) {
-        for (const d of data as StoredDevice[]) {
-          if (typeof d?.id === 'string' && typeof d.secretHash === 'string') this.devices.set(d.id, d);
+      const data = JSON.parse(readFileSync(opts.devicesFile, 'utf8')) as { version?: unknown; devices?: unknown };
+      if (data?.version === FILE_VERSION && Array.isArray(data.devices)) {
+        for (const d of data.devices as StoredDevice[]) {
+          if (typeof d?.id === 'string' && typeof d.secretHash === 'string' && typeof d.lastSeen === 'number') {
+            this.devices.set(d.id, d);
+          }
         }
       }
     } catch {
       // A missing or unreadable file starts an empty list.
     }
+    if (this.prune()) this.save();
   }
 
   /** A fresh token, good for 10 minutes and one use. */
   newToken(): string {
     const token = randomBytes(32).toString('base64url');
+    this.tokens.clear();
     this.tokens.set(sha256(token), this.now() + TOKEN_TTL_MS);
     return token;
   }
 
-  /** Trades a token for a device. The token is spent whether or not it was still valid. */
-  redeem(token: string, userAgent: string | undefined): { cookie: string; device: DeviceInfo } | undefined {
+  /**
+   * Trades a token for a device and its credential, `<id>.<secret>`.
+   * The token is spent whether or not it was still valid.
+   */
+  redeem(token: string, userAgent: string | undefined): { credential: string; device: DeviceInfo } | undefined {
     const key = sha256(token);
     const expires = this.tokens.get(key);
     this.tokens.delete(key);
@@ -119,28 +119,38 @@ export class PairingStore {
     this.devices.set(id, device);
     this.save();
     this.emit();
-    const cookie = `${COOKIE_NAME}=${id}.${secret}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE_S}`;
-    return { cookie, device: publicInfo(device) };
+    return { credential: `${id}.${secret}`, device: publicInfo(device) };
   }
 
-  /** The device a Cookie header belongs to, if its secret matches. */
-  verify(cookieHeader: string | undefined): DeviceInfo | undefined {
-    const value = parseCookies(cookieHeader)[COOKIE_NAME];
-    if (!value) return undefined;
-    const dot = value.indexOf('.');
+  /** The device a credential belongs to, if its secret matches and it has not expired. Counts as a use. */
+  verify(credential: string | undefined): DeviceInfo | undefined {
+    if (!credential) return undefined;
+    const dot = credential.indexOf('.');
     if (dot < 1) return undefined;
-    const device = this.devices.get(value.slice(0, dot));
-    if (!device || !safeEqualHex(device.secretHash, sha256(value.slice(dot + 1)))) return undefined;
+    const device = this.devices.get(credential.slice(0, dot));
+    if (!device || !safeEqualHex(device.secretHash, sha256(credential.slice(dot + 1)))) return undefined;
+    return this.touch(device.id) ? publicInfo(device) : undefined;
+  }
+
+  /** Records a use of a paired device. Returns false when it is gone or has just expired. */
+  touch(id: string): boolean {
+    const device = this.devices.get(id);
+    if (!device) return false;
     const t = this.now();
+    if (t - device.lastSeen > DEVICE_TTL_MS) {
+      this.revoke(id);
+      return false;
+    }
     if (t - device.lastSeen >= LAST_SEEN_WRITE_MS) {
       device.lastSeen = t;
       this.save();
       this.emit();
     }
-    return publicInfo(device);
+    return true;
   }
 
   list(): DeviceInfo[] {
+    if (this.prune()) this.save();
     return [...this.devices.values()].map(publicInfo);
   }
 
@@ -164,10 +174,21 @@ export class PairingStore {
     for (const fn of this.listeners) fn();
   }
 
+  /** Drops expired devices. Returns whether any were dropped. */
+  private prune(): boolean {
+    const t = this.now();
+    let dropped = false;
+    for (const [id, d] of this.devices) {
+      if (t - d.lastSeen > DEVICE_TTL_MS) dropped = this.devices.delete(id) || dropped;
+    }
+    return dropped;
+  }
+
   private save(): void {
     const tmp = `${this.opts.devicesFile}.tmp`;
     mkdirSync(dirname(this.opts.devicesFile), { recursive: true });
-    writeFileSync(tmp, JSON.stringify([...this.devices.values()], null, 2), { mode: 0o600 });
+    const data = { version: FILE_VERSION, devices: [...this.devices.values()] };
+    writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
     renameSync(tmp, this.opts.devicesFile);
   }
 }

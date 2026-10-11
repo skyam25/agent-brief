@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { BoardEntry, BoardHost } from '../shared/ipc';
-import { PencilIcon } from './Icons';
+import { PencilIcon, PlusIcon } from './Icons';
 
 type Mode = { kind: 'idle' } | { kind: 'new' } | { kind: 'rename' };
 
@@ -69,15 +69,16 @@ export function BoardPicker(props: {
       {props.canEdit !== false && (
         <>
           <button
-            className="ghost"
+            className="ghost icon-button"
             title="New board"
+            aria-label="New board"
             data-testid="board-new"
             onClick={() => {
               setDraft('');
               setMode({ kind: 'new' });
             }}
           >
-            +
+            <PlusIcon />
           </button>
           <button
             className="ghost icon-button"

@@ -316,7 +316,7 @@ describe('the Sketch button above the prompt', () => {
     const { clock, start } = await setup($, on)
     await start()
     await clock.settle()
-    expect(textOf(await $.ui.render(BAND))).toContain('open the Agent Brief board for this session')
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"✎ Sketch"')
     const survey = { ...BAND, props: { ...BAND.props, hasSurvey: true } }
     expect(textOf(await $.ui.render(survey))).toBe('engine band')
   })

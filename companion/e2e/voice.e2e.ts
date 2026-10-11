@@ -20,7 +20,7 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   await sock(socketPath, 'POST', '/sessions', { sessionId: 'v1', cwd, title: 'Pricing' });
 
   await page.getByTestId('mic').click();
-  await expect(page.getByTestId('mic')).toHaveText('● 00:00');
+  await expect(page.getByTestId('mic')).toHaveText('00:00');
 
   const cdp = await page.context().newCDPSession(page);
   const box = (await interactiveCanvas(page).boundingBox())!;
@@ -28,7 +28,7 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   await page.waitForTimeout(1500);
   await penStroke(cdp, { x: box.x + 320, y: box.y + 450 }, { x: box.x + 600, y: box.y + 520 }, 0.9);
   await page.waitForTimeout(2500);
-  await expect(page.getByTestId('mic')).toHaveText(/● 00:0[3-6]/);
+  await expect(page.getByTestId('mic')).toHaveText(/^00:0[3-6]$/);
 
   await sendToSession(page, 'Pricing');
   await expect(page.getByTestId('send-status')).toHaveText(/^Sent to Pricing$/, { timeout: 60_000 });

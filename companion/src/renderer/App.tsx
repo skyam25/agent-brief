@@ -7,7 +7,7 @@ import { BoardPicker } from './BoardPicker';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
-import { GearIcon } from './Icons';
+import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, TabletIcon } from './Icons';
 import { IpadSheet } from './IpadSheet';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
@@ -68,7 +68,7 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
   const [ipad, setIpad] = useState<IpadStatus>();
   const [ipadOpen, setIpadOpen] = useState(false);
   const popoverOpenRef = useRef(false);
-  popoverOpenRef.current = settingsOpen || historyOpen || chooserOpen;
+  popoverOpenRef.current = settingsOpen || historyOpen || chooserOpen || ipadOpen;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -97,6 +97,7 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
         setSettingsOpen(false);
         setHistoryOpen(false);
         setChooserOpen(false);
+        setIpadOpen(false);
         e.stopPropagation();
         return;
       }
@@ -116,6 +117,12 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
   );
 
   const report = (what: string) => (err: unknown) => setStatus(`Could not ${what}: ${errorText(err)}`);
+  const openIpad = () => {
+    void host.openIpad().then((status) => {
+      setIpad(status);
+      setIpadOpen(true);
+    }).catch(report('open on iPad'));
+  };
 
   /** Builds the payload, hands it over, and hides the panel once it went out. */
   const deliver = async (handOff: (payload: Awaited<ReturnType<typeof controller.payload>>) => Promise<SendResult>) => {
@@ -142,6 +149,10 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
   const recording = useSyncExternalStore(
     (fn) => controller.recorder.subscribe(fn),
     () => controller.recorder.recording,
+  );
+  const hasVoice = useSyncExternalStore(
+    (fn) => controller.recorder.subscribe(fn),
+    () => controller.recorder.segments.length > 0,
   );
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -185,6 +196,83 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
         <TopStrip
           prompt={prompt}
           onDismissPrompt={() => setPrompt(undefined)}
+          tools={
+            <>
+              <button
+                className="ghost icon-button"
+                title="Open on iPad"
+                aria-label="Open on iPad"
+                aria-haspopup="dialog"
+                onClick={openIpad}
+                data-testid="ipad-open"
+              >
+                <TabletIcon />
+              </button>
+              <button
+                className="ghost icon-button"
+                title="Notes"
+                aria-label="Notes"
+                aria-pressed={notesOpen}
+                onClick={() => setNotesOpen((o) => !o)}
+                data-testid="notes-toggle"
+              >
+                <NotesIcon />
+              </button>
+              <div className="anchor">
+                <button
+                  className="ghost icon-button"
+                  title="History"
+                  aria-label="History"
+                  aria-pressed={historyOpen}
+                  onClick={() => setHistoryOpen((o) => !o)}
+                  data-testid="history-toggle"
+                >
+                  <HistoryIcon />
+                </button>
+                {historyOpen && (
+                  <HistoryPopover
+                    host={host}
+                    onOpen={(id) => {
+                      setHistoryOpen(false);
+                      void host
+                        .restoreHistory(id)
+                        .then((name) => controller.switchTo(name))
+                        .catch(report('open that send'));
+                    }}
+                    onClose={() => setHistoryOpen(false)}
+                  />
+                )}
+              </div>
+              <div className="anchor">
+                <button
+                  className="ghost icon-button"
+                  title="Settings"
+                  aria-label="Settings"
+                  aria-pressed={settingsOpen}
+                  onClick={() => setSettingsOpen((o) => !o)}
+                  data-testid="settings-toggle"
+                >
+                  <GearIcon />
+                </button>
+                {settingsOpen && (
+                  <SettingsPopover
+                    settings={settings}
+                    update={update}
+                    onCheckUpdate={() => void host.checkForUpdate().then(setUpdate)}
+                    onInstallUpdate={() => void host.installUpdate()}
+                    onChange={async (patch) => {
+                      // Show toggles at once; the reply corrects them if main refuses.
+                      setSettings((s) => ({ ...s, ...patch, hotkey: s.hotkey }));
+                      const result = await host.setSettings(patch);
+                      setSettings(result.settings);
+                      return result.ok ? undefined : result.error;
+                    }}
+                    onClose={() => setSettingsOpen(false)}
+                  />
+                )}
+              </div>
+            </>
+          }
           sendControl={
             <SendTo
               sessions={sessions}
@@ -201,68 +289,28 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
           }
           recording={recording}
           elapsedMs={elapsedMs}
+          hasVoice={hasVoice}
           onMicrophone={() => void toggleRecording()}
           status={status}
         />
-        <button className="ghost" onClick={() => setNotesOpen((o) => !o)} aria-pressed={notesOpen} data-testid="notes-toggle">
-          Notes
-        </button>
-        <div className="anchor">
-          <button
-            className="ghost"
-            aria-pressed={historyOpen}
-            data-testid="history-toggle"
-            onClick={() => setHistoryOpen((o) => !o)}
-          >
-            History
-          </button>
-          {historyOpen && (
-            <HistoryPopover
-              host={host}
-              onOpen={(id) => {
-                setHistoryOpen(false);
-                void host
-                  .restoreHistory(id)
-                  .then((name) => controller.switchTo(name))
-                  .catch(report('open that send'));
-              }}
-              onClose={() => setHistoryOpen(false)}
-            />
-          )}
-        </div>
-        <div className="anchor">
-          <button
-            className="ghost icon-button"
-            title="Settings"
-            aria-label="Settings"
-            aria-pressed={settingsOpen}
-            data-testid="settings-toggle"
-            onClick={() => setSettingsOpen((o) => !o)}
-          >
-            <GearIcon />
-          </button>
-          {settingsOpen && (
-            <SettingsPopover
-              settings={settings}
-              update={update}
-              onCheckUpdate={() => void host.checkForUpdate().then(setUpdate)}
-              onInstallUpdate={() => void host.installUpdate()}
-              onChange={async (patch) => {
-                // Show toggles at once; the reply corrects them if main refuses.
-                setSettings((s) => ({ ...s, ...patch, hotkey: s.hotkey }));
-                const result = await host.setSettings(patch);
-                setSettings(result.settings);
-                return result.ok ? undefined : result.error;
-              }}
-              onClose={() => setSettingsOpen(false)}
-            />
-          )}
-        </div>
       </header>
       <main className="body">
         <BoardCanvas controller={controller} scene={scene} theme={theme} onReady={onReady} />
         {notesOpen && (
           <aside className="notes">
+            <header>
+              <span>
+                Notes <span className="muted">· {board}</span>
+              </span>
+              <button
+                className="ghost icon-button small"
+                title="Close notes"
+                aria-label="Close notes"
+                onClick={() => setNotesOpen(false)}
+              >
+                <CloseIcon />
+              </button>
+            </header>
             <textarea
               data-testid="notes"
               placeholder={`Notes for ${board}`}
@@ -275,7 +323,7 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
       {ipadOpen && ipad && (
         <IpadSheet
           status={ipad}
-          onNewCode={() => void host.openIpad().then(setIpad)}
+          onNewCode={openIpad}
           onStop={() => void host.stopIpad().then(setIpad)}
           onRevoke={(id) => void host.revokeDevice(id).then(setIpad)}
           onClose={() => setIpadOpen(false)}

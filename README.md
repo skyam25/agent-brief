@@ -9,6 +9,7 @@ Sketch, talk and paste screenshots on your Mac, then hand all of it to Claude Co
 - A pasted screenshot lands ready to mark up, with the pen still in hand.
 - Each board keeps its own notes, and you can keep several named boards.
 - The same board opens on an iPad on your local network, and strokes sync both ways as you draw.
+- Click the tablet icon (**Open on iPad**) in the Mac board's top bar and scan the QR code to join it. The Claude Code session already selected stays selected.
 
 ## Talk while you draw
 

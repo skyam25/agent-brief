@@ -1,12 +1,18 @@
+/* Surface colors follow Excalidraw's own tokens, so the strip and its floating islands read as one app. */
 :root {
   --bg: #ffffff;
-  --fg: #1e1e1e;
+  --fg: #1b1b1f;
   --muted: #868e96;
   --line: #e9ecef;
   --raised: #ffffff;
-  --accent: #6741d9;
+  --island: #ffffff;
+  --hover: #f1f0ff;
+  --selected: #e0dfff;
+  --accent: #6965db;
   --accent-fg: #ffffff;
   --error: #e03131;
+  --shadow-island: 0 0 0.93px rgb(0 0 0 / 0.17), 0 0 3.13px rgb(0 0 0 / 0.08), 0 7px 14px rgb(0 0 0 / 0.05);
+  --shadow-popover: 0 8px 28px rgb(0 0 0 / 0.16), 0 0 0 1px rgb(0 0 0 / 0.04);
   color-scheme: light;
   color: var(--fg);
 }
@@ -17,9 +23,14 @@
   --muted: #8b8b95;
   --line: #2e2e36;
   --raised: #232329;
-  --accent: #a68bfa;
+  --island: #232329;
+  --hover: #363541;
+  --selected: #403e6a;
+  --accent: #a8a5ff;
   --accent-fg: #121212;
   --error: #ff8787;
+  --shadow-island: 0 0 0.93px rgb(0 0 0 / 0.5), 0 0 3.13px rgb(0 0 0 / 0.3), 0 7px 14px rgb(0 0 0 / 0.2);
+  --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.04);
   color-scheme: dark;
 }
 
@@ -38,16 +49,97 @@ body {
   font-size: 13px;
 }
 
-button > .icon {
-  display: block;
+button,
+select,
+input {
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 3px 8px;
 }
 
-button.icon-button {
+button > .icon {
+  display: block;
+  flex: none;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+}
+
+/* App chrome sizing. Scoped so Excalidraw's own buttons keep their styles. */
+
+:is(.strip, .popover-panel, .sheet, .notes) :is(button, select, input:not([type='checkbox'])) {
+  height: 32px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  padding: 0 10px;
+}
+
+:is(.strip, .popover-panel, .sheet, .notes) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 5px 6px;
+  gap: 6px;
+  white-space: nowrap;
 }
+
+:is(.strip, .popover-panel, .sheet, .notes) button.icon-button {
+  width: 32px;
+  padding: 0;
+}
+
+:is(.strip, .popover-panel, .sheet, .notes) button.small {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+
+:is(.strip, .popover-panel, .sheet, .notes) button.icon-button.small {
+  width: 24px;
+  padding: 0;
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+button.ghost[aria-pressed='true'] {
+  background: var(--selected);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+button.link {
+  color: var(--accent);
+}
+
+/* The strip */
 
 .panel {
   display: flex;
@@ -59,8 +151,7 @@ button.icon-button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
+  padding: 8px 12px;
   -webkit-app-region: drag;
 }
 
@@ -71,15 +162,37 @@ button.icon-button {
 }
 
 .boards,
-.top {
+.top,
+.cluster {
   display: flex;
   align-items: center;
-  gap: 6px;
+}
+
+/* Rounded groups shaped like Excalidraw's islands. */
+.boards,
+.cluster {
+  gap: 2px;
+  padding: 2px;
+  background: var(--island);
+  border-radius: 10px;
+  box-shadow: var(--shadow-island);
+}
+
+.boards select,
+.boards input {
+  border-color: transparent;
+  background: transparent;
+  font-weight: 600;
+}
+
+.boards select:hover {
+  background: var(--hover);
 }
 
 .top {
   flex: 1;
   min-width: 0;
+  gap: 8px;
 }
 
 .prompt {
@@ -97,10 +210,6 @@ button.icon-button {
   text-overflow: ellipsis;
 }
 
-.muted {
-  color: var(--muted);
-}
-
 .status {
   max-width: 280px;
   overflow: hidden;
@@ -108,35 +217,56 @@ button.icon-button {
   text-overflow: ellipsis;
 }
 
-button,
-select,
-input {
-  font: inherit;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
-  padding: 3px 8px;
+.send-group > .muted {
+  padding: 0 8px;
 }
 
-button.ghost {
-  border-color: transparent;
+/* The mic */
+
+button.mic {
+  position: relative;
 }
 
-button.ghost:hover,
-button.ghost[aria-pressed='true'] {
-  background: var(--line);
-}
-
-button.small {
-  padding: 0 4px;
-}
-
-button.primary {
+button.mic .badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-fg);
+  box-shadow: 0 0 0 2px var(--island);
 }
+
+button.recording {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--error);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot {
+    animation: none;
+  }
+}
+
+/* Popovers */
 
 .anchor {
   position: relative;
@@ -145,7 +275,7 @@ button.primary {
 .popover-panel {
   position: absolute;
   right: 0;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   z-index: 10;
   width: 320px;
   display: flex;
@@ -153,10 +283,18 @@ button.primary {
   gap: 10px;
   padding: 12px;
   background: var(--raised);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover);
   -webkit-app-region: no-drag;
+}
+
+.popover-panel h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
 }
 
 .popover-panel .row {
@@ -196,123 +334,101 @@ button.primary {
   justify-content: space-between;
 }
 
-.error {
-  color: var(--error);
-}
+/* Send and the chooser */
 
-.body {
-  flex: 1;
+.send-to {
   display: flex;
-  min-height: 0;
-}
-
-.canvas {
-  flex: 1;
-  position: relative;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
 }
 
-.notes {
-  width: 260px;
-  border-left: 1px solid var(--line);
+.send-to .chip {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  max-width: 280px;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.send-to .chip span {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.send-to .chip .muted {
+  font-size: 11px;
+}
+
+.chooser {
+  width: 400px;
+}
+
+.chooser ul {
+  list-style: none;
+  margin: 0 -6px;
+  padding: 0;
   display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.notes textarea {
-  flex: 1;
-  border: 0;
-  border-radius: 0;
-  resize: none;
-  padding: 10px;
-  outline: none;
-  font: 13px/1.5 ui-monospace, Menlo, monospace;
-  background: var(--bg);
-  color: var(--fg);
+.popover-panel.chooser button.session {
+  width: 100%;
+  height: auto;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px;
+  text-align: left;
 }
 
-button.recording {
-  color: var(--error);
+.chooser .session[aria-current='true'] {
+  background: var(--hover);
+}
+
+.chooser .session > .icon {
+  color: var(--accent);
+}
+
+.chooser .avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--selected);
+  color: var(--accent);
   font-weight: 600;
 }
 
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
+.chooser .lines {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgb(0 0 0 / 0.35);
+  flex-direction: column;
+  gap: 1px;
 }
 
-.sheet {
-  width: min(420px, calc(100% - 32px));
-  max-height: calc(100% - 32px);
-  overflow: auto;
-  padding: 16px 20px;
-  background: var(--raised);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+.chooser .lines span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.sheet header,
-.sheet footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.chooser .launchers {
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.sheet footer {
-  justify-content: flex-end;
-  margin-top: 12px;
+.chooser .launchers .link {
+  padding: 0 6px;
 }
 
-.sheet h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.sheet h3 {
-  margin: 16px 0 6px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.sheet .qr {
-  width: 220px;
-  margin: 8px auto;
-  padding: 8px;
-  background: #ffffff;
-  border-radius: 8px;
-}
-
-.sheet .qr svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.sheet .url {
-  display: block;
-  word-break: break-all;
-  font-size: 11px;
-  user-select: all;
-}
-
-.sheet .devices {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.sheet .devices li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 0;
-}
+/* History */
 
 .history {
   width: 360px;
@@ -342,7 +458,7 @@ button.recording {
   flex: none;
   object-fit: contain;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 6px;
   background: #ffffff;
 }
 
@@ -364,39 +480,96 @@ button.recording {
   gap: 2px;
 }
 
-.send-to {
+/* Board and notes */
+
+.body {
+  flex: 1;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  min-height: 0;
+}
+
+.canvas {
+  flex: 1;
+  position: relative;
   min-width: 0;
 }
 
-.send-to .chip {
+.notes {
+  width: 280px;
+  border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  max-width: 280px;
-  line-height: 1.2;
-  text-align: left;
 }
 
-.send-to .chip span {
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.notes header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
 }
 
-.send-to .chip .muted {
-  font-size: 11px;
+.notes header .muted {
+  font-weight: 400;
 }
 
-.chooser {
-  width: 380px;
+.notes textarea {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  resize: none;
+  padding: 12px;
+  outline: none;
+  font: 13px/1.5 ui-monospace, Menlo, monospace;
+  background: var(--bg);
+  color: var(--fg);
 }
 
-.chooser h3 {
+/* The iPad sheet */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.35);
+}
+
+.sheet {
+  width: min(520px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 16px 20px 20px;
+  background: var(--raised);
+  border-radius: 14px;
+  box-shadow: var(--shadow-popover);
+}
+
+.sheet header,
+.sheet footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sheet footer {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.sheet h2 {
   margin: 0;
+  font-size: 16px;
+}
+
+.sheet h3 {
+  margin: 20px 0 6px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -404,42 +577,102 @@ button.recording {
   color: var(--muted);
 }
 
-.chooser ul {
-  list-style: none;
+.sheet .pairing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  margin-top: 16px;
+}
+
+.sheet .steps {
+  flex: 1 1 200px;
   margin: 0;
   padding: 0;
+  list-style: none;
+  counter-reset: step;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 12px;
+  line-height: 1.4;
 }
 
-.chooser .session {
+.sheet .steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+}
+
+.sheet .steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sheet .qr {
+  flex: none;
+  width: 180px;
+  margin: 0 auto;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 10px;
+}
+
+.sheet .qr svg {
+  display: block;
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  padding: 6px 8px;
-  text-align: left;
+  height: auto;
 }
 
-.chooser .session span {
-  max-width: 100%;
+.sheet .link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.sheet .url {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--muted);
+  user-select: all;
 }
 
-.chooser .launchers {
-  flex-wrap: wrap;
+.sheet .devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-button:disabled {
-  opacity: 0.45;
-  cursor: default;
+.sheet .devices li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
 }
 
-/* The value under the opacity slider is centred on the knob; this keeps "100" inside the panel. */
-.excalidraw .App-menu__left .range-wrapper {
-  margin-right: 12px;
+.sheet p {
+  margin: 12px 0 0;
+}
+
+/* Keeps the global input padding and border off Excalidraw's opacity slider, so the track ends at the knob. */
+.excalidraw .range-input {
+  padding: 0;
+  border: none;
 }

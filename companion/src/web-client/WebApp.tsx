@@ -5,7 +5,7 @@ import { BoardCanvas } from '../renderer/BoardCanvas';
 import { BoardPicker } from '../renderer/BoardPicker';
 import { BoardController, parseScene, type LoadedScene } from '../renderer/controller';
 import { TopStrip } from '../renderer/TopStrip';
-import type { WebHost } from './host';
+import { pairFromLocation, type Destination, type WebHost } from './host';
 
 interface Boot {
   controller: BoardController;
@@ -13,7 +13,9 @@ interface Boot {
 }
 
 const NOT_PAIRED =
-  'This device is not paired with the Mac. On the Mac, choose File > Open on iPad… and scan the code again.';
+  'This device is not paired with the Mac. On the Mac, click Open on iPad and scan the code again.';
+const BAD_CODE =
+  'This pairing code is used or expired. On the Mac, click Open on iPad and scan the new code.';
 
 export function WebApp({ host }: { host: WebHost }) {
   const [booted, setBooted] = useState<Boot>();
@@ -24,6 +26,9 @@ export function WebApp({ host }: { host: WebHost }) {
     host.onUnpaired = () => setUnpaired(true);
     void (async () => {
       try {
+        await pairFromLocation().catch(() => {
+          throw new Error(BAD_CODE);
+        });
         const board = await host.startBoard();
         const { scene } = await host.loadBoard(board);
         const loaded = parseScene(scene);
@@ -56,6 +61,7 @@ function WebPanel({ host, controller, scene }: Boot & { host: WebHost }) {
   const [theme, setTheme] = useState<Theme>(host.theme());
   const [status, setStatus] = useState<string>();
   const [live, setLive] = useState(true);
+  const [destination, setDestination] = useState<Destination | null>(host.destination);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -64,6 +70,8 @@ function WebPanel({ host, controller, scene }: Boot & { host: WebHost }) {
   useEffect(() => {
     host.onTheme(setTheme);
     host.onConnection = setLive;
+    host.onDestination = setDestination;
+    host.onNotice = setStatus;
     host.onRemoteElements((name, elements) => controller.applyRemote(name, elements));
   }, [host, controller]);
 
@@ -95,7 +103,7 @@ function WebPanel({ host, controller, scene }: Boot & { host: WebHost }) {
         />
         <TopStrip
           onDismissPrompt={() => {}}
-          target={live ? 'Sends to the session chosen on the Mac' : 'Reconnecting to the Mac…'}
+          target={!live ? 'Reconnecting to the Mac…' : destination ? `Sends to ${destination.label}` : 'Choose a session on the Mac'}
           voiceNote="Voice records on the Mac"
           onSend={() => void send()}
           status={status}

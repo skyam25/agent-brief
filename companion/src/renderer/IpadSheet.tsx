@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import type { IpadStatus } from '../shared/ipc';
+import { CloseIcon, LinkIcon } from './Icons';
 
 const FIREWALL_NOTE =
-  'macOS will ask whether Agent Brief may accept incoming network connections. Choose Allow, or the iPad cannot reach the Mac.';
+  'When macOS asks whether Agent Brief may accept incoming network connections, choose Allow. Otherwise the iPad cannot reach the Mac.';
 
 /** The pairing sheet: QR code, link, paired devices and Stop. */
 export function IpadSheet(props: {
@@ -12,13 +14,18 @@ export function IpadSheet(props: {
   onClose: () => void;
 }) {
   const { status } = props;
+  const [copiedUrl, setCopiedUrl] = useState<string>();
+  const copy = async () => {
+    await navigator.clipboard.writeText(status.url ?? '');
+    setCopiedUrl(status.url);
+  };
   return (
     <div className="sheet-backdrop" onPointerDown={(e) => e.target === e.currentTarget && props.onClose()}>
       <section className="sheet" role="dialog" aria-label="Open on iPad" data-testid="ipad-sheet">
         <header>
           <h2>Open on iPad</h2>
-          <button className="ghost" onClick={props.onClose} aria-label="Close" data-testid="ipad-close">
-            ×
+          <button className="ghost icon-button" onClick={props.onClose} aria-label="Close" data-testid="ipad-close">
+            <CloseIcon />
           </button>
         </header>
         {status.error && (
@@ -28,26 +35,32 @@ export function IpadSheet(props: {
         )}
         {status.running && status.url && (
           <>
-            <p>Scan this with the iPad camera. The code works once, for 10 minutes.</p>
-            {/* The QR SVG comes from the qrcode library in main, not from a page. */}
-            <div className="qr" data-testid="ipad-qr" dangerouslySetInnerHTML={{ __html: status.qrSvg ?? '' }} />
-            <code className="url" data-testid="ipad-url">
-              {status.url}
-            </code>
-            <p className="muted" data-testid="ipad-network">
-              {status.network
-                ? `The iPad must be on this Mac's Wi-Fi network (${status.network}), with any VPN off.`
-                : "The iPad must be on this Mac's Wi-Fi, with any VPN off."}
-            </p>
+            <div className="pairing">
+              <ol className="steps">
+                <li data-testid="ipad-network">
+                  {status.network
+                    ? `Join this Mac's Wi-Fi network (${status.network}) on the iPad, and turn off any VPN.`
+                    : "Join this Mac's Wi-Fi on the iPad, and turn off any VPN."}
+                </li>
+                <li>Scan the code with the iPad camera. It works once, for 10 minutes.</li>
+                {status.firstRun && <li data-testid="ipad-firewall">{FIREWALL_NOTE}</li>}
+              </ol>
+              {/* The QR SVG comes from the qrcode library in main, not from a page. */}
+              <div className="qr" data-testid="ipad-qr" dangerouslySetInnerHTML={{ __html: status.qrSvg ?? '' }} />
+            </div>
+            <div className="link-row">
+              <code className="url" title={status.url} data-testid="ipad-url">
+                {status.url}
+              </code>
+              <button onClick={() => void copy()} data-testid="ipad-copy">
+                <LinkIcon />
+                {copiedUrl === status.url ? 'Copied' : 'Copy link'}
+              </button>
+            </div>
             {status.refused && (
               <p className="error" role="alert" data-testid="ipad-refused">
                 The Mac turned away a device at {status.refused} because it is on another network. Join the iPad to
                 this Mac's Wi-Fi and turn off any VPN, then scan again.
-              </p>
-            )}
-            {status.firstRun && (
-              <p className="muted" data-testid="ipad-firewall">
-                {FIREWALL_NOTE}
               </p>
             )}
           </>

@@ -48,3 +48,61 @@ export const ChevronIcon = () => (
     <path d="m6 9 6 6 6-6" />
   </Icon>
 );
+
+export const TabletIcon = () => (
+  <Icon>
+    <rect x="4" y="2" width="16" height="20" rx="2" />
+    <path d="M12 18h.01" />
+  </Icon>
+);
+
+export const NotesIcon = () => (
+  <Icon>
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    <path d="M8 13h8" />
+    <path d="M8 17h5" />
+  </Icon>
+);
+
+export const HistoryIcon = () => (
+  <Icon>
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+    <path d="M3 3v5h5" />
+    <path d="M12 7v5l4 2" />
+  </Icon>
+);
+
+export const PlusIcon = () => (
+  <Icon>
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  </Icon>
+);
+
+export const CloseIcon = () => (
+  <Icon>
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </Icon>
+);
+
+export const CheckIcon = () => (
+  <Icon>
+    <path d="M20 6 9 17l-5-5" />
+  </Icon>
+);
+
+export const LinkIcon = () => (
+  <Icon size={14}>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </Icon>
+);
+
+export const TerminalIcon = () => (
+  <Icon>
+    <path d="m4 17 6-6-6-6" />
+    <path d="M12 19h8" />
+  </Icon>
+);

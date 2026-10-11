@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SessionsResponse } from '../protocol';
 import type { Launcher, LaunchOptions } from '../shared/ipc';
 import { folderName, sessionTitle, shortPath } from '../shared/sessions';
-import { ChevronIcon } from './Icons';
+import { CheckIcon, ChevronIcon, TerminalIcon } from './Icons';
 
 const LAUNCHER_LABELS: Record<Launcher, string> = {
   ghostty: 'Ghostty',
@@ -102,6 +102,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
 
   const folders = [...new Set([...extra, ...(options?.recentProjects ?? [])])];
   const sessions = props.sessions.sessions;
+  const [first, ...others] = options?.launchers ?? [];
 
   return (
     <div className="popover-panel chooser" ref={ref} role="dialog" aria-label="Send to" data-testid="send-chooser">
@@ -115,11 +116,18 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
               <button
                 className="ghost session"
                 title={s.cwd}
+                aria-current={s.sessionId === props.sessions.targetSessionId}
                 onClick={() => props.onSendTo(s.sessionId)}
                 data-testid="send-to-session"
               >
-                <span>{sessionTitle(s)}</span>
-                <span className="muted">{s.summary ?? shortPath(s.cwd, props.home)}</span>
+                <span className="avatar" aria-hidden="true">
+                  {folderName(s.cwd).charAt(0).toUpperCase() || <TerminalIcon />}
+                </span>
+                <span className="lines">
+                  <span>{sessionTitle(s)}</span>
+                  <span className="muted">{s.summary ?? shortPath(s.cwd, props.home)}</span>
+                </span>
+                {s.sessionId === props.sessions.targetSessionId && <CheckIcon />}
               </button>
             </li>
           ))}
@@ -144,13 +152,19 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
           Choose…
         </button>
       </div>
-      <div className="row launchers">
-        {(options?.launchers ?? []).map((l) => (
-          <button key={l} disabled={!folder} onClick={() => props.onSendNew(folder, l)} data-testid={`new-${l}`}>
-            {LAUNCHER_LABELS[l]}
+      {first && (
+        <div className="row launchers">
+          <button className="primary" disabled={!folder} onClick={() => props.onSendNew(folder, first)} data-testid={`new-${first}`}>
+            {first === 'copy' ? LAUNCHER_LABELS.copy : `Start in ${LAUNCHER_LABELS[first]}`}
           </button>
-        ))}
-      </div>
+          {others.length > 0 && <span className="muted">or</span>}
+          {others.map((l) => (
+            <button key={l} className="ghost link" disabled={!folder} onClick={() => props.onSendNew(folder, l)} data-testid={`new-${l}`}>
+              {LAUNCHER_LABELS[l]}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
