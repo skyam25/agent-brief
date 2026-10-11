@@ -385,6 +385,18 @@ describe('the Sketch and Write buttons above the prompt', () => {
     expect(app.box.text).toBe('')
   })
 
+  test('the box keeps its draft when the app is too old to take it', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    app.isOldApp = true
+    await start()
+    await clock.settle()
+    app.box.text = 'keep me too'
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    expect(app.to('POST', '/open')).toHaveLength(1)
+    expect(app.box.text).toBe('keep me too')
+  })
+
   test('the box keeps its draft when the app cannot be reached', async ($, on) => {
     const { app, clock, start } = await setup($, on)
     app.isUp = false

@@ -254,7 +254,11 @@ async function start(): Promise<void> {
       if (req.prompt !== undefined) setPrompt(req.prompt);
       panel.show();
       send(CH.newNote, req.text);
-      return { board: state.state.currentBoard, ...(req.sessionId ? { targetSessionId: req.sessionId } : {}) };
+      return {
+        board: state.state.currentBoard,
+        ...(req.sessionId ? { targetSessionId: req.sessionId } : {}),
+        ...(req.text ? { noteText: true } : {}),
+      };
     },
   };
 

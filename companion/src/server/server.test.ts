@@ -240,7 +240,8 @@ describe('open', () => {
     expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ mode: 'write' }));
     const bad = await h.call('POST', '/open', { mode: 'draw' });
     expect(bad.status).toBe(400);
-    await h.call('POST', '/open', { mode: 'write', text: 'from the box' });
+    h.backend.open.mockImplementationOnce(async () => ({ board: 'scratch', noteText: true }));
+    expect((await h.call('POST', '/open', { mode: 'write', text: 'from the box' })).body).toMatchObject({ noteText: true });
     expect(h.backend.open).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'write', text: 'from the box' }));
     expect((await h.call('POST', '/open', { mode: 'write', text: 'x'.repeat(200_001) })).status).toBe(400);
   });

@@ -11,6 +11,8 @@ export type Call = { method: string; path: string; body: unknown; socketPath: st
 export type FakeCompanion = {
   /** False makes every request fail as a refused connection, held polls included. */
   isUp: boolean
+  /** True answers /open like an app before 0.2.3, which drops a note's text. */
+  isOldApp: boolean
   /** True makes the prompt box refuse fills, as under a dialog. */
   isBoxBlocked: boolean
   /** True makes the ack route answer 500. */
@@ -55,6 +57,7 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
       up = value
       wake()
     },
+    isOldApp: false,
     isBoxBlocked: false,
     isAckBroken: false,
     box: { text: '', cursor: 0 },
@@ -102,6 +105,11 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
         if (!up) return { deny: 'connect ECONNRESET' }
       }
       return reply(200, { deliveries: mine() })
+    }
+    if (path === '/open') {
+      const open = text === undefined ? {} : JSON.parse(text)
+      const tookText = !fake.isOldApp && open.mode === 'write' && Boolean(open.text)
+      return reply(200, { board: 'main', ...(tookText ? { noteText: true } : {}) })
     }
     const ackId = /^\/deliveries\/([^/]+)\/ack$/.exec(path)?.[1]
     if (ackId !== undefined) {
