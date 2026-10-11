@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { interactiveCanvas, launch, openNotes, penStroke, sceneElements, showPanel, tempDataDir } from './helpers';
+import { boardMenu, interactiveCanvas, launch, openNotes, penStroke, pickBoard, sceneElements, showPanel, tempDataDir } from './helpers';
 
 test('C1.1 the hotkey toggle shows and hides the panel; test runs stay off screen and unfocused', async () => {
   const { app } = await launch(tempDataDir());
@@ -59,10 +59,10 @@ test('C1.4 boards, notes, panel size and the current board survive a restart', a
   await page.getByTestId('notes').fill('first board notes');
 
   // A second board through the picker, with its own stroke and notes.
-  await page.getByTestId('board-new').click();
+  await boardMenu(page, 'board-new');
   await page.getByTestId('board-name').fill('Sprint ideas');
   await page.getByTestId('board-name').press('Enter');
-  await expect(page.getByTestId('board-picker')).toHaveValue('Sprint ideas');
+  await expect(page.getByTestId('board-picker')).toHaveText('Sprint ideas');
   await penStroke(cdp, { x: box.x + 300, y: box.y + 300 }, { x: box.x + 400, y: box.y + 400 }, 0.6);
   await page.getByTestId('notes').fill('second board notes');
   await app.evaluate(() => (globalThis as any).__companion.panel.win.setSize(900, 640));
@@ -79,14 +79,14 @@ test('C1.4 boards, notes, panel size and the current board survive a restart', a
   });
 
   ({ app, page } = await launch(dataDir));
-  await expect(page.getByTestId('board-picker')).toHaveValue('Sprint ideas');
+  await expect(page.getByTestId('board-picker')).toHaveText('Sprint ideas');
   await openNotes(page);
   expect((await sceneElements(page)).filter((e) => !e.isDeleted).map((e) => e.id)).toEqual(before);
   await expect(page.getByTestId('notes')).toHaveValue('second board notes');
   const size = await app.evaluate(() => (globalThis as any).__companion.panel.win.getSize());
   expect(size).toEqual([900, 640]);
 
-  await page.getByTestId('board-picker').selectOption('scratch');
+  await pickBoard(page, 'scratch');
   await expect(page.getByTestId('notes')).toHaveValue('first board notes');
   const scratch = (await sceneElements(page)).filter((e) => !e.isDeleted);
   expect(scratch).toHaveLength(1);
@@ -117,20 +117,20 @@ test('edits made just before quitting survive, without waiting for the 500 ms sa
 test('renaming a board onto a taken name is refused and says why', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
-  await page.getByTestId('board-new').click();
+  await boardMenu(page, 'board-new');
   await page.getByTestId('board-name').fill('second');
   await page.getByTestId('board-name').press('Enter');
-  await expect(page.getByTestId('board-picker')).toHaveValue('second');
+  await expect(page.getByTestId('board-picker')).toHaveText('second');
 
-  await page.getByTestId('board-rename').click();
+  await boardMenu(page, 'board-rename');
   await page.getByTestId('board-name').fill('scratch');
   await page.getByTestId('board-name').press('Enter');
   await expect(page.getByTestId('send-status')).toHaveText('Could not rename the board: a board named "scratch" exists');
-  await expect(page.getByTestId('board-picker')).toHaveValue('second');
+  await expect(page.getByTestId('board-picker')).toHaveText('second');
   const names = await app.evaluate(() => (globalThis as any).__companion.store.list().map((b: any) => b.name));
   expect(names).toEqual(['scratch', 'second']);
 
-  await page.getByTestId('board-rename').click();
+  await boardMenu(page, 'board-rename');
   await page.getByTestId('board-name').fill('../escape');
   await page.getByTestId('board-name').press('Enter');
   await expect(page.getByTestId('send-status')).toHaveText(/Could not rename the board: board name may use letters/);

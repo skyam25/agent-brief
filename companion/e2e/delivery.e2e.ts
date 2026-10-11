@@ -126,7 +126,7 @@ test('the history keeps the last 10 sends and opens one on a new board', async (
   await expect(page.getByTestId('history-item').first().locator('img')).toBeVisible();
   await page.screenshot({ path: join(RESULTS, 'history.png') });
   await page.getByTestId('history-item').last().getByTestId('history-open').click();
-  await expect(page.getByTestId('board-picker')).toHaveValue(/^scratch \d{2}\.\d{2}$/);
+  await expect(page.getByTestId('board-picker')).toHaveText(/^scratch \d{2}\.\d{2}$/);
   const restored = await page.evaluate(() =>
     (window as any).__excalidraw.getSceneElements().filter((e: any) => e.type === 'text').map((e: any) => e.text),
   );
@@ -159,7 +159,7 @@ test('POST /open shows the board and the prompt and picks the session', async ()
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd });
   const opened = await sock(socketPath, 'POST', '/open', { board: 'login', prompt: 'Sketch the login screen', sessionId: 's2' });
   expect(opened.body).toEqual({ board: 'login', targetSessionId: 's2' });
-  await expect(page.getByTestId('board-picker')).toHaveValue('login');
+  await expect(page.getByTestId('board-picker')).toHaveText('login');
   await expect(page.getByTestId('prompt')).toHaveText(/Sketch the login screen/);
   await expect(page.getByTestId('send')).toHaveText(`Send to ${cwd.split('/').pop()}`);
   expect(await app.evaluate(() => (globalThis as any).__companion.panel.isVisible())).toBe(true);
@@ -204,7 +204,10 @@ test('Send to a new session writes the bundle into the folder and starts Claude 
 
   await page.getByTestId('send').click();
   await expect(page.getByTestId('new-folder')).toHaveValue(cwd);
-  await expect(page.getByTestId('new-ghostty')).toBeVisible();
+  await expect(page.getByTestId('new-ghostty')).toHaveText('Start in Ghostty');
+  // The other launchers wait behind the split button's chevron.
+  await expect(page.getByTestId('new-herdr')).toHaveCount(0);
+  await page.getByTestId('new-more').click();
   await page.getByTestId('new-herdr').click();
   await expect(page.getByTestId('send-status')).toHaveText('Started Claude Code in herdr');
   await expect.poll(panelVisible).toBe(false);
@@ -223,6 +226,7 @@ test('Send to a new session writes the bundle into the folder and starts Claude 
   // Copy puts a start command on the clipboard instead.
   await showPanel(app, page);
   await page.getByTestId('send').click();
+  await page.getByTestId('new-more').click();
   await page.getByTestId('new-copy').click();
   await expect(page.getByTestId('send-status')).toHaveText(/Copied a command/);
   const copied = await app.evaluate(() => (globalThis as any).__companion.clipboard());

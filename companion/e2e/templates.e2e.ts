@@ -98,6 +98,7 @@ test('templates are written here and saved from a draft', async () => {
 
   // Any draft can become a template.
   await page.getByTestId('draft-body').fill('Write release notes for {{version}}.');
+  await page.getByTestId('draft-more').click();
   await page.getByTestId('save-template').click();
   await page.getByTestId('save-template-name').fill('Release notes');
   await page.getByTestId('save-template-name').press('Enter');

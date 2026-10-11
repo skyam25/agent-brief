@@ -110,10 +110,12 @@ test('Send in Write mode refuses an empty draft and never picks a session', asyn
   await expect(page.getByTestId('send-chooser')).toBeVisible();
   await page.keyboard.press('Escape');
 
+  // An empty note says so before any session is picked.
   await page.getByTestId('draft-new').click();
   await page.getByTestId('draft-new').click();
-  await sendToSession(page, 'Login work');
+  await page.getByTestId('send').click();
   await expect(page.getByTestId('send-status')).toHaveText('Write something first.');
+  await expect(page.getByTestId('send-chooser')).toHaveCount(0);
   expect(await deliveries('s1')).toHaveLength(0);
 });
 

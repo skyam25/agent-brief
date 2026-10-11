@@ -16,7 +16,8 @@ import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
 import { PullIn } from './PullIn';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
-import { TopStrip } from './TopStrip';
+import { Toast, type ToastKind, type ToastMessage } from './Toast';
+import { PromptBanner, TopStrip } from './TopStrip';
 import { WriteView } from './WriteView';
 
 interface Boot {
@@ -96,7 +97,10 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   const [briefs, setBriefs] = useState<SessionBriefEntry[]>([]);
   /** An ended session's tab the user opened. It has no target, so it is the active tab only here. */
   const [endedActive, setEndedActive] = useState<string>();
-  const [status, setStatus] = useState<string>();
+  const [toast, setToast] = useState<ToastMessage>();
+  const toastId = useRef(0);
+  const notify = useCallback((text: string, kind: ToastKind = 'info') => setToast({ text, kind, id: ++toastId.current }), []);
+  const dismissToast = useCallback(() => setToast(undefined), []);
   const [settings, setSettings] = useState<Settings>(info.settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateStatus>();
@@ -179,6 +183,8 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
 
     // Escape hides the panel unless something on it wants the key first.
     const onKey = (e: KeyboardEvent) => {
+      // A shortcut field in Settings takes every key while it records.
+      if (document.querySelector('.key-chip.recording')) return;
       if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'Tab' || /^[1-9]$/.test(e.key))) {
         const { briefs: tabs, activeBrief: active, switchBrief: open } = tabKeys.current;
         if (tabs.length === 0) return;
@@ -232,7 +238,7 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
     [controller, host, book, shelf, changeMode, info.testMode],
   );
 
-  const report = (what: string) => (err: unknown) => setStatus(`Could not ${what}: ${errorText(err)}`);
+  const report = (what: string) => (err: unknown) => notify(`Could not ${what}: ${errorText(err)}`, 'error');
 
   // The active tab is the Send target's brief, or an ended session's brief the user opened.
   const target = sessions.targetSessionId;
@@ -296,22 +302,22 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
     if (sending.current) return;
     sending.current = true;
     setChooserOpen(false);
-    setStatus('Preparing…');
+    notify('Preparing…', 'progress');
     try {
       const out = await outgoing();
       if (typeof out === 'string') {
-        setStatus(out);
+        notify(out);
         return;
       }
       const result = await handOff(out.payload);
-      setStatus(result.message);
+      notify(result.message, result.ok ? 'sent' : 'error');
       if (result.ok) {
         if (out.clearsBoard) controller.clearBoard();
         if (out.payload.draftId && out.sent) book.consume(out.payload.draftId, out.sent);
         host.hidePanel();
       }
     } catch (err) {
-      setStatus(`Send failed: ${(err as Error).message}`);
+      notify(`Send failed: ${(err as Error).message}`, 'error');
     } finally {
       sending.current = false;
     }
@@ -329,6 +335,15 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
     await deliver((p) => host.send(p));
   };
   const sendNew = (cwd: string, via: Launcher) => deliver((p) => host.sendNew(p, { cwd, via }));
+  /** An empty note says so before any session is picked. */
+  const openChooser = (open: boolean) => {
+    const draft = book.selected;
+    if (open && modeRef.current === 'write' && (!draft || (!draft.body.trim() && !draft.board))) {
+      notify('Write something first.');
+      return;
+    }
+    setChooserOpen(open);
+  };
 
   const recording = useSyncExternalStore(
     (fn) => controller.recorder.subscribe(fn),
@@ -350,12 +365,12 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   const toggleRecording = async () => {
     if (controller.recorder.recording) {
       await controller.recorder.stop();
-      setStatus(`Recorded ${controller.recorder.segments.length} clip(s). Send includes them.`);
+      notify(`Recorded ${controller.recorder.segments.length} clip(s). Send includes them.`);
       return;
     }
     const access = await host.requestMicrophone();
     if (!access.granted) {
-      setStatus(MIC_DENIED);
+      notify(MIC_DENIED, 'error');
       return;
     }
     // Leaving Sketch while macOS asked about the mic cancels the start.
@@ -366,9 +381,9 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
         await controller.recorder.stop();
         return;
       }
-      setStatus('Recording. Talk while you sketch.');
+      notify('Recording. Talk while you sketch.');
     } catch (err) {
-      setStatus(`Could not start the microphone: ${(err as Error).message}`);
+      notify(`Could not start the microphone: ${(err as Error).message}`, 'error');
     }
   };
 
@@ -396,8 +411,6 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
           </>
         )}
         <TopStrip
-          prompt={prompt}
-          onDismissPrompt={() => setPrompt(undefined)}
           tools={
             <>
               {mode === 'sketch' && (
@@ -479,7 +492,7 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
               sessions={sessions}
               home={info.home}
               open={chooserOpen}
-              onOpenChange={setChooserOpen}
+              onOpenChange={openChooser}
               onSend={() => void send()}
               onSendTo={(id) => void sendTo(id)}
               onSendNew={(cwd, via) => void sendNew(cwd, via)}
@@ -491,7 +504,6 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
           elapsedMs={elapsedMs}
           hasVoice={hasVoice}
           onMicrophone={mode === 'sketch' ? () => void toggleRecording() : undefined}
-          status={status}
         />
       </header>
       <BriefTabs
@@ -502,6 +514,7 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
         onClose={closeBrief}
         onFocus={(id) => void host.focusSession(id)}
       />
+      <PromptBanner prompt={prompt} onDismiss={() => setPrompt(undefined)} />
       <main className="body">
         <BoardCanvas controller={controller} scene={scene} theme={theme} onReady={onReady} />
         {mode === 'write' && (
@@ -537,6 +550,14 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
             />
           </aside>
         )}
+        <Toast
+          toast={toast}
+          onDismiss={dismissToast}
+          onHistory={() => {
+            dismissToast();
+            setHistoryOpen(true);
+          }}
+        />
       </main>
     </div>
   );

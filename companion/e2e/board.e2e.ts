@@ -177,7 +177,7 @@ test('boards that are not visible are edited on disk and stay out of view', asyn
 
   const opened = await backend(app, 'open', { board: 'backlog', prompt: 'Sketch the backlog', sessionId: 's-1' });
   expect(opened).toEqual({ board: 'backlog', targetSessionId: 's-1' });
-  await expect(ctx.page.getByTestId('board-picker')).toHaveValue('backlog');
+  await expect(ctx.page.getByTestId('board-picker')).toHaveText('backlog');
   await expect(ctx.page.getByTestId('prompt')).toHaveText(/Sketch the backlog/);
   expect((await live()).map((e) => e.id)).toContain('s1');
   expect(await backend(app, 'health')).toEqual({ panelVisible: true, currentBoard: 'backlog' });

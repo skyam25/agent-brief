@@ -33,3 +33,22 @@ export function shortPath(path: string, home?: string): string {
 export function sessionTitle(s: SessionInfo): string {
   return [s.title || folderName(s.cwd), hostLabel(s.host)].filter(Boolean).join(' · ');
 }
+
+/** The last two folders, from `~` when that is all there is: `~/Projects/app`, `…/web/app`. */
+export function shortFolder(path: string, home?: string): string {
+  const short = shortPath(path, home);
+  const parts = short.split('/').filter(Boolean);
+  if (parts.length <= 2) return short;
+  if (short.startsWith('~/') && parts.length === 3) return short;
+  return `…/${parts.slice(-2).join('/')}`;
+}
+
+/**
+ * A hue from 0 to 359 that stays the same for one session, so its avatar keeps
+ * its color. Steps of the golden angle keep near-identical ids far apart.
+ */
+export function hueOf(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return Math.round((h % 1000) * 137.508) % 360;
+}

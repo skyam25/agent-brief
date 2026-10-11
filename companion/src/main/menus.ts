@@ -2,7 +2,7 @@
 
 import type { MenuItemConstructorOptions } from 'electron';
 import type { Mode, UpdateStatus } from '../shared/ipc';
-import { acceleratorLabel } from './accelerator';
+import { acceleratorLabel } from '../shared/accelerator';
 
 export interface MenuActions {
   hotkey: string;

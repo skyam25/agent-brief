@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { acceleratorFromPress, acceleratorLabel } from '../shared/accelerator';
 import type { Settings, UpdateStatus } from '../shared/ipc';
 
 /** What the update line says, or undefined when the version stands alone. */
@@ -30,8 +31,6 @@ export function SettingsPopover(props: {
 }) {
   const { update } = props;
   const updateLine = update && updateText(update);
-  const [hotkey, setHotkey] = useState(props.settings.hotkey);
-  const [captureHotkey, setCaptureHotkey] = useState(props.settings.captureHotkey);
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -54,39 +53,20 @@ export function SettingsPopover(props: {
 
   return (
     <div className="popover-panel" ref={ref} role="dialog" aria-label="Settings" data-testid="settings">
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void change({ hotkey });
-        }}
-      >
-        <label htmlFor="hotkey">Show or hide</label>
-        <input id="hotkey" data-testid="settings-hotkey" value={hotkey} onChange={(e) => setHotkey(e.target.value)} />
-        <button type="submit" data-testid="settings-hotkey-save">
-          Set
-        </button>
-      </form>
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void change({ captureHotkey });
-        }}
-      >
-        <label htmlFor="capture-hotkey">New note</label>
-        <input
-          id="capture-hotkey"
-          data-testid="settings-capture-hotkey"
-          value={captureHotkey}
-          onChange={(e) => setCaptureHotkey(e.target.value)}
-        />
-        <button type="submit" data-testid="settings-capture-hotkey-save">
-          Set
-        </button>
-      </form>
       <div className="row">
-        <label htmlFor="mode">After Send</label>
+        <span className="label">Show or hide</span>
+        <KeyChip value={props.settings.hotkey} onRecord={(hotkey) => void change({ hotkey })} testId="settings-hotkey" />
+      </div>
+      <div className="row">
+        <span className="label">New note</span>
+        <KeyChip
+          value={props.settings.captureHotkey}
+          onRecord={(captureHotkey) => void change({ captureHotkey })}
+          testId="settings-capture-hotkey"
+        />
+      </div>
+      <div className="row">
+        <label className="label" htmlFor="mode">After Send</label>
         <select
           id="mode"
           data-testid="settings-mode"
@@ -140,5 +120,49 @@ export function SettingsPopover(props: {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A shortcut as macOS writes it, such as ⌃⌥S. A click starts recording; the
+ * next key with a modifier becomes the shortcut, and Escape keeps the old one.
+ */
+function KeyChip(props: { value: string; onRecord: (accelerator: string) => void; testId: string }) {
+  const [recording, setRecording] = useState(false);
+  const [hint, setHint] = useState<string>();
+
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey) return setRecording(false);
+      const accelerator = acceleratorFromPress(e);
+      if (!accelerator) return;
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && !/^F\d+$/.test(accelerator)) {
+        setHint('Hold ⌃, ⌥ or ⌘ with the key');
+        return;
+      }
+      setRecording(false);
+      props.onRecord(accelerator);
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, [recording, props.onRecord]);
+
+  return (
+    <button
+      className={recording ? 'key-chip recording' : 'key-chip'}
+      aria-pressed={recording}
+      title={recording ? 'Press the new shortcut. Escape keeps this one.' : 'Click, then press a new shortcut'}
+      onClick={() => {
+        setHint(undefined);
+        setRecording((r) => !r);
+      }}
+      data-escape-owner={recording || undefined}
+      data-testid={props.testId}
+    >
+      {recording ? (hint ?? 'Press keys…') : acceleratorLabel(props.value)}
+    </button>
   );
 }

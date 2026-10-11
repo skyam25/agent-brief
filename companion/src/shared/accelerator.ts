@@ -63,3 +63,48 @@ export function acceleratorLabel(accelerator: string): string {
   const key = parts.pop() ?? '';
   return parts.map((p) => SYMBOLS[p] ?? `${p}+`).join('') + (key === 'Space' ? 'Space' : key);
 }
+
+const CODE_KEYS: Record<string, string> = {
+  Space: 'Space',
+  Enter: 'Return',
+  Tab: 'Tab',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+};
+
+/** The key a press names, read from its physical code so ⌥ never turns S into ß. */
+function keyOf(code: string): string | undefined {
+  const letter = /^Key([A-Z])$/.exec(code)?.[1];
+  if (letter) return letter;
+  const digit = /^Digit(\d)$/.exec(code)?.[1];
+  if (digit) return digit;
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  return CODE_KEYS[code];
+}
+
+export interface KeyPress {
+  code: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  metaKey: boolean;
+}
+
+/**
+ * The accelerator a key press makes, such as `Control+Alt+S`. Undefined while
+ * only modifiers are down, or for a key a global shortcut cannot use.
+ */
+export function acceleratorFromPress(e: KeyPress): string | undefined {
+  const key = keyOf(e.code);
+  if (!key) return undefined;
+  const mods = [e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Command'].filter(Boolean);
+  return [...mods, key].join('+');
+}

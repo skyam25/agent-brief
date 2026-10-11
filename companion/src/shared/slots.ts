@@ -26,3 +26,8 @@ export function slashQuery(text: string, caret: number): { start: number; query:
   const line = text.slice(start, caret);
   return line.startsWith('/') ? { start, query: line.slice(1) } : undefined;
 }
+
+/** The text with each `{{slot}}` shown as its bare name, for list titles. */
+export function plainSlots(text: string): string {
+  return text.replace(SLOT, (_m, name: string) => name.trim());
+}

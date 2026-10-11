@@ -53,7 +53,7 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - The mic button records WebM/Opus in 30 s clips. Each clip is a separate recording, so every file decodes on its own.
 - The panel logs board changes as stroke events. Send numbers the user's strokes on the PNG.
 - Main transcribes the clips with ffmpeg and yap, which it finds in Homebrew or on PATH. It writes `timeline.md`, `transcript.json` and `audio/` into the bundle.
-- If either tool is missing, the sketch and audio still go out, and the status line says so.
+- If either tool is missing, the sketch and audio still go out, and a message at the foot of the panel says so.
 
 ## Tests
 

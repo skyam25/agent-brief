@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { SessionsResponse } from '../protocol';
 import type { Launcher, LaunchOptions } from '../shared/ipc';
-import { folderName, sessionTitle, shortPath } from '../shared/sessions';
+import { folderName, hueOf, sessionTitle, shortFolder } from '../shared/sessions';
 import { CheckIcon, ChevronIcon, TerminalIcon } from './Icons';
 
 const LAUNCHER_LABELS: Record<Launcher, string> = {
@@ -11,9 +11,12 @@ const LAUNCHER_LABELS: Record<Launcher, string> = {
   copy: 'Copy command',
 };
 
+const launchLabel = (l: Launcher) => (l === 'copy' ? LAUNCHER_LABELS.copy : `Start in ${LAUNCHER_LABELS[l]}`);
+
 /**
- * Send and where it goes. With a target, Send names the session; the chevron
- * picks another. Without one, Send asks where to go first.
+ * Send and where it goes: one primary button and a chevron, in the same place
+ * whether or not a session is chosen. With a target, Send names it; without
+ * one, Send asks where to go first. The chevron always picks another.
  */
 export function SendTo(props: {
   sessions: SessionsResponse;
@@ -29,37 +32,26 @@ export function SendTo(props: {
   const target = props.sessions.sessions.find((s) => s.sessionId === props.sessions.targetSessionId);
   return (
     <div className="anchor send-to">
-      {target ? (
-        <>
-          <button
-            className="primary send-named"
-            title={`${sessionTitle(target)}\n${target.cwd}${target.summary ? `\n${target.summary}` : ''}`}
-            onClick={props.onSend}
-            data-testid="send"
-          >
-            Send to {target.title || folderName(target.cwd)}
-          </button>
-          <button
-            className="ghost icon-button"
-            aria-label="Send somewhere else"
-            title="Send somewhere else"
-            aria-pressed={props.open}
-            onClick={() => props.onOpenChange(!props.open)}
-            data-testid="send-menu"
-          >
-            <ChevronIcon />
-          </button>
-        </>
-      ) : (
-        <button
-          className="primary"
-          aria-pressed={props.open}
-          onClick={() => props.onOpenChange(!props.open)}
-          data-testid="send"
-        >
-          Send to…
-        </button>
-      )}
+      <button
+        className="primary send-named"
+        title={target ? `${sessionTitle(target)}\n${target.cwd}${target.summary ? `\n${target.summary}` : ''}` : 'Choose a session to send to'}
+        aria-haspopup={target ? undefined : 'dialog'}
+        aria-pressed={target ? undefined : props.open}
+        onClick={target ? props.onSend : () => props.onOpenChange(!props.open)}
+        data-testid="send"
+      >
+        {target ? `Send to ${target.title || folderName(target.cwd)}` : 'Send to…'}
+      </button>
+      <button
+        className="ghost icon-button"
+        aria-label="Send somewhere else"
+        title="Send somewhere else"
+        aria-pressed={props.open}
+        onClick={() => props.onOpenChange(!props.open)}
+        data-testid="send-menu"
+      >
+        <ChevronIcon />
+      </button>
       {props.open && <Chooser {...props} onClose={() => props.onOpenChange(false)} />}
     </div>
   );
@@ -69,6 +61,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
   const [options, setOptions] = useState<LaunchOptions>();
   const [folder, setFolder] = useState('');
   const [extra, setExtra] = useState<string[]>([]);
+  const [launchMore, setLaunchMore] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -115,12 +108,12 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
                 onClick={() => props.onSendTo(s.sessionId)}
                 data-testid="send-to-session"
               >
-                <span className="avatar" aria-hidden="true">
-                  {folderName(s.cwd).charAt(0).toUpperCase() || <TerminalIcon />}
+                <span className="avatar" aria-hidden="true" style={{ '--hue': hueOf(s.sessionId) } as CSSProperties}>
+                  {(s.title || folderName(s.cwd)).charAt(0).toUpperCase() || <TerminalIcon />}
                 </span>
                 <span className="lines">
                   <span>{sessionTitle(s)}</span>
-                  <span className="muted">{s.summary ?? shortPath(s.cwd, props.home)}</span>
+                  <span className="muted">{s.summary ?? shortFolder(s.cwd, props.home)}</span>
                 </span>
                 {s.sessionId === props.sessions.targetSessionId && <CheckIcon />}
               </button>
@@ -139,7 +132,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
           {folders.length === 0 && <option value="">No recent folders</option>}
           {folders.map((f) => (
             <option key={f} value={f} title={f}>
-              {folderName(f)} — {shortPath(f, props.home)}
+              {folderName(f)} — {shortFolder(f, props.home)}
             </option>
           ))}
         </select>
@@ -148,16 +141,36 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
         </button>
       </div>
       {first && (
-        <div className="row launchers">
-          <button className="primary" disabled={!folder} onClick={() => props.onSendNew(folder, first)} data-testid={`new-${first}`}>
-            {first === 'copy' ? LAUNCHER_LABELS.copy : `Start in ${LAUNCHER_LABELS[first]}`}
-          </button>
-          {others.length > 0 && <span className="muted">or</span>}
-          {others.map((l) => (
-            <button key={l} className="ghost link" disabled={!folder} onClick={() => props.onSendNew(folder, l)} data-testid={`new-${l}`}>
-              {LAUNCHER_LABELS[l]}
+        <div className="launchers">
+          <div className="split-button">
+            <button className="primary" disabled={!folder} onClick={() => props.onSendNew(folder, first)} data-testid={`new-${first}`}>
+              {launchLabel(first)}
             </button>
-          ))}
+            {others.length > 0 && (
+              <button
+                className="primary icon-button"
+                disabled={!folder}
+                aria-label="Start somewhere else"
+                title="Start somewhere else"
+                aria-pressed={launchMore}
+                onClick={() => setLaunchMore((o) => !o)}
+                data-testid="new-more"
+              >
+                <ChevronIcon />
+              </button>
+            )}
+          </div>
+          {launchMore && (
+            <ul className="launch-more" role="menu">
+              {others.map((l) => (
+                <li key={l}>
+                  <button className="ghost" role="menuitem" onClick={() => props.onSendNew(folder, l)} data-testid={`new-${l}`}>
+                    {launchLabel(l)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
