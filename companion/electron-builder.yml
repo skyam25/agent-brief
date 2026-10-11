@@ -1,5 +1,7 @@
 # pnpm dist builds dist/mac-arm64/Agent Brief.app, signed with the
 # Developer ID cert. APPLE_KEYCHAIN_PROFILE also notarizes it (pnpm dist:notarize).
+# pnpm release builds the notarized zip and latest-mac.yml and publishes them
+# as a GitHub release, which installed copies update from.
 appId: com.agentbrief.app
 productName: Agent Brief
 directories:
@@ -25,8 +27,15 @@ electronDist: node_modules/electron/dist
 npmRebuild: false
 nodeGypRebuild: false
 asar: true
+publish:
+  provider: github
+  owner: skyam25
+  repo: agent-brief
 mac:
-  target: dir
+  target:
+    - target: zip
+      arch: arm64
+  artifactName: Agent-Brief-${version}-${arch}.${ext}
   icon: build/icons/icon.icns
   category: public.app-category.productivity
   identity: Simon K Yam (KFDNEQ68KH)

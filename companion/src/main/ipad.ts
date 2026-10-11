@@ -4,7 +4,7 @@ import { networkInterfaces } from 'node:os';
 import type { Delivery } from '../protocol';
 import type { DeliveryInput } from '../server/contract';
 import type { IpadStatus } from '../shared/ipc';
-import { pickLanInterface } from '../web/lan';
+import { pickLanInterface, type LanInterface } from '../web/lan';
 import type { SyncHub } from '../web/sync-hub';
 import { createWebServer, DEFAULT_PORT, type WebServer } from '../web/web-server';
 
@@ -30,6 +30,12 @@ export interface IpadOptions {
 export const NO_LAN =
   'No private network found. Join the same Wi-Fi as the iPad, then try again. The board is never served to the internet.';
 
+/** `192.168.1.x` for a /24 network, otherwise the CIDR. */
+export function networkLabel(iface: LanInterface): string {
+  const [base, prefix] = iface.cidr.split('/');
+  return prefix === '24' ? base.replace(/\.0$/, '.x') : iface.cidr;
+}
+
 export class Ipad {
   private server?: WebServer;
   private status: IpadStatus = { running: false, devices: [] };
@@ -49,8 +55,10 @@ export class Ipad {
   /** Starts the server when needed and makes a fresh pairing code. */
   async open(): Promise<IpadStatus> {
     if (!this.server) {
-      const host = this.opts.host ?? pickLanInterface((this.opts.interfaces ?? networkInterfaces)())?.address;
+      const iface = this.opts.host ? undefined : pickLanInterface((this.opts.interfaces ?? networkInterfaces)());
+      const host = this.opts.host ?? iface?.address;
       if (!host) return this.publish({ running: false, url: undefined, qrSvg: undefined, error: NO_LAN });
+      this.status = { ...this.status, network: iface && networkLabel(iface), refused: undefined };
       const server = createWebServer({
         host,
         port: this.opts.port ?? DEFAULT_PORT,
@@ -63,7 +71,12 @@ export class Ipad {
       });
       server.onChange((s) => {
         if (!s.running && this.server === server) this.server = undefined;
-        this.publish({ running: s.running, devices: s.devices, ...(s.running ? {} : { url: undefined, qrSvg: undefined }) });
+        this.publish({
+          running: s.running,
+          devices: s.devices,
+          refused: s.refused,
+          ...(s.running ? {} : { url: undefined, qrSvg: undefined }),
+        });
       });
       try {
         const bound = await server.start();

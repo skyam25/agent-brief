@@ -184,6 +184,18 @@ button.primary {
   margin: 0;
 }
 
+.popover-panel .update {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.popover-panel .update .row {
+  justify-content: space-between;
+}
+
 .error {
   color: var(--error);
 }

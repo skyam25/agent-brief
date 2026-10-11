@@ -90,6 +90,22 @@ export interface IpadStatus {
   error?: string;
   /** True the first time, when macOS asks about incoming connections. */
   firstRun?: boolean;
+  /** The Mac's network in words, such as `192.168.1.x`. */
+  network?: string;
+  /** The last address turned away for being on another network. */
+  refused?: string;
+}
+
+export interface UpdateStatus {
+  /** The running version. */
+  version: string;
+  /** `off` in development and test runs, where the app never updates itself. */
+  state: 'off' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'error';
+  /** The newer version being downloaded or ready to install. */
+  available?: string;
+  percent?: number;
+  error?: string;
+  checkedAt?: number;
 }
 
 /** Where Send can start a new Claude Code session. `copy` puts a start command on the clipboard. */
@@ -195,6 +211,11 @@ export interface CompanionApi extends BoardHost {
   sendNew(payload: SendPayload, target: { cwd: string; via: Launcher }): Promise<SendResult>;
   /** Brings a session's terminal forward. */
   focusSession(sessionId: string): Promise<void>;
+  getUpdate(): Promise<UpdateStatus>;
+  checkForUpdate(): Promise<UpdateStatus>;
+  /** Quits and installs a downloaded update. */
+  installUpdate(): Promise<void>;
+  onUpdate(fn: (status: UpdateStatus) => void): void;
 }
 
 export const CH = {
@@ -233,4 +254,8 @@ export const CH = {
   chooseFolder: 'sessions:choose-folder',
   sendNew: 'panel:send-new',
   focusSession: 'sessions:focus',
+  update: 'update:status',
+  updateGet: 'update:get',
+  updateCheck: 'update:check',
+  updateInstall: 'update:install',
 } as const;

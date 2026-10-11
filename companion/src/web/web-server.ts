@@ -15,7 +15,7 @@ import QRCode from 'qrcode';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Delivery } from '../protocol';
 import type { DeliveryInput } from '../server/contract';
-import { isLoopback, isPrivateIpv4, isSameSubnet, pickLanInterface } from './lan';
+import { isLoopback, isPrivateIpv4, isSameSubnet, pickLanInterface, stripMapped } from './lan';
 import { PairingStore, type DeviceInfo } from './pairing';
 import { isSyncElement, type HubClient, type SyncElement, type SyncHub } from './sync-hub';
 
@@ -47,6 +47,8 @@ export interface WebServerOptions {
 export interface WebServerState {
   running: boolean;
   devices: DeviceInfo[];
+  /** The last address turned away for being outside the allowed network. */
+  refused?: string;
 }
 
 export interface WebServer {
@@ -194,9 +196,10 @@ export function createWebServer(opts: WebServerOptions): WebServer {
   /** Open WebSockets by paired device id. */
   const wsByDevice = new Map<string, Set<WebSocket>>();
   let wsCount = 0;
+  let refused: string | undefined;
 
   function state(): WebServerState {
-    return { running: server !== undefined, devices: pairing.list() };
+    return { running: server !== undefined, devices: pairing.list(), ...(refused ? { refused } : {}) };
   }
   function emit(): void {
     const s = state();
@@ -396,7 +399,15 @@ export function createWebServer(opts: WebServerOptions): WebServer {
     }
     const s = http.createServer(onRequest);
     s.on('connection', (socket) => {
-      if (!guardConnection(socket, allow)) return;
+      const remote = socket.remoteAddress;
+      if (!guardConnection(socket, allow)) {
+        const address = remote ? stripMapped(remote) : 'an unknown address';
+        if (address !== refused) {
+          refused = address;
+          emit();
+        }
+        return;
+      }
       sockets.add(socket);
       socket.once('close', () => sockets.delete(socket));
     });

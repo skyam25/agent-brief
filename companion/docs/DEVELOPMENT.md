@@ -72,9 +72,22 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 
 ## Packaging
 
-`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons and the CLI (`Resources/bin/companion`). It does not bundle ffmpeg or yap, which it finds at runtime. Nothing is installed into /Applications.
+`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons and the CLI (`Resources/bin/agent-brief`, plus a `companion` alias). It does not bundle ffmpeg or yap, which it finds at runtime. Nothing is installed into /Applications.
 
-- `bin/companion` is a shell wrapper. Inside the bundle it runs `agent-brief.mjs` with the app's Electron as Node (`ELECTRON_RUN_AS_NODE=1`). In a checkout it uses `node`.
+- `bin/agent-brief` is a shell wrapper. Inside the bundle it runs `agent-brief.mjs` with the app's Electron as Node (`ELECTRON_RUN_AS_NODE=1`). In a checkout it uses `node`.
 - Install Command Line Tool… links `~/.local/bin/agent-brief` to that wrapper.
-- `pnpm dist` signs with the Developer ID cert and the hardened runtime. `build/entitlements.mac.plist` grants JIT and the mic.
+- `pnpm dist` signs with the Developer ID cert and the hardened runtime. `build/entitlements.mac.plist` grants JIT, the mic and Apple Events.
 - `pnpm dist:notarize` also notarizes, using the `companion-notary` keychain profile from `xcrun notarytool store-credentials`.
+
+## Releases and updates
+
+Installed copies update themselves from GitHub releases with electron-updater. They check 10 s after launch and every 6 hours, download a newer build in the background, and install it when the app quits. Settings and the menus offer Check for Updates and, once a download is ready, Restart to Update. Development and test runs never update.
+
+To release:
+
+1. Bump `version` in `package.json`, commit and push `main`.
+2. Run `pnpm release`, or `pnpm release --notes-file notes.md`.
+
+The script builds, notarizes and verifies the app. It then creates the `v<version>` release with three files: `Agent-Brief-<version>-arm64.zip`, its `.blockmap`, and `latest-mac.yml`, which is the file installed copies read. A release without `latest-mac.yml` is invisible to the updater.
+
+`COMPANION_UPDATE_URL=<url>` points a packaged build at a folder served over HTTP that holds those files. It also turns updates on in test mode, which is how an update is tried locally before a release.

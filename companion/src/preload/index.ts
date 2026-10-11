@@ -39,6 +39,10 @@ const api: CompanionApi = {
   chooseFolder: () => ipcRenderer.invoke(CH.chooseFolder),
   sendNew: (payload, target) => ipcRenderer.invoke(CH.sendNew, payload, target),
   focusSession: (id) => ipcRenderer.invoke(CH.focusSession, id),
+  getUpdate: () => ipcRenderer.invoke(CH.updateGet),
+  checkForUpdate: () => ipcRenderer.invoke(CH.updateCheck),
+  installUpdate: () => ipcRenderer.invoke(CH.updateInstall),
+  onUpdate: (fn) => ipcRenderer.on(CH.update, (_e, status) => fn(status)),
   onVisibility: (fn) => ipcRenderer.on(CH.visibility, (_e, visible) => fn(visible)),
 };
 

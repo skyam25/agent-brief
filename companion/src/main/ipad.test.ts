@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { IpadStatus } from '../shared/ipc';
 import { SyncHub } from '../web/sync-hub';
-import { Ipad, NO_LAN } from './ipad';
+import { Ipad, networkLabel, NO_LAN } from './ipad';
 
 function make(over: Partial<ConstructorParameters<typeof Ipad>[0]> = {}) {
   let intro = false;
@@ -56,5 +56,15 @@ describe('Ipad', () => {
     const s = await ipad.open();
     expect(s.running).toBe(false);
     expect(s.error).toMatch(/refusing to bind 8\.8\.8\.8/);
+  });
+});
+
+describe('networkLabel', () => {
+  it('writes a /24 network as its first three parts', () => {
+    expect(networkLabel({ address: '192.168.1.218', netmask: '255.255.255.0', cidr: '192.168.1.0/24' })).toBe('192.168.1.x');
+  });
+
+  it('writes other networks as CIDR', () => {
+    expect(networkLabel({ address: '10.0.4.2', netmask: '255.255.0.0', cidr: '10.0.0.0/16' })).toBe('10.0.0.0/16');
   });
 });

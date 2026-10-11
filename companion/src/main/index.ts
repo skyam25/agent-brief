@@ -16,6 +16,7 @@ import {
   systemPreferences,
   Tray,
 } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protocol';
 import type { BoardBackend, DeliveryInput } from '../server/contract';
 import { buildDraft, freeId, writeBundle } from '../server/bundle';
@@ -52,6 +53,7 @@ import {
 import { HubLink } from './hub-link';
 import { Ipad } from './ipad';
 import { Panel } from './panel';
+import { Updater } from './updater';
 import { BoardStore, migrateData, StateFile } from './store';
 
 const testMode = process.env.COMPANION_TEST === '1';
@@ -360,6 +362,26 @@ async function start(): Promise<void> {
     send(CH.ipad, await ipad.open(), true);
   };
 
+  // COMPANION_UPDATE_URL points a packaged build at a local feed, also in test runs.
+  const updateUrl = process.env.COMPANION_UPDATE_URL;
+  if (app.isPackaged && updateUrl) autoUpdater.setFeedURL({ provider: 'generic', url: updateUrl });
+  const updater = new Updater({
+    version: app.getVersion(),
+    source: app.isPackaged && (!testMode || updateUrl) ? autoUpdater : undefined,
+    onStatus: (status) => {
+      send(CH.update, status);
+      buildMenus();
+    },
+    beforeInstall: async () => {
+      await flushAll();
+      panel.prepareQuit();
+    },
+  });
+  const checkForUpdates = () => {
+    actions().openSettings();
+    void updater.check();
+  };
+
   const sessionName = (id: string | undefined) => {
     const s = sessions.sessions.find((x) => x.sessionId === id);
     return s?.title || s?.cwd.split('/').filter(Boolean).pop() || id || 'the session';
@@ -421,6 +443,9 @@ async function start(): Promise<void> {
     },
     installCli: () => void runInstallCli({ confirm: true }),
     openIpad: () => void openIpad(),
+    update: updater.current(),
+    checkForUpdates,
+    installUpdate: () => void updater.install(),
   });
 
   let tray: Tray | undefined;
@@ -438,6 +463,7 @@ async function start(): Promise<void> {
     if (!app.isPackaged) app.dock?.setIcon(join(icons, 'icon-1024.png'));
   }
   buildMenus();
+  updater.schedule();
 
   const applySettings = (patch: Partial<Settings>): SettingsResult => {
     const next: Partial<Settings> = {};
@@ -517,6 +543,9 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.mic, () => microphoneAccess());
   ipcMain.on(CH.hide, () => panel.hide());
   ipcMain.on(CH.pushElements, (_e, board: string, elements: unknown[]) => hubLink.pushed(board, elements));
+  ipcMain.handle(CH.updateGet, () => updater.current());
+  ipcMain.handle(CH.updateCheck, () => updater.check());
+  ipcMain.handle(CH.updateInstall, () => updater.install());
   ipcMain.handle(CH.ipadOpen, () => ipad.open());
   ipcMain.handle(CH.ipadStop, () => ipad.stop());
   ipcMain.handle(CH.ipadRevoke, (_e, id: string) => ipad.revoke(id));
@@ -562,21 +591,22 @@ async function start(): Promise<void> {
 
   // Write pending saves and close the socket once before quitting.
   let flushed = false;
-  app.on('before-quit', (e) => {
+  async function flushAll(): Promise<void> {
     if (flushed) return;
-    e.preventDefault();
-    bridge
+    await bridge
       .request('flush', {}, 2000)
       .catch(() => undefined)
       .then(() => {
         hubLink.flush();
         return Promise.all([server.close(), ipad.stop()]);
       })
-      .catch(() => undefined)
-      .finally(() => {
-        flushed = true;
-        app.quit();
-      });
+      .catch(() => undefined);
+    flushed = true;
+  }
+  app.on('before-quit', (e) => {
+    if (flushed) return;
+    e.preventDefault();
+    void flushAll().finally(() => app.quit());
   });
   app.on('will-quit', () => globalShortcut.unregisterAll());
   app.on('activate', openStandalone);
@@ -607,6 +637,7 @@ async function start(): Promise<void> {
         launches,
         clipboard: () => testClipboard,
         ghosttyTerminals,
+        updater,
       },
     });
   }

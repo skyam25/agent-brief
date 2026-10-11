@@ -28,12 +28,23 @@ export function IpadSheet(props: {
         )}
         {status.running && status.url && (
           <>
-            <p>Scan this with the iPad camera. The code works once, for 10 minutes. Both devices must be on the same network.</p>
+            <p>Scan this with the iPad camera. The code works once, for 10 minutes.</p>
             {/* The QR SVG comes from the qrcode library in main, not from a page. */}
             <div className="qr" data-testid="ipad-qr" dangerouslySetInnerHTML={{ __html: status.qrSvg ?? '' }} />
             <code className="url" data-testid="ipad-url">
               {status.url}
             </code>
+            <p className="muted" data-testid="ipad-network">
+              {status.network
+                ? `The iPad must be on this Mac's Wi-Fi network (${status.network}), with any VPN off.`
+                : "The iPad must be on this Mac's Wi-Fi, with any VPN off."}
+            </p>
+            {status.refused && (
+              <p className="error" role="alert" data-testid="ipad-refused">
+                The Mac turned away a device at {status.refused} because it is on another network. Join the iPad to
+                this Mac's Wi-Fi and turn off any VPN, then scan again.
+              </p>
+            )}
             {status.firstRun && (
               <p className="muted" data-testid="ipad-firewall">
                 {FIREWALL_NOTE}
