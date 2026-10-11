@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { draftTitle } from '../shared/drafts';
 import type { DraftBook } from './drafts';
-import { CloseIcon, DraftIcon } from './Icons';
+import { CloseIcon, LinkIcon, PlusIcon } from './Icons';
 import { useDrafts, useEscape } from './WriteView';
 
 /**
@@ -27,14 +27,14 @@ export function PullIn(props: { book: DraftBook; board: string; onOpen: (id: str
   if (linked) {
     return (
       <div className="cluster pulled" data-testid="pulled-draft">
-        <button className="ghost chip" title="Send leads with this draft. Open it in Write mode." onClick={() => props.onOpen(linked.id)}>
-          <DraftIcon />
+        <button className="ghost chip" title="Send leads with this note. Open it in Write mode." onClick={() => props.onOpen(linked.id)}>
+          <LinkIcon />
           <span>{draftTitle(linked.body, 32) || 'Empty note'}</span>
         </button>
         <button
           className="ghost icon-button small"
-          title="Unlink the draft. It stays in Write mode."
-          aria-label="Unlink the draft"
+          title="Unlink the note. It stays in Write mode."
+          aria-label="Unlink the note"
           onClick={() => book.link(linked.id, undefined)}
           data-testid="pulled-draft-unlink"
         >
@@ -48,21 +48,20 @@ export function PullIn(props: { book: DraftBook; board: string; onOpen: (id: str
   return (
     <div className="cluster anchor" ref={ref}>
       <button
-        className="ghost icon-button"
-        title="Pull in a draft"
-        aria-label="Pull in a draft"
+        className="ghost pill"
+        title="Send a note from Write mode with this sketch"
         aria-haspopup="dialog"
         aria-pressed={open}
         onClick={() => setOpen((o) => !o)}
         data-testid="pull-in"
       >
-        <DraftIcon />
+        <PlusIcon /> Note
       </button>
       {open && (
         <PullInMenu onClose={close}>
-          <h3>Send this sketch with a draft</h3>
+          <h3>Send this sketch with a note</h3>
           {drafts.length === 0 ? (
-            <p className="muted">No drafts yet. Write one in Write mode (⌘2).</p>
+            <p className="muted">No notes yet. Write one in Write mode (⌘2).</p>
           ) : (
             <ul>
               {drafts.map((d) => (
@@ -91,7 +90,7 @@ export function PullIn(props: { book: DraftBook; board: string; onOpen: (id: str
 function PullInMenu(props: { onClose: () => void; children: ReactNode }) {
   useEscape(props.onClose);
   return (
-    <div className="popover-panel pull-in" role="dialog" aria-label="Pull in a draft" data-escape-owner data-testid="pull-in-menu">
+    <div className="popover-panel pull-in" role="dialog" aria-label="Pull in a note" data-escape-owner data-testid="pull-in-menu">
       {props.children}
     </div>
   );

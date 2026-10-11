@@ -119,10 +119,10 @@ export const GripIcon = () => (
   </Icon>
 );
 
-/** A page with a pen: a written draft. */
-export const DraftIcon = () => (
+export const MoreIcon = () => (
   <Icon>
-    <path d="M12 20h9" />
-    <path d="M16.38 3.62a1 1 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.85.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.85z" />
+    <circle cx="5" cy="12" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
   </Icon>
 );

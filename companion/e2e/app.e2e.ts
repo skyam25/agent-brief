@@ -106,20 +106,28 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   // Test runs never update, so Settings shows the version without a check button.
   await expect(page.getByTestId('settings-update')).toContainText(/Version \d+\.\d+\.\d+/);
   await expect(page.getByTestId('settings-update-check')).toHaveCount(0);
-  await page.getByTestId('settings-hotkey').fill('ctrl+shift+k');
-  await page.getByTestId('settings-hotkey-save').click();
+  // A shortcut chip records the next key press and shows it as macOS writes it.
+  await expect(page.getByTestId('settings-hotkey')).toHaveText('⌃⌥S');
+  await page.getByTestId('settings-hotkey').click();
+  await expect(page.getByTestId('settings-hotkey')).toHaveText('Press keys…');
+  await page.keyboard.press('Control+Shift+K');
   await expect(page.getByTestId('settings-saved')).toBeVisible();
+  await expect(page.getByTestId('settings-hotkey')).toHaveText('⌃⇧K');
   expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
 
   await app.evaluate(() => (globalThis as any).__companion.registrar.taken.add('Command+Space'));
-  await page.getByTestId('settings-hotkey').fill('Command+Space');
-  await page.getByTestId('settings-hotkey-save').click();
+  await page.getByTestId('settings-hotkey').click();
+  await page.keyboard.press('Meta+Space');
   await expect(page.getByTestId('settings-error')).toHaveText(/already used/);
   expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
 
-  await page.getByTestId('settings-hotkey').fill('Control+Banana');
-  await page.getByTestId('settings-hotkey-save').click();
-  await expect(page.getByTestId('settings-error')).toHaveText('Banana is not a key');
+  // A key without a modifier asks for one, and Escape keeps the shortcut.
+  await page.getByTestId('settings-hotkey').click();
+  await page.keyboard.press('KeyS');
+  await expect(page.getByTestId('settings-hotkey')).toHaveText('Hold ⌃, ⌥ or ⌘ with the key');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('settings-hotkey')).toHaveText('⌃⇧K');
+  await expect(page.getByTestId('settings')).toBeVisible();
 
   await page.getByTestId('settings-mode').selectOption('fill');
   await page.getByTestId('settings-login').check();

@@ -9,7 +9,7 @@ import {
   serializeAsJSON,
 } from '@excalidraw/excalidraw';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
-import type { BinaryFiles, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
+import type { BinaryFiles, ExcalidrawImperativeAPI, NormalizedZoomValue } from '@excalidraw/excalidraw/types';
 import type { BoardHost, BoardReply, BoardRequest, SendPayload } from '../shared/ipc';
 import { boxOf, union, type Shaped } from '../board/geometry';
 import { buildTimeline } from '../voice/timeline';
@@ -198,7 +198,10 @@ export class BoardController {
     const files = Object.values(loaded.files);
     if (files.length) api.addFiles(files);
     api.history.clear();
-    api.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.8, animate: false });
+    // Fits what the board holds without zooming past 100%. An empty board starts at the origin, unzoomed.
+    const live = loaded.elements.filter((e) => !e.isDeleted);
+    if (live.length) api.scrollToContent(live, { fitToViewport: true, viewportZoomFactor: 0.8, maxZoom: 1, animate: false });
+    else api.updateScene({ appState: { scrollX: 0, scrollY: 0, zoom: { value: 1 as NormalizedZoomValue } }, captureUpdate: CaptureUpdateAction.NEVER });
     await this.bridge.setCurrent(board);
     this.emit();
   }
@@ -226,14 +229,14 @@ export class BoardController {
     };
   }
 
-  /** Scrolls to new elements when none of them is in view, so the user sees what Claude drew. */
+  /** Scrolls to new elements unless all of them show, so the user sees what Claude drew. */
   private revealIfHidden(ids: string[]): void {
     const api = this.api!;
     const wanted = new Set(ids);
     const drawn = api.getSceneElements().filter((e) => wanted.has(e.id));
     if (drawn.length === 0) return;
     const [minX, minY, maxX, maxY] = getVisibleSceneBounds(api.getAppState());
-    const inView = drawn.some((e) => e.x < maxX && e.x + e.width > minX && e.y < maxY && e.y + e.height > minY);
+    const inView = drawn.every((e) => e.x >= minX && e.x + e.width <= maxX && e.y >= minY && e.y + e.height <= maxY);
     if (!inView) api.scrollToContent(drawn, { animate: true });
   }
 

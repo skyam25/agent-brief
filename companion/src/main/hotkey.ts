@@ -1,6 +1,6 @@
 /** The global show/hide shortcut. Changing it registers the new one before letting go of the old. */
 
-import { parseAccelerator } from './accelerator';
+import { parseAccelerator } from '../shared/accelerator';
 
 export interface Registrar {
   register(accelerator: string, fn: () => void): boolean;

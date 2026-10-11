@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findSlots, nextSlot, slashQuery } from './slots';
+import { findSlots, nextSlot, plainSlots, slashQuery } from './slots';
 
 const text = 'Fix {{what}}.\nSteps: {{ steps }}\nNot a slot: {{}} or {{\n}}';
 
@@ -27,5 +27,12 @@ describe('slashQuery', () => {
     expect(slashQuery('hello\n/bug re', 13)).toEqual({ start: 6, query: 'bug re' });
     expect(slashQuery('/', 1)).toEqual({ start: 0, query: '' });
     expect(slashQuery('a /bug', 6)).toBeUndefined();
+  });
+});
+
+describe('plainSlots', () => {
+  it('shows each slot as its bare name', () => {
+    expect(plainSlots('Fix {{what you saw}} on {{ page }}')).toBe('Fix what you saw on page');
+    expect(plainSlots('no slots')).toBe('no slots');
   });
 });

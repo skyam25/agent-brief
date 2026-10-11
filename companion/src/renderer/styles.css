@@ -80,14 +80,14 @@ button:disabled {
 
 /* App chrome sizing. Scoped so Excalidraw's own buttons keep their styles. */
 
-:is(.strip, .popover-panel, .notes, .brief-tabs) :is(button, select, input:not([type='checkbox'])) {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) :is(button, select, input:not([type='checkbox'])) {
   height: 32px;
   box-sizing: border-box;
   border-radius: 8px;
   padding: 0 10px;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs) button {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -95,18 +95,18 @@ button:disabled {
   white-space: nowrap;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs) button.icon-button {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button.icon-button {
   width: 32px;
   padding: 0;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs) button.small {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button.small {
   height: 24px;
   padding: 0 6px;
   border-radius: 6px;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs) button.icon-button.small {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button.icon-button.small {
   width: 24px;
   padding: 0;
 }
@@ -149,8 +149,9 @@ button.link {
 
 .strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   padding: 8px 12px;
   -webkit-app-region: drag;
 }
@@ -178,47 +179,92 @@ button.link {
   box-shadow: var(--shadow-island);
 }
 
-.boards select,
 .boards input {
   border-color: transparent;
   background: transparent;
   font-weight: 600;
 }
 
-.boards select:hover {
-  background: var(--hover);
+.boards .board-trigger {
+  max-width: 200px;
+  gap: 4px;
+  font-weight: 600;
 }
 
+.board-trigger .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The right end keeps its full width; when the window is too narrow it wraps to a row of its own, Send last. */
 .top {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
+  justify-content: flex-end;
   gap: 8px;
 }
 
-.prompt {
-  flex: 1;
-  min-width: 0;
+.send-group {
+  flex: none;
+}
+
+.strip button.pill {
+  gap: 4px;
+  padding: 0 10px 0 8px;
+  font-weight: 500;
+}
+
+/* What Claude asked for, on its own row */
+
+.prompt-row {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  padding: 0 12px 6px 16px;
   color: var(--accent);
 }
 
-.prompt span {
+.prompt-row span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.status {
-  max-width: 280px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+/* Toasts sit above the board's own controls and Write mode's footer. */
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 6px 6px 6px 14px;
+  background: var(--raised);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
 }
 
-.send-group > .muted {
-  padding: 0 8px;
+.toast .text {
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.toast.progress {
+  padding-right: 14px;
+  color: var(--muted);
+}
+
+.toast.error {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 9%, var(--raised));
+}
+
+.toast .link {
+  flex: none;
 }
 
 /* The mic */
@@ -303,9 +349,32 @@ button.recording {
   gap: 8px;
 }
 
-.popover-panel label {
+.popover-panel :is(label, .label) {
   min-width: 92px;
   color: var(--muted);
+}
+
+.popover-panel.up {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+/* Settings: a shortcut chip records the next key press. */
+
+.popover-panel button.key-chip {
+  min-width: 96px;
+  background: var(--hover);
+  border-color: transparent;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.popover-panel button.key-chip.recording {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+  letter-spacing: normal;
 }
 
 .popover-panel .check {
@@ -345,7 +414,8 @@ button.recording {
 
 .send-to .send-named {
   display: block;
-  max-width: 240px;
+  min-width: 96px;
+  max-width: 220px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -388,9 +458,14 @@ button.recording {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--selected);
-  color: var(--accent);
+  background: hsl(var(--hue, 243) 70% 93%);
+  color: hsl(var(--hue, 243) 45% 36%);
   font-weight: 600;
+}
+
+:root[data-theme='dark'] .chooser .avatar {
+  background: hsl(var(--hue, 243) 28% 27%);
+  color: hsl(var(--hue, 243) 75% 82%);
 }
 
 .chooser .lines {
@@ -408,12 +483,96 @@ button.recording {
 }
 
 .chooser .launchers {
-  flex-wrap: wrap;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
 }
 
-.chooser .launchers .link {
-  padding: 0 6px;
+.split-button {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.split-button > button:first-child:not(:last-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.popover-panel .split-button > button.icon-button {
+  width: 28px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.launch-more {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.popover-panel .launch-more button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* The board menu */
+
+.popover-panel.board-menu {
+  left: 0;
+  right: auto;
+  width: 240px;
+  gap: 6px;
+  padding: 6px;
+}
+
+.board-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.popover-panel.board-menu button {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.board-menu .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-menu button[aria-checked='true'] {
+  font-weight: 600;
+}
+
+.board-menu button > .icon {
+  color: var(--accent);
+}
+
+.board-menu .menu-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.popover-panel.board-menu .menu-foot button {
+  justify-content: flex-start;
+}
+
+.board-menu .menu-foot button > .icon {
+  color: inherit;
 }
 
 /* History */
@@ -619,9 +778,20 @@ button.recording {
   resize: none;
   padding: 12px;
   outline: none;
-  font: 13px/1.5 ui-monospace, Menlo, monospace;
+  font: 13px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg);
   color: var(--fg);
+}
+
+/* The board keeps its drawing tools, zoom and undo; style controls show only for a selection. */
+.excalidraw .main-menu-trigger,
+.excalidraw .default-sidebar-trigger,
+.excalidraw .help-icon {
+  display: none;
+}
+
+.canvas:not([data-selection='true']) .excalidraw .App-menu__left {
+  display: none;
 }
 
 /* Keeps the global input padding and border off Excalidraw's opacity slider, so the track ends at the knob. */
@@ -735,6 +905,9 @@ button.recording {
 }
 
 .draft-list h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 12px 4px 4px;
   font-size: 11px;
   font-weight: 600;
@@ -743,8 +916,9 @@ button.recording {
   color: var(--muted);
 }
 
-.draft-list .count {
-  color: var(--accent);
+.section-head .count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
 .draft-list .empty {
@@ -792,8 +966,25 @@ button.recording {
   text-overflow: ellipsis;
 }
 
-.draft-row .lines > span:first-child {
+.draft-row .title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.draft-row .title-line .title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-weight: 500;
+}
+
+.draft-row .when {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .board-tag {
@@ -832,7 +1023,7 @@ button.recording {
   margin: 0;
   border: 0;
   padding: 20px 24px;
-  font: 14px/1.6 ui-monospace, Menlo, monospace;
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   letter-spacing: normal;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -936,6 +1127,42 @@ button.recording {
 .write button.danger {
   color: var(--error);
   padding: 0 10px;
+}
+
+/* The draft footer: Ready is a toggle chip; the rest waits in ⋯. */
+
+.write button.chip {
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: 14px;
+  background: transparent;
+  font-weight: 500;
+}
+
+.write button.chip:hover {
+  background: var(--hover);
+}
+
+.write button.chip.on {
+  border-color: transparent;
+  background: var(--selected);
+}
+
+.chip kbd {
+  font: 11px -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--muted);
+}
+
+.popover-panel.more-menu {
+  right: 0;
+  width: 220px;
+  gap: 2px;
+  padding: 6px;
+}
+
+.popover-panel.more-menu button {
+  width: 100%;
+  justify-content: flex-start;
 }
 
 /* Templates */

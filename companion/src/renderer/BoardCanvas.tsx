@@ -5,7 +5,7 @@ import type { Theme } from '../shared/ipc';
 import type { BoardController, LoadedScene } from './controller';
 import { installPen } from './pen';
 
-/** The Excalidraw canvas with pen handling. The Mac panel and the web client both use it. */
+/** The Excalidraw canvas with pen handling, trimmed to drawing: no main menu, library or help. */
 export function BoardCanvas(props: {
   controller: BoardController;
   scene: LoadedScene;
@@ -53,7 +53,12 @@ export function BoardCanvas(props: {
           files: props.scene.files,
           scrollToContent: true,
         }}
-        onChange={(elements) => controller.handleChange(elements)}
+        onChange={(elements, appState) => {
+          controller.handleChange(elements);
+          // Style controls show only for a selection; see .canvas[data-selection] in styles.css.
+          const selected = Object.keys(appState.selectedElementIds).length > 0;
+          if (ref.current && (ref.current.dataset.selection === 'true') !== selected) ref.current.dataset.selection = String(selected);
+        }}
         UIOptions={{ canvasActions: { loadScene: false, export: false, saveToActiveFile: false, toggleTheme: false } }}
       />
     </div>

@@ -58,6 +58,18 @@ export async function openNotes(page: Page): Promise<void> {
   await page.getByTestId('notes').waitFor();
 }
 
+/** Opens the board menu and runs New board or Rename from its foot. */
+export async function boardMenu(page: Page, action: 'board-new' | 'board-rename'): Promise<void> {
+  await page.getByTestId('board-picker').click();
+  await page.getByTestId(action).click();
+}
+
+/** Switches boards through the board menu. */
+export async function pickBoard(page: Page, name: string): Promise<void> {
+  await page.getByTestId('board-picker').click();
+  await page.getByTestId('board-item').filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }).click();
+}
+
 /** Opens Send's chooser and sends to the running session whose row shows `title`. */
 export async function sendToSession(page: Page, title: string): Promise<void> {
   await page.getByTestId('send').click();

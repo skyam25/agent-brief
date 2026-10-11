@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { draftTitle } from '../shared/drafts';
 import type { BoardEntry, Draft, Template } from '../shared/ipc';
+import { plainSlots } from '../shared/slots';
 import type { DraftBook } from './drafts';
-import { CheckIcon, ChevronIcon, GripIcon, LinkIcon, PlusIcon, TrashIcon } from './Icons';
+import { CheckIcon, ChevronIcon, GripIcon, LinkIcon, MoreIcon, PlusIcon, TrashIcon } from './Icons';
 import { focusFirstSlot, SlotArea } from './SlotArea';
 import type { TemplateShelf } from './templates';
 
@@ -136,7 +137,7 @@ export function WriteView(props: {
         <div className="sections">
           <ReadyQueue book={book} drafts={ready} selectedId={selected?.id} reorder={!query} onOpen={openDraft} />
           <section>
-            <h3>Notes</h3>
+            <SectionHeader title="Notes" count={notes.length} />
             {notes.length === 0 && <p className="muted empty">{query ? 'No notes match.' : 'Notes you jot down wait here until you send them.'}</p>}
             <ul>
               {notes.map((d) => (
@@ -145,19 +146,13 @@ export function WriteView(props: {
             </ul>
           </section>
           <section>
-            <h3>
-              <button
-                className="ghost section-toggle"
-                aria-expanded={templatesOpen}
-                onClick={() => setTemplatesOpen((o) => !o)}
-                data-testid="templates-toggle"
-              >
-                <span className="caret" aria-hidden="true">
-                  {templatesOpen ? '▾' : '▸'}
-                </span>
-                Templates <span className="count">{shelf.templates.length || ''}</span>
-              </button>
-            </h3>
+            <SectionHeader
+              title="Templates"
+              count={shelf.templates.length}
+              open={templatesOpen}
+              onToggle={() => setTemplatesOpen((o) => !o)}
+              testId="templates-toggle"
+            />
             {templatesOpen && (
               <ul data-testid="template-list">
                 {shelf.templates.map((t) => (
@@ -170,7 +165,7 @@ export function WriteView(props: {
                     >
                       <span className="lines">
                         <span>{t.title || 'Untitled template'}</span>
-                        <span className="muted">{draftTitle(t.body) || 'Empty'}</span>
+                        <span className="muted">{draftTitle(plainSlots(t.body)) || 'Empty'}</span>
                       </span>
                     </button>
                   </li>
@@ -236,9 +231,7 @@ function ReadyQueue(props: { book: DraftBook; drafts: Draft[]; selectedId?: stri
 
   return (
     <section>
-      <h3>
-        Ready <span className="count">{props.drafts.length || ''}</span>
-      </h3>
+      <SectionHeader title="Ready" count={props.drafts.length} />
       {props.drafts.length === 0 && <p className="muted empty">Mark a draft Ready (⌘⇧↩) to queue it for sending.</p>}
       <ul data-testid="ready-list" onDragLeave={() => setDropAt(undefined)}>
         {props.drafts.map((d, i) => (
@@ -298,8 +291,9 @@ function DraftRow(props: {
   };
 }) {
   const { draft: d, drag } = props;
-  const title = draftTitle(d.body) || 'Empty note';
-  const rest = d.body.split('\n').filter((l) => l.trim())[1]?.trim();
+  const body = plainSlots(d.body);
+  const title = draftTitle(body) || 'Empty note';
+  const preview = body.split('\n').filter((l) => l.trim())[1]?.trim();
   return (
     <li
       className={drag?.dropBefore ? 'drop-before' : undefined}
@@ -324,18 +318,49 @@ function DraftRow(props: {
           </span>
         )}
         <span className="lines">
-          <span className={d.body.trim() ? undefined : 'muted'}>{title}</span>
-          <span className="muted">
-            {d.board && (
-              <span className="board-tag" title={`Goes with the board ${d.board}`}>
-                <LinkIcon /> {d.board}
-              </span>
-            )}
-            {rest || ago(d.updatedAt)}
+          <span className="title-line">
+            <span className={d.body.trim() ? 'title' : 'title muted'}>{title}</span>
+            <span className="muted when">{ago(d.updatedAt)}</span>
           </span>
+          {(d.board || preview) && (
+            <span className="muted preview">
+              {d.board && (
+                <span className="board-tag" title={`Goes with the board ${d.board}`}>
+                  <LinkIcon /> {d.board}
+                </span>
+              )}
+              {preview}
+            </span>
+          )}
         </span>
       </button>
     </li>
+  );
+}
+
+/** A list section's name and count. With `onToggle`, a click folds the section. */
+function SectionHeader(props: { title: string; count: number; open?: boolean; onToggle?: () => void; testId?: string }) {
+  const label = (
+    <>
+      {props.onToggle && (
+        <span className="caret" aria-hidden="true">
+          {props.open ? '▾' : '▸'}
+        </span>
+      )}
+      {props.title}
+      {props.count > 0 && <span className="count">{props.count}</span>}
+    </>
+  );
+  return (
+    <h3 className="section-head">
+      {props.onToggle ? (
+        <button className="ghost section-toggle" aria-expanded={props.open} onClick={props.onToggle} data-testid={props.testId}>
+          {label}
+        </button>
+      ) : (
+        label
+      )}
+    </h3>
   );
 }
 
@@ -444,55 +469,86 @@ function TemplateEditor(props: { shelf: TemplateShelf; template: Template; onUse
   );
 }
 
-/** Names the open draft and saves it as a template. */
-function SaveAsTemplate(props: { shelf: TemplateShelf; body: string }) {
-  const [naming, setNaming] = useState(false);
+/** Names the open draft and saves it as a template. `onDone` gets the words to show, or nothing when cancelled. */
+function TemplateNamer(props: { shelf: TemplateShelf; body: string; onDone: (message?: string) => void }) {
   const [name, setName] = useState('');
-  const [saved, setSaved] = useState<string>();
-  useEffect(() => {
-    if (!saved) return;
-    const timer = setTimeout(() => setSaved(undefined), 2500);
-    return () => clearTimeout(timer);
-  }, [saved]);
-
   const save = async () => {
     const title = name.trim();
-    if (!title) return setNaming(false);
+    if (!title) return props.onDone();
     const created = await props.shelf.create(title, props.body);
-    setNaming(false);
-    setName('');
-    setSaved(`Saved “${created.title}”`);
+    props.onDone(`Saved “${created.title}”`);
   };
-
-  if (naming) {
-    return (
-      <span className="name-template" data-escape-owner>
-        <input
-          autoFocus
-          placeholder="Template name"
-          aria-label="Template name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void save();
-            if (e.key === 'Escape') setNaming(false);
-          }}
-          onBlur={() => setNaming(false)}
-          data-testid="save-template-name"
-        />
-      </span>
-    );
-  }
-  if (saved) return <span className="muted" data-testid="save-template-done">{saved}</span>;
   return (
-    <button
-      className="ghost small link"
-      disabled={!props.body.trim()}
-      title="Keep this text as a template. Mark blanks with {{name}} first."
-      onClick={() => setNaming(true)}
-      data-testid="save-template"
-    >
-      Save as template
+    <span className="name-template" data-escape-owner>
+      <input
+        autoFocus
+        placeholder="Template name"
+        aria-label="Template name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void save();
+          if (e.key === 'Escape') props.onDone();
+        }}
+        onBlur={() => props.onDone()}
+        data-testid="save-template-name"
+      />
+    </span>
+  );
+}
+
+/** A ⋯ button whose menu opens upward, for the editor's footer. */
+function MoreMenu(props: { label: string; testId: string; children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('pointerdown', onDown, { capture: true });
+    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
+  }, [open]);
+  return (
+    <div className="anchor" ref={ref}>
+      <button
+        className="ghost icon-button"
+        aria-label={props.label}
+        title={props.label}
+        aria-haspopup="menu"
+        aria-pressed={open}
+        onClick={() => setOpen((o) => !o)}
+        data-testid={props.testId}
+      >
+        <MoreIcon />
+      </button>
+      {open && <MoreMenuPanel onClose={close}>{props.children(close)}</MoreMenuPanel>}
+    </div>
+  );
+}
+
+function MoreMenuPanel(props: { onClose: () => void; children: ReactNode }) {
+  useEscape(props.onClose);
+  return (
+    <div className="popover-panel more-menu up" role="menu" data-escape-owner>
+      {props.children}
+    </div>
+  );
+}
+
+/** A menu item that asks once more before it deletes, then reverts after a few seconds. */
+function DeleteItem(props: { what: string; onDelete: () => void; testId: string }) {
+  const [confirm, setConfirm] = useState(false);
+  useEffect(() => {
+    if (!confirm) return;
+    const timer = setTimeout(() => setConfirm(false), 3000);
+    return () => clearTimeout(timer);
+  }, [confirm]);
+  return (
+    <button className="ghost danger" role="menuitem" onClick={() => (confirm ? props.onDelete() : setConfirm(true))} data-testid={props.testId}>
+      <TrashIcon />
+      {confirm ? 'Click again to delete' : `Delete ${props.what}`}
     </button>
   );
 }
@@ -510,6 +566,13 @@ function DraftEditor(props: {
   const { book, draft } = props;
   const ref = useRef<HTMLTextAreaElement>(null);
   const [boards, setBoards] = useState<string[]>([]);
+  const [naming, setNaming] = useState(false);
+  const [saved, setSaved] = useState<string>();
+  useEffect(() => {
+    if (!saved) return;
+    const timer = setTimeout(() => setSaved(undefined), 2500);
+    return () => clearTimeout(timer);
+  }, [saved]);
 
   useEffect(() => {
     void props.listBoards().then((list) => setBoards(list.map((b) => b.name)));
@@ -569,10 +632,45 @@ function DraftEditor(props: {
             Not saved yet. Retrying.
           </span>
         )}
-        <SaveAsTemplate shelf={props.shelf} body={draft.body} />
-        <DeleteButton what="draft" testId="draft-delete" onDelete={() => book.remove(draft.id)} />
+        {naming ? (
+          <TemplateNamer
+            shelf={props.shelf}
+            body={draft.body}
+            onDone={(message) => {
+              setNaming(false);
+              setSaved(message);
+            }}
+          />
+        ) : (
+          saved && (
+            <span className="muted" data-testid="save-template-done">
+              {saved}
+            </span>
+          )
+        )}
+        <MoreMenu label="More for this note" testId="draft-more">
+          {(close) => (
+            <>
+              <button
+                className="ghost"
+                role="menuitem"
+                disabled={!draft.body.trim()}
+                title="Keep this text as a template. Mark blanks with {{name}} first."
+                onClick={() => {
+                  close();
+                  setSaved(undefined);
+                  setNaming(true);
+                }}
+                data-testid="save-template"
+              >
+                <PlusIcon /> Save as template…
+              </button>
+              <DeleteItem what="note" testId="draft-delete" onDelete={() => book.remove(draft.id)} />
+            </>
+          )}
+        </MoreMenu>
         <button
-          className="ghost"
+          className={ready ? 'chip on' : 'chip'}
           aria-pressed={ready}
           title={ready ? 'Back to notes (⌘⇧↩)' : 'Queue it for sending (⌘⇧↩)'}
           onClick={() => book.setReady(draft.id, !ready)}
@@ -580,6 +678,7 @@ function DraftEditor(props: {
         >
           {ready && <CheckIcon />}
           Ready
+          <kbd>⌘⇧↩</kbd>
         </button>
       </footer>
     </section>
