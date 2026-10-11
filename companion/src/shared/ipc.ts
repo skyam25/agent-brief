@@ -196,6 +196,33 @@ export interface Template {
 }
 
 /** What the preload script exposes as `window.companion`. */
+/** A new note main asks for: its starting text and, from /write, the id main records for the session. */
+export interface NewNote {
+  text?: string;
+  id?: string;
+}
+
+/** One Claude Code session's latest brief, for switching between them. */
+export interface SessionBriefEntry {
+  sessionId: string;
+  /** The session's title, or its folder. */
+  title: string;
+  /** Where the session ran. */
+  cwd?: string;
+  board?: string;
+  draftId?: string;
+  /** Which one the session opened last. */
+  last?: 'board' | 'draft';
+  /** When the session last used it, in ms since the epoch. */
+  at: number;
+  /** The session is still registered with the app. */
+  isLive: boolean;
+  /** The session is the Send target. */
+  isTarget: boolean;
+  /** Its board or note holds something not sent yet. */
+  hasContent: boolean;
+}
+
 export interface CompanionApi extends BoardHost {
   init(): Promise<InitInfo>;
   setTarget(sessionId: string | undefined): Promise<void>;
@@ -235,8 +262,18 @@ export interface CompanionApi extends BoardHost {
   onUpdate(fn: (status: UpdateStatus) => void): void;
   /** Remembers the mode for the next launch and the File menu. */
   setMode(mode: Mode): void;
-  /** Fires when the capture shortcut, a menu or /write asks for a new note, with any starting text. */
-  onNewNote(fn: (text?: string) => void): void;
+  /** Fires when the capture shortcut, a menu or /write asks for a new note, with any starting text and the id main chose. */
+  onNewNote(fn: (note: NewNote) => void): void;
+  /** Fires when /write reopens a session's note. */
+  onOpenDraft(fn: (id: string) => void): void;
+  /** Each tracked session's latest brief, newest first. */
+  listBriefs(): Promise<SessionBriefEntry[]>;
+  /** Fires when a brief, a session or the Send target changes. */
+  onBriefs(fn: (briefs: SessionBriefEntry[]) => void): void;
+  /** Makes the session the Send target, when it is still running, and opens its brief. */
+  switchBrief(sessionId: string): Promise<void>;
+  /** Stops tracking a session's brief. Its board and note stay. */
+  forgetBrief(sessionId: string): Promise<void>;
   /** Ready drafts first by rank, then notes, newest first. */
   listDrafts(): Promise<Draft[]>;
   /** Creates or replaces a draft. */
@@ -284,6 +321,11 @@ export const CH = {
   updateInstall: 'update:install',
   setMode: 'panel:mode',
   newNote: 'panel:new-note',
+  openDraft: 'panel:open-draft',
+  listBriefs: 'briefs:list',
+  briefs: 'briefs:changed',
+  switchBrief: 'briefs:switch',
+  forgetBrief: 'briefs:forget',
   listDrafts: 'drafts:list',
   saveDraft: 'drafts:save',
   deleteDraft: 'drafts:delete',

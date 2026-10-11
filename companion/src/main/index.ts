@@ -32,12 +32,15 @@ import {
   type Mode,
   type Outgoing,
   type SendPayload,
+  type SessionBriefEntry,
   type Settings,
   type SettingsResult,
   type Theme,
 } from '../shared/ipc';
 import { createBoardBackend } from './backend';
 import { newDraftId } from '../shared/drafts';
+import { folderName } from '../shared/sessions';
+import { remember, renameBoard as renameInBriefs, sketchBoard, type SessionBrief } from './session-briefs';
 import { DraftStore } from './drafts';
 import { TemplateStore } from './templates';
 import { RendererBridge } from './bridge';
@@ -241,6 +244,76 @@ async function start(): Promise<void> {
   // Ghostty terminal ids captured when a session runs /sketch, for jumping back to it.
   const ghosttyTerminals = new Map<string, string>();
   const baseBackend = createBoardBackend({ store, state, panel, bridge, setPrompt });
+
+  // Each Claude Code session's latest board and note, so /sketch, /write and the tabs reopen them.
+  const briefs = () => state.state.sessionBriefs ?? {};
+  const liveSession = (id: string) => server.sessions().sessions.find((x) => x.sessionId === id);
+  const briefEntries = (): SessionBriefEntry[] => {
+    const { targetSessionId } = server.sessions();
+    return Object.entries(briefs())
+      .sort(([, a], [, b]) => b.at - a.at)
+      .map(([sessionId, b]) => {
+        const live = liveSession(sessionId);
+        const draft = b.draftId ? drafts.get(b.draftId) : undefined;
+        const board = b.board && store.exists(b.board) ? b.board : undefined;
+        return {
+          sessionId,
+          title: live ? live.title || folderName(live.cwd) : (b.title ?? 'Ended session'),
+          ...((live?.cwd ?? b.cwd) ? { cwd: live?.cwd ?? b.cwd } : {}),
+          ...(board ? { board } : {}),
+          ...(draft ? { draftId: draft.id } : {}),
+          ...(b.last ? { last: b.last } : {}),
+          at: b.at,
+          isLive: !!live,
+          isTarget: targetSessionId === sessionId,
+          hasContent: (!!board && !store.isEmpty(board)) || !!draft?.body.trim(),
+        };
+      });
+  };
+  const publishBriefs = () => send(CH.briefs, briefEntries());
+  /**
+   * Records what a session opened. Claude Code opening it moves its tab to the front;
+   * a switch in the panel (`touch: false`) keeps the tab where it is.
+   */
+  const rememberBrief = (sessionId: string, patch: Partial<Omit<SessionBrief, 'at'>>, touch = true) => {
+    const live = liveSession(sessionId);
+    const known = live ? { title: live.title || folderName(live.cwd), cwd: live.cwd } : {};
+    const at = touch ? Date.now() : (briefs()[sessionId]?.at ?? Date.now());
+    state.update({ sessionBriefs: remember(briefs(), sessionId, { ...patch, ...known }, at) });
+    publishBriefs();
+  };
+  /** Republishes when a board or note a tab shows changes, for its unsent-content mark. */
+  const briefTouched = (what: { board?: string; draftId?: string }) => {
+    if (Object.values(briefs()).some((b) => (what.board && b.board === what.board) || (what.draftId && b.draftId === what.draftId))) publishBriefs();
+  };
+  /** A board History restored. Switching to it is no session's choice, so it is not recorded. */
+  let restoredBoard: string | undefined;
+  /** The board /sketch opens for a session that names none. */
+  const sessionBoard = (sessionId: string) => {
+    const live = liveSession(sessionId);
+    return sketchBoard({
+      sessionId,
+      briefs: briefs(),
+      current: state.state.currentBoard,
+      label: live ? live.title || folderName(live.cwd) : (briefs()[sessionId]?.title ?? 'session'),
+      exists: (n) => store.exists(n),
+      isEmpty: (n) => store.isEmpty(n),
+    }).board;
+  };
+  /** Opens a note in Write mode: the session's last one when it still exists and no text came, else a new one. */
+  const openNote = (sessionId: string | undefined, text: string | undefined) => {
+    const kept = sessionId && !text ? briefs()[sessionId]?.draftId : undefined;
+    panel.show();
+    if (kept && drafts.get(kept)) {
+      send(CH.openDraft, kept);
+      if (sessionId) rememberBrief(sessionId, { draftId: kept, last: 'draft' });
+      return;
+    }
+    const id = newDraftId();
+    send(CH.newNote, { text, id });
+    if (sessionId) rememberBrief(sessionId, { draftId: id, last: 'draft' });
+  };
+
   const backend: BoardBackend = {
     ...baseBackend,
     async open(req) {
@@ -250,15 +323,19 @@ async function start(): Promise<void> {
         const id = await frontGhosttyTerminal(run, s.cwd);
         if (id) ghosttyTerminals.set(s.sessionId, id);
       }
-      if (req.mode !== 'write') return baseBackend.open(req);
-      if (req.prompt !== undefined) setPrompt(req.prompt);
-      panel.show();
-      send(CH.newNote, req.text);
-      return {
-        board: state.state.currentBoard,
-        ...(req.sessionId ? { targetSessionId: req.sessionId } : {}),
-        ...(req.text ? { noteText: true } : {}),
-      };
+      if (req.mode === 'write') {
+        if (req.prompt !== undefined) setPrompt(req.prompt);
+        openNote(req.sessionId, req.text);
+        return {
+          board: state.state.currentBoard,
+          ...(req.sessionId ? { targetSessionId: req.sessionId } : {}),
+          ...(req.text ? { noteText: true } : {}),
+        };
+      }
+      if (!req.sessionId) return baseBackend.open(req);
+      const res = await baseBackend.open({ ...req, board: req.board ?? sessionBoard(req.sessionId) });
+      rememberBrief(req.sessionId, { board: res.board, last: 'board' });
+      return res;
     },
   };
 
@@ -278,6 +355,7 @@ async function start(): Promise<void> {
     sessions = s;
     send(CH.sessions, s);
     rememberProjects(s.sessions.map((x) => x.cwd));
+    publishBriefs();
     for (const id of ghosttyTerminals.keys()) if (!s.sessions.some((x) => x.sessionId === id)) ghosttyTerminals.delete(id);
   });
   try {
@@ -292,6 +370,7 @@ async function start(): Promise<void> {
     if (!payload.draftId) return;
     try {
       drafts.remove(payload.draftId);
+      briefTouched({ draftId: payload.draftId });
     } catch (err) {
       console.warn(`[companion] could not delete the sent draft: ${(err as Error).message}`);
     }
@@ -513,16 +592,28 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.loadBoard, (_e, name: string) => store.load(name));
   ipcMain.handle(CH.saveBoard, (_e, name: string, json: string) => {
     store.saveScene(name, json);
+    briefTouched({ board: name });
   });
-  ipcMain.handle(CH.saveNotes, (_e, name: string, text: string) => store.saveNotes(name, text));
+  ipcMain.handle(CH.saveNotes, (_e, name: string, text: string) => {
+    store.saveNotes(name, text);
+    briefTouched({ board: name });
+  });
   ipcMain.handle(CH.createBoard, (_e, name: string) => store.create(name));
   ipcMain.handle(CH.renameBoard, (_e, from: string, to: string) => {
     const name = store.rename(from, to);
     if (state.state.currentBoard === from) state.update({ currentBoard: name });
     drafts.renameBoard(from, name);
+    state.update({ sessionBriefs: renameInBriefs(briefs(), from, name) });
+    publishBriefs();
     return name;
   });
-  ipcMain.handle(CH.setCurrent, (_e, name: string) => state.update({ currentBoard: store.create(name) }));
+  ipcMain.handle(CH.setCurrent, (_e, raw: string) => {
+    const board = store.create(raw);
+    state.update({ currentBoard: board });
+    const target = server.sessions().targetSessionId;
+    if (board === restoredBoard) restoredBoard = undefined;
+    else if (target) rememberBrief(target, { board, last: 'board' }, false);
+  });
   ipcMain.handle(CH.setTarget, (_e, sessionId: string | undefined) => {
     try {
       server.setTarget(sessionId);
@@ -562,6 +653,7 @@ async function start(): Promise<void> {
     let board: string | undefined;
     if (entry.board && scene !== undefined) {
       board = store.create(restoredBoardName(entry.board, entry.sentAt, (n) => store.exists(n)));
+      restoredBoard = board;
       store.saveScene(board, scene);
       if (entry.notes) store.saveNotes(board, entry.notes);
     }
@@ -571,8 +663,32 @@ async function start(): Promise<void> {
     return { board, draftId: draft.id };
   });
   ipcMain.handle(CH.listDrafts, () => drafts.list());
-  ipcMain.handle(CH.saveDraft, (_e, draft: unknown) => void drafts.save(draft));
-  ipcMain.handle(CH.deleteDraft, (_e, id: string) => drafts.remove(id));
+  ipcMain.handle(CH.saveDraft, (_e, raw: unknown) => {
+    const draft = drafts.save(raw);
+    briefTouched({ draftId: draft.id });
+  });
+  ipcMain.handle(CH.deleteDraft, (_e, id: string) => {
+    drafts.remove(id);
+    briefTouched({ draftId: id });
+  });
+  ipcMain.handle(CH.listBriefs, () => briefEntries());
+  ipcMain.handle(CH.switchBrief, async (_e, sessionId: string) => {
+    const b = briefs()[sessionId];
+    if (!b) throw new Error('that session has no brief');
+    // An ended session can no longer take a Send, so its brief opens with no target.
+    server.setTarget(liveSession(sessionId) ? sessionId : undefined);
+    setPrompt(undefined);
+    const draft = b.draftId && drafts.get(b.draftId) ? b.draftId : undefined;
+    const board = b.board && store.exists(b.board) ? b.board : undefined;
+    if (draft && (b.last === 'draft' || !board)) send(CH.openDraft, draft);
+    else await bridge.request('show', { board: board ?? store.create(sessionBoard(sessionId)) });
+    publishBriefs();
+  });
+  ipcMain.handle(CH.forgetBrief, (_e, sessionId: string) => {
+    const { [sessionId]: _gone, ...rest } = briefs();
+    state.update({ sessionBriefs: rest });
+    publishBriefs();
+  });
   ipcMain.handle(CH.listTemplates, () => templates.list());
   ipcMain.handle(CH.saveTemplate, (_e, template: unknown) => templates.save(template));
   ipcMain.handle(CH.deleteTemplate, (_e, id: string) => templates.remove(id));

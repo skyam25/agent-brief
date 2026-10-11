@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { CH, type BoardRequest, type CompanionApi } from '../shared/ipc';
+import { CH, type BoardRequest, type CompanionApi, type NewNote, type SessionBriefEntry } from '../shared/ipc';
 
 const api: CompanionApi = {
   init: () => ipcRenderer.invoke(CH.init),
@@ -39,7 +39,12 @@ const api: CompanionApi = {
   onUpdate: (fn) => ipcRenderer.on(CH.update, (_e, status) => fn(status)),
   onVisibility: (fn) => ipcRenderer.on(CH.visibility, (_e, visible) => fn(visible)),
   setMode: (mode) => ipcRenderer.send(CH.setMode, mode),
-  onNewNote: (fn) => ipcRenderer.on(CH.newNote, (_e, text?: string) => fn(text)),
+  onNewNote: (fn) => ipcRenderer.on(CH.newNote, (_e, note?: NewNote) => fn(note ?? {})),
+  onOpenDraft: (fn) => ipcRenderer.on(CH.openDraft, (_e, id: string) => fn(id)),
+  listBriefs: () => ipcRenderer.invoke(CH.listBriefs),
+  onBriefs: (fn) => ipcRenderer.on(CH.briefs, (_e, briefs: SessionBriefEntry[]) => fn(briefs)),
+  switchBrief: (sessionId) => ipcRenderer.invoke(CH.switchBrief, sessionId),
+  forgetBrief: (sessionId) => ipcRenderer.invoke(CH.forgetBrief, sessionId),
   listDrafts: () => ipcRenderer.invoke(CH.listDrafts),
   saveDraft: (draft) => ipcRenderer.invoke(CH.saveDraft, draft),
   deleteDraft: (id) => ipcRenderer.invoke(CH.deleteDraft, id),

@@ -47,6 +47,16 @@ describe('DraftBook', () => {
     expect(book.get(other.id)).toBeUndefined();
   });
 
+  it('takes the id main asks for, in place of the open empty note', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    const empty = book.create();
+    const note = book.create('', 'from-main');
+    expect(note.id).toBe('from-main');
+    expect(book.selectedId).toBe('from-main');
+    expect(book.get(empty.id)).toBeUndefined();
+    expect(book.create('', 'from-main').id).toBe('from-main');
+  });
+
   it('deletes a saved note that was emptied and then left', async () => {
     const host = fakeHost([saved('a')]);
     const book = new DraftBook(host, () => t++);

@@ -30,7 +30,9 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 
 ## Sending
 
-- `/sketch` in Claude Code opens the panel bound to that session. A chip by Send names it, and clicking the chip brings its terminal forward.
+- `/sketch` in Claude Code opens the panel bound to that session, and Send reads "Send to <session>". The session's tab is active; clicking it again brings its terminal forward.
+- Main remembers each session's latest board and note in `state.json` (`sessionBriefs`, 30 days, at most 100). `/sketch` reopens the remembered board. The first time, it takes the current board if it is empty and no other session holds it, else it makes a board named after the session's title or folder (`Beta`, then `Beta 2`). `/write` without text reopens the session's note until it is sent. A board switch in the panel updates the record of the Send target's session; a History restore does not.
+- The tab row shows one tab per record, newest first: a filled dot for a running session, a hollow one for an ended session, and • for unsent content. Closing a tab forgets the record and keeps the board and note. Tabs that don't fit wait behind "+N". ⌃1–⌃9 jump and ⌃Tab cycles; ⌘1 and ⌘2 stay on Sketch and Write.
 - Opening the panel any other way (hotkey, tray, Dock) binds no session. Send reads "Send to…" and lists the running sessions, or starts a new one in a project folder.
 - A new session opens in Ghostty, Terminal or a herdr tab, running `claude` on the bundle's `prompt.md`. Copy command puts the same start line on the clipboard instead.
 - The target clears when its session exits. The app never picks a session on its own.
