@@ -8,8 +8,6 @@ Sketch, talk and paste screenshots on your Mac, then hand all of it to Claude Co
 - Pen pressure sets stroke width, the eraser end erases, and touch is ignored while the pen is near.
 - A pasted screenshot lands ready to mark up, with the pen still in hand.
 - Each board keeps its own notes, and you can keep several named boards.
-- The same board opens on an iPad on your local network, and strokes sync both ways as you draw.
-- Click the tablet icon (**Open on iPad**) in the Mac board's top bar and scan the QR code to join it. The Claude Code session already selected stays selected.
 
 ## Talk while you draw
 
@@ -70,7 +68,6 @@ A timeline reads like this:
 
 - Everything runs on your Mac, and only what you send to Claude leaves it.
 - The app's socket is readable by your user alone.
-- The iPad server listens only on your private network, and each device pairs once with a code you scan.
 
 ## Get it
 
@@ -82,7 +79,7 @@ A timeline reads like this:
 
 | Folder | Holds |
 |---|---|
-| [`companion/`](companion) | The macOS app, the `agent-brief` command line tool and the iPad client |
+| [`companion/`](companion) | The macOS app and the `agent-brief` command line tool |
 | [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, the Sketch button, delivery and the feedback inbox |
 
 Building the app, tests and packaging are in [companion/docs/DEVELOPMENT.md](companion/docs/DEVELOPMENT.md).

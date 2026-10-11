@@ -80,14 +80,14 @@ button:disabled {
 
 /* App chrome sizing. Scoped so Excalidraw's own buttons keep their styles. */
 
-:is(.strip, .popover-panel, .sheet, .notes) :is(button, select, input:not([type='checkbox'])) {
+:is(.strip, .popover-panel, .notes) :is(button, select, input:not([type='checkbox'])) {
   height: 32px;
   box-sizing: border-box;
   border-radius: 8px;
   padding: 0 10px;
 }
 
-:is(.strip, .popover-panel, .sheet, .notes) button {
+:is(.strip, .popover-panel, .notes) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -95,18 +95,18 @@ button:disabled {
   white-space: nowrap;
 }
 
-:is(.strip, .popover-panel, .sheet, .notes) button.icon-button {
+:is(.strip, .popover-panel, .notes) button.icon-button {
   width: 32px;
   padding: 0;
 }
 
-:is(.strip, .popover-panel, .sheet, .notes) button.small {
+:is(.strip, .popover-panel, .notes) button.small {
   height: 24px;
   padding: 0 6px;
   border-radius: 6px;
 }
 
-:is(.strip, .popover-panel, .sheet, .notes) button.icon-button.small {
+:is(.strip, .popover-panel, .notes) button.icon-button.small {
   width: 24px;
   padding: 0;
 }
@@ -525,150 +525,6 @@ button.recording {
   font: 13px/1.5 ui-monospace, Menlo, monospace;
   background: var(--bg);
   color: var(--fg);
-}
-
-/* The iPad sheet */
-
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgb(0 0 0 / 0.35);
-}
-
-.sheet {
-  width: min(520px, calc(100% - 32px));
-  max-height: calc(100% - 32px);
-  box-sizing: border-box;
-  overflow: auto;
-  padding: 16px 20px 20px;
-  background: var(--raised);
-  border-radius: 14px;
-  box-shadow: var(--shadow-popover);
-}
-
-.sheet header,
-.sheet footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sheet footer {
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.sheet h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.sheet h3 {
-  margin: 20px 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.sheet .pairing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 20px;
-  margin-top: 16px;
-}
-
-.sheet .steps {
-  flex: 1 1 200px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: step;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  line-height: 1.4;
-}
-
-.sheet .steps li {
-  counter-increment: step;
-  display: grid;
-  grid-template-columns: 22px 1fr;
-  gap: 10px;
-}
-
-.sheet .steps li::before {
-  content: counter(step);
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--fg);
-  color: var(--bg);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.sheet .qr {
-  flex: none;
-  width: 180px;
-  margin: 0 auto;
-  padding: 8px;
-  box-sizing: border-box;
-  background: #ffffff;
-  border-radius: 10px;
-}
-
-.sheet .qr svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.sheet .link-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 4px 4px 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-.sheet .url {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 11px;
-  color: var(--muted);
-  user-select: all;
-}
-
-.sheet .devices {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.sheet .devices li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 0;
-}
-
-.sheet p {
-  margin: 12px 0 0;
 }
 
 /* Keeps the global input padding and border off Excalidraw's opacity slider, so the track ends at the knob. */

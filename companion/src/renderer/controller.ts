@@ -5,7 +5,6 @@ import {
   getSceneVersion,
   newElementWith,
   getVisibleSceneBounds,
-  reconcileElements,
   restore,
   serializeAsJSON,
 } from '@excalidraw/excalidraw';
@@ -21,8 +20,6 @@ import { StrokeLog, rebase } from './strokes';
 type El = ExcalidrawElement;
 
 export const SAVE_DELAY_MS = 500;
-/** How often live changes go out to other clients while you draw. */
-export const PUSH_DELAY_MS = 40;
 export const SEND_MAX_EDGE = 1400;
 /** How long a paste may take to land, such as an image still decoding. */
 const PASTE_WAIT_MS = 3000;
@@ -72,12 +69,6 @@ export class BoardController {
   readonly recorder: Recorder;
   /** Whether the panel is on screen. Hosts without a hideable window leave it true. */
   panelVisible = true;
-  /** Element versions other clients already have. */
-  private sentVersions = new Map<string, number>();
-  private pendingPush = new Map<string, El>();
-  private pushTimer?: ReturnType<typeof setTimeout>;
-  /** Elements just merged in from other clients, so their stroke events can say so. */
-  private remoteIds = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
   private readonly listeners = new Set<() => void>();
 
@@ -107,74 +98,19 @@ export class BoardController {
 
   private markLoaded(elements: readonly El[]): void {
     this.firstSeen = new Map(elements.map((e) => [e.id, undefined]));
-    this.sentVersions = new Map(elements.map((e) => [e.id, e.version]));
-    this.pendingPush.clear();
     this.sceneVersion = getSceneVersion(elements);
   }
 
   /** Excalidraw's onChange. Saves when the elements changed, not on scroll or selection. */
   handleChange(elements: readonly El[]): void {
     const now = Date.now();
-    this.queuePush(elements);
-    // While the panel is hidden only Claude's drawing and paired devices' strokes reach the timeline.
-    const remote = this.remoteIds;
-    this.remoteIds = new Set();
-    const before = this.strokes.events.length;
-    this.strokes.observe(
-      elements,
-      now,
-      this.panelVisible ? undefined : (e) => e.by === 'claude' || remote.has(e.elementId),
-    );
-    for (const ev of this.strokes.events.slice(before)) {
-      if (remote.has(ev.elementId)) Object.assign(ev, { source: 'ipad' });
-    }
+    // While the panel is hidden only Claude's drawing reaches the timeline.
+    this.strokes.observe(elements, now, this.panelVisible ? undefined : (e) => e.by === 'claude');
     for (const e of elements) if (!this.firstSeen.has(e.id)) this.firstSeen.set(e.id, now);
     const version = getSceneVersion(elements);
     if (version === this.sceneVersion) return;
     this.sceneVersion = version;
     this.scheduleSceneSave();
-  }
-
-  /** Collects elements whose version moved, and sends them out shortly after. */
-  private queuePush(elements: readonly El[]): void {
-    if (!this.bridge.pushElements) return;
-    for (const e of elements) {
-      if (this.sentVersions.get(e.id) === e.version) continue;
-      this.sentVersions.set(e.id, e.version);
-      this.pendingPush.set(e.id, e);
-    }
-    if (this.pendingPush.size > 0 && this.pushTimer === undefined) {
-      this.pushTimer = setTimeout(() => this.flushPush(), PUSH_DELAY_MS);
-    }
-  }
-
-  private flushPush(): void {
-    clearTimeout(this.pushTimer);
-    this.pushTimer = undefined;
-    if (this.pendingPush.size === 0) return;
-    // Excalidraw keeps mutating elements in place, so send copies.
-    const elements = JSON.parse(JSON.stringify([...this.pendingPush.values()]));
-    this.pendingPush.clear();
-    this.bridge.pushElements?.(this.board, elements);
-  }
-
-  /**
-   * Merges elements edited elsewhere into the visible board. Newer versions win,
-   * and the change stays out of the user's undo history.
-   */
-  applyRemote(board: string, remote: unknown[]): void {
-    const api = this.api;
-    if (!api || board !== this.board) return;
-    const merged = reconcileElements(
-      api.getSceneElementsIncludingDeleted(),
-      remote as Parameters<typeof reconcileElements>[1],
-      api.getAppState(),
-    );
-    for (const e of remote as El[]) {
-      this.sentVersions.set(e.id, e.version);
-      this.remoteIds.add(e.id);
-    }
-    api.updateScene({ elements: merged, captureUpdate: CaptureUpdateAction.NEVER });
   }
 
   setNotes(text: string): void {
@@ -251,7 +187,6 @@ export class BoardController {
   private async show(board: string): Promise<void> {
     const api = this.api!;
     if (board === this.board) return;
-    this.flushPush();
     await this.flush();
     const { scene, notes } = await this.bridge.loadBoard(board);
     const loaded = parseScene(scene);
@@ -326,16 +261,6 @@ export class BoardController {
     };
   }
 
-  /**
-   * The Mac's hand-off for a Send started on another device: only when the Mac
-   * shows that board and has voice, so the clip and timeline go with it.
-   */
-  async voicePayload(board: string): Promise<SendPayload | null> {
-    const hasVoice = this.recorder.recording || this.recorder.segments.length > 0;
-    if (!hasVoice || board !== this.board) return null;
-    return this.payload();
-  }
-
   /** Starts a new sketch session after a successful Send. */
   resetSession(): void {
     this.recorder.clear();
@@ -365,7 +290,7 @@ export class BoardController {
 
   /**
    * Empties the visible board and its notes after a Send, so the next sketch
-   * starts blank. History keeps what went out. Deletions sync to other devices.
+   * starts blank. History keeps what went out.
    */
   clearBoard(): void {
     const api = this.api;
@@ -418,16 +343,8 @@ export class BoardController {
           return this.show(a.board);
         case 'payload':
           return this.payload();
-        case 'voicePayload':
-          return this.voicePayload(a.board);
         case 'resetSession':
           return this.resetSession();
-        case 'clearBoard': {
-          if (a.board === this.board) return this.clearBoard();
-          const h = await this.sceneFor(a.board);
-          await h.commit(h.elements.map((e) => (e.isDeleted ? e : newElementWith(e, { isDeleted: true }))));
-          return this.bridge.saveNotes(a.board, '');
-        }
         case 'flush':
           return this.flush();
         default:

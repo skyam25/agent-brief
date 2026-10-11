@@ -131,7 +131,6 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   expect(tray).toEqual([
     'Show Panel',
     'New Board',
-    'Open on iPad…',
     'Toggle with ⌃⇧K',
     'separator',
     'Settings…',
@@ -199,37 +198,13 @@ test('a denied microphone shows how to turn it on', async () => {
   await app.close();
 });
 
-test('remote elements merge in without entering undo history', async () => {
-  const { app, page } = await launch(tempDataDir());
-  await showPanel(app, page);
-  const cdp = await page.context().newCDPSession(page);
-  const box = (await interactiveCanvas(page).boundingBox())!;
-  await penStroke(cdp, { x: box.x + 320, y: box.y + 300 }, { x: box.x + 600, y: box.y + 320 }, 0.6);
-  await page.waitForTimeout(150);
-  const stroke = (await sceneElements(page)).find((e) => e.type === 'freedraw');
-
-  await page.evaluate(() => {
-    const remote = { ...(window as any).__excalidraw.getSceneElements()[0], id: 'remote-1', x: 900, version: 5, versionNonce: 7, index: 'b0' };
-    (window as any).__board.applyRemote('scratch', [remote]);
-    (window as any).__board.applyRemote('other-board', [{ ...remote, id: 'elsewhere' }]);
-  });
-  let ids = (await sceneElements(page)).filter((e) => !e.isDeleted).map((e) => e.id);
-  expect(ids.sort()).toEqual([stroke.id, 'remote-1'].sort());
-
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
-  await page.waitForTimeout(150);
-  ids = (await sceneElements(page)).filter((e) => !e.isDeleted).map((e) => e.id);
-  expect(ids).toEqual(['remote-1']);
-  await app.close();
-});
-
-test('while the panel is hidden only Claude and paired devices reach the timeline', async () => {
+test('while the panel is hidden only Claude reaches the timeline', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
   await app.evaluate(() => (globalThis as any).__companion.panel.hide());
   await expect.poll(() => page.evaluate(() => (window as any).__board.panelVisible)).toBe(false);
   const logged = () =>
-    page.evaluate(() => (window as any).__board.strokes.events.map((e: any) => `${e.by}:${e.elementId}${e.source ? `:${e.source}` : ''}`));
+    page.evaluate(() => (window as any).__board.strokes.events.map((e: any) => `${e.by}:${e.elementId}`));
 
   await backend(app, 'draw', 'current', { elements: [{ type: 'rectangle', id: 'claude-box', x: 0, y: 0 }] });
   await expect.poll(logged).toEqual(['claude:claude-box']);
@@ -242,12 +217,5 @@ test('while the panel is hidden only Claude and paired devices reach the timelin
   });
   await page.waitForTimeout(200);
   expect(await logged()).toEqual(['claude:claude-box']);
-
-  // A stroke from a paired iPad arrives through applyRemote and counts.
-  await page.evaluate(() => {
-    const base = (window as any).__excalidraw.getSceneElements()[0];
-    (window as any).__board.applyRemote('scratch', [{ ...base, id: 'from-ipad', x: 400, customData: undefined, version: 3, versionNonce: 9, index: 'b5' }]);
-  });
-  await expect.poll(logged).toEqual(['claude:claude-box', 'user:from-ipad:ipad']);
   await app.close();
 });

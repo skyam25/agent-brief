@@ -1,14 +1,13 @@
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { SessionsResponse } from '../protocol';
-import type { CompanionApi, InitInfo, IpadStatus, Launcher, SendResult, Settings, Theme, UpdateStatus } from '../shared/ipc';
+import type { CompanionApi, InitInfo, Launcher, SendResult, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
 import { BoardPicker } from './BoardPicker';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
-import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, TabletIcon } from './Icons';
-import { IpadSheet } from './IpadSheet';
+import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
 import { TopStrip } from './TopStrip';
@@ -65,10 +64,8 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [newBoardRequest, setNewBoardRequest] = useState(0);
-  const [ipad, setIpad] = useState<IpadStatus>();
-  const [ipadOpen, setIpadOpen] = useState(false);
   const popoverOpenRef = useRef(false);
-  popoverOpenRef.current = settingsOpen || historyOpen || chooserOpen || ipadOpen;
+  popoverOpenRef.current = settingsOpen || historyOpen || chooserOpen;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -84,11 +81,6 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
     host.onNewBoard(() => setNewBoardRequest((n) => n + 1));
     controller.panelVisible = info.panelVisible;
     host.onVisibility((visible) => (controller.panelVisible = visible));
-    host.onRemoteElements?.((name, elements) => controller.applyRemote(name, elements));
-    host.onIpad((status, show) => {
-      setIpad(status);
-      if (show) setIpadOpen(true);
-    });
 
     // Escape hides the panel unless something on it wants the key first.
     const onKey = (e: KeyboardEvent) => {
@@ -97,7 +89,6 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
         setSettingsOpen(false);
         setHistoryOpen(false);
         setChooserOpen(false);
-        setIpadOpen(false);
         e.stopPropagation();
         return;
       }
@@ -117,12 +108,6 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
   );
 
   const report = (what: string) => (err: unknown) => setStatus(`Could not ${what}: ${errorText(err)}`);
-  const openIpad = () => {
-    void host.openIpad().then((status) => {
-      setIpad(status);
-      setIpadOpen(true);
-    }).catch(report('open on iPad'));
-  };
 
   /** Builds the payload, hands it over, and hides the panel once it went out. */
   const deliver = async (handOff: (payload: Awaited<ReturnType<typeof controller.payload>>) => Promise<SendResult>) => {
@@ -198,16 +183,6 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
           onDismissPrompt={() => setPrompt(undefined)}
           tools={
             <>
-              <button
-                className="ghost icon-button"
-                title="Open on iPad"
-                aria-label="Open on iPad"
-                aria-haspopup="dialog"
-                onClick={openIpad}
-                data-testid="ipad-open"
-              >
-                <TabletIcon />
-              </button>
               <button
                 className="ghost icon-button"
                 title="Notes"
@@ -320,15 +295,6 @@ function Panel({ host, info, controller, scene }: Boot & { host: CompanionApi })
           </aside>
         )}
       </main>
-      {ipadOpen && ipad && (
-        <IpadSheet
-          status={ipad}
-          onNewCode={openIpad}
-          onStop={() => void host.stopIpad().then(setIpad)}
-          onRevoke={(id) => void host.revokeDevice(id).then(setIpad)}
-          onClose={() => setIpadOpen(false)}
-        />
-      )}
     </div>
   );
 }

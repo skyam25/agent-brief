@@ -7,7 +7,7 @@ How the app is built, tested and packaged. For what it does, see the [project RE
 | Script | Does |
 |---|---|
 | `pnpm dev` | Vite dev server, main and preload rebuilt on change, Electron restarted |
-| `pnpm build` | Builds `out/` (main, preload, the panel and the iPad client, Excalidraw fonts) and the CLI, `bin/agent-brief.mjs` |
+| `pnpm build` | Builds `out/` (main, preload, the panel, Excalidraw fonts) and the CLI, `bin/agent-brief.mjs` |
 | `pnpm start` | Runs the built app |
 | `pnpm test` | Vitest unit suites (board, main, server, voice, web, cli) |
 | `pnpm test:e2e` | Builds, then runs Playwright `_electron` tests in `e2e/` |
@@ -53,19 +53,6 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - Main transcribes the clips with ffmpeg and yap, which it finds in Homebrew or on PATH. It writes `timeline.md`, `transcript.json` and `audio/` into the bundle.
 - If either tool is missing, the sketch and audio still go out, and the status line says so.
 
-## iPad
-
-- The board's Open on iPad button (or File > Open on iPad…) starts a web server on the Mac's private LAN address, port 47613, and shows a QR code. The board button preserves the current session target. It never binds to a public address.
-- The QR code holds a one-use pairing code in the URL fragment, good for 10 minutes. A new code cancels the old one. The page trades the code for a device credential at `POST /api/pair`, keeps it in localStorage, and clears the fragment.
-- The credential travels as `Authorization: Bearer` on HTTP and as a second WebSocket subprotocol, `auth.<credential>`, next to `agent-brief`. There are no cookies, so other services on the Mac's address never receive it. The client files are open to the allowed subnet; the API and the WebSocket need the credential.
-- A device unused for 30 days is forgotten and must pair again. The sheet lists paired devices, and each can be revoked. `devices.json` stores only a hash of each secret.
-- The iPad shows the session Send goes to, and the server pushes changes over the WebSocket. Send names that session. If the Mac's choice changed, the server answers 409 with the new destination and the iPad shows it, so the next Send goes there.
-- `src/web/limits.ts` caps HTTP requests and WebSocket messages per device, Sends per device, open sockets per device, and each board's size. Real drawing stays well under each.
-- The iPad client is a second Vite entry, `src/web-client/`, built into `out/web`. It reuses the board canvas, picker and strip through a `BoardHost` built on fetch and WebSocket.
-- One `SyncHub` in main joins the Mac panel, Claude's draws and every iPad client. Changes from an iPad reach the panel without entering its undo history, and the Mac saves them.
-- Traffic is plain HTTP and ws on the LAN, so use iPad sharing only on networks you trust.
-- The server stops after 8 hours with no client, and on quit.
-
 ## Tests
 
 - `COMPANION_TEST=1` runs the app off screen, unfocused, out of the Dock, without a tray, and with a fake hotkey registrar. It exposes `globalThis.__companion` in main and `window.__board`/`window.__excalidraw` in the renderer.
@@ -73,7 +60,6 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - `COMPANION_TEST_MIC=denied` fakes a refused microphone.
 - `COMPANION_TEST_AUDIO=<file.wav>` makes Chromium's fake microphone play that file.
 - In off-screen mode, CDP pen input stops creating strokes after the panel has been hidden and shown again. This comes from the test window (`showInactive`, not focusable), not from the app, so tests that hide the panel change the scene directly afterwards.
-- The iPad server binds to `127.0.0.1` on a free port in test mode (`COMPANION_WEB_HOST`, `COMPANION_WEB_PORT`). The web-client e2e uses Playwright's headless Chromium, falling back to the newest cached one.
 
 ## Packaging
 

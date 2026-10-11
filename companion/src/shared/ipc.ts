@@ -24,12 +24,8 @@ export interface BoardOps {
   show: { args: { board: string }; result: void };
   /** Builds what Send hands over, from the visible board. */
   payload: { args: Record<string, never>; result: SendPayload };
-  /** The Mac's hand-off with voice and timeline for a Send from another device, or null without voice. */
-  voicePayload: { args: { board: string }; result: SendPayload | null };
   /** Forgets the stroke log and clips after a Send that used them. */
   resetSession: { args: Record<string, never>; result: void };
-  /** Empties a board and its notes after a Send. */
-  clearBoard: { args: { board: string }; result: void };
   /** Writes pending scene and notes saves to disk. */
   flush: { args: Record<string, never>; result: void };
 }
@@ -76,24 +72,6 @@ export type SettingsResult = { ok: true; settings: Settings } | { ok: false; err
 export interface MicrophoneAccess {
   granted: boolean;
   status: 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown';
-}
-
-export interface IpadStatus {
-  running: boolean;
-  /** One-time pairing link, also drawn as `qrSvg`. */
-  url?: string;
-  qrSvg?: string;
-  host?: string;
-  port?: number;
-  devices: { id: string; name: string; firstSeen: number; lastSeen: number }[];
-  /** Why the server is not running, in words for the user. */
-  error?: string;
-  /** True the first time, when macOS asks about incoming connections. */
-  firstRun?: boolean;
-  /** The Mac's network in words, such as `192.168.1.x`. */
-  network?: string;
-  /** The last address turned away for being on another network. */
-  refused?: string;
 }
 
 export interface UpdateStatus {
@@ -168,10 +146,6 @@ export interface BoardHost {
   setCurrent(name: string): Promise<void>;
   send(payload: SendPayload): Promise<{ ok: boolean; message: string }>;
   onTheme(fn: (theme: Theme) => void): void;
-  /** Elements changed elsewhere, merged into the visible board without touching undo. */
-  onRemoteElements?(fn: (board: string, elements: unknown[]) => void): void;
-  /** Elements this client just changed, for live sync with other clients. */
-  pushElements?(board: string, elements: unknown[]): void;
 }
 
 /** What the preload script exposes as `window.companion`. */
@@ -195,11 +169,6 @@ export interface CompanionApi extends BoardHost {
   onNewBoard(fn: () => void): void;
   /** Fires when the panel window shows or hides. */
   onVisibility(fn: (visible: boolean) => void): void;
-  openIpad(): Promise<IpadStatus>;
-  stopIpad(): Promise<IpadStatus>;
-  revokeDevice(id: string): Promise<IpadStatus>;
-  /** Fires when the iPad server changes. `show` asks the panel to open the sheet. */
-  onIpad(fn: (status: IpadStatus, show: boolean) => void): void;
   /** The last sends, newest first, each with its PNG. */
   listHistory(): Promise<(HistoryEntry & { png?: Uint8Array })[]>;
   /** Copies a past send onto a new board and returns its name. */
@@ -241,13 +210,7 @@ export const CH = {
   mic: 'mic:request',
   openSettings: 'panel:open-settings',
   newBoard: 'panel:new-board',
-  remoteElements: 'board:remote-elements',
   visibility: 'panel:visibility',
-  pushElements: 'board:push-elements',
-  ipad: 'ipad:status',
-  ipadOpen: 'ipad:open',
-  ipadStop: 'ipad:stop',
-  ipadRevoke: 'ipad:revoke',
   historyList: 'history:list',
   historyRestore: 'history:restore',
   launchOptions: 'sessions:launch-options',
