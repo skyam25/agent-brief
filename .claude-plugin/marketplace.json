@@ -1,6 +1,6 @@
 {
   "name": "agent-brief",
-  "description": "Claude Code plugin for Agent Brief: /sketch, the Sketch button, sketch delivery and the browser feedback inbox.",
+  "description": "Claude Code plugin for Agent Brief: /sketch, /write, their buttons, delivery and the browser feedback inbox.",
   "owner": {
     "name": "Simon Yam"
   },

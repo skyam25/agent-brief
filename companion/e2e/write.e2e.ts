@@ -193,6 +193,26 @@ test('/sketch with no prompt leaves Write mode, and capture afterwards picks no 
   await expect(page.getByTestId('send')).toHaveText('Send to…');
 });
 
+test('/write opens a new note bound to the session, and Send delivers it there', async () => {
+  const { app, page } = ctx;
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
+  await app.evaluate(() => (globalThis as any).__companion.toggle());
+  expect(await panelVisible()).toBe(false);
+
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1', mode: 'write', prompt: 'the release notes' });
+  expect(await panelVisible()).toBe(true);
+  await expect(page.getByTestId('write')).toBeVisible();
+  await expect(page.getByTestId('draft-body')).toHaveValue('');
+  await expect(page.getByTestId('draft-body')).toBeFocused();
+  expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBe('s1');
+
+  await page.keyboard.type('Ship 0.2.2 with the Write button');
+  await page.getByTestId('send').click();
+  await expect.poll(panelVisible).toBe(false);
+  const [d] = await deliveries('s1');
+  expect(d.draft).toBe('Ship 0.2.2 with the Write button');
+});
+
 test('switching to Write stops a recording', async () => {
   await ctx.app.close();
   ctx = await launch(tempDataDir(), { COMPANION_TEST_AUDIO: join(ROOT, 'e2e/fixtures/speech.wav') });

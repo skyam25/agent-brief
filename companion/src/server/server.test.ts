@@ -234,6 +234,14 @@ describe('open', () => {
     expect(h.server.sessions().targetSessionId).toBe('b');
   });
 
+  it('passes the mode through and refuses an unknown one', async () => {
+    const h = await start();
+    await h.call('POST', '/open', { mode: 'write' });
+    expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ mode: 'write' }));
+    const bad = await h.call('POST', '/open', { mode: 'draw' });
+    expect(bad.status).toBe(400);
+  });
+
   it('accepts an empty body', async () => {
     const h = await start();
     const r = await h.call('POST', '/open');

@@ -20,6 +20,7 @@ import {
   POLL_GAP_MS,
   REREGISTER_MS,
   SKETCH_OPENED,
+  WRITE_OPENED,
   deliveriesPath,
   fillRequest,
   launchFailureText,
@@ -222,8 +223,10 @@ async function endCompanion($: EngineInterface, sessionId: string, isFinal: bool
   if (!isFinal) registeredId = undefined
 }
 
-/** Answers `/sketch`: starts the app when needed, then opens the panel. */
-async function sketchCompanion($: EngineInterface, prompt: string): Promise<string> {
+type OpenMode = 'sketch' | 'write'
+
+/** Answers `/sketch` and `/write`: starts the app when needed, then opens the panel in that mode. */
+async function openCompanion($: EngineInterface, prompt: string, mode: OpenMode): Promise<string> {
   if (!(await isHealthy($))) {
     if (companionConfig.companionLaunch.trim() !== '') {
       await $.process.run(['sh', '-c', companionConfig.companionLaunch], { timeoutMs: 5_000 }).catch(() => undefined)
@@ -232,10 +235,14 @@ async function sketchCompanion($: EngineInterface, prompt: string): Promise<stri
   }
   isUp = true
   if (!(await registerSession($))) return 'Agent Brief is running but did not accept this session.'
-  const body: OpenRequest = { sessionId: await $.session.id(), ...(prompt === '' ? {} : { prompt }) }
+  const body: OpenRequest = {
+    sessionId: await $.session.id(),
+    ...(prompt === '' ? {} : { prompt }),
+    ...(mode === 'write' ? { mode } : {}),
+  }
   const opened = await call($, 'POST', '/open', body)
   if (!opened?.ok) return 'Agent Brief is running but did not open the panel.'
-  return SKETCH_OPENED
+  return mode === 'write' ? WRITE_OPENED : SKETCH_OPENED
 }
 
 // One ingest run at a time per module instance.
@@ -436,6 +443,11 @@ export const register: Register = (on, options) => {
         description: 'Open the Agent Brief sketch board for this session',
         argumentHint: '[what to draw or ask]',
       })
+      await $.command.register({
+        name: 'write',
+        description: 'Open a new Agent Brief note for this session',
+        argumentHint: '[what to write about]',
+      })
       startCompanion($, companionSettings)
     } catch (err) {
       log($, `companion start failed: ${String(err)}`)
@@ -482,18 +494,20 @@ export const register: Register = (on, options) => {
     return { text: `Applying feedback: ${session.name}` }
   })
 
-  // A one-row band with a Sketch button: a click, or ctrl+x tab then Enter, does what /sketch does.
+  // A one-row band with Sketch and Write buttons: a click, or ctrl+x tab then Enter, does what /sketch or /write does.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const ingesting = await read($, ingestingRef)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const sketch = async () => {
-      const result = await sketchCompanion($, '')
-      if (result !== SKETCH_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
+    const open = async (mode: OpenMode) => {
+      const result = await openCompanion($, '', mode)
+      if (result !== SKETCH_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
     }
     return (
       <Box>
-        <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void sketch()} />
+        <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void open('sketch')} />
+        <Text> </Text>
+        <Button key="write" label="¶ Write" hotkey="w" onPress={() => void open('write')} />
         {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}
       </Box>
     )
@@ -504,5 +518,6 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'sketch' }, async ($, e) => ({ text: await sketchCompanion($, e.args.trim()) }))
+  on('command.run', { command: 'sketch' }, async ($, e) => ({ text: await openCompanion($, e.args.trim(), 'sketch') }))
+  on('command.run', { command: 'write' }, async ($, e) => ({ text: await openCompanion($, e.args.trim(), 'write') }))
 }

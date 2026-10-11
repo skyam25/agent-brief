@@ -57,6 +57,7 @@ export interface OpenRequest {
   board?: string
   sessionId?: string
   prompt?: string
+  mode?: 'sketch' | 'write'
 }
 
 export interface OpenResponse {

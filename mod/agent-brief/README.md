@@ -1,6 +1,6 @@
 # agent-brief
 
-The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch` or the Sketch button above the prompt, and delivers what you send. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
+The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
 
 ## How it works
 
@@ -70,6 +70,12 @@ A fill never replaces the box. If the box is empty, the draft goes in as it is. 
 2. If the app never answers, replies with the launch command and the socket path, and points at the `companionLaunch` and `companionSocket` settings.
 3. Registers the session, then opens the panel with this session as the Send target. Any text after `/sketch` shows at the top of the panel.
 4. Replies `Agent Brief open — sketch, then press Send.`
+
+### `/write [what to write about]`
+
+Works like `/sketch`, but opens Write mode on a new note instead of the board. It replies `Agent Brief open — write, then press Send.` It needs Agent Brief 0.2.2 or newer.
+
+The band above the prompt has a button for each, **✎ Sketch** and **¶ Write**.
 
 ### Skill
 

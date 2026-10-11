@@ -250,7 +250,11 @@ async function start(): Promise<void> {
         const id = await frontGhosttyTerminal(run, s.cwd);
         if (id) ghosttyTerminals.set(s.sessionId, id);
       }
-      return baseBackend.open(req);
+      if (req.mode !== 'write') return baseBackend.open(req);
+      if (req.prompt !== undefined) setPrompt(req.prompt);
+      panel.show();
+      send(CH.newNote);
+      return { board: state.state.currentBoard, ...(req.sessionId ? { targetSessionId: req.sessionId } : {}) };
     },
   };
 

@@ -222,6 +222,16 @@ describe('/sketch', () => {
     expect(world.runs.filter(r => r.argv[0] === 'sh'), 'no launch').toEqual([])
   })
 
+  test('/write opens a new note for this session', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    await start()
+    await clock.settle()
+    expect(world.commands).toContain('write')
+    const out = await $.command.run(command('write', ' release notes '))
+    expect(out).toEqual({ text: 'Agent Brief open — write, then press Send.' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, prompt: 'release notes', mode: 'write' })
+  })
+
   test('sends no prompt when none is given', async ($, on) => {
     const { app, clock, start } = await setup($, on)
     await start()
@@ -311,12 +321,14 @@ describe('two sessions', () => {
   })
 })
 
-describe('the Sketch button above the prompt', () => {
-  test('draws one row with the button, and yields to a survey', async ($, on) => {
+describe('the Sketch and Write buttons above the prompt', () => {
+  test('draws one row with both buttons, and yields to a survey', async ($, on) => {
     const { clock, start } = await setup($, on)
     await start()
     await clock.settle()
-    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"✎ Sketch"')
+    const band = JSON.stringify(await $.ui.render(BAND))
+    expect(band).toContain('"label":"✎ Sketch"')
+    expect(band).toContain('"label":"¶ Write"')
     const survey = { ...BAND, props: { ...BAND.props, hasSurvey: true } }
     expect(textOf(await $.ui.render(survey))).toBe('engine band')
   })
@@ -328,6 +340,16 @@ describe('the Sketch button above the prompt', () => {
     await $.ui.render(BAND)
     await $.ui.press({ plugin: 'agent-brief', key: 'sketch' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID })
+    expect(world.toasts).toEqual([])
+  })
+
+  test('a Write press opens a new note for this session, as /write does', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write' })
     expect(world.toasts).toEqual([])
   })
 
