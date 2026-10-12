@@ -1,9 +1,37 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import type { BoardLayout } from '../protocol';
 import type { BoardEntry, BoardHost } from '../shared/ipc';
-import { CheckIcon, ChevronIcon, PencilIcon, PlusIcon, TrashIcon } from './Icons';
+import { CheckIcon, ChevronIcon, PencilIcon, PlusIcon, StackIcon, TrashIcon } from './Icons';
 import { useEscape, usePointerOutside } from './hooks';
 
 type Mode = { kind: 'idle' } | { kind: 'new' } | { kind: 'rename' };
+
+const LAYOUTS: { layout: BoardLayout; label: string; title: string }[] = [
+  { layout: 'freeform', label: 'Canvas', title: 'Canvas: place things anywhere' },
+  { layout: 'stack', label: 'Stack', title: 'Stack: each drop or paste of screenshots becomes a numbered group' },
+];
+
+/** Canvas or Stack, for the open board or a new one. */
+export function LayoutSwitch(props: { layout: BoardLayout; onChange: (layout: BoardLayout) => void }) {
+  return (
+    <div className="cluster layouts" role="radiogroup" aria-label="Board layout">
+      {LAYOUTS.map((l) => (
+        <button
+          key={l.layout}
+          type="button"
+          role="radio"
+          className="ghost"
+          aria-checked={props.layout === l.layout}
+          title={l.title}
+          onClick={() => props.layout !== l.layout && props.onChange(l.layout)}
+          data-testid={`layout-${l.layout}`}
+        >
+          {l.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /** The board's name opens a menu of boards, with New and Rename at its foot. Each row can be deleted. */
 export function BoardPicker(props: {
@@ -12,7 +40,7 @@ export function BoardPicker(props: {
   /** Bumped to open the new-board field, as the tray and File menu do. */
   newRequest?: number;
   onSwitch: (name: string) => void;
-  onCreate: (name: string) => void;
+  onCreate: (name: string, layout: BoardLayout) => void;
   onRename: (name: string) => void;
   onDelete: (name: string) => Promise<void>;
 }) {
@@ -20,9 +48,11 @@ export function BoardPicker(props: {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [newLayout, setNewLayout] = useState<BoardLayout>('freeform');
   /** The board whose trash button was clicked once and now asks to confirm. */
   const [confirming, setConfirming] = useState<string>();
   const ref = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLInputElement>(null);
   const close = useCallback(() => {
     setOpen(false);
     setConfirming(undefined);
@@ -33,6 +63,7 @@ export function BoardPicker(props: {
   useEffect(() => {
     if (!props.newRequest) return;
     setDraft('');
+    setNewLayout('freeform');
     setOpen(false);
     setMode({ kind: 'new' });
   }, [props.newRequest]);
@@ -41,13 +72,14 @@ export function BoardPicker(props: {
 
   const submit = () => {
     const name = draft.trim();
-    if (name && mode.kind === 'new') props.onCreate(name);
+    if (name && mode.kind === 'new') props.onCreate(name, newLayout);
     if (name && mode.kind === 'rename') props.onRename(name);
     setMode({ kind: 'idle' });
   };
   const start = (kind: 'new' | 'rename') => {
     setOpen(false);
     setDraft(kind === 'rename' ? props.board : '');
+    setNewLayout('freeform');
     setMode({ kind });
   };
 
@@ -59,21 +91,32 @@ export function BoardPicker(props: {
           e.preventDefault();
           submit();
         }}
+        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setMode({ kind: 'idle' })}
       >
         <input
+          ref={field}
           autoFocus
           data-testid="board-name"
           value={draft}
           placeholder={mode.kind === 'new' ? 'New board name' : 'Rename board'}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Escape' && setMode({ kind: 'idle' })}
-          onBlur={() => setMode({ kind: 'idle' })}
         />
+        {mode.kind === 'new' && (
+          <LayoutSwitch
+            layout={newLayout}
+            onChange={(layout) => {
+              setNewLayout(layout);
+              field.current?.focus();
+            }}
+          />
+        )}
       </form>
     );
   }
 
   const names = boards.some((b) => b.name === props.board) ? boards.map((b) => b.name) : [props.board, ...boards.map((b) => b.name)];
+  const stacks = new Set(boards.filter((b) => b.layout === 'stack').map((b) => b.name));
   return (
     <div className="boards anchor" ref={ref}>
       <button
@@ -106,6 +149,11 @@ export function BoardPicker(props: {
                   data-testid="board-item"
                 >
                   <span className="name">{n}</span>
+                  {stacks.has(n) && (
+                    <span className="layout-mark" title="Stack board" data-testid="board-stack-mark">
+                      <StackIcon />
+                    </span>
+                  )}
                   {n === props.board && <CheckIcon />}
                 </button>
                 <button

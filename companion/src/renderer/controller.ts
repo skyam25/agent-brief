@@ -296,9 +296,10 @@ export class BoardController {
     return this.enqueue(() => this.show(board));
   }
 
-  async createBoard(name: string): Promise<void> {
+  async createBoard(name: string, layout: BoardLayout = 'freeform'): Promise<void> {
     const clean = await this.bridge.createBoard(name);
     await this.switchTo(clean);
+    if (layout !== 'freeform') await this.setLayout(layout);
   }
 
   renameBoard(to: string): Promise<void> {

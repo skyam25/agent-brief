@@ -29,8 +29,10 @@ export function applyPlan(elements: readonly El[], p: StackPlan): El[] {
     return patch ? newElementWith(e, patch as never) : e;
   });
   if (p.frames.length === 0) return next;
+  // The planned pictures already point at these frame ids, so they must survive conversion.
   const frames = convertToExcalidrawElements(
     p.frames.map((f) => ({ type: 'frame', id: f.id, name: f.name, children: [] })) as never,
+    { regenerateIds: false },
   ) as unknown as Record<string, unknown>[];
   // Conversion refits frames to their children, so put back the planned boxes.
   frames.forEach((fr, i) => {

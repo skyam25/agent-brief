@@ -5,7 +5,7 @@ import { draftImages } from '../shared/drafts';
 import { findSlots } from '../shared/slots';
 import type { CompanionApi, Decision, Draft, InitInfo, Launcher, Mode, Outgoing, SendResult, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
-import { BoardPicker } from './BoardPicker';
+import { BoardPicker, LayoutSwitch } from './BoardPicker';
 import { BriefTabs } from './BriefTabs';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { DraftBook, onTab, type SentRevision } from './drafts';
@@ -13,7 +13,7 @@ import { focusFirstSlot } from './editor/RichEditor';
 import { TemplateShelf } from './templates';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
-import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, StackIcon } from './Icons';
+import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
 import { ItemsStore } from './items';
 import { ItemsView } from './ItemsView';
 import { OutputsStore } from './outputs';
@@ -497,7 +497,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               board={board}
               newRequest={newBoardRequest}
               onSwitch={(name) => void controller.switchTo(name).catch(report('switch boards'))}
-              onCreate={(name) => void controller.createBoard(name).catch(report('create the board'))}
+              onCreate={(name, layout) => void controller.createBoard(name, layout).catch(report('create the board'))}
               onRename={(name) => {
                 const from = controller.board;
                 void controller
@@ -512,6 +512,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
                   .catch(report('delete the board'))
               }
             />
+            <LayoutSwitch layout={layout} onChange={(l) => void controller.setLayout(l).catch(report('change the layout'))} />
             <PullIn book={book} board={board} onOpen={openDraft} />
           </>
         )}
@@ -519,28 +520,16 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
           tools={
             <>
               {mode === 'sketch' && (
-                <>
-                  <button
-                    className="ghost icon-button"
-                    title="Notes"
-                    aria-label="Notes"
-                    aria-pressed={notesOpen}
-                    onClick={() => setNotesOpen((o) => !o)}
-                    data-testid="notes-toggle"
-                  >
-                    <NotesIcon />
-                  </button>
-                  <button
-                    className="ghost icon-button"
-                    title={layout === 'stack' ? 'Stack: each drop or paste of screenshots is a numbered group. Click for a free board.' : 'Stack screenshots in numbered groups'}
-                    aria-label="Stack layout"
-                    aria-pressed={layout === 'stack'}
-                    onClick={() => void controller.setLayout(layout === 'stack' ? 'freeform' : 'stack').catch(report('change the layout'))}
-                    data-testid="stack-toggle"
-                  >
-                    <StackIcon />
-                  </button>
-                </>
+                <button
+                  className="ghost icon-button"
+                  title="Notes"
+                  aria-label="Notes"
+                  aria-pressed={notesOpen}
+                  onClick={() => setNotesOpen((o) => !o)}
+                  data-testid="notes-toggle"
+                >
+                  <NotesIcon />
+                </button>
               )}
               <div className="anchor">
                 <button

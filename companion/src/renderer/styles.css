@@ -586,7 +586,9 @@ button.recording {
 }
 
 .board-menu .name {
+  flex: 1;
   overflow: hidden;
+  text-align: left;
   text-overflow: ellipsis;
 }
 
@@ -958,6 +960,28 @@ button.recording {
 
 .modes button[aria-selected='true'] {
   background: var(--selected);
+}
+
+/* Board layout */
+
+.layouts button {
+  font-weight: 600;
+}
+
+.layouts button[aria-checked='true'] {
+  background: var(--selected);
+}
+
+/* Inside the new-board field the switch shares the field's island. */
+.boards .layouts {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.board-menu .layout-mark {
+  display: flex;
+  color: var(--muted);
 }
 
 .pulled .chip {
