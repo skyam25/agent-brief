@@ -87,7 +87,8 @@ A send from Items mode is text alone, such as `Decisions on 2 items in .feedback
 
 ## Choose where it goes
 
-- Opened from Claude Code, the board is bound to that session. A chip by Send names it, and clicking the chip brings its terminal forward.
+- Opened from Claude Code, the board is bound to that session. Its tab is selected, and clicking the tab again brings its terminal forward.
+- Send sits in the composer under the board or note. The chip beside Send names where it goes, and clicking the chip picks another session.
 - Opened on its own, Send asks where to go. It lists running sessions and can start a new one in Ghostty, Terminal or herdr, or copy a start command.
 - The app never guesses a session. If the bound session exits, Send asks again.
 

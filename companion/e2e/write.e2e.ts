@@ -185,13 +185,13 @@ test('/sketch with no prompt leaves Write mode, and capture afterwards picks no 
 
   await sock(socketPath, 'POST', '/open', { board: 'scratch', sessionId: 's1' });
   await expect(page.getByTestId('write')).toHaveCount(0);
-  await expect(page.getByTestId('send')).toHaveText('Send to Login work');
+  await expect(page.getByTestId('send-menu')).toHaveText('Login work');
 
   // The panel is still up and bound to s1; a captured note must not inherit it.
   await app.evaluate(() => globalThis.__companion.newNote());
   await expect(page.getByTestId('write')).toBeVisible();
   expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
 });
 
 test('/write can start the note with text from Claude Code', async () => {

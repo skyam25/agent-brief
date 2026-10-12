@@ -1,29 +1,11 @@
 import type { ReactNode } from 'react';
-import { clock } from '../voice/timeline';
-import { CloseIcon, MicIcon } from './Icons';
+import { CloseIcon } from './Icons';
 
-/** The right end of the strip: tool icons, then the mic and Send, which never move. */
-export function TopStrip(props: {
-  /** Icon buttons that sit left of the mic and Send. */
-  tools?: ReactNode;
-  sendControl: ReactNode;
-  recording?: boolean;
-  /** How long the current recording has run. */
-  elapsedMs?: number;
-  /** Saved voice waits for the next Send. */
-  hasVoice?: boolean;
-  /** Absent in Write mode, which has no mic except while reviewing a page. */
-  onMicrophone?: () => void;
-  /** The mic's tooltip when it is off. */
-  micLabel?: string;
-}) {
+/** The right end of the strip: utility icons. Send lives in the composer under the work. */
+export function TopStrip(props: { tools: ReactNode }) {
   return (
     <div className="top">
-      {props.tools && <div className="cluster">{props.tools}</div>}
-      <div className="cluster send-group">
-        {props.onMicrophone && <Mic {...props} />}
-        {props.sendControl}
-      </div>
+      <div className="cluster">{props.tools}</div>
     </div>
   );
 }
@@ -38,37 +20,5 @@ export function PromptBanner(props: { prompt?: string; onDismiss: () => void }) 
         <CloseIcon />
       </button>
     </div>
-  );
-}
-
-function Mic(props: { recording?: boolean; elapsedMs?: number; hasVoice?: boolean; onMicrophone?: () => void; micLabel?: string }) {
-  if (props.recording) {
-    return (
-      <button
-        className="recording"
-        title="Stop recording"
-        aria-label="Stop recording"
-        aria-pressed="true"
-        onClick={props.onMicrophone}
-        data-testid="mic"
-      >
-        <span className="rec-dot" aria-hidden="true" />
-        {clock(props.elapsedMs ?? 0)}
-      </button>
-    );
-  }
-  const label = props.micLabel ?? (props.hasVoice ? 'Record more voice. Send includes what you recorded.' : 'Record voice');
-  return (
-    <button
-      className="ghost icon-button mic"
-      title={label}
-      aria-label={label}
-      aria-pressed="false"
-      onClick={props.onMicrophone}
-      data-testid="mic"
-    >
-      <MicIcon />
-      {props.hasVoice && <span className="badge" data-testid="voice-badge" />}
-    </button>
   );
 }

@@ -13,6 +13,7 @@ import { HistoryPopover } from './HistoryPopover';
 import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
 import { ItemsStore } from './items';
 import { ItemsView } from './ItemsView';
+import { Mic } from './Mic';
 import { OutputsStore } from './outputs';
 import { PullIn } from './PullIn';
 import { ResumeRow } from './ResumeRow';
@@ -132,6 +133,9 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     modeRef,
     notify,
   });
+
+  /** Write mode has no mic except while reviewing a page. */
+  const onMicrophone = mode === 'sketch' ? () => void toggleRecording() : reviewing ? () => void toggleReviewVoice() : undefined;
 
   /** Switches modes. Write opens the first draft, or a new note when there is none. */
   const changeMode = useCallback(
@@ -385,24 +389,6 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               </div>
             </>
           }
-          sendControl={
-            <SendTo
-              sessions={sessions}
-              home={info.home}
-              open={chooserOpen}
-              onOpenChange={openChooser}
-              onSend={() => void send()}
-              onSendTo={(id) => void sendTo(id)}
-              onSendNew={(cwd, via) => void sendNew(cwd, via)}
-              loadOptions={() => host.launchOptions()}
-              chooseFolder={() => host.chooseFolder()}
-            />
-          }
-          recording={recording}
-          elapsedMs={elapsedMs}
-          hasVoice={!reviewing && hasVoice}
-          onMicrophone={mode === 'sketch' ? () => void toggleRecording() : reviewing ? () => void toggleReviewVoice() : undefined}
-          micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
         />
       </header>
       <BriefTabs
@@ -490,6 +476,30 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
           }}
         />
       </main>
+      <footer className="composer" data-testid="composer">
+        <SendTo
+          sessions={sessions}
+          home={info.home}
+          open={chooserOpen}
+          onOpenChange={openChooser}
+          onSend={() => void send()}
+          onSendTo={(id) => void sendTo(id)}
+          onSendNew={(cwd, via) => void sendNew(cwd, via)}
+          loadOptions={() => host.launchOptions()}
+          chooseFolder={() => host.chooseFolder()}
+          mic={
+            onMicrophone && (
+              <Mic
+                recording={recording}
+                elapsedMs={elapsedMs}
+                hasVoice={!reviewing && hasVoice}
+                onMicrophone={onMicrophone}
+                micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
+              />
+            )
+          }
+        />
+      </footer>
     </div>
   );
 }

@@ -81,6 +81,24 @@ function onScreen(page: Page, x: number, y: number): Promise<{ x: number; y: num
   );
 }
 
+/** Waits until the view stops moving, so screen points map to the scene it settles on. */
+async function settled(page: Page): Promise<void> {
+  const view = () =>
+    page.evaluate(() => {
+      const s = window.__excalidraw.getAppState();
+      return `${s.scrollX},${s.scrollY},${s.zoom.value}`;
+    });
+  let last = '';
+  await expect
+    .poll(async () => {
+      const now = await view();
+      const still = now === last;
+      last = now;
+      return still;
+    }, { intervals: [150] })
+    .toBe(true);
+}
+
 /** True when a frame and its name show inside the canvas viewport. */
 function inView(page: Page, id: string): Promise<boolean> {
   return page.evaluate((id) => {
@@ -128,6 +146,7 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   // A drop on a group joins it.
   const second = (await groups(page))[1];
   const pic = second.images[0];
+  await settled(page);
   await deliver(page, 'drop', [{ width: 200, height: 200, color: '#3ae' }], await onScreen(page, pic.x + 10, pic.y + 10));
   await expect.poll(() => shape(page)).toEqual(['1:3', '2:2']);
 
