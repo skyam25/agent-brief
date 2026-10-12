@@ -452,6 +452,35 @@ describe('a policy that refuses the plugin\'s tools', () => {
     await ui.unmount()
   })
 
+  test('a folded group of shell commands unfolds when one shows a picture', async ($, on) => {
+    const printed = bash(on)
+    on('ui.render', { component: 'ToolGroup' }, ($, e) => ({ type: 'Text', children: [`expanded ${String((e.props as { isExpanded: boolean }).isExpanded)}`] }) as never)
+    await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    printed.stdout = `${bashRequestLine({ kind: 'show', input: { path: SHOT } })}\n`
+    const reply = await run($, `agent-brief show ${SHOT}`)
+    const group = (output: unknown) => ({
+      plugin: 'agent-brief',
+      surface: 'terminal' as const,
+      component: 'ToolGroup' as const,
+      requestId: 'g1',
+      viewport: VIEWPORT,
+      props: {
+        isActive: false,
+        isExpanded: false,
+        calls: [
+          { tool: 'Bash', input: { command: 'ls' }, isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: 'a\n' } },
+          { tool: 'Bash', input: { command: 'agent-brief show' }, isRunning: false, isErrored: false, isInterrupted: false, output },
+        ],
+      },
+    })
+    const shown = await $.ui.mount(group(reply.result))
+    expect(textOf(await shown.drawn())).toBe('expanded true')
+    await shown.unmount()
+    const plain = await $.ui.mount(group({ stdout: 'b\n' }))
+    expect(textOf(await plain.drawn())).toBe('expanded false')
+    await plain.unmount()
+  })
+
   test('a missing file comes back as the line Claude acts on', async ($, on) => {
     const printed = bash(on)
     await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })

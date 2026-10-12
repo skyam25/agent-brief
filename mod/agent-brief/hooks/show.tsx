@@ -653,6 +653,15 @@ export function registerShow(on: On): void {
     return <Text>{toolLine(props.input, props.isRunning)}</Text>
   })
 
+  // The transcript folds shell commands into one count line, which hides an `agent-brief show` picture.
+  // A group that holds one unfolds in place, so the picture draws without ctrl+o.
+  on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
+    const props = e.props as { calls: ReadonlyArray<{ tool: string; output?: unknown }>; isExpanded: boolean }
+    if (props.isExpanded) return next(e)
+    const hasShow = props.calls.some(c => c.tool === 'Bash' && shownOf(c.output) !== null)
+    return hasShow ? next({ ...e, props: { ...e.props, isExpanded: true } } as typeof e) : next(e)
+  })
+
   // Inline in the transcript: the picture is the tool's result row.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const props = e.props as { tool: string; tool_use_id: string; output: unknown; isErrored: boolean; onScreen?: unknown }
