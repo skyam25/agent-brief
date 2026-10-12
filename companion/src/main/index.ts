@@ -729,10 +729,7 @@ async function start(): Promise<void> {
       panel.prepareQuit();
     },
   });
-  const checkForUpdates = () => {
-    actions().openSettings();
-    void updater.check();
-  };
+  const checkForUpdates = () => void updater.check();
 
   const sessionName = (id: string | undefined) => {
     const s = sessions.sessions.find((x) => x.sessionId === id);

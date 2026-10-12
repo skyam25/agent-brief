@@ -91,6 +91,38 @@ test('Markdown shortcuts make lists, tasks and headings, saved as Markdown', asy
   await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual([markdown]);
 });
 
+test('nested numbered lists go 1, a, i, and a right-click sets the format of one list', async () => {
+  const { page } = ctx;
+  await editor(page).click();
+  await page.keyboard.type('1. one\ntwo');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('\nthree');
+  await page.keyboard.press('Tab');
+
+  const styles = () =>
+    editor(page)
+      .locator('ol')
+      .evaluateAll((lists) => lists.map((l) => getComputedStyle(l).listStyleType));
+  await expect.poll(styles).toEqual(['decimal', 'lower-alpha', 'lower-roman']);
+  await expect.poll(() => draftBody(page)).toBe('1. one\n   a. two\n      i. three');
+
+  const three = editor(page).locator('li', { hasText: /^three$/ }).locator('p');
+  const menu = page.getByTestId('list-format-menu');
+  await three.click({ button: 'right' });
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('[aria-checked="true"]')).toHaveAttribute('data-format', 'i');
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(editor(page)).toBeVisible();
+
+  await three.click({ button: 'right' });
+  await menu.locator('[data-format="1"]').click();
+  await expect(menu).toHaveCount(0);
+  await expect.poll(styles).toEqual(['decimal', 'lower-alpha', 'decimal']);
+  await expect.poll(() => draftBody(page)).toBe('1. one\n   a. two\n      1. three');
+  await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['1. one\n   a. two\n      1. three']);
+});
+
 test('⌘B bolds a selection, and the format bar shows while text is selected', async () => {
   const { page } = ctx;
   await editor(page).click();

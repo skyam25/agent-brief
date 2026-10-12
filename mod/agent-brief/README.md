@@ -144,9 +144,13 @@ A session mode sets how Claude works in that session. The mod owns it and works 
 | Mode | What Claude does | Tools |
 | --- | --- | --- |
 | `default` | Runs as Claude Code does without the mod | Untouched |
-| `product` | Discovery, analysis, specs, acceptance criteria, go-to-market | Edits to source files are denied. Markdown, text, CSV, JSON, YAML and anything under `.feedback/` stay writable. Browser tools, NotebookEdit, LSP and Workflow wait behind ToolSearch. |
+| `product` | Discovery, analysis, specs, acceptance criteria, go-to-market; code investigation and research as needed | Read, search, Bash and Agent stay available. Browser tools, NotebookEdit, LSP and Workflow wait behind ToolSearch. Source edits through Edit, Write and NotebookEdit are denied, including in subagents. |
 | `prototype` | Fast, disposable prototypes at a chosen fidelity | Browser tools load up front. NotebookEdit, LSP and Workflow wait behind ToolSearch. |
 | `orchestrate` | Splits the work and hands each task to a subagent | Edit, Write and NotebookEdit are denied in the main loop and wait behind ToolSearch. Subagents can still edit. |
+
+Product mode allows implementation recommendations and delegated code analysis. Its prompt keeps application source and configuration unchanged through all tools; builds and tests require a user request. Implementation requires switching modes. The edit hook is an extension-based guardrail, not a filesystem sandbox: Markdown, MDX, text, CSV, JSON, YAML and anything under `.feedback/` pass it, and it does not intercept shell writes. The prompt's source/config restriction still applies to those paths and tools.
+
+Orchestrate delegates all file writes, including item tracking, and keeps the main session read-only across tools.
 
 Prototype takes a fidelity rung:
 
@@ -172,7 +176,7 @@ Prototype takes a fidelity rung:
 
 - A mode set in the session outlives a plugin reload. The folder default applies only to a session that has not set one.
 - Default mode is untouched Claude Code. The mode adds no prompt section, moves no tool and denies nothing. The outputs section is separate and always present.
-- The mod never reads or changes the project's output style. When one is active, product and orchestrate add no section, and prototype adds only its fidelity line.
+- The mod never changes the project's output style. Mode rules and prototype fidelity remain in the prompt with any output style.
 - Each other mode adds one short section to the system prompt, after the prompt cache boundary. Its text depends only on the mode and fidelity. Switching mid-session changes that section and the tool list, so the next turn re-reads the conversation without the cache.
 
 ## Command line

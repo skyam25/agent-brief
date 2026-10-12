@@ -1371,6 +1371,11 @@ button.recording {
   margin: 0 0 2px;
 }
 
+.rich-doc li > ul,
+.rich-doc li > ol {
+  margin-bottom: 0;
+}
+
 .rich-doc li::marker {
   color: var(--muted);
 }
@@ -2139,5 +2144,53 @@ button.recording {
   padding: 8px 24px;
   border-top: 1px solid var(--line);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* List format menu */
+
+.list-format-menu {
+  position: fixed;
+  z-index: 50;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  box-sizing: border-box;
+  background: var(--raised);
+  color: var(--fg);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
+  font: 13px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.list-format-menu h4 {
+  margin: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.list-format-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  justify-content: flex-start;
+}
+
+.list-format-menu .label-text {
+  flex: 1;
+  text-align: left;
+}
+
+.list-format-sample {
+  width: 20px;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }

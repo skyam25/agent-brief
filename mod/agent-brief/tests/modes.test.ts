@@ -86,30 +86,25 @@ describe('labels and messages', () => {
 
 describe('sectionText', () => {
   test('default adds nothing', () => {
-    expect(sectionText('default', null, false)).toBeNull()
+    expect(sectionText('default', null)).toBeNull()
   })
 
-  test('product and orchestrate step aside for an output style', () => {
-    expect(sectionText('product', null, false)).toContain('Product mode is on')
-    expect(sectionText('product', null, true)).toBeNull()
-    expect(sectionText('orchestrate', null, false)).toContain('Orchestrate mode is on')
-    expect(sectionText('orchestrate', null, true)).toBeNull()
+  test('product and orchestrate include their mode rules', () => {
+    expect(sectionText('product', null)).toContain('Product mode is on')
+    expect(sectionText('orchestrate', null)).toContain('Orchestrate mode is on')
   })
 
-  test('prototype keeps its fidelity line under an output style', () => {
-    const full = sectionText('prototype', 'wireframe', false)!
+  test('prototype includes posture, fidelity and precedence', () => {
+    const full = sectionText('prototype', 'wireframe')!
     expect(full).toContain('Prototype mode is on')
     expect(full).toContain('wireframes on the Agent Brief board')
-    expect(full).toContain('A design spec that names a recommended mode wins')
-    const styled = sectionText('prototype', 'wireframe', true)!
-    expect(styled).not.toContain('Prototype mode is on')
-    expect(styled).toContain('wireframes on the Agent Brief board')
-    expect(sectionText('prototype', 'existing', false)).not.toContain('A design spec')
+    expect(full).toContain('Use the fidelity requested by the user, then the design spec, then this default.')
+    expect(sectionText('prototype', 'existing')).not.toContain('then this default')
   })
 
   test('the text is the same every time and stays short', () => {
-    expect(sectionText('product', null, false)).toBe(sectionText('product', null, false))
-    for (const text of [sectionText('product', null, false), sectionText('orchestrate', null, false)]) {
+    expect(sectionText('product', null)).toBe(sectionText('product', null))
+    for (const text of [sectionText('product', null), sectionText('orchestrate', null)]) {
       expect(text!.split(/\s+/).length).toBeLessThan(100)
     }
   })

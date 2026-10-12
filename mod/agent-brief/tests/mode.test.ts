@@ -141,7 +141,7 @@ describe('the system prompt', () => {
     expect((await sections($, STYLE)).map(s => s.id)).toEqual(['intro', 'agent-brief:outputs'])
   })
 
-  test('product adds its section after the cache boundary, and steps aside for an output style', async ($, on) => {
+  test('product keeps its section after the cache boundary with any output style', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
     await clock.settle()
@@ -150,27 +150,28 @@ describe('the system prompt', () => {
     expect(section?.scope).toBe('session')
     expect(section?.text).toContain('Product mode is on for this session.')
     expect(await modeSection($), 'the same text every time').toEqual(section)
-    expect(await modeSection($, STYLE)).toBeUndefined()
+    expect(await modeSection($, STYLE)).toEqual(section)
+    expect(await modeSection($, { ...STYLE, isKeepingCodingInstructions: false })).toEqual(section)
   })
 
-  test('orchestrate steps aside for an output style', async ($, on) => {
+  test('orchestrate keeps delegation instructions under an output style', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
     await clock.settle()
     await $.command.run(command('mode', 'orchestrate'))
     expect((await modeSection($))?.text).toContain('Orchestrate mode is on')
-    expect(await modeSection($, STYLE)).toBeUndefined()
+    expect(await modeSection($, STYLE)).toEqual(await modeSection($))
   })
 
-  test('prototype keeps its fidelity line under an output style', async ($, on) => {
+  test('prototype keeps its posture and fidelity under an output style', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
     await clock.settle()
     await $.command.run(command('mode', 'prototype live'))
     expect((await modeSection($))?.text).toContain('Prototype mode is on')
     const styled = (await modeSection($, STYLE))?.text
-    expect(styled).toContain('live-patch image over the current surface')
-    expect(styled).not.toContain('Prototype mode is on')
+    expect(styled).toContain('Default to live patch:')
+    expect(styled).toEqual((await modeSection($))?.text)
   })
 
   test('the mode section follows the items section', async ($, on) => {
@@ -224,6 +225,28 @@ describe('tool placement', () => {
 })
 
 describe('edit guard', () => {
+  test('product allows code investigation and delegation but blocks source edits in both loops', async ($, on) => {
+    const { clock, start } = setup($, on)
+    await start()
+    await clock.settle()
+    await $.command.run(command('mode', 'product'))
+    for (const tool of ['Read', 'Grep', 'Glob', 'Bash', 'Agent']) {
+      expect((await describeTool($, tool)).isDeferred, tool).toBeUndefined()
+    }
+    expect((await describeTool($, 'LSP')).isDeferred).toBe(true)
+    for (const agentId of [undefined, 'investigator']) {
+      for (const tool of ['Read', 'Grep', 'Glob', 'LSP', 'Agent']) {
+        expect(await $.tool.call({ tool, agentId, file_path: `${CWD}/src/app.ts` } as never), tool).toEqual({ result: 'ran' })
+      }
+      for (const tool of ['Edit', 'Write', 'NotebookEdit']) {
+        const file_path = `${CWD}/src/app.ts`
+        expect(await $.tool.call({ tool, agentId, file_path, notebook_path: `${CWD}/analysis.ipynb` } as never), tool).toEqual({
+          deny: 'Product mode is on. Switch with /mode default to edit source files.',
+        })
+      }
+    }
+  })
+
   test('default lets every edit through', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
