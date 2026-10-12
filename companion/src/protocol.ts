@@ -122,6 +122,8 @@ export interface OpenRequest {
   mode?: 'sketch' | 'write';
   /** In Write mode, the new note's text. */
   text?: string;
+  /** Sets the board's layout. Absent leaves it as it is. */
+  layout?: BoardLayout;
 }
 
 export interface OpenResponse {
@@ -219,8 +221,15 @@ export interface AckResponse {
 // DELETE /boards/:name/elements          DeleteRequest → MutateResponse
 // :name may be `current`.
 
+/**
+ * `freeform` is the plain whiteboard. `stack` files each drop or paste of
+ * screenshots as a numbered group, one group per row, newest at the bottom.
+ */
+export type BoardLayout = 'freeform' | 'stack';
+
 export interface BoardsResponse {
-  boards: { name: string; updatedAt: number; elementCount: number }[];
+  /** `layout` is absent for a freeform board. */
+  boards: { name: string; updatedAt: number; elementCount: number; layout?: BoardLayout }[];
   current: string;
 }
 

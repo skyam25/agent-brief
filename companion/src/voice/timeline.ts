@@ -11,6 +11,8 @@ export interface TimelineInput {
   bounds: Box;
   /** Images on the board, such as pasted screenshots. Strokes over one are placed relative to it. */
   images?: Box[];
+  /** Names for pictures in Stack groups, such as `2a`, by element id. Others get letters. */
+  imageNames?: Record<string, string>;
   boardName?: string;
 }
 
@@ -22,7 +24,7 @@ export interface Timeline {
   speech: string;
   /** User stroke numbers by element id, in draw order from 1. */
   strokeNumbers: Record<string, number>;
-  /** Letters for the pasted images still on the board, A first, by element id. */
+  /** Names for the pasted images still on the board, by element id: their Stack name, else a letter from A. */
   imageLetters: Record<string, string>;
 }
 
@@ -274,7 +276,11 @@ export function buildTimeline(input: TimelineInput): Timeline {
   const gone = new Set([...last.values()].filter((s) => s.kind === 'erase').map((s) => s.elementId));
   const imageAdds = strokes.filter((s) => s.kind === 'add' && s.type === 'image' && s.by === 'user');
   const letters: Record<string, string> = {};
-  for (const s of imageAdds) if (!gone.has(s.elementId) && !(s.elementId in letters)) letters[s.elementId] = letterFor(Object.keys(letters).length);
+  let lettered = 0;
+  for (const s of imageAdds) {
+    if (gone.has(s.elementId) || s.elementId in letters) continue;
+    letters[s.elementId] = input.imageNames?.[s.elementId] ?? letterFor(lettered++);
+  }
   // Lettered images first, so they win a tie with the same image listed from the scene.
   const images: PlacedImage[] = [
     ...imageAdds.filter((s) => letters[s.elementId]).map((s) => ({ box: s.bbox, letter: letters[s.elementId] })),

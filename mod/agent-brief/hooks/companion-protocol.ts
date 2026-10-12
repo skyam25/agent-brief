@@ -83,7 +83,12 @@ export interface OpenRequest {
   sessionId?: string
   prompt?: string
   mode?: 'sketch' | 'write'
+  /** Sets the board's layout. Absent leaves it as it is. */
+  layout?: BoardLayout
 }
+
+/** `stack` files each drop or paste of screenshots as a numbered group. `freeform` is the plain whiteboard. */
+export type BoardLayout = 'freeform' | 'stack'
 
 export interface OpenResponse {
   board: string

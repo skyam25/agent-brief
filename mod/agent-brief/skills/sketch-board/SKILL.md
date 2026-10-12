@@ -126,6 +126,15 @@ An update can set `x`, `y`, `width`, `height`, `label` and `color`.
 - Keep frames 40 px larger than their content on each side, with room for the title.
 - Run `agent-brief read` before drawing on a board that has content. Place new elements in empty space, using the `bounds` line. Start below or to the right of it.
 
+## Stack boards
+
+A board in the Stack layout files screenshots for the user. Each drop or paste becomes a numbered group, one group per row, newest at the bottom. `agent-brief boards` marks such a board `stack`. The user opens one with `/stack`, the Stack button above the prompt, or the Stack button in the panel.
+
+- Each group is a frame titled `1`, `2`, and so on. A group's only picture is named after it, such as `2`. Pictures that share a group are `2a`, `2b` and so on, left to right.
+- The Send timeline uses those names, such as `pasted image 2a` and `on image 2a, top right`. Speech lines say which screenshot was pasted nearest in time. Use the names when you answer.
+- The layout moves pictures itself. Do not place images on a Stack board by hand. An `image` you draw there becomes a new group at the bottom.
+- `agent-brief snap` steps keep their own frames, and the layout leaves them alone. Post a browser run on a freeform board instead.
+
 ## Following a browser session
 
 When you drive a browser for the user, with Playwright or another browser tool, post a screenshot to the board after each step that matters. The user opens the board, sees each step, marks up what is wrong and sends it back to you.
