@@ -41,6 +41,7 @@ export function createBoardBackend(deps: BackendDeps): BoardBackend {
       const board = store.create(nameOf(req.board));
       if (req.prompt !== undefined) deps.setPrompt(req.prompt);
       await bridge.request('show', { board });
+      if (req.layout) await bridge.request('layout', { board, layout: req.layout });
       panel.show();
       return { board, ...(req.sessionId ? { targetSessionId: req.sessionId } : {}) };
     },

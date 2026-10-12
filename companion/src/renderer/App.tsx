@@ -13,7 +13,7 @@ import { focusFirstSlot } from './editor/RichEditor';
 import { TemplateShelf } from './templates';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
-import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
+import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, StackIcon } from './Icons';
 import { ItemsStore } from './items';
 import { ItemsView } from './ItemsView';
 import { OutputsStore } from './outputs';
@@ -106,6 +106,10 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   const notes = useSyncExternalStore(
     (fn) => controller.subscribe(fn),
     () => controller.notes,
+  );
+  const layout = useSyncExternalStore(
+    (fn) => controller.subscribe(fn),
+    () => controller.layout,
   );
   const [theme, setTheme] = useState<Theme>(info.theme);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -526,6 +530,16 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
                   >
                     <NotesIcon />
                   </button>
+                  <button
+                    className="ghost icon-button"
+                    title={layout === 'stack' ? 'Stack: each drop or paste of screenshots is a numbered group. Click for a free board.' : 'Stack screenshots in numbered groups'}
+                    aria-label="Stack layout"
+                    aria-pressed={layout === 'stack'}
+                    onClick={() => void controller.setLayout(layout === 'stack' ? 'freeform' : 'stack').catch(report('change the layout'))}
+                    data-testid="stack-toggle"
+                  >
+                    <StackIcon />
+                  </button>
                 </>
               )}
               <div className="anchor">
@@ -631,7 +645,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       )}
       <PromptBanner prompt={prompt} onDismiss={() => setPrompt(undefined)} />
       <main className="body">
-        <BoardCanvas controller={controller} scene={scene} theme={theme} onReady={onReady} />
+        <BoardCanvas controller={controller} scene={scene} theme={theme} active={mode === 'sketch'} onReady={onReady} />
         {mode === 'write' && (
           <WriteView
             book={book}

@@ -69,7 +69,8 @@ export function formatBoards(r: BoardsResponse): string {
     .map((b) => {
       const mark = b.name === r.current ? '*' : ' ';
       const count = `${b.elementCount} element${b.elementCount === 1 ? '' : 's'}`;
-      return `${mark} ${b.name}  ${count}  updated ${new Date(b.updatedAt).toISOString()}`;
+      const layout = b.layout === 'stack' ? '  stack' : '';
+      return `${mark} ${b.name}  ${count}${layout}  updated ${new Date(b.updatedAt).toISOString()}`;
     })
     .join('\n');
 }

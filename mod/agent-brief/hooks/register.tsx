@@ -21,6 +21,7 @@ import {
   POLL_GAP_MS,
   REREGISTER_MS,
   SKETCH_OPENED,
+  STACK_OPENED,
   TRACK_NOT_RUNNING,
   TRACK_UNSUPPORTED,
   TRACK_USAGE,
@@ -47,7 +48,7 @@ import {
 } from './companion-logic'
 import type { Tracking } from './companion-logic'
 import { outputsFile } from './companion-protocol'
-import type { Delivery, OpenRequest, OutputsFile, TrackingPatch } from './companion-protocol'
+import type { BoardLayout, Delivery, OpenRequest, OutputsFile, TrackingPatch } from './companion-protocol'
 import {
   FIDELITY_IDS,
   MODE_IDS,
@@ -410,13 +411,13 @@ const pastes = new Map<number, string>()
 type Opened = { message: string; tookText: boolean }
 
 /**
- * Answers `/sketch` and `/write`: starts the app when needed, then opens the panel in that mode.
+ * Answers `/sketch`, `/stack` and `/write`: starts the app when needed, then opens the panel in that mode.
  * `tookText` says the app started the note with `text`; an app before 0.2.3 drops it.
  */
 async function openCompanion(
   $: EngineInterface,
   mode: OpenMode,
-  { prompt = '', text = '' }: { prompt?: string; text?: string } = {},
+  { prompt = '', text = '', layout }: { prompt?: string; text?: string; layout?: BoardLayout } = {},
 ): Promise<Opened> {
   const fail = (message: string): Opened => ({ message, tookText: false })
   if (!(await isHealthy($))) {
@@ -432,11 +433,12 @@ async function openCompanion(
     ...(prompt === '' ? {} : { prompt }),
     ...(mode === 'write' ? { mode } : {}),
     ...(mode === 'write' && text !== '' ? { text } : {}),
+    ...(layout ? { layout } : {}),
   }
   const opened = await call($, 'POST', '/open', body)
   if (!opened?.ok) return fail('Agent Brief is running but did not open the panel.')
   const tookText = (opened.body as { noteText?: unknown } | undefined)?.noteText === true
-  return { message: mode === 'write' ? WRITE_OPENED : SKETCH_OPENED, tookText }
+  return { message: mode === 'write' ? WRITE_OPENED : layout === 'stack' ? STACK_OPENED : SKETCH_OPENED, tookText }
 }
 
 /** `/write last` takes Claude's newest reply; anything else after `/write` starts the note. */
@@ -655,6 +657,11 @@ export const register: Register = (on, options) => {
         argumentHint: '[what to draw or ask]',
       })
       await $.command.register({
+        name: 'stack',
+        description: "Open this session's Agent Brief board in Stack: each drop or paste of screenshots becomes a numbered group",
+        argumentHint: '[what to capture or ask]',
+      })
+      await $.command.register({
         name: 'write',
         description: 'Open a new Agent Brief note for this session: with text, or Claude\'s last reply',
         argumentHint: '[text | last]',
@@ -747,7 +754,7 @@ export const register: Register = (on, options) => {
     return { text: `Applying feedback: ${session.name}` }
   })
 
-  // A one-row band with Sketch, Write, Track and Mode buttons: a click, or ctrl+x tab then Enter, does what /sketch, /write, /track or /mode does.
+  // A one-row band with Sketch, Stack, Write, Track and Mode buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write, /track or /mode does.
   // The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
@@ -757,9 +764,12 @@ export const register: Register = (on, options) => {
     const fidelity = await read($, fidelityRef)
     const picking = await read($, pickingRef)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const open = async (mode: OpenMode) => {
-      const result = mode === 'write' ? await writeFromBox($) : (await openCompanion($, 'sketch')).message
-      if (result !== SKETCH_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
+    const open = async (mode: OpenMode | 'stack') => {
+      const result =
+        mode === 'write'
+          ? await writeFromBox($)
+          : (await openCompanion($, 'sketch', mode === 'stack' ? { layout: 'stack' } : {})).message
+      if (result !== SKETCH_OPENED && result !== STACK_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
     }
     const pick = (row: 'none' | 'mode' | 'fidelity') => update($, pickingRef, () => row)
     const choose = async (choice: ModeChoice) => {
@@ -806,6 +816,8 @@ export const register: Register = (on, options) => {
       <Box>
         <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void open('sketch')} />
         <Text> </Text>
+        <Button key="stack" label="▤ Stack" hotkey="k" onPress={() => void open('stack')} />
+        <Text> </Text>
         <Button key="write" label="¶ Write" hotkey="w" onPress={() => void open('write')} />
         <Text> </Text>
         <Button
@@ -834,6 +846,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'sketch' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim() })).message }))
+  on('command.run', { command: 'stack' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim(), layout: 'stack' })).message }))
   on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
   on('command.run', { command: 'track' }, async ($, e) => ({ text: await trackCommand($, e.args) }))
   on('command.run', { command: 'mode' }, async ($, e) => ({ text: await modeCommand($, e.args) }))

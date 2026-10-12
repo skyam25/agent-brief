@@ -32,8 +32,8 @@ export const DOCS: Record<string, Doc> = {
     example: 'agent-brief boards',
   },
   open: {
-    usage: 'agent-brief open [--board <name>] [--prompt <text>] [--session <id>] [--json]',
-    about: 'Shows the panel. Creates the board when missing. --prompt puts text at the top of the panel. --session makes that session the Send target.',
+    usage: 'agent-brief open [--board <name>] [--prompt <text>] [--session <id>] [--layout freeform|stack] [--json]',
+    about: 'Shows the panel. Creates the board when missing. --prompt puts text at the top of the panel. --session makes that session the Send target. --layout stack files each drop or paste of screenshots as a numbered group.',
     example: 'agent-brief open --board login-flow --prompt "Sketch the login screens"',
   },
   read: {

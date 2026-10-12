@@ -3,6 +3,7 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import type { DeliveryInput } from '../server/contract';
+import { stackNames, type StackElement } from '../board/stack';
 import { buildTimeline } from './timeline';
 import { transcribe, type TranscribeOptions } from './transcribe';
 import type { StrokeEvent, VoiceSegment } from './types';
@@ -34,6 +35,7 @@ export async function composeDelivery(input: ComposeInput): Promise<DeliveryInpu
         utterances,
         bounds: input.bounds,
         images: imagesIn(input.scene),
+        imageNames: stackNames(((input.scene as { elements?: StackElement[] } | null)?.elements ?? []) as StackElement[]),
         boardName: input.boardName,
       })
     : undefined;

@@ -13,7 +13,7 @@ describe('ingest on /apply-feedback', () => {
 
     await $.session.start(SESSION)
     expect(world.tools.sort()).toEqual(['declare_output', 'feedback_latest', 'feedback_list'])
-    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'write', 'track', 'mode', 'outputs'])
+    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'stack', 'write', 'track', 'mode', 'outputs'])
     await clock.advance(60_000)
 
     expect(world.runs.some(r => r.argv[1]?.endsWith('/bin/ingest.mjs'))).toBe(false)

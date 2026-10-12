@@ -141,6 +141,19 @@ describe('status, sessions, boards, open', () => {
     });
   });
 
+  it('opens a board in the Stack layout', async () => {
+    handler = () => ({ json: { board: 'shots' } });
+    const r = await run(['open', '--board', 'shots', '--layout', 'stack']);
+    expect(r.code).toBe(0);
+    expect(seen[0].body).toEqual({ board: 'shots', layout: 'stack' });
+  });
+
+  it('rejects an unknown layout before calling the app', async () => {
+    const r = await run(['open', '--layout', 'grid']);
+    expect(r.code).toBe(2);
+    expect(seen).toHaveLength(0);
+  });
+
   it('opens with an empty body by default', async () => {
     handler = () => ({ json: { board: 'main' } });
     await run(['open']);
