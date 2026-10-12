@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 
-function Icon({ children, size = 16 }: { children: ReactNode; size?: number }) {
+export function Icon({ children, size = 16 }: { children: ReactNode; size?: number }) {
   return (
     <svg
       className="icon"

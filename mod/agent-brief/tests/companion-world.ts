@@ -1,7 +1,9 @@
 import type { On } from 'claude-code'
-import type { MockClock } from 'claude-code/testing'
+import { mock } from 'claude-code/testing'
+import type { MockClock, TestBody } from 'claude-code/testing'
 
 import type { Delivery } from '../hooks/companion-protocol'
+import { SESSION, worldOf } from './world'
 
 export const SESSION_ID = 's1'
 export const DEFAULT_SOCKET = '/home/me/Library/Application Support/AgentBrief/agent-brief.sock'
@@ -163,4 +165,13 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
 
   return fake
+}
+
+/** Seats the world, the mocked clock and the fake app, then starts the session. */
+export async function setupCompanion($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) {
+  const world = worldOf(on)
+  const clock = mock.clock(on)
+  mock.store(on)
+  const app = fakeCompanion(on, clock)
+  return { world, clock, app, start: () => $.session.start(SESSION) }
 }

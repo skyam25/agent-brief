@@ -1,20 +1,16 @@
 import { expect, test } from '@playwright/test';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DeliveriesResponse } from '../src/protocol';
-import { draftBody, launch, type Launched, RESULTS, selectedText, sendToSession, showPanel, sock, tempDataDir, typeDraft } from './helpers';
+import { draftBody, type Launched, launchShown, RESULTS, selectedText, sendToSession, sock, typeDraft } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
 let dataDir: string;
 
 test.beforeEach(async () => {
-  dataDir = tempDataDir();
-  socketPath = join(dataDir, 'companion.sock');
-  ctx = await launch(dataDir);
-  await showPanel(ctx.app, ctx.page);
-  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  ({ ctx, socketPath, dataDir } = await launchShown());
   await ctx.page.getByTestId('mode-write').click();
 });
 
@@ -22,7 +18,7 @@ test.afterEach(async () => {
   await ctx.app.close();
 });
 
-const panelVisible = () => ctx.app.evaluate(() => (globalThis as any).__companion.panel.isVisible());
+const panelVisible = () => ctx.app.evaluate(() => globalThis.__companion.panel.isVisible());
 const templateFiles = () => readdirSync(join(dataDir, 'templates')).sort();
 
 test('typing / inserts a template and Tab walks its slots', async () => {

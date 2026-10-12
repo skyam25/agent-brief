@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ExcalidrawArrowElement } from '@excalidraw/excalidraw/element/types';
 import type { ReadResponse, Skeleton } from '../src/protocol';
 import { backend, interactiveCanvas, launch, openNotes, penStroke, pickPen, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
 
@@ -42,7 +43,7 @@ test('S6/C4.1 draw labelled shapes and bound arrows in a frame, then read them b
   expect(drawn.batchId).toMatch(/^b_/);
 
   await page.evaluate(() => {
-    const api = (window as any).__excalidraw;
+    const api = window.__excalidraw;
     api.setActiveTool({ type: 'hand' });
     api.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.9 });
   });
@@ -76,10 +77,10 @@ test('S6/C4.1 draw labelled shapes and bound arrows in a frame, then read them b
 
   // Excalidraw's own bindings are in place, so dragging a shape would drag its arrows.
   const scene = await live();
-  const el = (id: string) => scene.find((e) => e.id === id);
-  expect(el('a1').startBinding.elementId).toBe('start');
-  expect(el('start').boundElements.map((b: any) => b.id)).toContain('a1');
-  expect(el('check').boundElements.map((b: any) => b.id)).toEqual(expect.arrayContaining(['a1', 'a2']));
+  const el = (id: string) => scene.find((e) => e.id === id)!;
+  expect((el('a1') as ExcalidrawArrowElement).startBinding!.elementId).toBe('start');
+  expect(el('start').boundElements!.map((b) => b.id)).toContain('a1');
+  expect(el('check').boundElements!.map((b) => b.id)).toEqual(expect.arrayContaining(['a1', 'a2']));
 
   // A region read keeps only what touches it.
   const right: ReadResponse = await backend(app, 'read', 'current', { x: 700, y: 80, width: 300, height: 100 });
@@ -124,10 +125,10 @@ test('C4.2 one undo removes Claude\'s batch and keeps the user\'s stroke', async
   await backend(app, 'draw', 'current', { elements: [{ type: 'rectangle', id: 'box', x: 0, y: 0, label: 'Move me' }] });
   const moved = await backend(app, 'update', 'current', { updates: [{ id: 'box', x: 300, y: 200, label: 'Moved', color: 'red' }, { id: 'nope', x: 1 }] });
   expect(moved.ids).toEqual(['box']);
-  let box2 = (await backend<ReadResponse>(app, 'read', 'current')).elements.find((e) => e.id === 'box')!;
+  let box2 = (await backend(app, 'read', 'current')).elements.find((e) => e.id === 'box')!;
   expect(box2).toMatchObject({ x: 300, y: 200, label: 'Moved', color: 'red' });
   await undo();
-  box2 = (await backend<ReadResponse>(app, 'read', 'current')).elements.find((e) => e.id === 'box')!;
+  box2 = (await backend(app, 'read', 'current')).elements.find((e) => e.id === 'box')!;
   expect(box2).toMatchObject({ x: 0, y: 0, label: 'Move me' });
 
   const removed = await backend(app, 'remove', 'current', { ids: ['box', 'ghost'] });
@@ -168,12 +169,12 @@ test('boards that are not visible are edited on disk and stay out of view', asyn
   expect(await live()).toHaveLength(0);
   const read: ReadResponse = await backend(app, 'read', 'backlog');
   expect(read.elements).toMatchObject([{ id: 's1', type: 'sticky', label: 'Later' }]);
-  const file = JSON.parse(readFileSync(join(dataDir, 'boards', 'backlog.excalidraw'), 'utf8'));
-  expect(file.elements.some((e: any) => e.id === 's1')).toBe(true);
+  const file: { elements: { id: string }[] } = JSON.parse(readFileSync(join(dataDir, 'boards', 'backlog.excalidraw'), 'utf8'));
+  expect(file.elements.some((e) => e.id === 's1')).toBe(true);
 
   await expect(backend(app, 'read', 'missing')).rejects.toThrow(/no board/);
   const boards = await backend(app, 'listBoards');
-  expect(boards.boards.map((b: any) => b.name).sort()).toEqual(['backlog', 'scratch']);
+  expect(boards.boards.map((b) => b.name).sort()).toEqual(['backlog', 'scratch']);
   expect(boards.current).toBe('scratch');
 
   const opened = await backend(app, 'open', { board: 'backlog', prompt: 'Sketch the backlog', sessionId: 's-1' });
@@ -190,12 +191,12 @@ test('Send builds the hand-off: png, scene and notes', async () => {
   await openNotes(page);
   await page.getByTestId('notes').fill('make the flow shorter');
   const delivery = await app.evaluate(async () => {
-    const d = await (globalThis as any).__companion.buildDelivery();
-    return { ...d, png: d.png.toString('base64') };
+    const d = await globalThis.__companion.buildDelivery();
+    return { ...d, png: d.png!.toString('base64') };
   });
   expect(delivery.boardName).toBe('scratch');
   expect(delivery.notes).toBe('make the flow shorter');
-  expect(delivery.scene.elements.length).toBeGreaterThanOrEqual(7);
+  expect((delivery.scene as { elements: unknown[] }).elements.length).toBeGreaterThanOrEqual(7);
   const png = pngSize(delivery.png);
   expect(Math.max(png.width, png.height)).toBeLessThanOrEqual(1400);
   writeFileSync(join(RESULTS, 'send.png'), png.bytes);
@@ -207,12 +208,12 @@ test('a paste lands deselected with the pen still in hand', async () => {
   const png = readFileSync(join(ROOT, 'build/icons/icon-1024.png')).toString('base64');
   const state = () =>
     page.evaluate(() => {
-      const api = (window as any).__excalidraw;
+      const api = window.__excalidraw;
       const s = api.getAppState();
       return {
         tool: s.activeTool.type,
         selected: Object.keys(s.selectedElementIds).length,
-        images: api.getSceneElements().filter((e: any) => e.type === 'image').length,
+        images: api.getSceneElements().filter((e) => e.type === 'image').length,
       };
     });
   // The board opens on the pointer; the person picks the pen to draw.
@@ -236,8 +237,8 @@ test('a paste lands deselected with the pen still in hand', async () => {
   await penStroke(cdp, { x: box.x + box.width / 2 - 80, y: box.y + box.height / 2 }, { x: box.x + box.width / 2 + 80, y: box.y + box.height / 2 + 40 }, 0.7);
   await expect.poll(async () => (await sceneElements(page)).filter((e) => e.type === 'freedraw' && !e.isDeleted).length).toBe(1);
   const delivery = await ctx.app.evaluate(async () => {
-    const d = await (globalThis as any).__companion.buildDelivery();
-    return { png: d.png.toString('base64'), timeline: d.timelineMd };
+    const d = await globalThis.__companion.buildDelivery();
+    return { png: d.png!.toString('base64'), timeline: d.timelineMd };
   });
   expect(delivery.timeline).toContain('pasted image A');
   expect(delivery.timeline).toMatch(/stroke 1 · freehand · on image A/);
@@ -291,7 +292,7 @@ test('an image in a frame draws, saves with its file, reads back and renders', a
 
   const el = (await live()).find((e) => e.id === 'shot');
   expect(el).toMatchObject({ type: 'image', status: 'saved', fileId: 'file-shot', frameId: 'snap' });
-  expect(await page.evaluate(() => Object.keys((window as any).__excalidraw.getFiles()))).toContain('file-shot');
+  expect(await page.evaluate(() => Object.keys(window.__excalidraw.getFiles()))).toContain('file-shot');
 
   const read: ReadResponse = await backend(app, 'read', 'current');
   expect(read.elements.find((e) => e.id === 'shot')).toMatchObject({ type: 'image', frameId: 'snap', by: 'claude' });
@@ -323,7 +324,7 @@ test('a large screenshot is scaled down to 1600 px before it is stored', async (
   const image = await solidPng(3200, 2000, '#00ff00');
   await backend(app, 'draw', 'current', { elements: [{ type: 'image', id: 'big', x: 0, y: 0, width: 720, height: 450, image }] });
   const size = await page.evaluate(async () => {
-    const f = (window as any).__excalidraw.getFiles()['file-big'];
+    const f = window.__excalidraw.getFiles()['file-big'];
     const img = new Image();
     img.src = f.dataURL;
     await img.decode();
@@ -344,7 +345,7 @@ test('draw warns when an arrow label hides the arrow', async () => {
     ],
   });
   expect(drawn.warnings).toHaveLength(1);
-  expect(drawn.warnings[0]).toMatch(/^arrow near is \d+ px long, so its label "POST \/login with password" hides it/);
+  expect(drawn.warnings![0]).toMatch(/^arrow near is \d+ px long, so its label "POST \/login with password" hides it/);
 });
 
 test('a drawing at the origin of an empty board shows below the toolbar', async () => {
@@ -354,7 +355,7 @@ test('a drawing at the origin of an empty board shows below the toolbar', async 
   });
   await page.waitForTimeout(600);
   const { frameTop, toolbarBottom } = await page.evaluate(() => {
-    const api = (window as any).__excalidraw;
+    const api = window.__excalidraw;
     const { scrollY, zoom, offsetTop } = api.getAppState();
     const root = document.querySelector('.excalidraw')!.getBoundingClientRect();
     const bar = document.querySelector('.excalidraw .App-toolbar')!.getBoundingClientRect();
@@ -370,7 +371,7 @@ test('the opacity label sits at the knob once a selection shows the style panel'
   await pickPen(page);
   await page.locator('.excalidraw .range-input').waitFor({ state: 'attached' });
   await backend(app, 'draw', 'current', { elements: [{ type: 'rectangle', id: 'box', x: 0, y: 0, label: 'Pick me' }] });
-  await page.evaluate(() => (window as any).__excalidraw.updateScene({ appState: { selectedElementIds: { box: true } } }));
+  await page.evaluate(() => window.__excalidraw.updateScene({ appState: { selectedElementIds: { box: true } } }));
   await page.locator('.canvas[data-selection="true"] .App-menu__left').waitFor();
   const slider = await page.evaluate(() => {
     const input = document.querySelector<HTMLElement>('.excalidraw .range-input')!;
@@ -384,7 +385,7 @@ test('the opacity label sits at the knob once a selection shows the style panel'
 
 test('H picks the hand tool for dragging the board', async () => {
   const { page } = ctx;
-  const tool = () => page.evaluate(() => (window as any).__excalidraw.getAppState().activeTool.type);
+  const tool = () => page.evaluate(() => window.__excalidraw.getAppState().activeTool.type);
   await page.evaluate(() => (document.querySelector('.excalidraw') as HTMLElement).focus());
   await page.keyboard.press('h');
   await expect.poll(tool).toBe('hand');
@@ -394,7 +395,7 @@ test('H picks the hand tool for dragging the board', async () => {
 
 test('the frame tool has its own toolbar button after the eraser', async () => {
   const { page } = ctx;
-  const tool = () => page.evaluate(() => (window as any).__excalidraw.getAppState().activeTool.type);
+  const tool = () => page.evaluate(() => window.__excalidraw.getAppState().activeTool.type);
   const button = page.getByTestId('toolbar-frame-button');
   const trigger = page.locator('.App-toolbar__extra-tools-trigger');
 
@@ -437,7 +438,7 @@ test('Cmd+A selects the board after a click on the panel controls', async () => 
   });
   const state = () =>
     page.evaluate(() => ({
-      selected: Object.keys((window as any).__excalidraw.getAppState().selectedElementIds).length,
+      selected: Object.keys(window.__excalidraw.getAppState().selectedElementIds).length,
       text: String(window.getSelection()),
     }));
 

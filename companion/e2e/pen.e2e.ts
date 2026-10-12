@@ -45,7 +45,7 @@ test('C1.2 pen pressure 0.2 vs 1.0 gives at least 2x stroke width (S5)', async (
   const [a, b] = strokes;
   expect(a.simulatePressure).toBe(false);
   expect(b.simulatePressure).toBe(false);
-  const mid = (p: number[]) => p[Math.floor(p.length / 2)];
+  const mid = (p: readonly number[]) => p[Math.floor(p.length / 2)];
   const lightP = mid(a.pressures);
   const heavyP = mid(b.pressures);
 
@@ -56,7 +56,7 @@ test('C1.2 pen pressure 0.2 vs 1.0 gives at least 2x stroke width (S5)', async (
   // The same strokes with raw pressures, to show what Excalidraw does without the curve.
   await page.evaluate(
     ({ a, rawY, raw }) => {
-      const api = (window as any).__excalidraw;
+      const api = window.__excalidraw;
       const els = api.getSceneElementsIncludingDeleted();
       const zoom = api.getAppState().zoom.value;
       const extra = raw.map((p: number, i: number) => ({
@@ -104,7 +104,7 @@ test('C1.3 eraser button erases, then the pen tool comes back', async () => {
   await syntheticStroke(page, across, { pointerType: 'pen', button: 5, buttons: 32, pointerId: 7 });
   await page.waitForTimeout(200);
   expect(await live()).toHaveLength(0);
-  const tool = await page.evaluate(() => (window as any).__excalidraw.getAppState().activeTool.type);
+  const tool = await page.evaluate(() => window.__excalidraw.getAppState().activeTool.type);
   expect(tool).toBe('freedraw');
 });
 

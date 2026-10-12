@@ -107,7 +107,7 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await page.getByTestId('review-comment').click();
   await expect(page.getByTestId('review-comment')).toHaveAttribute('aria-pressed', 'false');
   await frame.locator('a').click();
-  const opened = () => app.evaluate(() => [...(globalThis as any).__companion.openedOutputs]);
+  const opened = () => app.evaluate(() => [...globalThis.__companion.openedOutputs]);
   await expect.poll(opened).toContain('https://example.com/docs');
   await expect(frame.locator('h1')).toHaveText('Acme analytics');
 
@@ -117,7 +117,7 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await expect(page.getByTestId('review-comment')).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('review-comment')).toHaveAttribute('aria-pressed', 'false');
-  expect(await app.evaluate(() => (globalThis as any).__companion.panel.isVisible())).toBe(true);
+  expect(await app.evaluate(() => globalThis.__companion.panel.isVisible())).toBe(true);
 
   await page.getByTestId('review-overall').fill('Tighter spacing overall.');
 

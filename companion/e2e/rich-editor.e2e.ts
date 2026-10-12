@@ -243,15 +243,15 @@ test('a pasted picture becomes an attachment and goes out as a bundle file', asy
   await pastePng(page);
 
   await expect(page.getByTestId('draft-image')).toHaveCount(1);
-  await expect.poll(() => page.evaluate(() => Object.keys((window as any).__drafts.selected.attachments ?? {}).length)).toBe(1);
-  const [id, data] = await page.evaluate(() => Object.entries((window as any).__drafts.selected.attachments)[0] as [string, string]);
+  await expect.poll(() => page.evaluate(() => Object.keys(window.__drafts.selected!.attachments ?? {}).length)).toBe(1);
+  const [id, data] = await page.evaluate(() => Object.entries(window.__drafts.selected!.attachments!)[0] as [string, string]);
   expect(id).toMatch(/^[a-z0-9]{6,24}$/);
   expect(data).toMatch(/^data:image\/png;base64,/);
   await expect.poll(() => draftBody(page)).toBe(`The header overlaps here\n\n![](att:${id})`);
   await expect.poll(() => draftsOnDisk()[0]?.attachments).toEqual({ [id]: data });
 
   await sendToSession(page, 'Login work');
-  await expect.poll(() => ctx.app.evaluate(() => (globalThis as any).__companion.panel.isVisible())).toBe(false);
+  await expect.poll(() => ctx.app.evaluate(() => globalThis.__companion.panel.isVisible())).toBe(false);
   const [d] = (await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=s1&wait=0')).body.deliveries;
   const line = `@.feedback/sketches/${d.id}/images/${id}.png`;
   expect(readdirSync(join(d.dir, 'images'))).toEqual([`${id}.png`]);

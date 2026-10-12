@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DeliveriesResponse } from '../src/protocol';
 import { joinSpeech } from '../src/voice/timeline';
+import type { Utterance } from '../src/voice/types';
 import { interactiveCanvas, launch, penStroke, pickPen, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir } from './helpers';
 
 const SPEECH = join(ROOT, 'e2e/fixtures/speech.wav');
@@ -41,9 +42,9 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   expect(readdirSync(join(dir, 'audio'))).toEqual(['seg-0.webm']);
   copyFileSync(join(dir, 'sketch.png'), join(RESULTS, 'voice-sketch.png'));
 
-  const transcript = JSON.parse(readFileSync(join(dir, 'transcript.json'), 'utf8'));
+  const transcript: Utterance[] = JSON.parse(readFileSync(join(dir, 'transcript.json'), 'utf8'));
   expect(transcript.length).toBeGreaterThan(0);
-  expect(transcript.map((u: any) => u.text).join(' ')).toMatch(/pricing table/i);
+  expect(transcript.map((u) => u.text).join(' ')).toMatch(/pricing table/i);
   expect(transcript[0]).toMatchObject({ audio: 'audio/seg-0.webm' });
 
   const timeline = readFileSync(join(dir, 'timeline.md'), 'utf8');

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ExcalidrawFrameElement, OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import { backend, boardMenu, launch, RESULTS, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
 
 let ctx: Launched;
@@ -46,7 +47,7 @@ function deliver(page: Page, how: 'drop' | 'paste', shots: Shot[], at?: { x: num
 }
 
 interface Group {
-  name: string;
+  name: string | null;
   id: string;
   images: { id: string; x: number; y: number; width: number; height: number }[];
 }
@@ -55,7 +56,7 @@ interface Group {
 async function groups(page: Page): Promise<Group[]> {
   const els = (await sceneElements(page)).filter((e) => !e.isDeleted);
   return els
-    .filter((e) => e.type === 'frame' && e.customData?.stack)
+    .filter((e): e is OrderedExcalidrawElement & ExcalidrawFrameElement => e.type === 'frame' && !!e.customData?.stack)
     .sort((a, b) => a.y - b.y)
     .map((f) => ({
       name: f.name,
@@ -73,7 +74,7 @@ const shape = async (page: Page) => (await groups(page)).map((g) => `${g.name}:$
 function onScreen(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
   return page.evaluate(
     ({ x, y }) => {
-      const s = (window as any).__excalidraw.getAppState();
+      const s = window.__excalidraw.getAppState();
       return { x: (x + s.scrollX) * s.zoom.value + s.offsetLeft, y: (y + s.scrollY) * s.zoom.value + s.offsetTop };
     },
     { x, y },
@@ -83,9 +84,9 @@ function onScreen(page: Page, x: number, y: number): Promise<{ x: number; y: num
 /** True when a frame and its name show inside the canvas viewport. */
 function inView(page: Page, id: string): Promise<boolean> {
   return page.evaluate((id) => {
-    const api = (window as any).__excalidraw;
+    const api = window.__excalidraw;
     const s = api.getAppState();
-    const f = api.getSceneElements().find((e: any) => e.id === id);
+    const f = api.getSceneElements().find((e) => e.id === id);
     const top = -s.scrollY;
     const bottom = top + s.height / s.zoom.value;
     return !!f && f.y - 24 >= top && f.y + f.height <= bottom;
@@ -120,7 +121,7 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   await expect.poll(() => inView(page, added)).toBe(true);
 
   // A paste with a group selected joins that group.
-  await page.evaluate((id) => (window as any).__excalidraw.updateScene({ appState: { selectedElementIds: { [id]: true } } }), first.id);
+  await page.evaluate((id) => window.__excalidraw.updateScene({ appState: { selectedElementIds: { [id]: true } } }), first.id);
   await deliver(page, 'paste', [{ width: 400, height: 300, color: '#ea3' }]);
   await expect.poll(() => shape(page)).toEqual(['1:3', '2:1']);
 
@@ -133,8 +134,8 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   // A picture dragged out to empty space gets its own group at the end.
   const moved = (await groups(page))[0].images[2].id;
   await page.evaluate((id) => {
-    const api = (window as any).__excalidraw;
-    const els = api.getSceneElementsIncludingDeleted().map((e: any) => (e.id === id ? { ...e, x: 3000, y: 3000, version: e.version + 1 } : e));
+    const api = window.__excalidraw;
+    const els = api.getSceneElementsIncludingDeleted().map((e) => (e.id === id ? { ...e, x: 3000, y: 3000, version: e.version + 1 } : e));
     api.updateScene({ elements: els, captureUpdate: 'IMMEDIATELY' });
   }, moved);
   await expect.poll(() => shape(page)).toEqual(['1:2', '2:2', '3:1']);
@@ -143,9 +144,9 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const api = (window as any).__excalidraw;
+        const api = window.__excalidraw;
         const files = api.getFiles();
-        return api.getSceneElements().filter((e: any) => e.type === 'image' && !files[e.fileId]).length;
+        return api.getSceneElements().filter((e) => e.type === 'image' && !files[e.fileId!]).length;
       }),
     )
     .toBe(0);
@@ -154,8 +155,8 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
 
   // Send names the pictures by group, and the frames are not counted as strokes.
   const delivery = await app.evaluate(async () => {
-    const d = await (globalThis as any).__companion.buildDelivery();
-    return { png: d.png.toString('base64'), timeline: d.timelineMd as string };
+    const d = await globalThis.__companion.buildDelivery();
+    return { png: d.png!.toString('base64'), timeline: d.timelineMd as string };
   });
   writeFileSync(join(RESULTS, 'stack.png'), Buffer.from(delivery.png, 'base64'));
   expect(delivery.timeline).toContain('pasted image 1a');
@@ -165,7 +166,7 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   expect(delivery.timeline).not.toContain('frame');
 
   // The layout lives in the board file.
-  await page.evaluate(() => (window as any).__board.flush());
+  await page.evaluate(() => window.__board.flush());
   const file = JSON.parse(readFileSync(join(dataDir, 'boards', 'shots.excalidraw'), 'utf8'));
   expect(file.agentBrief).toEqual({ layout: 'stack' });
 
@@ -181,7 +182,7 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   await expect.poll(async () => (await sceneElements(page)).filter((e) => e.type === 'image' && !e.isDeleted).length).toBe(6);
   const after = await boxes();
   for (const [id, at] of Object.entries(before)) expect(after[id]).toBe(at);
-  await page.evaluate(() => (window as any).__board.flush());
+  await page.evaluate(() => window.__board.flush());
   expect(JSON.parse(readFileSync(join(dataDir, 'boards', 'shots.excalidraw'), 'utf8')).agentBrief).toBeUndefined();
 });
 
@@ -198,13 +199,13 @@ test('marks drawn on a screenshot move with it', async () => {
   });
   // Deleting group 1's picture moves group 2 up, mark and all.
   await page.evaluate((id) => {
-    const api = (window as any).__excalidraw;
-    const els = api.getSceneElementsIncludingDeleted().map((e: any) => (e.id === id ? { ...e, isDeleted: true, version: e.version + 1 } : e));
+    const api = window.__excalidraw;
+    const els = api.getSceneElementsIncludingDeleted().map((e) => (e.id === id ? { ...e, isDeleted: true, version: e.version + 1 } : e));
     api.updateScene({ elements: els, captureUpdate: 'IMMEDIATELY' });
   }, one.images[0].id);
   await expect.poll(() => shape(page)).toEqual(['1:1']);
   const [moved] = await groups(page);
-  const mark = (await sceneElements(page)).find((e) => e.type === 'rectangle' && !e.isDeleted);
+  const mark = (await sceneElements(page)).find((e) => e.type === 'rectangle' && !e.isDeleted)!;
   expect(mark.x - moved.images[0].x).toBeCloseTo(20);
   expect(mark.y - moved.images[0].y).toBeCloseTo(20);
   expect(mark.frameId).toBe(moved.id);
@@ -222,7 +223,7 @@ test('a new board can start as a Stack, and the board list marks it', async () =
 
   await expect(page.getByTestId('board-picker')).toContainText('flows');
   await expect(page.getByTestId('layout-stack')).toHaveAttribute('aria-checked', 'true');
-  await page.evaluate(() => (window as any).__board.flush());
+  await page.evaluate(() => window.__board.flush());
   expect(JSON.parse(readFileSync(join(dataDir, 'boards', 'flows.excalidraw'), 'utf8')).agentBrief).toEqual({ layout: 'stack' });
 
   await page.getByTestId('board-picker').click();

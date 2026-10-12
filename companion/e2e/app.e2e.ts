@@ -3,11 +3,12 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { FractionalIndex } from '@excalidraw/excalidraw/element/types';
 import electronPath from 'electron';
 import { backend, interactiveCanvas, launch, openNotes, penStroke, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, testEnv, typeDraft } from './helpers';
 
 const visible = (app: Awaited<ReturnType<typeof launch>>['app']) =>
-  app.evaluate(() => (globalThis as any).__companion.panel.isVisible());
+  app.evaluate(() => globalThis.__companion.panel.isVisible());
 
 test('a second launch exits and shows the running panel', async () => {
   const dataDir = tempDataDir();
@@ -57,7 +58,7 @@ test('the panel follows macOS light and dark, and PNGs for Claude stay light', a
       body: getComputedStyle(document.body).backgroundColor,
       notes: getComputedStyle(document.querySelector('.notes textarea')!).color,
     }));
-  const windowBg = () => app.evaluate(() => (globalThis as any).__companion.panel.win.getBackgroundColor());
+  const windowBg = () => app.evaluate(() => globalThis.__companion.panel.win.getBackgroundColor());
 
   await app.evaluate(({ nativeTheme }) => (nativeTheme.themeSource = 'dark'));
   await expect.poll(async () => (await look()).excalidraw).toBe('dark');
@@ -99,7 +100,7 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   const dataDir = tempDataDir();
   let { app, page } = await launch(dataDir);
   await showPanel(app, page);
-  const registered = () => app.evaluate(() => [...(globalThis as any).__companion.registrar.registered.keys()].sort());
+  const registered = () => app.evaluate(() => [...globalThis.__companion.registrar.registered.keys()].sort());
   expect(await registered()).toEqual(['Control+Alt+N', 'Control+Alt+S']);
 
   await page.getByTestId('settings-toggle').click();
@@ -115,7 +116,7 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
   await expect(page.getByTestId('settings-hotkey')).toHaveText('⌃⇧K');
   expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
 
-  await app.evaluate(() => (globalThis as any).__companion.registrar.taken.add('Command+Space'));
+  await app.evaluate(() => globalThis.__companion.registrar.taken.add('Command+Space'));
   await page.getByTestId('settings-hotkey').click();
   await page.keyboard.press('Meta+Space');
   await expect(page.getByTestId('settings-error')).toHaveText(/already used/);
@@ -133,7 +134,7 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
 
   // Appearance pins the panel and the board to one theme, whatever macOS shows.
   const themes = () =>
-    page.evaluate(() => [document.documentElement.dataset.theme, (window as any).__excalidraw.getAppState().theme]);
+    page.evaluate(() => [document.documentElement.dataset.theme, window.__excalidraw.getAppState().theme]);
   await page.getByTestId('settings-appearance').selectOption('light');
   await expect.poll(themes).toEqual(['light', 'light']);
   await page.getByTestId('settings-appearance').selectOption('dark');
@@ -141,10 +142,10 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
 
   await page.getByTestId('settings-login').check();
   await expect(page.getByTestId('settings-saved')).toBeVisible();
-  const delivery = await app.evaluate(async () => (await (globalThis as any).__companion.buildDelivery()).mode);
+  const delivery = await app.evaluate(async () => (await globalThis.__companion.buildDelivery()).mode);
   expect(delivery).toBe('fill');
 
-  const tray = await app.evaluate(() => (globalThis as any).__companion.trayMenu());
+  const tray = await app.evaluate(() => globalThis.__companion.trayMenu());
   expect(tray).toEqual([
     'Show Panel',
     'New Board',
@@ -161,7 +162,7 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
 
   ({ app, page } = await launch(dataDir));
   expect(await registered()).toEqual(['Control+Alt+N', 'Control+Shift+K']);
-  const settings = await page.evaluate(() => (window as any).companion.getSettings());
+  const settings = await page.evaluate(() => window.companion.getSettings());
   expect(settings).toEqual({ hotkey: 'Control+Shift+K', deliveryMode: 'fill', openAtLogin: true, captureHotkey: 'Control+Alt+N', appearance: 'dark' });
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
   await app.close();
@@ -180,16 +181,16 @@ test('Escape hides the panel unless something on it wants the key', async () => 
 
   // A selection takes the first Escape.
   await page.evaluate(() => {
-    const api = (window as any).__excalidraw;
+    const api = window.__excalidraw;
     api.updateScene({ appState: { selectedElementIds: { r: true } } });
     (document.querySelector('.excalidraw') as HTMLElement).focus();
   });
-  await expect.poll(() => page.evaluate(() => Object.keys((window as any).__excalidraw.getAppState().selectedElementIds))).toEqual(['r']);
+  await expect.poll(() => page.evaluate(() => Object.keys(window.__excalidraw.getAppState().selectedElementIds))).toEqual(['r']);
   await page.keyboard.press('Escape');
   expect(await visible(app)).toBe(true);
   // Excalidraw uses later presses to step back out of the selection; once it is gone, Escape hides.
-  await page.evaluate(() => (window as any).__excalidraw.updateScene({ appState: { selectedElementIds: {} } }));
-  await expect.poll(() => page.evaluate(() => Object.keys((window as any).__excalidraw.getAppState().selectedElementIds).length)).toBe(0);
+  await page.evaluate(() => window.__excalidraw.updateScene({ appState: { selectedElementIds: {} } }));
+  await expect.poll(() => page.evaluate(() => Object.keys(window.__excalidraw.getAppState().selectedElementIds).length)).toBe(0);
   await page.keyboard.press('Escape');
   await expect.poll(() => visible(app)).toBe(false);
   await app.close();
@@ -205,7 +206,7 @@ test('File > New Board opens the name field; the CLI installs into a temp home',
   expect(await visible(app)).toBe(true);
 
   const home = mkdtempSync(join(tmpdir(), 'home-'));
-  const result = await app.evaluate((_e, home) => (globalThis as any).__companion.installCli(home), home);
+  const result = (await app.evaluate((_e, home) => globalThis.__companion.installCli(home), home))!;
   expect(result.link).toBe(join(home, '.local/bin/agent-brief'));
   expect(readlinkSync(result.link)).toBe(join(ROOT, 'bin/agent-brief'));
   await app.close();
@@ -218,7 +219,7 @@ test('the plugin installs through claude from the repo marketplace', async () =>
   writeFileSync(claude, `#!/bin/sh\necho "$*" >> '${log}'\ncase "$*" in *--json) echo '[]' ;; esac\n`, { mode: 0o755 });
 
   const { app } = await launch(tempDataDir(), { COMPANION_TEST_CLAUDE: claude });
-  const result = await app.evaluate(() => (globalThis as any).__companion.installPlugin());
+  const result = await app.evaluate(() => globalThis.__companion.installPlugin());
   expect(result).toEqual({ installed: true });
   expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
     `plugin marketplace add ${resolve(ROOT, '..')}`,
@@ -272,19 +273,19 @@ test('a denied microphone shows how to turn it on', async () => {
 test('while the panel is hidden only Claude reaches the timeline', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
-  await app.evaluate(() => (globalThis as any).__companion.panel.hide());
-  await expect.poll(() => page.evaluate(() => (window as any).__board.panelVisible)).toBe(false);
+  await app.evaluate(() => globalThis.__companion.panel.hide());
+  await expect.poll(() => page.evaluate(() => window.__board.panelVisible)).toBe(false);
   const logged = () =>
-    page.evaluate(() => (window as any).__board.strokes.events.map((e: any) => `${e.by}:${e.elementId}`));
+    page.evaluate(() => window.__board.strokes.events.map((e) => `${e.by}:${e.elementId}`));
 
   await backend(app, 'draw', 'current', { elements: [{ type: 'rectangle', id: 'claude-box', x: 0, y: 0 }] });
   await expect.poll(logged).toEqual(['claude:claude-box']);
 
   // A change made on the hidden panel itself stays out.
   await page.evaluate(() => {
-    const api = (window as any).__excalidraw;
+    const api = window.__excalidraw;
     const base = api.getSceneElements()[0];
-    api.updateScene({ elements: [...api.getSceneElementsIncludingDeleted(), { ...base, id: 'hidden-local', x: 200, customData: undefined, version: 2, versionNonce: 5, index: 'b3' }] });
+    api.updateScene({ elements: [...api.getSceneElementsIncludingDeleted(), { ...base, id: 'hidden-local', x: 200, customData: undefined, version: 2, versionNonce: 5, index: 'b3' as FractionalIndex }] });
   });
   await page.waitForTimeout(200);
   expect(await logged()).toEqual(['claude:claude-box']);

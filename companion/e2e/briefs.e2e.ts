@@ -1,6 +1,7 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { DeliveriesResponse, SessionInfo, SessionsResponse } from '../src/protocol';
 import { briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, sock, tempDataDir, themeShots } from './helpers';
 
 let ctx: Launched;
@@ -21,11 +22,11 @@ test.afterEach(async () => {
 const register = (sessionId: string, title: string) => registerSession(socketPath, sessionId, title);
 const openFor = (body: Record<string, unknown>) => openPanelFor(socketPath, body);
 const drawBox = (app: ElectronApplication, board: string, x: number) =>
-  app.evaluate((_e, a) => (globalThis as any).__companion.backend.draw(a.board, { elements: [{ type: 'rectangle', x: a.x, y: 0, width: 80, height: 60 }] }), { board, x });
+  app.evaluate((_e, a) => globalThis.__companion.backend.draw(a.board, { elements: [{ type: 'rectangle', x: a.x, y: 0, width: 80, height: 60 }] }), { board, x });
 const onDisk = (app: ElectronApplication, board: string) =>
-  app.evaluate((_e, name) => (globalThis as any).__companion.store.list().find((b: any) => b.name === name)?.elementCount ?? 0, board);
-const shown = (page: Page) => page.evaluate(() => ({ board: (window as any).__board.board, count: (window as any).__excalidraw.getSceneElements().length }));
-const briefs = (page: Page) => page.evaluate(() => (window as any).companion.listBriefs());
+  app.evaluate((_e, name) => globalThis.__companion.store.list().find((b) => b.name === name)?.elementCount ?? 0, board);
+const shown = (page: Page) => page.evaluate(() => ({ board: window.__board.board, count: window.__excalidraw.getSceneElements().length }));
+const briefs = (page: Page) => page.evaluate(() => window.companion.listBriefs());
 
 test('each session gets its own board, and /sketch brings back the one it left', async () => {
   const { app, page } = ctx;
@@ -46,7 +47,7 @@ test('each session gets its own board, and /sketch brings back the one it left',
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
 
   const list = await briefs(page);
-  expect(list.map((b: any) => [b.sessionId, b.title, b.board, b.isLive, b.isTarget, b.hasContent])).toEqual([
+  expect(list.map((b) => [b.sessionId, b.title, b.board, b.isLive, b.isTarget, b.hasContent])).toEqual([
     ['s1', 'Alpha', 'scratch', true, true, true],
     ['s2', 'Beta', 'Beta', true, false, false],
   ]);
@@ -67,9 +68,9 @@ test('an unsent sketch survives hiding, other boards and a relaunch, and /sketch
   await expect.poll(() => onDisk(app, 'scratch')).toBe(2);
 
   // Hidden, then opened from the hotkey, the panel picks no session; another board is no session's.
-  await app.evaluate(() => (globalThis as any).__companion.toggle());
+  await app.evaluate(() => globalThis.__companion.toggle());
   await showPanel(app, page);
-  await page.evaluate(() => (window as any).__board.switchTo('elsewhere'));
+  await page.evaluate(() => window.__board.switchTo('elsewhere'));
   await expect.poll(() => shown(page)).toEqual({ board: 'elsewhere', count: 0 });
 
   await app.close();
@@ -87,18 +88,18 @@ test('/write reopens the session note until it is sent, then starts a new one', 
   await openFor({ sessionId: 's1', mode: 'write' });
   await expect(page.getByTestId('draft-body')).toBeFocused();
   await page.keyboard.type('half a plan');
-  await expect.poll(() => app.evaluate(() => (globalThis as any).__companion.drafts.list().map((d: any) => d.body))).toEqual(['half a plan']);
+  await expect.poll(() => app.evaluate(() => globalThis.__companion.drafts.list().map((d) => d.body))).toEqual(['half a plan']);
 
   // Another note in between, then /write again from the session.
-  await app.evaluate(() => (globalThis as any).__companion.newNote());
+  await app.evaluate(() => globalThis.__companion.newNote());
   await expect(page.getByTestId('draft-body')).toHaveText('');
   await openFor({ sessionId: 's1', mode: 'write' });
   await expect(page.getByTestId('draft-body')).toHaveText('half a plan');
 
   // The session is the target, so Send goes straight to it.
   await page.getByTestId('send').click();
-  await expect.poll(async () => (await sock(socketPath, 'GET', '/deliveries?session=s1&wait=0')).body.deliveries.length).toBe(1);
-  await expect.poll(() => app.evaluate(() => (globalThis as any).__companion.drafts.list().length)).toBe(0);
+  await expect.poll(async () => (await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=s1&wait=0')).body.deliveries.length).toBe(1);
+  await expect.poll(() => app.evaluate(() => globalThis.__companion.drafts.list().length)).toBe(0);
   await showPanel(app, page);
   await openFor({ sessionId: 's1', mode: 'write' });
   await expect(page.getByTestId('draft-body')).toHaveText('');
@@ -113,21 +114,21 @@ test('a switch opens the session brief and sets the target; an ended session ope
   await expect.poll(() => onDisk(app, 'scratch')).toBe(1);
   await openFor({ sessionId: 's2' });
 
-  await page.evaluate(() => (window as any).companion.switchBrief('s1'));
+  await page.evaluate(() => window.companion.switchBrief('s1'));
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
-  expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBe('s1');
+  expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBe('s1');
 
   await sock(socketPath, 'DELETE', '/sessions/s2');
-  await page.evaluate(() => (window as any).companion.switchBrief('s2'));
+  await page.evaluate(() => window.companion.switchBrief('s2'));
   await expect.poll(() => shown(page)).toEqual({ board: 'Beta', count: 0 });
-  expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
-  const ended = (await briefs(page)).find((b: any) => b.sessionId === 's2');
+  expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
+  const ended = (await briefs(page)).find((b) => b.sessionId === 's2');
   expect(ended).toMatchObject({ title: 'Beta', isLive: false });
 
   // Forgetting a brief keeps its board.
-  await page.evaluate(() => (window as any).companion.forgetBrief('s2'));
-  expect((await briefs(page)).map((b: any) => b.sessionId)).toEqual(['s1']);
-  expect(await app.evaluate(() => (globalThis as any).__companion.store.exists('Beta'))).toBe(true);
+  await page.evaluate(() => window.companion.forgetBrief('s2'));
+  expect((await briefs(page)).map((b) => b.sessionId)).toEqual(['s1']);
+  expect(await app.evaluate(() => globalThis.__companion.store.exists('Beta'))).toBe(true);
 });
 
 const SHOTS = process.env.UI_SHOTS;
@@ -175,7 +176,7 @@ test('the tab row: one tab per session, a click switches board and Send, close k
   await briefTab(page, 'Beta').hover();
   await briefTab(page, 'Beta').getByTestId('brief-close').click();
   await expect(tabs(page)).toHaveText([/Alpha/]);
-  expect(await app.evaluate(() => (globalThis as any).__companion.store.exists('Beta'))).toBe(true);
+  expect(await app.evaluate(() => globalThis.__companion.store.exists('Beta'))).toBe(true);
 });
 
 test('an ended session keeps its tab, which still opens its board', async () => {
@@ -217,7 +218,7 @@ test('a tab shows the mode the mod reports, and drops it when the session ends',
   await sock(socketPath, 'DELETE', '/sessions/s1');
   await expect(briefTab(page, 'Alpha').getByTestId('brief-mode')).toHaveCount(0);
   await register('s1', 'Alpha');
-  expect((await sock<any>(socketPath, 'GET', '/sessions/s1')).body.mode).toBeUndefined();
+  expect((await sock<SessionInfo>(socketPath, 'GET', '/sessions/s1')).body.mode).toBeUndefined();
 });
 
 test('tabs that do not fit wait behind +N', async () => {
@@ -226,7 +227,7 @@ test('tabs that do not fit wait behind +N', async () => {
     await register(id, title);
     await openFor({ sessionId: id });
   }
-  await app.evaluate(() => (globalThis as any).__companion.panel.win.setSize(560, 600));
+  await app.evaluate(() => globalThis.__companion.panel.win.setSize(560, 600));
   await expect(page.getByTestId('brief-more')).toBeVisible();
   const visible = await tabs(page).count();
   expect(visible).toBeLessThan(5);

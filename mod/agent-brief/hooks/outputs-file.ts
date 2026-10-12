@@ -1,0 +1,91 @@
+import type { EngineInterface, On } from 'claude-code'
+
+import { outputsFile } from './companion-protocol'
+import type { OutputsFile } from './companion-protocol'
+import {
+  DECLARE_USAGE,
+  declareResultText,
+  emptyOutputsFile,
+  isDocumentPath,
+  kindOf,
+  originOf,
+  outputsListText,
+  parseDeclare,
+  parseOutputsFile,
+  relRef,
+  upsertDeclared,
+  upsertWrite,
+} from './outputs'
+
+/** This session's outputs file, or an empty one when it is missing or unreadable. */
+async function readOutputs($: EngineInterface): Promise<{ path: string; file: OutputsFile }> {
+  const sessionId = await $.session.id()
+  const path = outputsFile(await $.session.cwd(), sessionId)
+  const text = await $.fs.read(path).catch(() => undefined)
+  const file = (typeof text === 'string' ? parseOutputsFile(text) : undefined) ?? emptyOutputsFile(sessionId)
+  return { path, file }
+}
+
+/** Chains outputs file changes so one write cannot clobber another, a subagent's included. */
+let outputsQueue: Promise<unknown> = Promise.resolve()
+
+function changeOutputs($: EngineInterface, change: (file: OutputsFile) => OutputsFile): Promise<OutputsFile> {
+  const run = outputsQueue.then(async () => {
+    const { path, file } = await readOutputs($)
+    const changed = change(file)
+    await $.fs.write(path, `${JSON.stringify(changed, null, 2)}\n`)
+    return changed
+  })
+  outputsQueue = run.catch(() => undefined)
+  return run
+}
+
+/** Answers `declare_output`. Never toasts. */
+async function declareOutput($: EngineInterface, input: unknown): Promise<string> {
+  const request = parseDeclare(input, await $.session.cwd())
+  if (request === undefined) return DECLARE_USAGE
+  const at = await $.clock.now()
+  const file = await changeOutputs($, f => upsertDeclared(f, { ...request, at }))
+  const record = file.outputs.find(o => o.ref === request.ref)
+  return record === undefined ? DECLARE_USAGE : declareResultText(record)
+}
+
+// The engine follows $ only into functions of the same file, so each hooks file keeps its own log.
+function log($: EngineInterface, text: string): void {
+  $.ui.log(`agent-brief: ${text}`, { to: 'debug' })
+}
+
+/** The session's outputs file: declared deliverables and the documents the session writes. */
+export function registerOutputs(on: On): void {
+  on('tool.call', { tool: 'mcp__agent-brief__declare_output' }, async ($, e) => ({ result: await declareOutput($, e) })).catch(
+    () => ({ result: 'Agent Brief could not record the output. The panel will not list it until a later declare succeeds.' }),
+  )
+
+  on('command.run', { command: 'outputs' }, async $ => ({ text: outputsListText((await readOutputs($)).file) }))
+
+  // Records each document-type file the session writes, subagents included.
+  // It runs inside the mode guard, so a denied edit never reaches it. A failure here never blocks the tool.
+  on('tool.call', { tool: ['Edit', 'Write', 'NotebookEdit'] }, async ($, e, next) => {
+    const path = e.tool === 'NotebookEdit' ? e.notebook_path : e.file_path
+    const cwd = await $.session.cwd().catch(() => undefined)
+    const isDocument = cwd !== undefined && typeof path === 'string' && isDocumentPath(cwd, path)
+    const before = isDocument ? await $.fs.stat(path).catch(() => undefined) : undefined
+    const result = await next(e)
+    const isRefused = typeof (result as { deny?: unknown }).deny === 'string'
+    if (!isDocument || isRefused || (result as { isError?: unknown }).isError === true) return result
+    try {
+      const ref = relRef(cwd, path)
+      const origin = originOf({
+        existedBefore: before !== undefined,
+        previousSize: before?.size ?? 0,
+        newSize: e.tool === 'Write' ? e.content.length : 0,
+        tool: e.tool,
+      })
+      const at = await $.clock.now()
+      await changeOutputs($, file => upsertWrite(file, { ref, kind: kindOf(ref), origin, at }))
+    } catch (err) {
+      log($, `output record failed: ${String(err)}`)
+    }
+    return result
+  }).catch(($, e, next) => next(e))
+}

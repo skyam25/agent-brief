@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { SessionsResponse } from '../src/protocol';
 import { briefTab, draftsOnDisk, launch, type Launched, openPanelFor, projectDir, registerSession, showPanel, sock, tempDataDir, themeShots, typeDraft } from './helpers';
 
 let ctx: Launched;
@@ -21,7 +22,7 @@ test.afterEach(async () => {
 
 const register = (sessionId: string, title: string, cwd?: string) => registerSession(socketPath, sessionId, title, cwd);
 const openFor = (body: Record<string, unknown>) => openPanelFor(socketPath, body);
-const target = async () => (await sock(socketPath, 'GET', '/sessions')).body.targetSessionId;
+const target = async () => (await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId;
 const filedAs = (body: string) => draftsOnDisk(dataDir).find((d) => d.body === body)?.sessionId ?? null;
 const notesTab = (page: Page) => page.getByTestId('notes-tab');
 const rows = (page: Page) => page.getByTestId('draft-row');
@@ -132,7 +133,7 @@ test('an ended session shows how to resume it, until it comes back', async () =>
   expect(command).toMatch(/^cd .*alpha'? && claude --resume '?s1'?$/);
   await themeShots(ctx, 'resume-row');
 
-  const clipboard = () => app.evaluate(() => (globalThis as any).__companion.clipboard());
+  const clipboard = () => app.evaluate(() => globalThis.__companion.clipboard());
   await page.getByTestId('resume-copy').click();
   await expect(page.getByTestId('send-status')).toHaveText('Copied the resume command');
   await expect.poll(clipboard).toBe(command);
@@ -144,7 +145,7 @@ test('an ended session shows how to resume it, until it comes back', async () =>
   await expect(page.getByTestId('send-status')).toHaveText('Copied the resume command');
 
   // The split button's main half starts a terminal there. Test mode records it instead.
-  const launches = () => app.evaluate(() => (globalThis as any).__companion.launches.map((l: any) => [l.file, ...l.args].join(' ')));
+  const launches = () => app.evaluate(() => globalThis.__companion.launches.map((l) => [l.file, ...l.args].join(' ')));
   await page.getByTestId('resume-open-ghostty').click();
   await expect(page.getByTestId('send-status')).toHaveText(/^Resuming the session in Ghostty/);
   await expect.poll(async () => (await launches()).some((l: string) => l.includes('s1'))).toBe(true);

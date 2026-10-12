@@ -2,8 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'n
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import type { DeliveriesResponse } from '../src/protocol';
+import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test';
+import type { DeliveriesResponse, OpenResponse } from '../src/protocol';
+import type { BoardBackend } from '../src/server/contract';
+import type { Draft } from '../src/shared/ipc';
 
 export const ROOT = resolve(import.meta.dirname, '..');
 export const RESULTS = join(ROOT, 'test-results');
@@ -36,14 +38,24 @@ export async function launch(dataDir: string, extraEnv: Record<string, string> =
     if (m.type() === 'error' || m.type() === 'warning') console.log(`[renderer ${m.type()}] ${m.text()}`);
   });
   page.on('pageerror', (e) => console.log(`[renderer error] ${e.message}`));
-  await page.waitForFunction(() => !!(window as any).__board?.api, undefined, { timeout: 30_000 });
+  await page.waitForFunction(() => !!window.__board?.api, undefined, { timeout: 30_000 });
   return { app, page };
+}
+
+/** Launches against a fresh data dir, shows the panel, and waits for the socket. */
+export async function launchShown(): Promise<{ ctx: Launched; socketPath: string; dataDir: string }> {
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  const ctx = await launch(dataDir);
+  await showPanel(ctx.app, ctx.page);
+  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  return { ctx, socketPath, dataDir };
 }
 
 /** Shows the panel through the same function the global shortcut calls. */
 export async function showPanel(app: ElectronApplication, page?: Page): Promise<void> {
   await app.evaluate(() => {
-    const c = (globalThis as any).__companion;
+    const c = globalThis.__companion;
     if (!c.panel.isVisible()) c.toggle();
   });
   if (page) {
@@ -77,20 +89,31 @@ export async function sendToSession(page: Page, title: string): Promise<void> {
   await page.getByTestId('send-to-session').filter({ hasText: title }).click();
 }
 
+type BackendMethod = keyof BoardBackend;
+type BackendCall<K extends BackendMethod> = NonNullable<BoardBackend[K]>;
+
+/** A BoardBackend result after it crosses from main. Buffers arrive as base64. */
+type Wire<T> = T extends Buffer ? { base64: string } : T;
+
 /** Calls a BoardBackend method in the main process. */
-export function backend<T = any>(app: ElectronApplication, method: string, ...args: unknown[]): Promise<T> {
+export function backend<K extends BackendMethod>(
+  app: ElectronApplication,
+  method: K,
+  ...args: Parameters<BackendCall<K>>
+): Promise<Wire<Awaited<ReturnType<BackendCall<K>>>>> {
   return app.evaluate(
     async (_electron, { method, args }) => {
-      const result = await (globalThis as any).__companion.backend[method](...args);
+      const methods = globalThis.__companion.backend as Record<BackendMethod, (...a: unknown[]) => unknown>;
+      const result = await methods[method](...args);
       return Buffer.isBuffer(result) ? { base64: result.toString('base64') } : result;
     },
     { method, args },
-  ) as Promise<T>;
+  ) as Promise<Wire<Awaited<ReturnType<BackendCall<K>>>>>;
 }
 
 /** Scene elements in the renderer, including deleted ones. */
-export function sceneElements(page: Page): Promise<any[]> {
-  return page.evaluate(() => (window as any).__excalidraw.getSceneElementsIncludingDeleted());
+export function sceneElements(page: Page) {
+  return page.evaluate(() => window.__excalidraw.getSceneElementsIncludingDeleted());
 }
 
 /** The canvas Excalidraw draws on and takes input from. */
@@ -100,7 +123,7 @@ export function interactiveCanvas(page: Page) {
 
 /** Picks the pen, as the person would before drawing. The board opens on the pointer. */
 export async function pickPen(page: Page): Promise<void> {
-  await page.evaluate(() => (window as any).__excalidraw.setActiveTool({ type: 'freedraw' }));
+  await page.evaluate(() => window.__excalidraw.setActiveTool({ type: 'freedraw' }));
 }
 
 export type Cdp = Awaited<ReturnType<ReturnType<Page['context']>['newCDPSession']>>;
@@ -133,10 +156,10 @@ export async function syntheticStroke(
       const frame = () => new Promise((r) => requestAnimationFrame(r));
       const canvas = document.querySelector('canvas.excalidraw__canvas.interactive')!;
       // Synthetic pointers are not "active", so pointer capture throws. Real input never hits this.
-      const proto = Element.prototype as any;
+      const proto: Element & { __captureWrapped?: boolean } = Element.prototype;
       if (!proto.__captureWrapped) {
         const original = proto.setPointerCapture;
-        proto.setPointerCapture = function (id: number) {
+        proto.setPointerCapture = function (this: Element, id: number) {
           try {
             original.call(this, id);
           } catch {
@@ -200,7 +223,7 @@ export function inkWidthAt(page: Page, clientX: number, clientY: number, window 
 }
 
 /** One HTTP request over the app's Unix socket. */
-export function sock<T = any>(socketPath: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: T }> {
+export function sock<T = unknown>(socketPath: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: T }> {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const req = http.request(
@@ -238,7 +261,7 @@ export function chromiumExecutable(): string | undefined {
 
 /** The selected draft's Markdown body, as the renderer holds it. */
 export function draftBody(page: Page): Promise<string> {
-  return page.evaluate(() => (window as any).__drafts.selected?.body ?? '');
+  return page.evaluate(() => window.__drafts.selected?.body ?? '');
 }
 
 /** The text the person has selected in the page. */
@@ -270,7 +293,7 @@ export function registerSession(socketPath: string, sessionId: string, title: st
 
 /** Asks the app to open the panel, as /sketch and /write do. */
 export async function openPanelFor(socketPath: string, body: Record<string, unknown>) {
-  return (await sock(socketPath, 'POST', '/open', body)).body;
+  return (await sock<OpenResponse>(socketPath, 'POST', '/open', body)).body;
 }
 
 /** A session's deliveries waiting now. */
@@ -279,7 +302,7 @@ export async function deliveriesFor(socketPath: string, sessionId: string) {
 }
 
 /** The drafts saved in `dataDir`. */
-export function draftsOnDisk(dataDir: string): any[] {
+export function draftsOnDisk(dataDir: string): Draft[] {
   const dir = join(dataDir, 'drafts');
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
