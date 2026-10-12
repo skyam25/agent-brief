@@ -8,3 +8,6 @@ PLAN*.md
 .feedback/
 
 .DS_Store
+
+# Hygiene scan reports
+.hygiene/
