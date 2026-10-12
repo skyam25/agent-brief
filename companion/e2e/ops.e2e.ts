@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { ExcalidrawArrowElement, ExcalidrawElement, ExcalidrawTextElement } from '@excalidraw/excalidraw/element/types';
 import type { ReadResponse } from '../src/protocol';
 import { backend, launch, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
 
@@ -24,9 +25,10 @@ const read = async (board = 'current') => {
 };
 const scene = async () => {
   const all = await sceneElements(ctx.page);
-  return { all, live: all.filter((e) => !e.isDeleted), byId: (id: string) => all.find((e) => e.id === id) };
+  return { all, live: all.filter((e) => !e.isDeleted), byId: (id: string) => all.find((e) => e.id === id)! };
 };
-const labelOf = (all: any[], containerId: string) => all.find((e) => e.containerId === containerId && !e.isDeleted);
+const labelOf = (all: readonly ExcalidrawElement[], containerId: string) =>
+  all.find((e): e is ExcalidrawTextElement => 'containerId' in e && e.containerId === containerId && !e.isDeleted)!;
 
 test('moving a frame moves its children, their labels and the arrows inside', async () => {
   await board('frame-move');
@@ -72,7 +74,7 @@ test('moving a shape re-routes its bound arrows, which stay bound', async () => 
   expect(r.ab.y + r.ab.height).toBeGreaterThan(380);
   expect(r.ab.y + r.ab.height).toBeLessThan(400);
   const { byId, all } = await scene();
-  expect(byId('ab').endBinding.elementId).toBe('b');
+  expect((byId('ab') as ExcalidrawArrowElement).endBinding!.elementId).toBe('b');
   const label = labelOf(all, 'ab');
   expect(label.y).toBeGreaterThan(100);
 });
@@ -97,7 +99,7 @@ test('labels: a new label binds text, a long one grows its box, a sticky recolou
   expect(r.plain.height).toBeGreaterThan(60);
   expect(r.note).toMatchObject({ type: 'sticky', color: 'blue', label: 'Idea' });
   const { byId, all } = await scene();
-  expect(byId('plain').boundElements.some((b: any) => b.type === 'text')).toBe(true);
+  expect(byId('plain').boundElements!.some((b) => b.type === 'text')).toBe(true);
   expect(labelOf(all, 'plain').containerId).toBe('plain');
   expect(byId('note').backgroundColor).toBe('#a5d8ff');
 });
@@ -121,8 +123,8 @@ test('deleting a frame deletes what is in it; deleting a shape unbinds its arrow
   expect(r.ab.endId).toBeUndefined();
   const { byId, all } = await scene();
   expect(byId('in').isDeleted).toBe(true);
-  expect(all.filter((e) => e.containerId === 'in').every((e) => e.isDeleted)).toBe(true);
-  expect(byId('ab').endBinding).toBeNull();
+  expect(all.filter((e) => 'containerId' in e && e.containerId === 'in').every((e) => e.isDeleted)).toBe(true);
+  expect((byId('ab') as ExcalidrawArrowElement).endBinding).toBeNull();
 });
 
 test('unknown ids and label ids are left out of the result', async () => {
@@ -144,8 +146,8 @@ test('an arrow can bind to shapes drawn in earlier batches', async () => {
   expect(res.ids).toEqual(['link']);
   expect((await read()).link).toMatchObject({ startId: 'old', endId: 'older' });
   const { byId } = await scene();
-  expect(byId('old').boundElements.map((b: any) => b.id)).toContain('link');
-  expect(byId('older').boundElements.map((b: any) => b.id)).toContain('link');
+  expect(byId('old').boundElements!.map((b) => b.id)).toContain('link');
+  expect(byId('older').boundElements!.map((b) => b.id)).toContain('link');
 });
 
 test('a draw that refers to a missing id fails as a bad request and changes nothing', async () => {

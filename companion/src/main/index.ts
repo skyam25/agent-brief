@@ -7,14 +7,11 @@ import {
   dialog,
   globalShortcut,
   ipcMain,
-  Menu,
-  nativeImage,
   nativeTheme,
   protocol,
   session,
   shell,
   systemPreferences,
-  Tray,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protocol';
@@ -31,7 +28,6 @@ import {
   type Outgoing,
   type SendResult,
   type Settings,
-  type SettingsResult,
   type SwitchResult,
   type Theme,
 } from '../shared/ipc';
@@ -40,11 +36,11 @@ import { createBoardBackend } from './backend';
 import { Briefs } from './briefs';
 import { RendererBridge } from './bridge';
 import { isTranslocated } from './cli-install';
+import { createControls } from './controls';
 import { DraftStore } from './drafts';
 import { restoredBoardName, SendHistory } from './history';
-import { FakeRegistrar, Hotkey, type Registrar } from './hotkey';
 import { createInstalls } from './installs';
-import { appMenuTemplate, trayMenuTemplate, type MenuActions } from './menus';
+import { trayMenuTemplate } from './menus';
 import { Panel } from './panel';
 import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './review-protocol';
 import { rememberProjects, Sender } from './sender';
@@ -90,14 +86,6 @@ let sessions: SessionsResponse = { sessions: [] };
 
 const BACKGROUND: Record<Theme, string> = { light: '#ffffff', dark: '#121212' };
 const theme = (): Theme => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
-
-const settingsOf = (): Settings => ({
-  hotkey: state.state.hotkey,
-  deliveryMode: state.state.deliveryMode,
-  openAtLogin: state.state.openAtLogin,
-  captureHotkey: state.state.captureHotkey,
-  appearance: state.state.appearance,
-});
 
 async function microphoneAccess(): Promise<MicrophoneAccess> {
   if (testMode) {
@@ -235,15 +223,6 @@ async function start(): Promise<void> {
   const sender = new Sender({ state, history, drafts, server, briefs, terminals, voiceDir });
   const installs = createInstalls(testMode);
 
-  /** Shows the panel from the hotkey, menus or Dock. Opening it this way picks no session. */
-  const openStandalone = () => {
-    if (!panel.isVisible()) {
-      server.setTarget(undefined);
-      setPrompt(undefined);
-    }
-    panel.show();
-  };
-
   // COMPANION_UPDATE_URL points a packaged build at a local feed, also in test runs.
   const updateUrl = process.env.COMPANION_UPDATE_URL;
   if (app.isPackaged && updateUrl) autoUpdater.setFeedURL({ provider: 'generic', url: updateUrl });
@@ -252,7 +231,7 @@ async function start(): Promise<void> {
     source: app.isPackaged && (!testMode || updateUrl) ? autoUpdater : undefined,
     onStatus: (status) => {
       send(CH.update, status);
-      buildMenus();
+      controls.buildMenus();
     },
     beforeInstall: async () => {
       await flushAll();
@@ -260,102 +239,11 @@ async function start(): Promise<void> {
     },
   });
 
-  // Tests use a registrar that grabs nothing, so they never take the user's shortcut.
-  const registrar: Registrar = testMode
-    ? new FakeRegistrar()
-    : { register: (a, fn) => globalShortcut.register(a, fn), unregister: (a) => globalShortcut.unregister(a) };
-  const togglePanel = () => (panel.isVisible() ? panel.hide() : openStandalone());
-  const hotkey = new Hotkey(registrar, togglePanel);
-  const startup = hotkey.set(state.state.hotkey);
-  if (!startup.ok) console.warn(`[companion] ${startup.error}`);
-  /** Opens Write mode on a new note, from the capture shortcut and menus. A new thought picks no session, even with the panel up. */
-  const newNote = () => {
-    server.setTarget(undefined);
-    setPrompt(undefined);
-    panel.show();
-    send(CH.newNote);
-  };
-  const captureKey = new Hotkey(registrar, newNote);
-  const captureStartup = captureKey.set(state.state.captureHotkey);
-  if (!captureStartup.ok) console.warn(`[companion] ${captureStartup.error}`);
-
-  const actions = (): MenuActions => ({
-    hotkey: state.state.hotkey,
-    captureHotkey: state.state.captureHotkey,
-    mode: state.state.mode,
-    newNote,
-    togglePanel,
-    showPanel: openStandalone,
-    newBoard: () => {
-      openStandalone();
-      send(CH.newBoard);
-    },
-    openSettings: () => {
-      openStandalone();
-      send(CH.openSettings);
-    },
-    installCli: () => void installs.installCli({ confirm: true }),
-    installPlugin: () => void installs.installPlugin({ confirm: true }),
-    update: updater.current(),
-    checkForUpdates: () => void updater.check(),
-    installUpdate: () => void updater.install(),
-  });
-
-  let tray: Tray | undefined;
-  const buildMenus = () => {
-    Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(actions())));
-    tray?.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(actions())));
-  };
-  // The real tray stays out of test runs; tests inspect the template instead.
-  if (!testMode) {
-    const icons = join(app.getAppPath(), 'build/icons');
-    const trayImage = nativeImage.createFromPath(join(icons, 'trayTemplate.png'));
-    tray = new Tray(trayImage);
-    if (trayImage.isEmpty()) tray.setTitle('✎');
-    tray.setToolTip('Agent Brief');
-    if (!app.isPackaged) app.dock?.setIcon(join(icons, 'icon-1024.png'));
-  }
-  buildMenus();
+  const controls = createControls({ testMode, state, panel, server, installs, updater, send, setPrompt });
   updater.schedule();
   if (app.isPackaged && !testMode && !isTranslocated(process.resourcesPath)) {
     setTimeout(() => void installs.repair(), 15_000).unref();
   }
-
-  const applySettings = (patch: Partial<Settings>): SettingsResult => {
-    const next: Partial<Settings> = {};
-    if (patch.hotkey !== undefined) {
-      const r = hotkey.set(patch.hotkey);
-      if (!r.ok) return { ok: false, error: r.error, settings: settingsOf() };
-      next.hotkey = r.hotkey;
-    }
-    if (patch.captureHotkey !== undefined) {
-      const r = captureKey.set(patch.captureHotkey);
-      if (!r.ok) return { ok: false, error: r.error, settings: settingsOf() };
-      next.captureHotkey = r.hotkey;
-    }
-    if (patch.deliveryMode !== undefined) {
-      if (patch.deliveryMode !== 'fill' && patch.deliveryMode !== 'submit') {
-        return { ok: false, error: 'Delivery mode is fill or submit', settings: settingsOf() };
-      }
-      next.deliveryMode = patch.deliveryMode;
-    }
-    if (patch.appearance !== undefined) {
-      if (!['system', 'light', 'dark'].includes(patch.appearance)) {
-        return { ok: false, error: 'Appearance is system, light or dark', settings: settingsOf() };
-      }
-      next.appearance = patch.appearance;
-    }
-    if (patch.openAtLogin !== undefined) {
-      next.openAtLogin = !!patch.openAtLogin;
-      // An unpackaged build would register the bare Electron binary, so only the real app does this.
-      if (!testMode && app.isPackaged) app.setLoginItemSettings({ openAtLogin: next.openAtLogin });
-    }
-    state.update(next);
-    // Setting the source fires nativeTheme's `updated`, which repaints the panel.
-    if (next.appearance) nativeTheme.themeSource = next.appearance;
-    buildMenus();
-    return { ok: true, settings: settingsOf() };
-  };
 
   // Panel and settings.
   ipcMain.handle(
@@ -367,7 +255,7 @@ async function start(): Promise<void> {
       sessions,
       testMode,
       theme: theme(),
-      settings: settingsOf(),
+      settings: controls.settings(),
       panelVisible: panel.isVisible(),
       mode: state.state.mode,
     }),
@@ -378,10 +266,10 @@ async function start(): Promise<void> {
   ipcMain.on(CH.setMode, (_e, mode: Mode) => {
     if (mode !== 'sketch' && mode !== 'write' && mode !== 'items') return;
     state.update({ mode });
-    buildMenus();
+    controls.buildMenus();
   });
-  ipcMain.handle(CH.getSettings, () => settingsOf());
-  ipcMain.handle(CH.setSettings, (_e, patch: Partial<Settings>) => applySettings(patch ?? {}));
+  ipcMain.handle(CH.getSettings, () => controls.settings());
+  ipcMain.handle(CH.setSettings, (_e, patch: Partial<Settings>) => controls.applySettings(patch ?? {}));
   ipcMain.handle(CH.mic, () => microphoneAccess());
   ipcMain.handle(CH.updateGet, () => updater.current());
   ipcMain.handle(CH.updateCheck, () => updater.check());
@@ -547,8 +435,8 @@ async function start(): Promise<void> {
     globalShortcut.unregisterAll();
     files.close();
   });
-  app.on('activate', openStandalone);
-  app.on('second-instance', openStandalone);
+  app.on('activate', controls.openStandalone);
+  app.on('second-instance', controls.openStandalone);
 
   if (testMode) {
     Object.assign(globalThis, {
@@ -557,16 +445,16 @@ async function start(): Promise<void> {
         panel,
         store,
         state,
-        hotkey,
-        newNote,
+        hotkey: controls.hotkey,
+        newNote: controls.newNote,
         drafts,
-        registrar,
-        toggle: togglePanel,
+        registrar: controls.registrar,
+        toggle: controls.togglePanel,
         buildDelivery: async () => (await sender.composeSketch(await bridge.request('payload', {}))).input,
-        applySettings,
+        applySettings: controls.applySettings,
         installCli: (home: string) => installs.installCli({ confirm: false, home }),
         installPlugin: () => installs.installPlugin({ confirm: false }),
-        trayMenu: () => trayMenuTemplate(actions()).map((i) => i.label ?? i.type),
+        trayMenu: () => trayMenuTemplate(controls.actions()).map((i) => i.label ?? i.type),
         history,
         launches: terminals.launches,
         clipboard: () => terminals.copied,

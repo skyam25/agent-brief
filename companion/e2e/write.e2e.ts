@@ -2,19 +2,15 @@ import { expect, test, type Page } from '@playwright/test';
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DeliveriesResponse } from '../src/protocol';
-import { backend, draftBody, launch, type Launched, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir, typeDraft } from './helpers';
+import type { DeliveriesResponse, SessionsResponse } from '../src/protocol';
+import { backend, draftBody, launch, type Launched, launchShown, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir, typeDraft } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
 let dataDir: string;
 
 test.beforeEach(async () => {
-  dataDir = tempDataDir();
-  socketPath = join(dataDir, 'companion.sock');
-  ctx = await launch(dataDir);
-  await showPanel(ctx.app, ctx.page);
-  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  ({ ctx, socketPath, dataDir } = await launchShown());
 });
 
 test.afterEach(async () => {
@@ -22,7 +18,7 @@ test.afterEach(async () => {
 });
 
 const project = () => mkdtempSync(join(tmpdir(), 'project-'));
-const panelVisible = () => ctx.app.evaluate(() => (globalThis as any).__companion.panel.isVisible());
+const panelVisible = () => ctx.app.evaluate(() => globalThis.__companion.panel.isVisible());
 const draftsOnDisk = () =>
   readdirSync(join(dataDir, 'drafts'))
     .filter((f) => f.endsWith('.json'))
@@ -92,7 +88,7 @@ test('Ready drafts queue in order and Send uses one up', async () => {
   await expect.poll(() => draftsOnDisk().map((x) => x.body).sort()).toEqual(['First task', 'Second task']);
 
   // History keeps the text and opens it again as a new note.
-  const [entry] = await app.evaluate(() => (globalThis as any).__companion.history.list());
+  const [entry] = await app.evaluate(() => globalThis.__companion.history.list());
   expect(entry).toMatchObject({ text: 'Third task', target: 'Login work' });
   expect(entry.board).toBeUndefined();
   await showPanel(app, page);
@@ -164,12 +160,12 @@ test('a draft that carries a board sends its sketch from Write mode', async () =
 
 test('the capture shortcut opens a new note in Write mode', async () => {
   const { app, page } = ctx;
-  await app.evaluate(() => (globalThis as any).__companion.toggle());
+  await app.evaluate(() => globalThis.__companion.toggle());
   expect(await panelVisible()).toBe(false);
-  const keys = await app.evaluate(() => [...(globalThis as any).__companion.registrar.registered.keys()]);
+  const keys = await app.evaluate(() => [...globalThis.__companion.registrar.registered.keys()]);
   expect(keys).toEqual(['Control+Alt+S', 'Control+Alt+N']);
 
-  await app.evaluate(() => (globalThis as any).__companion.registrar.registered.get('Control+Alt+N')());
+  await app.evaluate(() => globalThis.__companion.registrar.registered.get('Control+Alt+N')!());
   expect(await panelVisible()).toBe(true);
   await expect(page.getByTestId('write')).toBeVisible();
   await expect(page.getByTestId('draft-body')).toHaveText('');
@@ -192,9 +188,9 @@ test('/sketch with no prompt leaves Write mode, and capture afterwards picks no 
   await expect(page.getByTestId('send')).toHaveText('Send to Login work');
 
   // The panel is still up and bound to s1; a captured note must not inherit it.
-  await app.evaluate(() => (globalThis as any).__companion.newNote());
+  await app.evaluate(() => globalThis.__companion.newNote());
   await expect(page.getByTestId('write')).toBeVisible();
-  expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
+  expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
   await expect(page.getByTestId('send')).toHaveText('Send to…');
 });
 
@@ -211,7 +207,7 @@ test('/write can start the note with text from Claude Code', async () => {
 test('/write opens a new note bound to the session, and Send delivers it there', async () => {
   const { app, page } = ctx;
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
-  await app.evaluate(() => (globalThis as any).__companion.toggle());
+  await app.evaluate(() => globalThis.__companion.toggle());
   expect(await panelVisible()).toBe(false);
 
   await sock(socketPath, 'POST', '/open', { sessionId: 's1', mode: 'write', prompt: 'the release notes' });
@@ -219,7 +215,7 @@ test('/write opens a new note bound to the session, and Send delivers it there',
   await expect(page.getByTestId('write')).toBeVisible();
   await expect(page.getByTestId('draft-body')).toHaveText('');
   await expect(page.getByTestId('draft-body')).toBeFocused();
-  expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBe('s1');
+  expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBe('s1');
 
   await page.keyboard.type('Ship 0.2.2 with the Write button');
   await page.getByTestId('send').click();
@@ -236,5 +232,5 @@ test('switching to Write stops a recording', async () => {
   await page.getByTestId('mic').click();
   await expect(page.getByTestId('mic')).toHaveAttribute('aria-pressed', 'true');
   await page.getByTestId('mode-write').click();
-  await expect.poll(() => page.evaluate(() => (window as any).__board.recorder.recording)).toBe(false);
+  await expect.poll(() => page.evaluate(() => window.__board.recorder.recording)).toBe(false);
 });

@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { DeliveriesResponse } from '../src/protocol';
-import { backend, launch, type Launched, openNotes, RESULTS, ROOT, sceneElements, sendToSession, showPanel, sock, tempDataDir } from './helpers';
+import type { DeliveriesResponse, SessionsResponse } from '../src/protocol';
+import { backend, launch, type Launched, launchShown, openNotes, RESULTS, ROOT, sceneElements, sendToSession, showPanel, sock, tempDataDir } from './helpers';
 
 const run = promisify(execFile);
 
@@ -14,11 +14,7 @@ let socketPath: string;
 let dataDir: string;
 
 test.beforeEach(async () => {
-  dataDir = tempDataDir();
-  socketPath = join(dataDir, 'companion.sock');
-  ctx = await launch(dataDir);
-  await showPanel(ctx.app, ctx.page);
-  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  ({ ctx, socketPath, dataDir } = await launchShown());
 });
 
 test.afterEach(async () => {
@@ -26,7 +22,7 @@ test.afterEach(async () => {
 });
 
 const project = () => mkdtempSync(join(tmpdir(), 'project-'));
-const panelVisible = () => ctx.app.evaluate(() => (globalThis as any).__companion.panel.isVisible());
+const panelVisible = () => ctx.app.evaluate(() => globalThis.__companion.panel.isVisible());
 
 const bundles = (cwd: string) => {
   const dir = join(cwd, '.feedback', 'sketches');
@@ -49,7 +45,7 @@ test('opened standalone, Send asks where to go and never picks a session itself'
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work', summary: 'tighten the header' });
   await expect(page.getByTestId('send-to-session')).toHaveText(/Login work.*tighten the header/);
   await page.screenshot({ path: join(RESULTS, 'send-chooser.png') });
-  expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
+  expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
   await expect(page.getByTestId('send')).toHaveText('Send to…');
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('brief-tab')).toHaveCount(0);
@@ -80,8 +76,8 @@ test('C2.2 Send writes the bundle into the project and queues the delivery', asy
   expect(readFileSync(join(dir, 'timeline.md'), 'utf8')).toMatch(/Claude drew .*sticky "Ship it"/);
   expect(readFileSync(join(dir, 'sketch.png')).subarray(1, 4).toString()).toBe('PNG');
   expect(readFileSync(join(dir, 'notes.md'), 'utf8')).toBe('the header is too tall');
-  const scene = JSON.parse(readFileSync(join(dir, 'board.excalidraw'), 'utf8'));
-  expect(scene.elements.some((e: any) => e.customData?.by === 'claude')).toBe(true);
+  const scene: { elements: { customData?: { by?: string } }[] } = JSON.parse(readFileSync(join(dir, 'board.excalidraw'), 'utf8'));
+  expect(scene.elements.some((e) => e.customData?.by === 'claude')).toBe(true);
 
   const polled = await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=s1&wait=0');
   expect(polled.body.deliveries).toHaveLength(1);
@@ -113,7 +109,7 @@ test('the history keeps the last 10 sends and opens one on a new board', async (
     await expect.poll(panelVisible).toBe(false);
   }
 
-  const history = await app.evaluate(() => (globalThis as any).__companion.history.list());
+  const history = await app.evaluate(() => globalThis.__companion.history.list());
   expect(history).toHaveLength(10);
   expect(history[0]).toMatchObject({ board: 'scratch', target: 'Login work' });
   expect(history[0].draft).toContain(`@.feedback/sketches/${history[0].id}/sketch.png`);
@@ -129,7 +125,7 @@ test('the history keeps the last 10 sends and opens one on a new board', async (
   await page.getByTestId('history-item').last().getByTestId('history-open').click();
   await expect(page.getByTestId('board-picker')).toHaveText(/^scratch \d{2}\.\d{2}$/);
   const restored = await page.evaluate(() =>
-    (window as any).__excalidraw.getSceneElements().filter((e: any) => e.type === 'text').map((e: any) => e.text),
+    window.__excalidraw.getSceneElements().filter((e) => e.type === 'text').map((e) => e.text),
   );
   // The oldest kept send is the second one.
   expect(restored).toContain('Send 2');
@@ -148,13 +144,13 @@ test('C2.3 with two sessions the delivery reaches only the picked one', async ()
   await expect(page.getByTestId('send-status')).toHaveText(`Sent to ${b.split('/').pop()}`);
   expect(bundles(a)).toEqual([]);
   expect(bundles(b)).toHaveLength(1);
-  expect((await sock(socketPath, 'GET', '/deliveries?session=sa&wait=0')).body.deliveries).toEqual([]);
-  expect((await sock(socketPath, 'GET', '/deliveries?session=sb&wait=0')).body.deliveries).toHaveLength(1);
+  expect((await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=sa&wait=0')).body.deliveries).toEqual([]);
+  expect((await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=sb&wait=0')).body.deliveries).toHaveLength(1);
 });
 
 test('POST /open shows the board and the prompt and picks the session', async () => {
   const { app, page } = ctx;
-  await app.evaluate(() => (globalThis as any).__companion.panel.hide());
+  await app.evaluate(() => globalThis.__companion.panel.hide());
   const cwd = project();
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd });
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd });
@@ -163,7 +159,7 @@ test('POST /open shows the board and the prompt and picks the session', async ()
   await expect(page.getByTestId('board-picker')).toHaveText('login');
   await expect(page.getByTestId('prompt')).toHaveText(/Sketch the login screen/);
   await expect(page.getByTestId('send')).toHaveText(`Send to ${cwd.split('/').pop()}`);
-  expect(await app.evaluate(() => (globalThis as any).__companion.panel.isVisible())).toBe(true);
+  expect(await app.evaluate(() => globalThis.__companion.panel.isVisible())).toBe(true);
 });
 
 test('a session opened by /sketch is the named Send and the active tab until it leaves; a standalone open starts with none', async () => {
@@ -178,7 +174,7 @@ test('a session opened by /sketch is the named Send and the active tab until it 
 
   // A click on the active tab brings the terminal forward.
   await tab.getByRole('tab').click();
-  await expect.poll(() => app.evaluate(() => (globalThis as any).__companion.launches.map((l: any) => l.args.join(' ')).join('\n'))).toContain(
+  await expect.poll(() => app.evaluate(() => globalThis.__companion.launches.map((l) => l.args.join(' ')).join('\n'))).toContain(
     `working directory is "${cwd}"`,
   );
 
@@ -191,16 +187,16 @@ test('a session opened by /sketch is the named Send and the active tab until it 
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd });
   await sock(socketPath, 'POST', '/open', { sessionId: 's2' });
   await expect(page.getByTestId('send')).not.toHaveText('Send to…');
-  await app.evaluate(() => (globalThis as any).__companion.toggle());
+  await app.evaluate(() => globalThis.__companion.toggle());
   await showPanel(app, page);
   await expect(page.getByTestId('send')).toHaveText('Send to…');
-  expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
+  expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
 });
 
 test('Send to a new session writes the bundle into the folder and starts Claude Code there', async () => {
   const { app, page } = ctx;
   const cwd = project();
-  await app.evaluate((_e, cwd) => (globalThis as any).__companion.state.update({ recentProjects: [cwd] }), cwd);
+  await app.evaluate((_e, cwd) => globalThis.__companion.state.update({ recentProjects: [cwd] }), cwd);
   await backend(app, 'draw', 'current', { elements: [{ type: 'sticky', x: 0, y: 0, label: 'New idea' }] });
 
   await page.getByTestId('send').click();
@@ -217,11 +213,11 @@ test('Send to a new session writes the bundle into the folder and starts Claude 
   const dir = join(cwd, '.feedback', 'sketches', id);
   expect(readdirSync(dir).sort()).toEqual(['board.excalidraw', 'prompt.md', 'sketch.png', 'timeline.md']);
   expect(readFileSync(join(dir, 'prompt.md'), 'utf8')).toContain(`@.feedback/sketches/${id}/sketch.png`);
-  const launches = await app.evaluate(() => (globalThis as any).__companion.launches);
-  expect(launches.map((l: any) => l.args.slice(0, 2).join(' '))).toEqual(['tab create', 'pane run']);
+  const launches = await app.evaluate(() => globalThis.__companion.launches);
+  expect(launches.map((l) => l.args.slice(0, 2).join(' '))).toEqual(['tab create', 'pane run']);
   expect(launches[0].args).toEqual(['tab', 'create', '--cwd', cwd, '--label', 'sketch', '--focus']);
   expect(launches[1].args).toEqual(['pane', 'run', 'w1:p9', `claude "$(cat '${join(dir, 'prompt.md')}')"`]);
-  const history = await app.evaluate(() => (globalThis as any).__companion.history.list());
+  const history = await app.evaluate(() => globalThis.__companion.history.list());
   expect(history[0]).toMatchObject({ id, target: 'new session (herdr)' });
 
   // Copy puts a start command on the clipboard instead.
@@ -230,7 +226,7 @@ test('Send to a new session writes the bundle into the folder and starts Claude 
   await page.getByTestId('new-more').click();
   await page.getByTestId('new-copy').click();
   await expect(page.getByTestId('send-status')).toHaveText(/Copied a command/);
-  const copied = await app.evaluate(() => (globalThis as any).__companion.clipboard());
+  const copied = await app.evaluate(() => globalThis.__companion.clipboard());
   expect(copied).toMatch(new RegExp(`^cd '${cwd}' && claude "\\$\\(cat '${cwd}/\\.feedback/sketches/[^']+/prompt\\.md'\\)"$`));
 });
 
@@ -257,8 +253,8 @@ test('C4.1 through the CLI: draw, read and png against the running app', async (
   expect(text).toContain('Client');
   expect(text).toContain('Server');
   expect(text).toContain('Cache');
-  const json = JSON.parse((await cli(['read', '--json'])).stdout);
-  const ab = json.elements.find((e: any) => e.id === 'ab');
+  const json: { elements: { id: string }[] } = JSON.parse((await cli(['read', '--json'])).stdout);
+  const ab = json.elements.find((e) => e.id === 'ab');
   expect(ab).toMatchObject({ startId: 'a', endId: 'b', label: 'request', by: 'claude' });
 
   const out = join(project(), 'board.png');

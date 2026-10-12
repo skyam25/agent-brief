@@ -109,7 +109,7 @@ test('Write mode lists a session\'s outputs, opens them, and sends an edited cop
   if ((await page.getByTestId('mode-write').getAttribute('aria-selected')) !== 'true') await page.getByTestId('mode-write').click();
   const touched = page.getByTestId('outputs-touched-toggle');
   if ((await touched.getAttribute('aria-expanded')) !== 'true') await touched.click();
-  const opened = () => app.evaluate(() => [...(globalThis as any).__companion.openedOutputs]);
+  const opened = () => app.evaluate(() => [...globalThis.__companion.openedOutputs]);
   await page.getByTestId('output-row-1').click();
   await expect(page.frameLocator('[data-testid="review-frame"]').locator('h1')).toHaveText('Pricing');
   await page.getByTestId('review-external').click();

@@ -5,13 +5,13 @@ import { boardMenu, interactiveCanvas, launch, openNotes, penStroke, pickPen, pi
 
 test('C1.1 the hotkey toggle shows and hides the panel; test runs stay off screen and unfocused', async () => {
   const { app } = await launch(tempDataDir());
-  const c = (fn: string) => app.evaluate((_e, fn) => (globalThis as any).__companion.panel[fn](), fn);
+  const c = (fn: 'isVisible') => app.evaluate((_e, fn) => globalThis.__companion.panel[fn](), fn);
 
   // Tests never take the user's shortcut; they call what the shortcut calls.
   const shortcut = await app.evaluate(({ globalShortcut }) => {
-    const c = (globalThis as any).__companion;
+    const c = globalThis.__companion;
     return {
-      real: globalShortcut.isRegistered(c.hotkey.current),
+      real: globalShortcut.isRegistered(c.hotkey.current!),
       fake: [...c.registrar.registered.keys()],
     };
   });
@@ -19,11 +19,11 @@ test('C1.1 the hotkey toggle shows and hides the panel; test runs stay off scree
   expect(await c('isVisible')).toBe(false);
 
   // The fake registrar holds the same action the real shortcut would run.
-  await app.evaluate(() => (globalThis as any).__companion.registrar.registered.get('Control+Alt+S')());
+  await app.evaluate(() => globalThis.__companion.registrar.registered.get('Control+Alt+S')!());
   expect(await c('isVisible')).toBe(true);
 
   const placed = await app.evaluate(({ app, screen, BrowserWindow }) => {
-    const win = (globalThis as any).__companion.panel.win;
+    const win = globalThis.__companion.panel.win;
     const b = win.getBounds();
     const overlaps = screen
       .getAllDisplays()
@@ -37,14 +37,14 @@ test('C1.1 the hotkey toggle shows and hides the panel; test runs stay off scree
   });
   expect(placed).toEqual({ overlaps: false, focused: false, onTop: false, dock: false });
 
-  await app.evaluate(() => (globalThis as any).__companion.toggle());
+  await app.evaluate(() => globalThis.__companion.toggle());
   expect(await c('isVisible')).toBe(false);
 
   // Closing the window hides it; the app stays up.
-  await app.evaluate(() => (globalThis as any).__companion.toggle());
-  await app.evaluate(() => (globalThis as any).__companion.panel.win.close());
+  await app.evaluate(() => globalThis.__companion.toggle());
+  await app.evaluate(() => globalThis.__companion.panel.win.close());
   expect(await c('isVisible')).toBe(false);
-  expect(await app.evaluate(() => typeof (globalThis as any).__companion.toggle)).toBe('function');
+  expect(await app.evaluate(() => typeof globalThis.__companion.toggle)).toBe('function');
   await app.close();
 });
 
@@ -66,7 +66,7 @@ test('C1.4 boards, notes, panel size and the current board survive a restart', a
   await expect(page.getByTestId('board-picker')).toHaveText('Sprint ideas');
   await penStroke(cdp, { x: box.x + 300, y: box.y + 300 }, { x: box.x + 400, y: box.y + 400 }, 0.6);
   await page.getByTestId('notes').fill('second board notes');
-  await app.evaluate(() => (globalThis as any).__companion.panel.win.setSize(900, 640));
+  await app.evaluate(() => globalThis.__companion.panel.win.setSize(900, 640));
 
   const before = (await sceneElements(page)).filter((e) => !e.isDeleted).map((e) => e.id);
   expect(before).toHaveLength(1);
@@ -84,7 +84,7 @@ test('C1.4 boards, notes, panel size and the current board survive a restart', a
   await openNotes(page);
   expect((await sceneElements(page)).filter((e) => !e.isDeleted).map((e) => e.id)).toEqual(before);
   await expect(page.getByTestId('notes')).toHaveValue('second board notes');
-  const size = await app.evaluate(() => (globalThis as any).__companion.panel.win.getSize());
+  const size = await app.evaluate(() => globalThis.__companion.panel.win.getSize());
   expect(size).toEqual([900, 640]);
 
   await pickBoard(page, 'scratch');
@@ -129,7 +129,7 @@ test('renaming a board onto a taken name is refused and says why', async () => {
   await page.getByTestId('board-name').press('Enter');
   await expect(page.getByTestId('send-status')).toHaveText('Could not rename the board: a board named "scratch" exists');
   await expect(page.getByTestId('board-picker')).toHaveText('second');
-  const names = await app.evaluate(() => (globalThis as any).__companion.store.list().map((b: any) => b.name));
+  const names = await app.evaluate(() => globalThis.__companion.store.list().map((b) => b.name));
   expect(names).toEqual(['scratch', 'second']);
 
   await boardMenu(page, 'board-rename');
@@ -142,7 +142,7 @@ test('renaming a board onto a taken name is refused and says why', async () => {
 test('a board deletes from the board menu after a second click, and deleting the open one opens another', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
-  const names = () => app.evaluate(() => (globalThis as any).__companion.store.list().map((b: any) => b.name));
+  const names = () => app.evaluate(() => globalThis.__companion.store.list().map((b) => b.name));
   const row = (name: string) => page.getByTestId('board-menu').locator('li', { has: page.getByTestId('board-item').filter({ hasText: new RegExp(`^${name}$`) }) });
   for (const name of ['second', 'third']) {
     await boardMenu(page, 'board-new');

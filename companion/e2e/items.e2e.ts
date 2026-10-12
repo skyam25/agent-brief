@@ -45,8 +45,8 @@ test('Items mode tracks a session, shows its file, and sends decisions into it',
   await expect.poll(async () => (await session('s1')).trackItems).toBe(true);
   const itemsPath = (await session('s1')).itemsPath!;
   expect(itemsPath.endsWith(join('.feedback', 'items', 's1.md'))).toBe(true);
-  const briefs = await page.evaluate(() => (window as any).companion.listBriefs());
-  expect(briefs.find((b: any) => b.sessionId === 's1')).toMatchObject({ trackItems: true });
+  const briefs = await page.evaluate(() => window.companion.listBriefs());
+  expect(briefs.find((b) => b.sessionId === 's1')).toMatchObject({ trackItems: true });
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByText('No items yet.', { exact: false })).toBeVisible();
 
@@ -125,7 +125,7 @@ test("Items mode links each item's Out files and opens them inside the project o
   await expect(page.getByTestId('item-2').locator('.item-note')).toHaveCount(0);
   await page.screenshot({ path: join(RESULTS, 'items-outputs.png') });
 
-  const opened = () => app.evaluate(() => [...(globalThis as any).__companion.openedOutputs]);
+  const opened = () => app.evaluate(() => [...globalThis.__companion.openedOutputs]);
   await open.click();
   await expect.poll(opened).toEqual([join(cwd, 'src', 'Checkout.tsx')]);
   await page.getByTestId('output-1-0').click();
@@ -137,7 +137,7 @@ test("Items mode links each item's Out files and opens them inside the project o
   expect(await opened()).toHaveLength(2);
 
   // A path outside the project is refused even when it exists.
-  const outside = await page.evaluate(() => (window as any).companion.openItemOutput('s1', '../').catch((e: Error) => e.message));
+  const outside = await page.evaluate(() => window.companion.openItemOutput('s1', '../').catch((e: Error) => e.message));
   expect(outside).toContain('is outside the project');
   expect(await opened()).toHaveLength(2);
 
@@ -163,7 +163,7 @@ test('Items needs a session tab, and says how to get one when the session goes',
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: mkdtempSync(join(tmpdir(), 'project-')), title: 'Checkout' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await page.getByTestId('mode-items').click();
-  await app.evaluate(() => (globalThis as any).__companion.toggle());
+  await app.evaluate(() => globalThis.__companion.toggle());
   await showPanel(app, page);
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('mode-items')).toHaveAttribute('aria-selected', 'true');

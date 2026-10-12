@@ -1,15 +1,8 @@
 /** Owns the visible board: loading, autosave, notes, and the board requests main sends in. */
 
-import {
-  CaptureUpdateAction,
-  getSceneVersion,
-  newElementWith,
-  getVisibleSceneBounds,
-  restore,
-  serializeAsJSON,
-} from '@excalidraw/excalidraw';
+import { CaptureUpdateAction, getSceneVersion, newElementWith, restore, serializeAsJSON } from '@excalidraw/excalidraw';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
-import type { AppState, BinaryFiles, ExcalidrawImperativeAPI, NormalizedZoomValue } from '@excalidraw/excalidraw/types';
+import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import type { BoardLayout } from '../protocol';
 import type { BoardHost, BoardReply, BoardRequest, SendPayload } from '../shared/ipc';
 import { boxOf, union, type Shaped } from '../board/geometry';
@@ -18,10 +11,12 @@ import type { StrokeEvent } from '../voice/types';
 import { buildTimeline } from '../voice/timeline';
 import type { PlannedFile } from '../board/skeleton';
 import { shrinkImages, textOf } from './images';
-import { drawElements, readElements, removeElements, renderPng, updateElements } from './ops';
+import { drawElements, readElements, removeElements, updateElements } from './ops';
+import { renderPng } from './png';
 import { Recorder } from './recorder';
-import { applyPlan, imagesFor, isBusy, plan as planStack } from './stack';
+import { applyPlan, imagesFor, isBusy, joinGroup, plan as planStack } from './stack';
 import { StrokeLog, rebase } from './strokes';
+import { fitBoard, revealIfHidden } from './viewport';
 
 type El = ExcalidrawElement;
 
@@ -54,17 +49,6 @@ export function parseScene(json: string | null): LoadedScene {
  */
 async function loadFonts(text: string): Promise<void> {
   await Promise.all(['Excalifont', 'Xiaolai'].map((f) => document.fonts.load(`20px ${f}`, text).catch(() => [])));
-}
-
-/** Room above a frame for its name, which Excalidraw draws outside it. */
-const FRAME_NAME_ROOM = 24;
-
-/** How far Excalidraw's floating toolbar reaches down over the canvas, in screen pixels. */
-function toolbarInset(): number {
-  const root = document.querySelector('.excalidraw');
-  const bar = root?.querySelector('.App-toolbar');
-  if (!root || !bar) return 0;
-  return Math.max(0, bar.getBoundingClientRect().bottom - root.getBoundingClientRect().top);
 }
 
 /** A board to work on: the visible one, or one loaded from disk. */
@@ -187,29 +171,6 @@ export class BoardController {
     this.scheduleReflow();
   }
 
-  /** The stack group to add a paste to: the selected group, or the group of a selected picture. */
-  private selectedGroup(): string | undefined {
-    const api = this.api!;
-    const selected = api.getAppState().selectedElementIds;
-    const byId = new Map(api.getSceneElements().map((e) => [e.id, e]));
-    for (const id of Object.keys(selected)) {
-      const el = byId.get(id);
-      if (!el) continue;
-      if (isStackFrame(el as unknown as StackElement)) return el.id;
-      const frame = el.frameId ? byId.get(el.frameId) : undefined;
-      if (frame && isStackFrame(frame as unknown as StackElement)) return frame.id;
-    }
-    return undefined;
-  }
-
-  /** The stack group under a scene point. */
-  private groupAt(x: number, y: number): string | undefined {
-    const frame = this.api!
-      .getSceneElements()
-      .find((e) => isStackFrame(e as unknown as StackElement) && x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height);
-    return frame?.id;
-  }
-
   /**
    * Files dropped or pasted on a Stack board. One drop or paste is one group:
    * the group under the drop point or the selected group, else a new one at the end.
@@ -218,7 +179,7 @@ export class BoardController {
     return this.enqueue(async () => {
       const api = this.api;
       if (!api || files.length === 0) return;
-      const join = at ? this.groupAt(at.x, at.y) : this.selectedGroup();
+      const join = joinGroup(api.getSceneElements(), api.getAppState().selectedElementIds, at);
       const made = await imagesFor(files);
       const all = [...api.getSceneElementsIncludingDeleted(), ...made.elements];
       const ids = made.elements.map((e) => e.id);
@@ -228,7 +189,7 @@ export class BoardController {
       api.addFiles(Object.values(binaryFiles(made.files)));
       // Shows the whole group, with its number, rather than just the new pictures.
       const group = next.find((e) => e.id === ids[0])?.frameId;
-      this.revealIfHidden(group ? [group] : ids);
+      revealIfHidden(api, group ? [group] : ids);
     });
   }
 
@@ -344,13 +305,7 @@ export class BoardController {
     // Pictures Claude added while the board was hidden join the stack now.
     this.reflow();
     api.history.clear();
-    // Fits what the board holds without zooming past 100%. An empty board starts unzoomed, with the origin below the toolbar.
-    const live = loaded.elements.filter((e) => !e.isDeleted);
-    if (live.length) api.scrollToContent(live, { fitToViewport: true, viewportZoomFactor: 0.8, maxZoom: 1, animate: false });
-    else {
-      const scrollY = Math.round(toolbarInset() + FRAME_NAME_ROOM);
-      api.updateScene({ appState: { scrollX: 0, scrollY, zoom: { value: 1 as NormalizedZoomValue } }, captureUpdate: CaptureUpdateAction.NEVER });
-    }
+    fitBoard(api, loaded.elements.filter((e) => !e.isDeleted));
     await this.bridge.setCurrent(board);
     this.emit();
   }
@@ -379,25 +334,6 @@ export class BoardController {
         await this.bridge.saveBoard(board, JSON.stringify(withLayout(json, loaded.layout), null, 2));
       },
     };
-  }
-
-  /**
-   * Fits new elements in view unless all of them show clear of the toolbar,
-   * so the user sees what Claude drew.
-   */
-  private revealIfHidden(ids: string[]): void {
-    const api = this.api!;
-    const wanted = new Set(ids);
-    const drawn = api.getSceneElements().filter((e) => wanted.has(e.id));
-    if (drawn.length === 0) return;
-    const appState = api.getAppState();
-    const [minX, minY, maxX, maxY] = getVisibleSceneBounds(appState);
-    const top = minY + toolbarInset() / appState.zoom.value;
-    const inView = drawn.every((e) => {
-      const y = e.type === 'frame' ? e.y - FRAME_NAME_ROOM : e.y;
-      return e.x >= minX && e.x + e.width <= maxX && y >= top && e.y + e.height <= maxY;
-    });
-    if (!inView) api.scrollToContent(drawn, { fitToViewport: true, viewportZoomFactor: 0.8, maxZoom: 1, animate: true });
   }
 
   /** Builds the hand-off. Stops recording first so the last clip is complete. */
@@ -509,7 +445,7 @@ export class BoardController {
           const h = await this.sceneFor(a.board);
           const { next, response, files } = drawElements(h.elements, drawReq, a.batchId);
           await h.commit(next, files);
-          if (a.board === this.board) this.revealIfHidden(response.ids);
+          if (a.board === this.board) revealIfHidden(this.api!, response.ids);
           return response;
         }
         case 'update':

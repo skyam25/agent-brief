@@ -3,7 +3,7 @@
 import { convertToExcalidrawElements, newElementWith } from '@excalidraw/excalidraw';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { AppState } from '@excalidraw/excalidraw/types';
-import { planStack, type Arrival, type StackElement, type StackPlan } from '../board/stack';
+import { isStackFrame, planStack, type Arrival, type StackElement, type StackPlan } from '../board/stack';
 import type { PlannedFile } from '../board/skeleton';
 import { shrink } from './images';
 import { randomId } from './ops';
@@ -17,6 +17,28 @@ export const imageFiles = (files: FileList | null | undefined): File[] => Array.
 
 /** True while the user drags, resizes or draws, when moving things would fight the pointer. */
 export const isBusy = (s: AppState): boolean => s.selectedElementsAreBeingDragged || s.isResizing || s.isRotating || s.newElement !== null;
+
+/**
+ * The stack group a drop or paste joins: the group under `at`, or without
+ * `at` the selected group or the group of a selected picture.
+ */
+export function joinGroup(
+  elements: readonly El[],
+  selected: Readonly<Record<string, true>>,
+  at?: { x: number; y: number },
+): string | undefined {
+  const isFrame = (e: El | undefined) => !!e && isStackFrame(e as unknown as StackElement);
+  if (at) return elements.find((e) => isFrame(e) && at.x >= e.x && at.x <= e.x + e.width && at.y >= e.y && at.y <= e.y + e.height)?.id;
+  const byId = new Map(elements.map((e) => [e.id, e]));
+  for (const id of Object.keys(selected)) {
+    const el = byId.get(id);
+    if (!el) continue;
+    if (isFrame(el)) return el.id;
+    const frame = el.frameId ? byId.get(el.frameId) : undefined;
+    if (isFrame(frame)) return frame!.id;
+  }
+  return undefined;
+}
 
 export function plan(elements: readonly El[], arrival?: Arrival): StackPlan {
   return planStack(elements as unknown as StackElement[], { arrival, newId: randomId });
