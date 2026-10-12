@@ -6,6 +6,7 @@ import {
   IMAGE_FILE,
   SVG_FILE,
   SVG_RASTER_WIDTH,
+  UNCONFIRMED_NOTE,
   WIREFRAME_FILE,
   SHOW_PANE,
   SHOW_SECTION,
@@ -54,9 +55,12 @@ let hasRsvg: boolean | undefined
 let generation = 0
 let canImage = true
 let isProbed = false
+/** A transcript row's probe is waiting for its answer. */
+let isRowProbing = false
 let drawCause: DrawCause = 'background'
 let terminal = ''
 let inTmux = false
+let inHerdr = false
 
 /** How one transcript row or the pane shows its pictures. */
 type View = {
@@ -215,22 +219,43 @@ async function prepareItem($: EngineInterface, r: Requested): Promise<ShownItem>
   return { path, source, ...(await pngSize($, path, source)), title: r.title ?? baseName(source) }
 }
 
+/** The key of the band's clear pixel, drawn until a probe settles whether pictures draw here. */
+export const PROBE_KEY = 'picture-probe'
+
+/** Whether pictures still need a probe. */
+export const needsProbe = () => canImage && !isProbed
+
+/**
+ * Takes a probe's blit answer. Drawn, or drawing its alt, settles it; any
+ * other refusal (not mounted yet) leaves it open. Returns whether it settled.
+ */
+export function noteProbe(deny: string | undefined): boolean {
+  if (isProbed) return false
+  if (deny && !/alt/i.test(deny)) return false
+  isProbed = true
+  if (deny) {
+    canImage = false
+    drawCause = causeOf(inTmux, terminal, inHerdr)
+  }
+  return true
+}
+
 /** After a first draw, asks whether the picture really drew; if the terminal only shows the alt text, every picture becomes a notice. */
 function probe($: EngineInterface, site: string, key: string, file: string): void {
-  if (!canImage || isProbed) return
-  isProbed = true
-  void $.clock.sleep(250).then(
-    async () => {
+  if (!needsProbe() || isRowProbing) return
+  isRowProbing = true
+  void $.clock
+    .sleep(250)
+    .then(async () => {
       const r = await $.ui.blit({ requestId: site, key, source: { file, format: 'png' } })
-      if (r.deny && /alt/i.test(r.deny)) {
-        canImage = false
-        drawCause = causeOf(inTmux, terminal)
+      log($, `picture probe: ${r.deny ?? 'drew'}`)
+      if (noteProbe(r.deny) && !canImage) {
         $.ui.toast("Pictures can't show here: see the notice in the chat.")
         redraw($)
       }
-    },
-    () => undefined,
-  )
+    })
+    .catch(() => undefined)
+    .finally(() => (isRowProbing = false))
 }
 
 /** Sends every picture of a site to the terminal again. A row scrolled back into view may have lost them. */
@@ -491,6 +516,8 @@ export type ShowEnvironment = {
   isTmux: boolean
   /** tmux answered `off` to allow-passthrough, so no picture can get through. */
   isPassthroughOff: boolean
+  /** Inside a Herdr pane, where Claude Code draws no pictures. */
+  isHerdr?: boolean
   /** The node that runs the wireframe renderer. */
   nodePath: string
 }
@@ -504,6 +531,7 @@ export function startShow(env: ShowEnvironment): void {
   hasRsvg = undefined
   terminal = terminalOf(env.program, env.term)
   inTmux = env.isTmux
+  inHerdr = env.isHerdr === true
   canImage = !env.isPassthroughOff
   isProbed = env.isPassthroughOff
   drawCause = env.isPassthroughOff ? 'tmux' : 'background'
@@ -551,7 +579,11 @@ export function registerShow(on: On): void {
         ...(typeof input.board === 'string' && input.board ? { board: input.board } : {}),
       }
       void storeDir($).then(dir => (dir ? trimStore($, dir) : undefined))
-      const opening = canImage ? shownText(shown, cwd) : `Not shown: ${cantDraw(drawCause, shown.title, sessionId).claude} Don't say it was shown.`
+      const opening = !canImage
+        ? `Not shown: ${cantDraw(drawCause, shown.title, sessionId).claude} Don't say it was shown.`
+        : isProbed
+          ? shownText(shown, cwd)
+          : `${shownText(shown, cwd)} ${UNCONFIRMED_NOTE}`
       return { result: `${opening}\n${markLine(shown)}` }
     } catch (err) {
       const n = noticeOf(err, current.path !== undefined ? expandPath(current.path, cwd, home) : current.title ?? 'the wireframe', home)

@@ -60,6 +60,8 @@ export type World = {
   commands: string[]
   /** True makes every `fs.write` fail. */
   isWriteRefused: boolean
+  /** Environment variables beside HOME. */
+  env: Record<string, string>
   /** Answers each `process.run`; the default claims every mv and prints an ok ingest. */
   answer: (argv: readonly string[]) => { exitCode: number; stdout: string; stderr: string }
 }
@@ -74,6 +76,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
     tools: [],
     commands: [],
     isWriteRefused: false,
+    env: {},
     answer: argv => {
       if (argv[0] === 'mv') {
         const [, from, to] = argv
@@ -125,7 +128,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
     world.runs.push({ argv: e.argv, ...(e.init?.timeoutMs !== undefined ? { timeoutMs: e.init.timeoutMs } : {}) })
     return { value: { ...world.answer(e.argv), isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : world.env[e.name] }))
   on('session.cwd', () => ({ value: cwd }))
   on('ui.toast', ($, e) => {
     world.toasts.push(e.text)
