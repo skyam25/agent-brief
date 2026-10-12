@@ -1,5 +1,6 @@
 /** IPC between the main process and the panel renderer. */
 
+import type { DraftReview, ReviewPayload, ReviewRect } from './review';
 import type {
   BoardLayout,
   SessionHost,
@@ -73,6 +74,8 @@ export interface SendPayload {
   images?: DraftImage[];
   /** The project-relative file the draft was opened from. The prompt asks Claude to apply the draft to it. */
   sourcePath?: string;
+  /** Comments pinned to an HTML file. The prompt points Claude at review.md. */
+  review?: ReviewPayload;
 }
 
 /** A picture a draft carries, as the Send hands it over. */
@@ -90,6 +93,8 @@ export interface TextPayload {
   images?: DraftImage[];
   /** The project-relative file the draft was opened from. The prompt asks Claude to apply the draft to it. */
   sourcePath?: string;
+  /** Comments pinned to an HTML file. The prompt points Claude at review.md. */
+  review?: ReviewPayload;
 }
 
 /** What Send hands to main from either mode. */
@@ -116,6 +121,8 @@ export interface Draft {
   attachments?: Record<string, string>;
   /** The output file this draft was opened from, relative to the session's project. Send asks Claude to apply the draft to it. */
   source?: DraftSource;
+  /** Set when the draft reviews a session's HTML file. The body is the overall note. */
+  review?: DraftReview;
   /** Position in the Ready queue, lowest first. */
   rank: number;
   createdAt: number;
@@ -246,6 +253,8 @@ export interface NewNote {
   sessionId?: string;
   /** Set when the note is a copy of an output file the user opened from the Outputs list. */
   source?: DraftSource;
+  /** Set when the note reviews an HTML output the user opened from the Outputs list. */
+  review?: DraftReview;
 }
 
 /** A note /write reopens, with the session to file it under when it has none. */
@@ -393,6 +402,16 @@ export interface CompanionApi extends BoardHost {
   openOutput(sessionId: string, ref: string): Promise<void>;
   /** Hides the row until the mod writes that output again. */
   dismissOutput(sessionId: string, ref: string): Promise<void>;
+  /** Opens an output file in its default app, even one the panel can open itself. */
+  openOutputElsewhere(sessionId: string, ref: string): Promise<void>;
+  /** The address the review pane loads a session's HTML file from. */
+  reviewUrl(sessionId: string, path: string): Promise<string>;
+  /** A JPEG data URL of part of the panel, in window pixels. Undefined when nothing was captured. */
+  capturePanel(rect: ReviewRect): Promise<string | undefined>;
+  /** Transcribes one voice clip with ffmpeg and yap. */
+  transcribeClip(clip: { data: Uint8Array; mimeType: string }): Promise<{ text: string } | { error: string }>;
+  /** Opens an http or https link in the browser. */
+  openLink(url: string): Promise<void>;
 }
 
 export const CH = {
@@ -453,4 +472,9 @@ export const CH = {
   outputs: 'outputs:changed',
   openOutput: 'outputs:open',
   dismissOutput: 'outputs:dismiss',
+  openOutputElsewhere: 'outputs:open-elsewhere',
+  reviewUrl: 'review:url',
+  capturePanel: 'review:capture',
+  transcribeClip: 'review:transcribe',
+  openLink: 'review:open-link',
 } as const;

@@ -12,6 +12,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  protocol,
   session,
   shell,
   systemPreferences,
@@ -81,10 +82,16 @@ import {
   type Exec,
 } from './launch';
 import { Panel } from './panel';
+import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './review-protocol';
+import { cleanReview, isReviewable } from '../shared/review';
+import { transcribe } from '../voice/transcribe';
 import { Updater } from './updater';
 import { BoardStore, cleanName, migrateData, StateFile } from './store';
 
 const testMode = process.env.COMPANION_TEST === '1';
+
+// The review pane loads project HTML over its own scheme, so it needs standard URL rules and fetch.
+protocol.registerSchemesAsPrivileged([{ scheme: REVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
 /** Test runs stay off screen, out of the Dock and away from focus, unless COMPANION_TEST_VISIBLE=1. */
 const offscreen = testMode && process.env.COMPANION_TEST_VISIBLE !== '1';
@@ -158,7 +165,16 @@ async function composeFrom(p: SendPayload): Promise<{ input: DeliveryInput; warn
   });
   const images = deliveryImages(p.images);
   const sourcePath = cleanSourcePath(p.sourcePath);
-  return { input: { ...input, ...(images.length ? { images } : {}), ...(sourcePath ? { sourcePath } : {}) }, warnings };
+  const review = reviewOf(p);
+  return { input: { ...input, ...(images.length ? { images } : {}), ...(sourcePath ? { sourcePath } : {}), ...(review ? { review } : {}) }, warnings };
+}
+
+/** A Send's review, checked. Its path must be one the prompt may name. */
+function reviewOf(p: Outgoing): DeliveryInput['review'] {
+  const review = p.review && cleanReview(p.review);
+  if (!review || !cleanSourcePath(review.path)) return undefined;
+  const body = typeof p.review?.body === 'string' ? p.review.body : undefined;
+  return { ...review, ...(body?.trim() ? { body } : {}) };
 }
 
 /** A delivery from either mode. A written draft alone needs no voice work. */
@@ -166,12 +182,14 @@ async function composeOutgoing(p: Outgoing): Promise<{ input: DeliveryInput; war
   if (!isTextPayload(p)) return composeFrom(p);
   const images = deliveryImages(p.images);
   const sourcePath = cleanSourcePath(p.sourcePath);
+  const review = reviewOf(p);
   return {
     input: {
       boardName: '',
       text: p.text,
       ...(images.length ? { images } : {}),
       ...(sourcePath ? { sourcePath } : {}),
+      ...(review ? { review } : {}),
       mode: state.state.deliveryMode,
     },
     warnings: [],
@@ -288,9 +306,18 @@ async function start(): Promise<void> {
   });
 
   // The renderer may use the microphone, and nothing else that asks.
+  // Pages in the review pane get nothing.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
     const media = details as { mediaTypes?: string[] };
+    if (details.requestingUrl?.startsWith(`${REVIEW_SCHEME}:`)) return callback(false);
     callback(permission === 'media' && (media.mediaTypes ?? []).every((t) => t === 'audio'));
+  });
+
+  // The review pane: project files over their own scheme, and a frame that stays on it.
+  const reviewRoots = new ReviewRoots();
+  protocol.handle(REVIEW_SCHEME, (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
+  panel.win.webContents.on('will-frame-navigate', (e) => {
+    if (!e.isMainFrame && !e.url.startsWith(`${REVIEW_SCHEME}://`) && e.url !== 'about:blank') e.preventDefault();
   });
 
   const setPrompt = (text: string | undefined) => {
@@ -563,6 +590,10 @@ async function start(): Promise<void> {
     }
     if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) throw new Error('Agent Brief opens only http and https links');
     const { target } = projectFile(sessionId, ref);
+    if (isReviewable(target)) {
+      openReview(sessionId, ref);
+      return;
+    }
     if (!MARKDOWN.has(extname(target).toLowerCase())) {
       await openFile(target);
       return;
@@ -581,6 +612,66 @@ async function start(): Promise<void> {
     const note: NewNote = { text, id, sessionId, source: { path: ref } };
     send(CH.newNote, note);
     rememberBrief(sessionId, { draftId: id, last: 'draft' }, false);
+  };
+
+  /** Opens an HTML output in the review pane, reusing the review already open on that file. */
+  const openReview = (sessionId: string, ref: string) => {
+    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.review?.path === ref);
+    if (existing) {
+      const open: OpenDraft = { id: existing.id, sessionId };
+      send(CH.openDraft, open);
+      rememberBrief(sessionId, { draftId: existing.id, last: 'draft' }, false);
+      return;
+    }
+    const id = newDraftId();
+    const note: NewNote = { id, sessionId, review: { path: ref, comments: [] } };
+    send(CH.newNote, note);
+    rememberBrief(sessionId, { draftId: id, last: 'draft' }, false);
+  };
+  /** The address the review pane loads, after the same checks as opening the file. */
+  const reviewUrl = (sessionId: string, path: unknown): string => {
+    const { cwd } = projectFile(sessionId, path);
+    if (!isReviewable(String(path))) throw new Error(`${String(path)} is not an HTML file`);
+    return reviewRoots.urlFor(cwd, String(path).trim());
+  };
+  const LONGEST_CROP = 900;
+  /** Part of the panel as a JPEG data URL, long edge 900 px or less. */
+  const capturePanel = async (raw: unknown): Promise<string | undefined> => {
+    const r = raw as { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | null;
+    const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0);
+    const rect = { x: Math.max(0, n(r?.x)), y: Math.max(0, n(r?.y)), width: n(r?.width), height: n(r?.height) };
+    if (rect.width < 4 || rect.height < 4) return undefined;
+    let image = await panel.win.webContents.capturePage(rect);
+    if (image.isEmpty()) return undefined;
+    const { width, height } = image.getSize();
+    const scale = LONGEST_CROP / Math.max(width, height);
+    if (scale < 1) image = image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'good' });
+    return `data:image/jpeg;base64,${image.toJPEG(82).toString('base64')}`;
+  };
+  /** One voice clip as text, through ffmpeg and yap. */
+  const transcribeClip = async (clip: { data?: unknown; mimeType?: unknown }): Promise<{ text: string } | { error: string }> => {
+    const ffmpegPath = findTool('ffmpeg');
+    const yapPath = findTool('yap');
+    if (!ffmpegPath || !yapPath) return { error: `Voice needs ${!ffmpegPath ? 'ffmpeg' : 'yap'} to turn speech into text.` };
+    if (!(clip?.data instanceof Uint8Array)) return { error: 'No audio' };
+    let failed: string | undefined;
+    const said = await transcribe(
+      [{ name: `review-${Date.now()}.webm`, data: Buffer.from(clip.data), startMs: 0, mimeType: String(clip.mimeType ?? 'audio/webm') }],
+      { ffmpegPath, yapPath, tmpDir: join(app.getPath('temp'), 'agent-brief-voice'), onError: (_s, message) => (failed = message) },
+    );
+    if (failed) return { error: failed };
+    return { text: said.map((u) => u.text).join(' ') };
+  };
+  const openLink = async (raw: unknown) => {
+    let url: URL;
+    try {
+      url = new URL(String(raw));
+    } catch {
+      throw new Error('Not a link');
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Agent Brief opens only http and https links');
+    if (testMode) openedOutputs.push(url.href);
+    else await shell.openExternal(url.href);
   };
 
   // Each live session's mode. The mod sets it over PATCH /sessions/:id; the app only shows it.
@@ -1065,6 +1156,11 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.readOutputs, (_e, sessionId: string) => outputsInfo(sessionId));
   ipcMain.handle(CH.openOutput, (_e, sessionId: string, ref: unknown) => openOutput(sessionId, ref));
   ipcMain.handle(CH.dismissOutput, (_e, sessionId: string, ref: unknown) => dismissOutput(sessionId, ref));
+  ipcMain.handle(CH.openOutputElsewhere, (_e, sessionId: string, ref: unknown) => openFile(projectFile(sessionId, ref).target));
+  ipcMain.handle(CH.reviewUrl, (_e, sessionId: string, path: unknown) => reviewUrl(sessionId, path));
+  ipcMain.handle(CH.capturePanel, (_e, rect: unknown) => capturePanel(rect));
+  ipcMain.handle(CH.transcribeClip, (_e, clip: { data?: unknown; mimeType?: unknown }) => transcribeClip(clip));
+  ipcMain.handle(CH.openLink, (_e, url: unknown) => openLink(url));
   ipcMain.on(CH.setMode, (_e, mode: Mode) => {
     if (mode !== 'sketch' && mode !== 'write' && mode !== 'items') return;
     state.update({ mode });

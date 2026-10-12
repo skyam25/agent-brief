@@ -6,6 +6,7 @@ import { badRequest } from '../board/errors';
 import { ATTACHMENT_ID, sortDrafts } from '../shared/drafts';
 import type { Draft, DraftImage } from '../shared/ipc';
 import type { DeliveryInput } from '../server/contract';
+import { cleanReview } from '../shared/review';
 
 const ID = /^[\w-]{1,64}$/;
 /** The longest draft body, in characters. */
@@ -39,6 +40,7 @@ export function cleanDraft(raw: unknown): Draft {
   if (d.sessionId !== undefined && typeof d.sessionId !== 'string') throw badRequest('draft sessionId must be a session id');
   const attachments = cleanAttachments(d.attachments);
   const source = d.source && typeof d.source === 'object' && typeof d.source.path === 'string' && d.source.path.trim() ? { path: d.source.path } : undefined;
+  const review = d.review === undefined ? undefined : cleanReview(d.review);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   return {
     id: d.id,
@@ -48,6 +50,7 @@ export function cleanDraft(raw: unknown): Draft {
     ...(d.sessionId ? { sessionId: d.sessionId } : {}),
     ...(attachments ? { attachments } : {}),
     ...(source ? { source } : {}),
+    ...(review ? { review } : {}),
     rank: num(d.rank),
     createdAt: num(d.createdAt),
     updatedAt: num(d.updatedAt),

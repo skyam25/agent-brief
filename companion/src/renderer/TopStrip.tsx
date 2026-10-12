@@ -12,8 +12,10 @@ export function TopStrip(props: {
   elapsedMs?: number;
   /** Saved voice waits for the next Send. */
   hasVoice?: boolean;
-  /** Absent in Write mode, which has no mic. */
+  /** Absent in Write mode, which has no mic except while reviewing a page. */
   onMicrophone?: () => void;
+  /** The mic's tooltip when it is off. */
+  micLabel?: string;
 }) {
   return (
     <div className="top">
@@ -39,7 +41,7 @@ export function PromptBanner(props: { prompt?: string; onDismiss: () => void }) 
   );
 }
 
-function Mic(props: { recording?: boolean; elapsedMs?: number; hasVoice?: boolean; onMicrophone?: () => void }) {
+function Mic(props: { recording?: boolean; elapsedMs?: number; hasVoice?: boolean; onMicrophone?: () => void; micLabel?: string }) {
   if (props.recording) {
     return (
       <button
@@ -55,7 +57,7 @@ function Mic(props: { recording?: boolean; elapsedMs?: number; hasVoice?: boolea
       </button>
     );
   }
-  const label = props.hasVoice ? 'Record more voice. Send includes what you recorded.' : 'Record voice';
+  const label = props.micLabel ?? (props.hasVoice ? 'Record more voice. Send includes what you recorded.' : 'Record voice');
   return (
     <button
       className="ghost icon-button mic"
