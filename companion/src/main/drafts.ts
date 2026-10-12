@@ -3,7 +3,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { badRequest } from '../board/errors';
-import { ATTACHMENT_ID, sortDrafts } from '../shared/drafts';
+import { ATTACHMENT_ID } from '../shared/attachments';
+import { sortDrafts } from '../shared/drafts';
 import type { Draft, DraftImage } from '../shared/ipc';
 import type { DeliveryInput } from '../server/contract';
 import { cleanReview } from '../shared/review';

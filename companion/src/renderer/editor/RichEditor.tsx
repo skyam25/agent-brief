@@ -9,6 +9,7 @@ import type { SuggestionProps } from '@tiptap/suggestion';
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { Template } from '../../shared/ipc';
+import { BlockHandle, StarterChips } from './BlockHandle';
 import { FormatBar } from './FormatBar';
 import { ATT, AttachmentsContext, Picture } from './ImageView';
 import { ListFormatMenu } from './ListFormatMenu';
@@ -97,6 +98,7 @@ export function RichEditor(props: RichEditorProps) {
   const loaded = useRef<string | undefined>(undefined);
   const fileInput = useRef<HTMLInputElement>(null);
   const editorBox = useRef<Editor | null>(null);
+  const body = useRef<HTMLDivElement>(null);
 
   const [listMenu, setListMenu] = useState<ListMenuState | null>(null);
   const [slash, setSlash] = useState<SlashState | null>(null);
@@ -265,9 +267,20 @@ export function RichEditor(props: RichEditorProps) {
 
   return (
     <div className="rich-editor">
-      <AttachmentsContext.Provider value={props.attachments}>
-        <EditorContent editor={editor} className="rich-content" />
-      </AttachmentsContext.Provider>
+      <div className="rich-body" ref={body}>
+        <AttachmentsContext.Provider value={props.attachments}>
+          <EditorContent editor={editor} className="rich-content" />
+        </AttachmentsContext.Provider>
+        <BlockHandle editor={editor} box={body} hidden={!!slash} />
+        <StarterChips
+          editor={editor}
+          templates={props.templates}
+          onPick={(t) => {
+            editor.chain().focus('start').insertContent(t.body, { contentType: 'markdown' }).run();
+            selectInserted(editor, 0);
+          }}
+        />
+      </div>
       <FormatBar editor={editor} />
       <TableMenu editor={editor} />
       {listMenu && (

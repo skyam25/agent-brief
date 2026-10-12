@@ -96,3 +96,21 @@ export function findTool(
   }
   return undefined;
 }
+
+/** One voice clip as text, through ffmpeg and yap. */
+export async function transcribeClip(
+  clip: { data?: unknown; mimeType?: unknown },
+  tmpDir: string,
+): Promise<{ text: string } | { error: string }> {
+  const ffmpegPath = findTool('ffmpeg');
+  const yapPath = findTool('yap');
+  if (!ffmpegPath || !yapPath) return { error: `Voice needs ${!ffmpegPath ? 'ffmpeg' : 'yap'} to turn speech into text.` };
+  if (!(clip?.data instanceof Uint8Array)) return { error: 'No audio' };
+  let failed: string | undefined;
+  const said = await transcribe(
+    [{ name: `review-${Date.now()}.webm`, data: Buffer.from(clip.data), startMs: 0, mimeType: String(clip.mimeType ?? 'audio/webm') }],
+    { ffmpegPath, yapPath, tmpDir, onError: (_s, message) => (failed = message) },
+  );
+  if (failed) return { error: failed };
+  return { text: said.map((u) => u.text).join(' ') };
+}

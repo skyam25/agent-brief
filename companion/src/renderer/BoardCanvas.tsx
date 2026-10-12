@@ -28,21 +28,53 @@ export function BoardCanvas(props: {
   useEffect(() => {
     const pen = installPen(() => ref.current);
     // Keyboard shortcuts such as Cmd+Z reach Excalidraw only when it holds focus.
+    const container = () => ref.current?.querySelector<HTMLElement>('.excalidraw');
     const focusCanvas = () => {
-      if (document.activeElement === document.body) ref.current?.querySelector<HTMLElement>('.excalidraw')?.focus();
+      if (active.current && !editable(document.activeElement)) container()?.focus();
     };
     window.addEventListener('focus', focusCanvas);
+
+    // Cmd+A selects the board, not the panel's text, while focus sits on a control outside it.
+    const onKeyDown = (e: KeyboardEvent) => {
+      const focused = document.activeElement;
+      if (!active.current || !e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'a') return;
+      if (editable(focused) || ref.current?.contains(focused)) return;
+      const canvas = container();
+      if (!canvas) return;
+      e.preventDefault();
+      canvas.focus();
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, code: e.code, metaKey: true, bubbles: true, cancelable: true }));
+    };
+    document.addEventListener('keydown', onKeyDown, { capture: true });
+
+    // Excalidraw takes a paste only with focus inside it and its last known pointer over the canvas.
+    // While the board shows, any paste outside a text field is the board's, so this sets both up first.
+    let pointer: { x: number; y: number } | undefined;
+    const onPointerMove = (e: PointerEvent) => {
+      pointer = { x: e.clientX, y: e.clientY };
+    };
+    const aimAtCanvas = () => {
+      container()?.focus();
+      if (pointer && document.elementFromPoint(pointer.x, pointer.y) instanceof HTMLCanvasElement) return;
+      const box = ref.current?.querySelector('canvas.interactive')?.getBoundingClientRect();
+      if (!box) return;
+      const centre = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+      document.dispatchEvent(new PointerEvent('pointermove', { ...centre, pointerType: 'mouse', bubbles: true }));
+    };
+
     // Excalidraw inserts pasted images before its onPaste callback runs, so this listens to the event itself.
     // A Stack board takes image pastes and drops itself: Excalidraw keeps only the first file and places it at the pointer.
     const onPaste = (e: ClipboardEvent) => {
-      const files = imageFiles(e.clipboardData?.files);
       const focused = document.activeElement;
-      if (controller.layout === 'stack' && files.length && onBoard(focused) && !editable(focused)) {
+      const onBoard = active.current && !editable(focused);
+      const files = imageFiles(e.clipboardData?.files);
+      if (onBoard && controller.layout === 'stack' && files.length) {
         e.preventDefault();
         e.stopImmediatePropagation();
         void controller.addScreenshots(files);
         return;
       }
+      if (onBoard) aimAtCanvas();
       controller.afterPaste();
     };
     const onDrop = (e: DragEvent) => {
@@ -54,18 +86,26 @@ export function BoardCanvas(props: {
       const at = { x: (e.clientX - offsetLeft) / zoom.value - scrollX, y: (e.clientY - offsetTop) / zoom.value - scrollY };
       void controller.addScreenshots(files, at);
     };
-    const onBoard = (focused: Element | null) =>
-      active.current && (!focused || focused === document.body || !!ref.current?.contains(focused));
+    document.addEventListener('pointermove', onPointerMove, { capture: true, passive: true });
     document.addEventListener('paste', onPaste, { capture: true });
     ref.current?.addEventListener('drop', onDrop, { capture: true });
     const root = ref.current;
     return () => {
       pen.dispose();
       window.removeEventListener('focus', focusCanvas);
+      document.removeEventListener('keydown', onKeyDown, { capture: true });
+      document.removeEventListener('pointermove', onPointerMove, { capture: true });
       document.removeEventListener('paste', onPaste, { capture: true });
       root?.removeEventListener('drop', onDrop, { capture: true });
     };
   }, [controller]);
+
+  // Coming back from another view hands focus to the board.
+  useEffect(() => {
+    if (props.active && controller.api && !editable(document.activeElement)) {
+      ref.current?.querySelector<HTMLElement>('.excalidraw')?.focus();
+    }
+  }, [props.active, controller]);
 
   const onApi = useCallback(
     (api: ExcalidrawImperativeAPI) => {

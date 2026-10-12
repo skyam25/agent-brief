@@ -141,6 +141,73 @@ test('⌘B bolds a selection, and the format bar shows while text is selected', 
   await expect.poll(() => draftBody(page)).toBe('plain then **loud**');
 });
 
+test('the format bar turns a selected line into a heading, a list, and back to text', async () => {
+  const { page } = ctx;
+  await editor(page).click();
+  await page.keyboard.type('Goals');
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Shift+Home');
+
+  const kind = page.getByTestId('format-kind');
+  await expect(kind).toHaveText('Text');
+  await kind.click();
+  await expect(page.getByTestId('kind-menu')).toBeVisible();
+  await page.screenshot({ path: join(RESULTS, 'format-kind-menu.png') });
+  await page.getByTestId('kind-item').and(page.locator('[data-key="h2"]')).click();
+  await expect(page.getByTestId('kind-menu')).toHaveCount(0);
+  await expect(editor(page).locator('h2')).toHaveText('Goals');
+  await expect(kind).toHaveText('Heading 2');
+  await expect.poll(() => draftBody(page)).toBe('## Goals');
+
+  await kind.click();
+  await page.getByTestId('kind-item').and(page.locator('[data-key="bullet"]')).click();
+  await expect(editor(page).locator('ul > li')).toHaveText(['Goals']);
+  await expect.poll(() => draftBody(page)).toBe('- Goals');
+
+  await kind.click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('kind-menu')).toHaveCount(0);
+  await expect(editor(page)).toBeVisible();
+
+  await kind.click();
+  await page.getByTestId('kind-item').and(page.locator('[data-key="text"]')).click();
+  await expect.poll(() => draftBody(page)).toBe('Goals');
+});
+
+test('the gutter + opens the block menu on an empty line, and below a hovered block', async () => {
+  const { page } = ctx;
+  const plus = page.getByTestId('block-plus');
+  await editor(page).click();
+  await expect(plus).toBeVisible();
+  await page.screenshot({ path: join(RESULTS, 'block-plus-empty.png') });
+  await plus.click();
+  await expect(page.getByTestId('slash-menu')).toBeVisible();
+  await expect(plus).toHaveCount(0);
+  await page.getByTestId('slash-item').and(page.locator('[data-key="h1"]')).click();
+  await page.keyboard.type('Plan');
+  await expect(editor(page).locator('h1')).toHaveText('Plan');
+
+  await editor(page).locator('h1').hover();
+  await expect(plus).toBeVisible();
+  await plus.click();
+  await expect(page.getByTestId('slash-menu')).toBeVisible();
+  await page.getByTestId('slash-item').and(page.locator('[data-key="todo"]')).click();
+  await page.keyboard.type('write tests');
+  await expect.poll(() => draftBody(page)).toBe('# Plan\n\n- [ ] write tests');
+});
+
+test('an empty draft offers its templates as chips, and a chip fills the draft', async () => {
+  const { page } = ctx;
+  const chips = page.getByTestId('starter-chip');
+  await expect(chips).toHaveText(['Bug report', 'Feature', 'Plan first']);
+  await page.screenshot({ path: join(RESULTS, 'starter-chips.png') });
+  await chips.filter({ hasText: 'Bug report' }).click();
+  await expect(page.getByTestId('starter-chips')).toHaveCount(0);
+  await expect.poll(() => draftBody(page)).toMatch(/^Something is broken: \{\{what you saw\}\}/);
+  await page.keyboard.type('login loops');
+  await expect.poll(() => draftBody(page)).toMatch(/^Something is broken: login loops/);
+});
+
 test('/table inserts a table that grows by row and column, saved as a GFM table', async () => {
   const { page } = ctx;
   await editor(page).click();

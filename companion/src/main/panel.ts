@@ -4,6 +4,8 @@ import { app, BrowserWindow, screen } from 'electron';
 import { areaUnder, centredBounds } from './placement';
 import { OFFSCREEN, panelWindow } from './window-options';
 
+const LONGEST_CROP = 900;
+
 export interface PanelOptions {
   preload: string;
   /** Dev server URL, or undefined to load the built renderer file. */
@@ -98,5 +100,19 @@ export class Panel {
   toggle(): void {
     if (this.isVisible()) this.hide();
     else this.show();
+  }
+
+  /** Part of the panel as a JPEG data URL, long edge 900 px or less. */
+  async capture(raw: unknown): Promise<string | undefined> {
+    const r = raw as { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | null;
+    const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0);
+    const rect = { x: Math.max(0, n(r?.x)), y: Math.max(0, n(r?.y)), width: n(r?.width), height: n(r?.height) };
+    if (rect.width < 4 || rect.height < 4) return undefined;
+    let image = await this.win.webContents.capturePage(rect);
+    if (image.isEmpty()) return undefined;
+    const { width, height } = image.getSize();
+    const scale = LONGEST_CROP / Math.max(width, height);
+    if (scale < 1) image = image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'good' });
+    return `data:image/jpeg;base64,${image.toJPEG(82).toString('base64')}`;
   }
 }
