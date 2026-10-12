@@ -79,7 +79,9 @@ A send from Items mode is text alone, such as `Decisions on 2 items in .feedback
 ## Review Claude's outputs
 
 - Write mode lists each session's deliverables above its notes. Claude declares the thing you asked for, such as a strategy doc, a brief or a page, with the `declare_output` tool, and the row shows Drafting until Claude marks it Ready. Files Claude only touched sit under **Touched**, folded away. `/outputs` in the session prints the same list.
-- Click a Markdown output and it opens as a note filed under the session. Edit it, then press Send. Claude gets your copy and a prompt to apply the changes to the file. Other files open in their app, and an artifact or published page opens in the browser.
+- Click a Markdown output and it opens as a note filed under the session. Edit it, then press Send. Claude gets your copy and a prompt to apply the changes to the file.
+- Click an HTML output and it opens live in the review pane. Scroll and click through it as usual. Press C, or the Comment button, then click any element to pin a comment to it, or drag across text to quote it. Turn on the mic to talk instead of type, and what you say goes to the selected pin. Send hands Claude a `review.md` with each pin's element, quote and picture.
+- Other files open in their app, and an artifact or published page opens in the browser.
 - Hide hides a row until Claude writes or declares it again.
 - The mod keeps the list in `<project>/.feedback/outputs/<session>.json`. The app only reads it.
 

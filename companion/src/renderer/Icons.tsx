@@ -136,3 +136,31 @@ export const MoreIcon = () => (
     <circle cx="19" cy="12" r="1" />
   </Icon>
 );
+
+export const CommentIcon = () => (
+  <Icon>
+    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" />
+    <path d="M12 9v6M9 12h6" />
+  </Icon>
+);
+
+export const ReloadIcon = () => (
+  <Icon>
+    <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" />
+    <path d="M21 3v5h-5" />
+  </Icon>
+);
+
+export const ExternalIcon = () => (
+  <Icon>
+    <path d="M15 3h6v6" />
+    <path d="M10 14 21 3" />
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+  </Icon>
+);
+
+export const BackIcon = () => (
+  <Icon>
+    <path d="m15 18-6-6 6-6" />
+  </Icon>
+);

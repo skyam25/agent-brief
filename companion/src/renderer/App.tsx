@@ -24,6 +24,7 @@ import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
 import { PromptBanner, TopStrip } from './TopStrip';
 import { WriteView } from './WriteView';
+import { OVERALL, ReviewVoice } from './review-voice';
 
 interface Boot {
   info: InitInfo;
@@ -128,6 +129,19 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [newBoardRequest, setNewBoardRequest] = useState(0);
+  /** The review a recording started in, for words meant for its overall note. */
+  const voiceDraft = useRef<string>(undefined);
+  const [reviewVoice] = useState(
+    () =>
+      new ReviewVoice({
+        transcribe: (clip) => host.transcribeClip(clip),
+        onText: (target, text) => {
+          const id = target === OVERALL ? voiceDraft.current : book.drafts.find((d) => d.review?.comments.some((c) => c.id === target))?.id;
+          if (id) book.appendTo(id, target === OVERALL ? undefined : target, text);
+        },
+        onError: (message) => notify(message, 'error'),
+      }),
+  );
   const [mode, setModeState] = useState<Mode>(info.mode);
   const [focusRequest, setFocusRequest] = useState(0);
   const modeRef = useRef(mode);
@@ -142,6 +156,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     (next: Mode) => {
       setModeState(next);
       host.setMode(next);
+      if (next !== 'write') void reviewVoice.stop();
       if (next === 'sketch') return;
       // Only Sketch has a mic button, so a recording stops here and waits for the next sketch Send.
       if (controller.recorder.recording) void controller.recorder.stop();
@@ -155,7 +170,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       }
       setFocusRequest((n) => n + 1);
     },
-    [host, book, controller],
+    [host, book, controller, reviewVoice],
   );
   const openDraft = useCallback(
     (id: string) => {
@@ -198,10 +213,13 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       changeMode('sketch');
       setNewBoardRequest((n) => n + 1);
     });
-    host.onNewNote(({ text, id, sessionId, source }) => {
+    host.onNewNote(({ text, id, sessionId, source, review }) => {
       // A note for no session comes with the Send target cleared, so the Notes tab shows.
       if (!sessionId) setEndedActive(undefined);
-      book.create(text, id, sessionId, source);
+      // Main looks for an open review on disk, and a review edited a moment ago may not be there yet.
+      const kept = review && book.drafts.find((d) => d.sessionId === sessionId && d.review?.path === review.path);
+      if (kept) book.select(kept.id);
+      else book.create(text, id, sessionId, source, review);
       changeMode('write');
     });
     host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode('write')));
@@ -321,6 +339,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   }, [activeBrief, book]);
 
   const listBoards = useCallback(() => host.listBoards(), [host]);
+  const reviewError = useCallback((message: string) => notify(message, 'error'), [notify]);
+  const [reviewProps] = useState(() => ({ host, voice: reviewVoice, onError: reviewError }));
 
   /** The text whose empty slots were already pointed out, so a second Send goes through. */
   const slotsWarned = useRef<string>(undefined);
@@ -357,6 +377,15 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       };
     }
     const draft = book.selected;
+    if (draft?.review) {
+      if (!draft.review.comments.length && !draft.body.trim()) return 'Pin a comment first.';
+      // Words still turning into text land before the Send reads the draft.
+      await reviewVoice.stop();
+      await book.flush();
+      const d = book.get(draft.id) ?? draft;
+      const review = { ...d.review!, ...(d.body.trim() ? { body: d.body } : {}) };
+      return { payload: { text: d.body, draftId: d.id, review, ...fromDraft(d) }, clearsBoard: false, sent: { body: d.body } };
+    }
     if (!draft || (!draft.body.trim() && !draft.board)) return 'Write something first.';
     const unfilled = checkSlots(draft.body);
     if (unfilled) {
@@ -431,7 +460,11 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   /** An empty note says so before any session is picked. */
   const openChooser = (open: boolean) => {
     const draft = book.selected;
-    if (open && modeRef.current === 'write' && (!draft || (!draft.body.trim() && !draft.board))) {
+    if (open && modeRef.current === 'write' && draft?.review && !draft.review.comments.length && !draft.body.trim()) {
+      notify('Pin a comment first.');
+      return;
+    }
+    if (open && modeRef.current === 'write' && !draft?.review && (!draft || (!draft.body.trim() && !draft.board))) {
       notify('Write something first.');
       return;
     }
@@ -443,10 +476,19 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     setChooserOpen(open);
   };
 
-  const recording = useSyncExternalStore(
+  const reviewing = useSyncExternalStore(
+    (fn) => book.subscribe(fn),
+    () => !!book.selected?.review,
+  ) && mode === 'write';
+  const reviewRecording = useSyncExternalStore(
+    (fn) => reviewVoice.subscribe(fn),
+    () => reviewVoice.recording,
+  );
+  const sketchRecording = useSyncExternalStore(
     (fn) => controller.recorder.subscribe(fn),
     () => controller.recorder.recording,
   );
+  const recording = reviewing ? reviewRecording : sketchRecording;
   const hasVoice = useSyncExternalStore(
     (fn) => controller.recorder.subscribe(fn),
     () => controller.recorder.segments.length > 0,
@@ -457,7 +499,30 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     const timer = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(timer);
   }, [recording]);
-  const elapsedMs = recording && controller.recorder.since !== undefined ? Math.max(0, now - controller.recorder.since) : 0;
+  const since = reviewing ? reviewVoice.since : controller.recorder.since;
+  const elapsedMs = recording && since !== undefined ? Math.max(0, now - since) : 0;
+
+  // In a review the mic talks to the pins: what you say goes to the selected comment.
+  const toggleReviewVoice = async () => {
+    if (reviewVoice.recording) {
+      await reviewVoice.stop();
+      return;
+    }
+    const access = await host.requestMicrophone();
+    if (!access.granted) {
+      notify(MIC_DENIED, 'error');
+      return;
+    }
+    const draft = book.selected;
+    if (!draft?.review || modeRef.current !== 'write') return;
+    voiceDraft.current = draft.id;
+    try {
+      await reviewVoice.start(reviewVoice.target);
+      notify('Listening. What you say goes to the selected comment, and to each new pin.');
+    } catch (err) {
+      notify(`Could not start the microphone: ${(err as Error).message}`, 'error');
+    }
+  };
 
   // The mic button records voice for the next Send. It asks macOS first and says why when refused.
   const toggleRecording = async () => {
@@ -606,8 +671,9 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
           }
           recording={recording}
           elapsedMs={elapsedMs}
-          hasVoice={hasVoice}
-          onMicrophone={mode === 'sketch' ? () => void toggleRecording() : undefined}
+          hasVoice={!reviewing && hasVoice}
+          onMicrophone={mode === 'sketch' ? () => void toggleRecording() : reviewing ? () => void toggleReviewVoice() : undefined}
+          micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
         />
       </header>
       <BriefTabs
@@ -650,6 +716,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
             outputs={outputs}
             onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
             onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
+            review={reviewProps}
           />
         )}
         {mode === 'items' && (

@@ -11,7 +11,10 @@ import { newPictureId } from './editor/pictures';
 import { SlotArea } from './SlotArea';
 import { useEscape, usePointerOutside, useStore } from './hooks';
 import type { OutputsStore } from './outputs';
+import { ReviewView, type ReviewDraft, type ReviewHost } from './ReviewView';
+import type { ReviewVoice } from './review-voice';
 import type { TemplateShelf } from './templates';
+import { baseName, commentCount } from '../shared/review';
 
 /** `5m`, `3h`, or a date, for the list. */
 export function ago(ms: number, now = Date.now()): string {
@@ -51,6 +54,8 @@ export function WriteView(props: {
   onOpenOutput: (sessionId: string, ref: string) => void;
   /** Hides an output until Claude writes it again. */
   onDismissOutput: (sessionId: string, ref: string) => void;
+  /** What the review pane needs, for a draft that reviews an HTML output. */
+  review: { host: ReviewHost; voice: ReviewVoice; onError: (message: string) => void };
 }) {
   const book = useStore(props.book);
   const shelf = useStore(props.shelf);
@@ -113,9 +118,12 @@ export function WriteView(props: {
     props.onFiled?.(sessionId ? (filedTab(moved, props.tabs)?.title ?? 'that session') : 'Notes');
   };
 
+  // A review takes the whole view, for the page's sake. The list stays mounted, so it comes back as it was.
+  const reviewing = !!selected?.review && !template;
+
   return (
-    <div className="write" data-testid="write">
-      <nav className="draft-list" aria-label="Drafts">
+    <div className={reviewing ? 'write reviewing' : 'write'} data-testid="write">
+      <nav className="draft-list" aria-label="Drafts" hidden={reviewing}>
         <div className="list-head">
           <input
             type="search"
@@ -208,7 +216,18 @@ export function WriteView(props: {
           </section>
         </div>
       </nav>
-      {template ? (
+      {reviewing ? (
+        <ReviewView
+          key={selected.id}
+          host={props.review.host}
+          book={props.book}
+          draft={selected as ReviewDraft}
+          voice={props.review.voice}
+          onClose={() => book.select(undefined)}
+          onSend={props.onSend}
+          onError={props.review.onError}
+        />
+      ) : template ? (
         <TemplateEditor
           key={template.id}
           shelf={shelf}
@@ -433,8 +452,8 @@ function DraftRow(props: {
 }) {
   const { draft: d, drag } = props;
   const body = plainSlots(d.body);
-  const title = draftTitle(body) || 'Empty note';
-  const preview = draftPreview(body);
+  const title = d.review ? `Review of ${baseName(d.review.path)}` : draftTitle(body) || 'Empty note';
+  const preview = d.review ? commentCount(d.review.comments.length) : draftPreview(body);
   const filed = filedTab(d, props.tabs);
   return (
     <li
@@ -461,7 +480,7 @@ function DraftRow(props: {
         )}
         <span className="lines">
           <span className="title-line">
-            <span className={d.body.trim() ? 'title' : 'title muted'}>{title}</span>
+            <span className={d.body.trim() || d.review ? 'title' : 'title muted'}>{title}</span>
             <span className="muted when">{ago(d.updatedAt)}</span>
           </span>
           <span className="muted preview">
