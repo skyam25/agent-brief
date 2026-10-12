@@ -66,17 +66,25 @@ export const DOCS: Record<string, Doc> = {
     about: 'Removes elements by id. Unknown ids are skipped.',
     example: 'agent-brief delete a b',
   },
+  'herdr-pictures': {
+    usage: 'agent-brief herdr-pictures [on|off|status]',
+    about: 'Lets Claude Code draw pictures in Herdr panes. "on" adds a marked block to your zsh and bash startup files, and a fish conf.d file, that sets CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1 only when HERDR_ENV is set. "off" removes it. "status" shows each file and this shell.',
+    example: 'agent-brief herdr-pictures on',
+  },
 };
+
+/** Commands that use no board and print no JSON. */
+const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures']);
 
 export function commandHelp(name: string): string {
   const d = DOCS[name];
-  const options = name === 'status' || name === 'sessions' || name === 'boards' ? '' : COMMON;
+  const options = NO_COMMON.has(name) ? '' : COMMON;
   return `${d.usage}\n\n${d.about}\n${options}\nExample:\n  ${d.example.replace(/\n/g, '\n  ')}\n`;
 }
 
 export function topHelp(): string {
   const rows = Object.entries(DOCS)
-    .map(([name, d]) => `  ${name.padEnd(10)}${d.about.split('. ')[0].replace(/\.$/, '')}`)
+    .map(([name, d]) => `  ${name.padEnd(16)}${d.about.split('. ')[0].replace(/\.$/, '')}`)
     .join('\n');
   return `agent-brief - draw on and read the Agent Brief sketch board
 
@@ -84,7 +92,7 @@ Usage: agent-brief <command> [options]
 
 Commands:
 ${rows}
-  help      Shows this text. "agent-brief <command> --help" shows one command.
+  help            Shows this text. "agent-brief <command> --help" shows one command.
 
 Draw example:
   ${DRAW_EXAMPLE.replace(/\n/g, '\n  ')}

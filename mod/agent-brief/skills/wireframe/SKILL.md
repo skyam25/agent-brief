@@ -36,7 +36,7 @@ convention (a `docs/`, `design/`, or `.wireframes/` dir), follow that instead.
 
 The `show_image` tool draws a wireframe inline in the user's terminal (Ghostty or kitty). Pass the DSL block as `wireframe`, with a short `title`. The tool checks and renders it, keeps the `.wireframe` and `.svg` in `<project>/.feedback/shown/`, and draws the picture in the chat with Open and Copy path buttons. A block that fails to parse comes back as an error naming the line, so fix the block and call again.
 
-To offer alternatives, call `show_image` once with `options`, 2 to 4 entries each with `wireframe` and a `title`. The user switches between them, sees them side by side, and presses Pick, which puts "Go with option 2 (Title)" in their prompt box. Vary the layout across options, not only the copy.
+To offer alternatives, call `show_image` once with a `title` for the choice and `options`, 2 to 4 entries each with `wireframe` and a `title`. Leave letters out of the option titles, because the sheet letters them A to D. The user sees them side by side, opens one alone from its tab, and presses Pick, which puts "Go with option B (Title)" in their prompt box. Vary the layout across options, not only the copy.
 
 Write files under `wireframes/` (the loop below) when the user wants to keep the mockup, drop it in a doc or PR, or asked for a file. For a quick look, or a choice between directions, show it in the chat and skip the files.
 

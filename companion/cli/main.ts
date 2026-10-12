@@ -17,6 +17,7 @@ import {
 } from '../src/protocol';
 import { formatBoards, formatRead, formatSessions, formatStatus } from './format';
 import { commandHelp, DOCS, topHelp } from './help';
+import { apply, FORCE_VAR, isOn, shellFiles } from './herdr';
 import { ApiError, call, callJson, NotRunningError } from './http';
 import { fitSize, loadImage } from './image';
 import { InputError, parseRegion, validateDraw, validateUpdates } from './validate';
@@ -31,6 +32,8 @@ export interface IO {
   cwd?: string;
   /** Clock for default file names. */
   now?: () => Date;
+  /** Home directory for shell setup. Defaults to os.homedir(). */
+  home?: string;
 }
 
 export const NOT_RUNNING_MESSAGE =
@@ -204,7 +207,45 @@ function regionQuery(ctx: Ctx, extra: string[] = []): string {
   return q ? `?${q}` : '';
 }
 
+/** Shows a path under the home directory as ~/... */
+const tilde = (home: string, p: string) => (p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p);
+
 const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
+  async 'herdr-pictures'(ctx) {
+    const action = ctx.positional[0] ?? 'status';
+    if (action !== 'on' && action !== 'off' && action !== 'status') {
+      throw new UsageError(`herdr-pictures takes on, off or status, got "${action}"`);
+    }
+    const home = ctx.io.home ?? os.homedir();
+    const files = shellFiles(ctx.io.env, home);
+    const shown = (p: string) => tilde(home, p);
+
+    if (action === 'status') {
+      const lines = await Promise.all(files.map(async (f) => `${(await isOn(f)) ? 'on ' : 'off'}  ${shown(f.path)}`));
+      lines.push(`${ctx.io.env[FORCE_VAR] ? 'on ' : 'off'}  this shell`);
+      ctx.out(lines.join('\n'));
+      return;
+    }
+
+    const on = action === 'on';
+    const lines: string[] = [];
+    for (const f of files) {
+      const change = await apply(f, on);
+      const verb = { added: 'added to', already: 'already in', removed: 'removed from', absent: 'not in' }[change];
+      lines.push(`${verb} ${shown(f.path)}`);
+    }
+    if (on) {
+      lines.push(
+        '',
+        'New Herdr panes pick this up. Restart Claude in a new pane, or in this one after running:',
+        `  export ${FORCE_VAR}=1`,
+      );
+    } else {
+      lines.push('', 'New Herdr panes no longer force pictures on.');
+    }
+    ctx.out(lines.join('\n'));
+  },
+
   async status(ctx) {
     const health = await callJson<Health>(ctx.socket, 'GET', '/health');
     show(ctx, health, formatStatus);
