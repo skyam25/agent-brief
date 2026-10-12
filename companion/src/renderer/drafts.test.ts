@@ -78,6 +78,18 @@ describe('DraftBook', () => {
     expect(host.disk.get(filed.id)).not.toHaveProperty('sessionId');
   });
 
+  it('keeps the output file a note was copied from, through edits and saves', async () => {
+    const host = fakeHost();
+    const book = new DraftBook(host, () => t++);
+    book.create();
+    const copy = book.create('# Pricing', 'out-1', 's1', { path: 'docs/pricing.md' });
+    expect(copy.id).toBe('out-1');
+    expect(book.selected?.source).toEqual({ path: 'docs/pricing.md' });
+    book.edit(copy.id, '# Pricing, revised');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.disk.get('out-1')).toMatchObject({ sessionId: 's1', source: { path: 'docs/pricing.md' } });
+  });
+
   it('keeps its own filing over disk while that filing is unsaved', async () => {
     const host = fakeHost([saved('mine')]);
     const book = new DraftBook(host, () => t++);

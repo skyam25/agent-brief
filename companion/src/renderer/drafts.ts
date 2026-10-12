@@ -1,7 +1,7 @@
 /** Holds the drafts Write mode shows, with the open one and debounced saves. */
 
 import { newDraftId, referencedImages, sortDrafts } from '../shared/drafts';
-import type { CompanionApi, Draft } from '../shared/ipc';
+import type { CompanionApi, Draft, DraftSource } from '../shared/ipc';
 
 export const DRAFT_SAVE_MS = 400;
 /** How long a failed save waits before it tries again. */
@@ -112,14 +112,16 @@ export class DraftBook {
   /**
    * Starts a note filed under `sessionId`, or unfiled, and opens it. Reuses the
    * open note when it is still empty and filed the same way, unless main asked
-   * for a note with another `id`, which it keeps for a session.
+   * for a note with another `id`, which it keeps for a session. A `source` marks
+   * the note as a copy of that output file.
    */
-  create(body = '', id?: string, sessionId?: string): Draft {
+  create(body = '', id?: string, sessionId?: string, source?: DraftSource): Draft {
     const open = this.selected;
-    if (open && isEmpty(open) && !body && open.sessionId === sessionId && (id === undefined || open.id === id)) return open;
+    if (open && isEmpty(open) && !body && !source && open.sessionId === sessionId && (id === undefined || open.id === id)) return open;
     const t = this.now();
     const draft: Draft = { id: id ?? newDraftId(t), body, status: 'note', rank: 0, createdAt: t, updatedAt: t };
     if (sessionId) draft.sessionId = sessionId;
+    if (source) draft.source = source;
     this.drafts = sortDrafts([draft, ...this.drafts]);
     this.select(draft.id);
     if (body) this.save(draft.id);

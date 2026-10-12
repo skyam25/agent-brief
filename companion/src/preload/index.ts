@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { CH, type BoardRequest, type CompanionApi, type ItemsDocInfo, type NewNote, type OpenDraft, type SessionBriefEntry } from '../shared/ipc';
+import { CH, type BoardRequest, type CompanionApi, type ItemsDocInfo, type NewNote, type OpenDraft, type OutputsInfo, type SessionBriefEntry } from '../shared/ipc';
 
 const api: CompanionApi = {
   init: () => ipcRenderer.invoke(CH.init),
@@ -58,6 +58,10 @@ const api: CompanionApi = {
   saveDecisions: (sessionId, decisions) => ipcRenderer.invoke(CH.saveDecisions, sessionId, decisions),
   openItemOutput: (sessionId, path) => ipcRenderer.invoke(CH.openItemOutput, sessionId, path),
   resumeSession: (sessionId, via) => ipcRenderer.invoke(CH.resumeSession, sessionId, via),
+  readOutputs: (sessionId) => ipcRenderer.invoke(CH.readOutputs, sessionId),
+  onOutputs: (fn) => ipcRenderer.on(CH.outputs, (_e, info: OutputsInfo) => fn(info)),
+  openOutput: (sessionId, ref) => ipcRenderer.invoke(CH.openOutput, sessionId, ref),
+  dismissOutput: (sessionId, ref) => ipcRenderer.invoke(CH.dismissOutput, sessionId, ref),
 };
 
 contextBridge.exposeInMainWorld('companion', api);

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SessionBriefEntry } from '../shared/ipc';
-import { shortPath } from '../shared/sessions';
+import { modeLabel, shortPath } from '../shared/sessions';
 import { CheckIcon, ChevronIcon, CloseIcon, NotesIcon } from './Icons';
 import { ago } from './WriteView';
 
@@ -129,6 +129,7 @@ function Tab(props: {
       >
         <span className={b.isLive ? 'dot live' : 'dot'} aria-label={state} />
         <span className="title">{b.title}</span>
+        <ModeChip brief={b} />
         {b.hasContent && (
           <span className="unsent" title="Not sent yet" aria-label="Not sent yet" data-testid="brief-unsent">
             •
@@ -145,6 +146,17 @@ function Tab(props: {
         <CloseIcon />
       </button>
     </div>
+  );
+}
+
+/** The session's mode, mirrored from Claude Code. The panel only shows it. */
+function ModeChip(props: { brief: SessionBriefEntry }) {
+  const label = modeLabel(props.brief.mode, props.brief.fidelity);
+  if (!label) return null;
+  return (
+    <span className="mode-chip" title={`${label} mode`} data-testid="brief-mode">
+      {label}
+    </span>
   );
 }
 
@@ -192,6 +204,7 @@ function BriefList(props: {
                 <span>
                   {b.title}
                   {b.hasContent && <span className="unsent"> •</span>}
+                  <ModeChip brief={b} />
                 </span>
                 <span className="muted">{b.cwd ? shortPath(b.cwd, props.home) : b.isLive ? 'Running' : 'Ended'}</span>
               </span>

@@ -19,8 +19,8 @@ export type FakeCompanion = {
   isAckBroken: boolean
   /** True answers GET and PATCH /sessions/:id with 404, like an app before 0.2.6. */
   isPreTrackingApp: boolean
-  /** Sessions the app knows, by id, with their item tracking. */
-  sessions: Map<string, { cwd: string; trackItems: boolean }>
+  /** Sessions the app knows, by id, with their item tracking and the mode the mod mirrored. */
+  sessions: Map<string, { cwd: string; trackItems: boolean; mode?: string; fidelity?: string }>
   /** The prompt box. */
   box: { text: string; cursor: number }
   fills: { text: string; mode: string }[]
@@ -120,14 +120,21 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
     if (path === '/sessions' && method === 'POST') {
       const info = JSON.parse(text!) as { sessionId: string; cwd: string }
       const known = fake.sessions.get(info.sessionId)
-      fake.sessions.set(info.sessionId, { cwd: info.cwd, trackItems: known?.trackItems ?? false })
+      fake.sessions.set(info.sessionId, { ...known, cwd: info.cwd, trackItems: known?.trackItems ?? false })
       return reply(200, { sessions: [] })
     }
     const sessionId = /^\/sessions\/([^/]+)$/.exec(path)?.[1]
     if (sessionId !== undefined && (method === 'GET' || method === 'PATCH')) {
       const known = fake.sessions.get(decodeURIComponent(sessionId))
       if (fake.isPreTrackingApp || !known) return reply(404, { error: 'not found', code: 'not_found' })
-      if (method === 'PATCH') known.trackItems = (JSON.parse(text!) as { trackItems: boolean }).trackItems
+      if (method === 'PATCH') {
+        const patch = JSON.parse(text!) as { trackItems?: boolean; mode?: string; fidelity?: string }
+        if (patch.trackItems !== undefined) known.trackItems = patch.trackItems
+        if (patch.mode !== undefined) {
+          known.mode = patch.mode
+          known.fidelity = patch.fidelity
+        }
+      }
       return reply(200, {
         sessionId,
         cwd: known.cwd,

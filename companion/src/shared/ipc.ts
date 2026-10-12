@@ -7,7 +7,10 @@ import type {
   DrawRequest,
   DrawResponse,
   MutateResponse,
+  OutputRecord,
+  PrototypeFidelity,
   ReadResponse,
+  SessionMode,
   SessionsResponse,
   UpdateRequest,
 } from '../protocol';
@@ -65,6 +68,8 @@ export interface SendPayload {
   draftId?: string;
   /** The pictures the draft text references, as `att:<id>`. */
   images?: DraftImage[];
+  /** The project-relative file the draft was opened from. The prompt asks Claude to apply the draft to it. */
+  sourcePath?: string;
 }
 
 /** A picture a draft carries, as the Send hands it over. */
@@ -80,6 +85,8 @@ export interface TextPayload {
   draftId?: string;
   /** The pictures the text references, as `att:<id>`. */
   images?: DraftImage[];
+  /** The project-relative file the draft was opened from. The prompt asks Claude to apply the draft to it. */
+  sourcePath?: string;
 }
 
 /** What Send hands to main from either mode. */
@@ -104,10 +111,17 @@ export interface Draft {
   sessionId?: string;
   /** Pictures pasted into the draft, by id. Each is a data URL, long edge 1600 px or less. The body references one as `![alt](att:<id>)`. */
   attachments?: Record<string, string>;
+  /** The output file this draft was opened from, relative to the session's project. Send asks Claude to apply the draft to it. */
+  source?: DraftSource;
   /** Position in the Ready queue, lowest first. */
   rank: number;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Where a draft came from, when it is a copy of a session's output file. */
+export interface DraftSource {
+  path: string;
 }
 
 export type Theme = 'light' | 'dark';
@@ -227,6 +241,8 @@ export interface NewNote {
   id?: string;
   /** The session the note is filed under, when /write or the Write button opened it for one. */
   sessionId?: string;
+  /** Set when the note is a copy of an output file the user opened from the Outputs list. */
+  source?: DraftSource;
 }
 
 /** A note /write reopens, with the session to file it under when it has none. */
@@ -259,6 +275,10 @@ export interface SessionBriefEntry {
   hasContent: boolean;
   /** The user asked Claude to keep an items file for this session. */
   trackItems?: boolean;
+  /** The live session's mode, mirrored from the mod. Absent in default mode. */
+  mode?: SessionMode;
+  /** The prototype fidelity, present only with `mode: 'prototype'`. */
+  fidelity?: PrototypeFidelity;
   /** Where the session ran, kept for ended sessions too. */
   host?: SessionHost;
   /** For an ended session with a known folder: `cd <cwd> && claude --resume <sessionId>`. */
@@ -273,6 +293,17 @@ export interface ItemsDocInfo {
   /** False until Claude writes the file. */
   exists: boolean;
   doc: ItemsDoc;
+}
+
+/** A session's outputs file as the panel shows it. */
+export interface OutputsInfo {
+  sessionId: string;
+  /** `<cwd>/.feedback/outputs/<sessionId>.json`. */
+  path: string;
+  /** False until the mod writes the file. */
+  exists: boolean;
+  /** Well-formed records, dismissed ones left out, declared first and newest on top. */
+  outputs: OutputRecord[];
 }
 
 export interface CompanionApi extends BoardHost {
@@ -347,6 +378,18 @@ export interface CompanionApi extends BoardHost {
   resumeSession(sessionId: string, via: Launcher): Promise<SendResult>;
   /** Opens a file an item names on an `Out:` line. Rejects a path outside the session's folder or one that does not exist. */
   openItemOutput(sessionId: string, path: string): Promise<void>;
+  /** The session's outputs file, parsed. Undefined for a session the app does not know. */
+  readOutputs(sessionId: string): Promise<OutputsInfo | undefined>;
+  /** Fires when a live session's outputs file changes on disk, or a dismissal changes the list. */
+  onOutputs(fn: (info: OutputsInfo) => void): void;
+  /**
+   * Opens an output. A markdown file opens as a note filed under the session, with `source` set,
+   * reusing the note already opened from it. Other files open in their app, after the same checks
+   * as `openItemOutput`. An http(s) URL opens in the browser.
+   */
+  openOutput(sessionId: string, ref: string): Promise<void>;
+  /** Hides the row until the mod writes that output again. */
+  dismissOutput(sessionId: string, ref: string): Promise<void>;
 }
 
 export const CH = {
@@ -403,4 +446,8 @@ export const CH = {
   saveDecisions: 'items:decide',
   openItemOutput: 'items:open-output',
   resumeSession: 'sessions:resume',
+  readOutputs: 'outputs:read',
+  outputs: 'outputs:changed',
+  openOutput: 'outputs:open',
+  dismissOutput: 'outputs:dismiss',
 } as const;

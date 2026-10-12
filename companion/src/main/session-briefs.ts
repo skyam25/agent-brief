@@ -16,6 +16,11 @@ export interface SessionBrief {
   last?: 'board' | 'draft';
   /** The user asked Claude to keep an items file at `<cwd>/.feedback/items/<sessionId>.md`. */
   trackItems?: boolean;
+  /**
+   * Outputs the user hid, by ref, with the record's `outputTouchedAt` when hidden.
+   * A record stays hidden until a later write or declaration moves it past that time.
+   */
+  dismissedOutputs?: Record<string, number>;
   /** When the session last used it, in ms since the epoch. */
   at: number;
 }

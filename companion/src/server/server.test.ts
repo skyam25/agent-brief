@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SessionModes } from '../main/session-modes';
 import type { BoardBackend } from './contract';
 import { createCompanionServer } from './index';
 import { harness, request, tempDir } from './testkit';
@@ -16,6 +17,20 @@ async function start<B extends Partial<BoardBackend>>(extra?: B) {
   open.push(h.server);
   await h.server.listen();
   return h;
+}
+
+/** A server whose backend mirrors modes with the app's own store. */
+async function startModed() {
+  const modes = new SessionModes();
+  const tracked = new Map<string, boolean>();
+  const h = await start({
+    mode: vi.fn((id: string) => modes.get(id)),
+    setMode: vi.fn((id: string, patch) => modes.set(id, patch)),
+    tracking: (id: string) => (tracked.has(id) ? { trackItems: tracked.get(id)! } : undefined),
+    setTracking: vi.fn((id: string, on: boolean) => void tracked.set(id, on)),
+  } satisfies Partial<BoardBackend>);
+  await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+  return { ...h, modes };
 }
 
 /** A server whose backend keeps item tracking in a map, as the app does. */
@@ -274,7 +289,18 @@ describe('sessions', () => {
     expect(reg.status).toBe(200);
     const list = await h.call('GET', '/sessions');
     expect(list.body).toEqual({
-      sessions: [{ sessionId: 'a', cwd: '/x', title: 'T', pid: 7, summary: 'fix the header', host, lastSeen: h.clock.t }],
+      sessions: [
+        {
+          sessionId: 'a',
+          cwd: '/x',
+          title: 'T',
+          pid: 7,
+          summary: 'fix the header',
+          host,
+          lastSeen: h.clock.t,
+          outputsPath: '/x/.feedback/outputs/a.json',
+        },
+      ],
     });
     const del = await h.call('DELETE', '/sessions/a');
     expect(del.body).toEqual({ removed: true });
@@ -360,13 +386,35 @@ describe('sessions', () => {
   });
 });
 
+describe('outputs path', () => {
+  it('sets outputsPath on every session, tracked or not, in the list, the single answer and the change event', async () => {
+    const h = await startTracked();
+    const seen: unknown[] = [];
+    h.server.onSessionsChange((s) => seen.push(s.sessions.map((x) => x.outputsPath)));
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    await h.call('POST', '/sessions', { sessionId: 'b c', cwd: '/y' });
+    h.tracked.set('a', true);
+    const list = (await h.call('GET', '/sessions')).body.sessions;
+    expect(list.map((s: any) => s.outputsPath)).toEqual(['/x/.feedback/outputs/a.json', '/y/.feedback/outputs/b c.json']);
+    expect((await h.call('GET', '/sessions/b%20c')).body.outputsPath).toBe('/y/.feedback/outputs/b c.json');
+    expect(h.server.sessions().sessions[0].outputsPath).toBe('/x/.feedback/outputs/a.json');
+    expect(seen.at(-1)).toEqual(['/x/.feedback/outputs/a.json', '/y/.feedback/outputs/b c.json']);
+  });
+
+  it('ignores an outputsPath the session sends when it registers', async () => {
+    const h = await start();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', outputsPath: '/etc/passwd' });
+    expect((await h.call('GET', '/sessions/a')).body.outputsPath).toBe('/x/.feedback/outputs/a.json');
+  });
+});
+
 describe('item tracking', () => {
   it('answers one session with its tracking, and 404 for an unknown one', async () => {
     const h = await startTracked();
     await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', title: 'T' });
     const plain = await h.call('GET', '/sessions/a');
     expect(plain.status).toBe(200);
-    expect(plain.body).toEqual({ sessionId: 'a', cwd: '/x', title: 'T', lastSeen: h.clock.t });
+    expect(plain.body).toEqual({ sessionId: 'a', cwd: '/x', title: 'T', lastSeen: h.clock.t, outputsPath: '/x/.feedback/outputs/a.json' });
 
     h.tracked.set('a', true);
     expect((await h.call('GET', '/sessions/a')).body).toMatchObject({ trackItems: true, itemsPath: '/x/.feedback/items/a.md' });
@@ -442,6 +490,93 @@ describe('item tracking', () => {
     h.server.onSessionsChange(fn);
     h.server.refreshSessions();
     expect(fn).toHaveBeenCalledWith(expect.objectContaining({ sessions: [expect.objectContaining({ trackItems: true })] }));
+  });
+});
+
+describe('session mode', () => {
+  it('stores the mode and answers it on one session and in the list', async () => {
+    const h = await startModed();
+    await h.call('POST', '/sessions', { sessionId: 'b', cwd: '/y' });
+    const r = await h.call('PATCH', '/sessions/a', { mode: 'product' });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ sessionId: 'a', mode: 'product' });
+    expect(r.body.fidelity).toBeUndefined();
+    expect(h.backend.setMode).toHaveBeenCalledWith('a', { mode: 'product' });
+    expect((await h.call('GET', '/sessions/a')).body).toMatchObject({ mode: 'product' });
+    const list = (await h.call('GET', '/sessions')).body.sessions;
+    expect(list.map((s: any) => [s.sessionId, s.mode])).toEqual([
+      ['a', 'product'],
+      ['b', undefined],
+    ]);
+  });
+
+  it('keeps a fidelity with prototype, and drops it on a switch to another mode', async () => {
+    const h = await startModed();
+    const proto = await h.call('PATCH', '/sessions/a', { mode: 'prototype', fidelity: 'freeze-patch' });
+    expect(proto.body).toMatchObject({ mode: 'prototype', fidelity: 'freeze-patch' });
+    const product = await h.call('PATCH', '/sessions/a', { mode: 'product' });
+    expect(product.body.mode).toBe('product');
+    expect(product.body.fidelity).toBeUndefined();
+    expect((await h.call('GET', '/sessions/a')).body.fidelity).toBeUndefined();
+  });
+
+  it('clears the mode on default', async () => {
+    const h = await startModed();
+    await h.call('PATCH', '/sessions/a', { mode: 'orchestrate' });
+    const r = await h.call('PATCH', '/sessions/a', { mode: 'default' });
+    expect(r.status).toBe(200);
+    expect('mode' in r.body).toBe(false);
+    expect('mode' in (await h.call('GET', '/sessions/a')).body).toBe(false);
+  });
+
+  it('refuses a bad mode or fidelity, and an unknown session', async () => {
+    const h = await startModed();
+    for (const body of [
+      { mode: 'fast' },
+      { mode: 3 },
+      { fidelity: 'wireframe' },
+      { mode: 'product', fidelity: 'wireframe' },
+      { mode: 'prototype', fidelity: 'sketchy' },
+      { trackItems: true, mode: 'fast' },
+    ]) {
+      const r = await h.call('PATCH', '/sessions/a', body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.body.code).toBe('bad_request');
+    }
+    const missing = await h.call('PATCH', '/sessions/zzz', { mode: 'product' });
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe('not_found');
+    expect(h.backend.setMode).not.toHaveBeenCalled();
+    expect(h.backend.setTracking).not.toHaveBeenCalled();
+  });
+
+  it('applies tracking and mode from one body', async () => {
+    const h = await startModed();
+    const r = await h.call('PATCH', '/sessions/a', { trackItems: true, mode: 'prototype', fidelity: 'wireframe' });
+    expect(r.body).toMatchObject({ trackItems: true, itemsPath: '/x/.feedback/items/a.md', mode: 'prototype', fidelity: 'wireframe' });
+    expect(h.backend.setTracking).toHaveBeenCalledWith('a', true);
+    expect(h.backend.setMode).toHaveBeenCalledWith('a', { mode: 'prototype', fidelity: 'wireframe' });
+  });
+
+  it('fires onSessionsChange with the mode', async () => {
+    const h = await startModed();
+    const seen: unknown[] = [];
+    h.server.onSessionsChange((s) => seen.push([s.sessions[0]?.mode, s.sessions[0]?.fidelity]));
+    await h.call('PATCH', '/sessions/a', { mode: 'prototype', fidelity: 'live-patch' });
+    await h.call('PATCH', '/sessions/a', { mode: 'default' });
+    expect(seen).toEqual([
+      ['prototype', 'live-patch'],
+      [undefined, undefined],
+    ]);
+  });
+
+  it('answers 503 when the backend mirrors no modes, and sets nothing', async () => {
+    const h = await startTracked();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    const r = await h.call('PATCH', '/sessions/a', { trackItems: true, mode: 'product' });
+    expect(r.status).toBe(503);
+    expect(r.body.code).toBe('unavailable');
+    expect(h.backend.setTracking).not.toHaveBeenCalled();
   });
 });
 

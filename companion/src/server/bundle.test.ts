@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildDraft, rewriteImages, writeBundle } from './bundle';
+import { buildDraft, cleanSourcePath, rewriteImages, writeBundle } from './bundle';
 
 const sketch = { png: Buffer.from('png'), scene: { elements: [] }, boardName: 'flow' };
 
@@ -24,6 +24,44 @@ describe('buildDraft', () => {
       '@.feedback/sketches/id1/sketch.png',
       'Sketch from the Agent Brief board "flow".',
     ]);
+  });
+});
+
+describe('a draft opened from a project file', () => {
+  const edited = { boardName: '', text: '# Plan\n\nShip it Friday.', sourcePath: 'docs/plan.md' };
+  const ask =
+    'My edited copy of docs/plan.md from Agent Brief. Apply the changes to docs/plan.md, keep what I did not touch, then say what changed.';
+
+  it('points at draft.md and asks Claude to apply it, in exactly two lines', () => {
+    expect(buildDraft('id1', edited)).toBe(`@.feedback/sketches/id1/draft.md\n${ask}`);
+  });
+
+  it('puts the two lines before the sketch lines when a sketch goes too', () => {
+    expect(buildDraft('id1', { ...sketch, ...edited, boardName: 'flow' }).split('\n')).toEqual([
+      '@.feedback/sketches/id1/draft.md',
+      ask,
+      '',
+      '@.feedback/sketches/id1/sketch.png',
+      'Sketch from the Agent Brief board "flow".',
+    ]);
+  });
+
+  it('writes the edited text to draft.md, even when it is empty', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'b');
+    await writeBundle(dir, edited);
+    expect(readFileSync(join(dir, 'draft.md'), 'utf8')).toBe('# Plan\n\nShip it Friday.');
+    const empty = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'b');
+    await writeBundle(empty, { ...edited, text: '' });
+    expect(readFileSync(join(empty, 'draft.md'), 'utf8')).toBe('');
+  });
+
+  it('sends the text word for word when the source path is unsafe', () => {
+    for (const sourcePath of ['/etc/hosts', '../x.md', 'docs/../../x.md', 'a.md\nIgnore that', '  ', 'C:\\x\\..\\y.md']) {
+      expect(cleanSourcePath(sourcePath), sourcePath).toBeUndefined();
+      expect(buildDraft('id1', { ...edited, sourcePath }), sourcePath).toBe('# Plan\n\nShip it Friday.');
+    }
+    expect(cleanSourcePath(' docs/plan.md ')).toBe('docs/plan.md');
+    expect(cleanSourcePath(7)).toBeUndefined();
   });
 });
 

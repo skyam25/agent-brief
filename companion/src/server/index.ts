@@ -5,6 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
 import {
+  outputsFile,
   PROTOCOL_VERSION,
   type DeliveriesResponse,
   type Delivery,
@@ -24,7 +25,7 @@ import {
   parseOpen,
   parseRegion,
   parseSession,
-  parseTracking,
+  parseSessionPatch,
   parseUpdate,
 } from './validate';
 
@@ -104,16 +105,21 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
 
   // ── Sessions ────────────────────────────────────────────────────────────
 
-  /** A session with the tracking state the app keeps for it. */
-  function withTracking(s: SessionInfo): SessionInfo {
+  /** A session with the tracking state, mode and outputs path the app keeps for it. */
+  function withAppState(s: SessionInfo): SessionInfo {
     const t = backend.tracking?.(s.sessionId);
-    if (!t) return { ...s };
-    return { ...s, trackItems: t.trackItems, ...(t.trackItems ? { itemsPath: itemsFile(s.cwd, s.sessionId) } : {}) };
+    const m = backend.mode?.(s.sessionId);
+    return {
+      ...s,
+      outputsPath: outputsFile(s.cwd, s.sessionId),
+      ...(t ? { trackItems: t.trackItems, ...(t.trackItems ? { itemsPath: itemsFile(s.cwd, s.sessionId) } : {}) } : {}),
+      ...(m && m.mode !== 'default' ? { mode: m.mode, ...(m.mode === 'prototype' && m.fidelity ? { fidelity: m.fidelity } : {}) } : {}),
+    };
   }
 
   function snapshot(): SessionsResponse {
     return {
-      sessions: [...sessionMap.values()].map(withTracking),
+      sessions: [...sessionMap.values()].map(withAppState),
       targetSessionId: target,
     };
   }
@@ -294,15 +300,17 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
         return { json: { removed: removeSession(id) } };
       }
       if (parts.length === 2 && method === 'GET') {
-        return { json: withTracking(liveSession(id)) };
+        return { json: withAppState(liveSession(id)) };
       }
       if (parts.length === 2 && method === 'PATCH') {
-        const patch = parseTracking(await readJson(req));
+        const patch = parseSessionPatch(await readJson(req));
         const s = liveSession(id);
-        if (!backend.setTracking) throw new HttpError(503, 'unavailable', 'this app does not track items');
-        await backend.setTracking(id, patch.trackItems);
+        if (patch.tracking && !backend.setTracking) throw new HttpError(503, 'unavailable', 'this app does not track items');
+        if (patch.mode && !backend.setMode) throw new HttpError(503, 'unavailable', 'this app does not mirror modes');
+        if (patch.tracking) await backend.setTracking!(id, patch.tracking.trackItems);
+        if (patch.mode) await backend.setMode!(id, patch.mode);
         emitSessions();
-        return { json: withTracking(s) };
+        return { json: withAppState(s) };
       }
     }
 

@@ -29,6 +29,7 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 | Socket | `~/Library/Application Support/AgentBrief/agent-brief.sock` (mode 0600), or `COMPANION_SOCKET` |
 | Deliveries | `<session cwd>/.feedback/sketches/<id>/` |
 | Items | `<session cwd>/.feedback/items/<session id>.md`, written by Claude, appended to by Send in Items mode |
+| Outputs | `<session cwd>/.feedback/outputs/<session id>.json`, written by the mod, read by the app |
 
 ## Sending
 
@@ -48,6 +49,34 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - `trackItems` lives on the session's brief in `state.json`. The mod reads it through `GET /sessions/:id` and adds the items instructions to Claude's prompt only while it is true. `PATCH /sessions/:id` flips it from `/track`.
 - `src/main/items-watch.ts` watches each tracked session's file and pushes `items:changed` to the panel. It polls every 1.5 s until the folder exists.
 - `src/shared/items.ts` parses and serializes the file. `withDecisions` appends `You:` lines and leaves every other byte as it was.
+
+## Outputs
+
+- The mod records each session's documents in `.feedback/outputs/<session id>.json` (`OutputsFile` in `src/protocol.ts`). Claude's `declare_output` calls add declared records. The hook on Write, Edit and NotebookEdit adds detected ones. The app never writes the file.
+- Every session answer carries `outputsPath`, tracked or not.
+- A second `ItemsWatcher` watches the file of every live session with a brief and pushes `outputs:changed` with `OutputsInfo`. `src/shared/outputs.ts` parses the file and sorts declared records first, each tier newest on top.
+- Dismiss stores `dismissedOutputs[ref]` on the session's brief as the record's `outputTouchedAt`, the later of `declaredAt` and `lastWriteAt`. The row stays hidden until a later write or declaration moves it past that time.
+- Opening an output:
+  - An http(s) link opens in the browser. Other schemes are refused.
+  - A Markdown file (`.md`, `.markdown`, `.mdx`, up to 4 MB) opens in Write as a note filed under the session, with `source: { path }`. A note the session already has on that file reopens instead.
+  - Any other file opens in its default app.
+  - Files get the same check as item outputs. They must exist inside the session's folder, symlinks resolved.
+  - Tests record opened files and links in `openedOutputs`.
+- Send with a note that has `source` writes the edited text to `draft.md`, and the prompt is two lines:
+
+  ```
+  @.feedback/sketches/<id>/draft.md
+  My edited copy of <path> from Agent Brief. Apply the changes to <path>, keep what I did not touch, then say what changed.
+  ```
+
+  With a sketch, those lines come first and the sketch lines follow. A source path that is absolute, multi-line or climbs out with `..` is dropped, and the text goes out word for word.
+
+## Session mode
+
+- The mod owns each session's mode. It sends a `ModePatch` (`{ mode, fidelity? }`) on `PATCH /sessions/:id`, alone or with `trackItems` in the same body.
+- `fidelity` goes only with `mode: 'prototype'`. Another mode drops it, and `mode: 'default'` clears the record.
+- `src/main/session-modes.ts` keeps the mode in memory and forgets it when the session leaves. `SessionInfo` carries `mode` and `fidelity` on every session answer and `onSessionsChange`.
+- The app only mirrors the mode. A live session's tab shows it as a chip, such as `Prototype · Wireframe`, and the panel has no control to change it.
 
 ## Pen
 
