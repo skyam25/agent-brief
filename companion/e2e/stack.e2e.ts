@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { backend, launch, RESULTS, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
+import { backend, boardMenu, launch, RESULTS, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
 
 let ctx: Launched;
 let dataDir: string;
@@ -80,10 +80,22 @@ function onScreen(page: Page, x: number, y: number): Promise<{ x: number; y: num
   );
 }
 
+/** True when a frame and its name show inside the canvas viewport. */
+function inView(page: Page, id: string): Promise<boolean> {
+  return page.evaluate((id) => {
+    const api = (window as any).__excalidraw;
+    const s = api.getAppState();
+    const f = api.getSceneElements().find((e: any) => e.id === id);
+    const top = -s.scrollY;
+    const bottom = top + s.height / s.zoom.value;
+    return !!f && f.y - 24 >= top && f.y + f.height <= bottom;
+  }, id);
+}
+
 test('a Stack board files each drop or paste as a numbered group', async () => {
   const { app, page } = ctx;
   await backend(app, 'open', { board: 'shots', layout: 'stack' });
-  await expect(page.getByTestId('stack-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('layout-stack')).toHaveAttribute('aria-checked', 'true');
   const listed = await backend(app, 'listBoards');
   expect(listed.boards.find((b: { name: string }) => b.name === 'shots')?.layout).toBe('stack');
 
@@ -102,6 +114,10 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   // A paste with nothing selected starts the next group, below the first.
   await deliver(page, 'paste', [{ width: 400, height: 300, color: '#66e' }]);
   await expect.poll(() => shape(page)).toEqual(['1:2', '2:1']);
+
+  // The view moves to the new group.
+  const added = (await groups(page))[1].id;
+  await expect.poll(() => inView(page, added)).toBe(true);
 
   // A paste with a group selected joins that group.
   await page.evaluate((id) => (window as any).__excalidraw.updateScene({ appState: { selectedElementIds: { [id]: true } } }), first.id);
@@ -153,12 +169,12 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   const file = JSON.parse(readFileSync(join(dataDir, 'boards', 'shots.excalidraw'), 'utf8'));
   expect(file.agentBrief).toEqual({ layout: 'stack' });
 
-  // The toggle turns it off. A paste then lands where Excalidraw puts it, and nothing else moves.
+  // Canvas turns it off. A paste then lands where Excalidraw puts it, and nothing else moves.
   const boxes = async () =>
     Object.fromEntries((await groups(page)).flatMap((g) => g.images).map(({ id, x, y }) => [id, `${Math.round(x)},${Math.round(y)}`]));
   const before = await boxes();
-  await page.getByTestId('stack-toggle').click();
-  await expect(page.getByTestId('stack-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.getByTestId('layout-freeform').click();
+  await expect(page.getByTestId('layout-freeform')).toHaveAttribute('aria-checked', 'true');
   // Excalidraw pastes at the pointer.
   await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2);
   await deliver(page, 'paste', [{ width: 200, height: 200, color: '#999' }]);
@@ -192,4 +208,26 @@ test('marks drawn on a screenshot move with it', async () => {
   expect(mark.x - moved.images[0].x).toBeCloseTo(20);
   expect(mark.y - moved.images[0].y).toBeCloseTo(20);
   expect(mark.frameId).toBe(moved.id);
+});
+
+test('a new board can start as a Stack, and the board list marks it', async () => {
+  const { page } = ctx;
+  await expect(page.getByTestId('layout-freeform')).toHaveAttribute('aria-checked', 'true');
+
+  await boardMenu(page, 'board-new');
+  await page.getByTestId('board-name').fill('flows');
+  await page.getByTestId('board-name').locator('..').getByTestId('layout-stack').click();
+  await expect(page.getByTestId('board-name')).toBeFocused();
+  await page.getByTestId('board-name').press('Enter');
+
+  await expect(page.getByTestId('board-picker')).toContainText('flows');
+  await expect(page.getByTestId('layout-stack')).toHaveAttribute('aria-checked', 'true');
+  await page.evaluate(() => (window as any).__board.flush());
+  expect(JSON.parse(readFileSync(join(dataDir, 'boards', 'flows.excalidraw'), 'utf8')).agentBrief).toEqual({ layout: 'stack' });
+
+  await page.getByTestId('board-picker').click();
+  const rows = page.getByTestId('board-item');
+  await expect(rows.filter({ hasText: 'flows' }).getByTestId('board-stack-mark')).toBeVisible();
+  await expect(rows.filter({ hasText: 'scratch' }).getByTestId('board-stack-mark')).toHaveCount(0);
+  await page.screenshot({ path: join(RESULTS, 'stack-board-menu.png') });
 });
