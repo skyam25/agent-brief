@@ -83,13 +83,14 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each mode, **✎ Sketch** and **¶ Write**.
+The band above the prompt has a button for each mode, **✎ Sketch** and **¶ Write**, and a **☐ Track** toggle that does what a bare `/track` does.
 
 ### Item tracking and `/track [on|off]`
 
 Item tracking is off for every session until you turn it on. While it is off, the mod adds nothing to Claude's prompt.
 
-- Turn it on with the **Track items** switch in the panel, or with `/track`. `/track on` and `/track off` set it, and a bare `/track` flips it.
+- Turn it on with the **Track items** switch in the panel, the **☐ Track** button above the prompt, or `/track`. `/track on` and `/track off` set it, and a bare `/track` flips it.
+- The button reads **☑ Track** in the accent color while tracking is on. It picks up a change made in the panel on the next prompt.
 - `/track` never starts the app. When the app is down it replies `Agent Brief is not running. Start it, then run /track again.`
 - With tracking on, each system prompt gets a section that tells Claude to keep `<project>/.feedback/items/<session id>.md`. Claude writes the file only when the work has distinct items, such as several asks, a feedback list or numbered marks on a sketch.
 - The mod reads the state with one `GET /sessions/<id>` per prompt while the app is up. If the app stops answering, the mod keeps the last state it read.

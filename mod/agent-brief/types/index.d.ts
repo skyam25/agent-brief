@@ -20,6 +20,7 @@ declare module 'claude-code' {
     'agent-brief': {
       sessions: FeedbackInboxSession[]
       ingesting: string | null
+      tracking: boolean
     }
   }
 }
