@@ -26,7 +26,7 @@ type EditTool = (typeof EDIT_TOOLS)[number]
 
 const BROWSER = ['mcp__claude-in-chrome__*', 'mcp__playwright__*']
 
-/** Files product mode may still write: documents and data, never source. */
+/** Extension-based guardrail; the prompt also protects code and config in these formats. */
 const DOCUMENT = /\.(md|mdx|txt|csv|json|ya?ml)$/i
 
 type ModeSpec = {
@@ -54,9 +54,10 @@ const MODES: Record<SessionMode, ModeSpec> = {
   product: {
     label: 'Product',
     posture:
-      'Product mode is on for this session. The work is discovery, analysis, specs, acceptance criteria and go-to-market. ' +
-      'Read, ask, analyze and write documents. Do not propose or make source-code changes, run builds or tests, or open a browser unless the user asks for that explicitly. ' +
-      'Edits to source files are denied in this mode; markdown, text, CSV, JSON and YAML files and anything under .feedback/ are allowed. Switch with /mode default.',
+      'Product mode is on for this session. Focus on discovery, analysis, specs, acceptance criteria and go-to-market. ' +
+      'Read and search code, browse for research, and delegate code investigations as needed. Recommend implementation approaches grounded in evidence. ' +
+      'Write documents and analysis data. Keep application source and configuration unchanged, including through subagents or shell commands. ' +
+      'Run builds or tests only when requested. For implementation, ask the user to switch with /mode default.',
     deferred: [...BROWSER, 'NotebookEdit', 'LSP', 'Workflow'],
     pinned: [],
     deny: 'source',
@@ -66,7 +67,8 @@ const MODES: Record<SessionMode, ModeSpec> = {
     label: 'Prototype',
     posture:
       'Prototype mode is on for this session. Favor speed and visual fidelity over architecture. ' +
-      'Prototypes are disposable; skip tests, refactors and git unless asked. Use the browser tools to capture and verify what you build.',
+      'Keep changes scoped to the prototype. Skip tests, refactors and git operations unless asked. ' +
+      'Verify web prototypes in the browser; verify wireframes on the Agent Brief board.',
     deferred: ['NotebookEdit', 'LSP', 'Workflow'],
     pinned: BROWSER,
     deny: 'none',
@@ -75,8 +77,10 @@ const MODES: Record<SessionMode, ModeSpec> = {
   orchestrate: {
     label: 'Orchestrate',
     posture:
-      'Orchestrate mode is on for this session. Break the work into tasks, hand each to a subagent with a narrow brief, and review what comes back. ' +
-      'The main session does not edit files; its Edit, Write and NotebookEdit are denied, and subagents do the edits. Switch with /mode default.',
+      'Orchestrate mode is on for this session. Read and investigate to scope the work. ' +
+      'Delegate tasks with clear deliverables to subagents, review their results, and synthesize the answer. ' +
+      'Delegate all file edits, including tracking files; keep the main session read-only across all tools, including shell commands. ' +
+      'Main-session Edit, Write and NotebookEdit are denied; subagents can edit. Switch with /mode default for direct edits.',
     deferred: [...EDIT_TOOLS, ...BROWSER],
     pinned: [],
     deny: 'all',
@@ -85,7 +89,7 @@ const MODES: Record<SessionMode, ModeSpec> = {
 }
 
 const SPEC_WINS =
-  'A design spec that names a recommended mode wins over this default; a request that names a different rung wins for that request.'
+  'Use the fidelity requested by the user, then the design spec, then this default.'
 
 type FidelitySpec = {
   label: string
@@ -116,20 +120,20 @@ const FIDELITIES: Record<PrototypeFidelity, FidelitySpec> = {
     label: 'Live patch',
     phrase: 'at live-patch fidelity',
     aliases: ['live'],
-    line: `Prototypes in this session default to a live-patch image over the current surface, first-pass and not durable. ${SPEC_WINS}`,
+    line: `Default to live patch: overlay a proposed visual change on the current page or screenshot for quick review. ${SPEC_WINS}`,
   },
   'freeze-patch': {
     label: 'Freeze + patch',
     phrase: 'at freeze + patch fidelity',
     aliases: ['freeze'],
-    line: `Prototypes in this session default to a durable freeze + patch variant on the frozen baseline. ${SPEC_WINS}`,
+    line: `Default to freeze + patch: save the current surface as a baseline and create a separate visual variant, preserving the original. ${SPEC_WINS}`,
   },
   interactive: {
     label: 'Interactive',
     phrase: 'at interactive fidelity',
     aliases: ['inter'],
     line:
-      'Prototypes in this session default to an interactive poster + link with scenario states, built against the trusted baseline. ' +
+      'Default to an interactive prototype with working scenario states, a preview image and a link to open it. Use the supplied design or current product as the baseline. ' +
       SPEC_WINS,
   },
   existing: {
@@ -137,8 +141,8 @@ const FIDELITIES: Record<PrototypeFidelity, FidelitySpec> = {
     phrase: 'on an existing prototype',
     aliases: ['iterate'],
     line:
-      "This session iterates on an existing prototype. Read its fidelity and engine from the variant's tool.json or its files and keep them. " +
-      "Follow the prototype skill's chain conventions; do not start a new variant unless asked.",
+      'Iterate on the existing prototype, preserving its fidelity and implementation approach. ' +
+      'Read tool.json when present; otherwise inspect its files. Follow available prototype instructions. Update the current variant unless asked to create another.',
   },
 }
 
@@ -213,13 +217,12 @@ export function denyText(mode: SessionMode): string {
 
 /**
  * The system prompt section for the mode, or null for none.
- * An output style replaces the posture; prototype keeps its fidelity line.
+ * Mode rules apply independently of the user's output style.
  */
-export function sectionText(mode: SessionMode, fidelity: PrototypeFidelity | null, hasOutputStyle: boolean): string | null {
+export function sectionText(mode: SessionMode, fidelity: PrototypeFidelity | null): string | null {
   if (mode === 'default') return null
-  const posture = hasOutputStyle ? [] : [MODES[mode].posture]
+  const posture = [MODES[mode].posture]
   const lines = mode === 'prototype' ? [...posture, FIDELITIES[fidelity ?? DEFAULT_FIDELITY].line] : posture
-  if (lines.length === 0) return null
   return `# Session mode (Agent Brief)\n\n${lines.join('\n\n')}`
 }
 

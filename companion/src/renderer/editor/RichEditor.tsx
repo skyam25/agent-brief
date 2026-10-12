@@ -11,6 +11,8 @@ import { createPortal } from 'react-dom';
 import type { Template } from '../../shared/ipc';
 import { FormatBar } from './FormatBar';
 import { ATT, AttachmentsContext, Picture } from './ImageView';
+import { ListFormatMenu } from './ListFormatMenu';
+import { numberedListAt, setListFormat, type ListFormat } from './lists';
 import { PromptMarkdown, schemaExtensions } from './markdown';
 import { pictureFiles, preparePicture } from './pictures';
 import { blockItems, filterItems, SlashCommand, SlashMenu, templateItems, type SlashBridge, type SlashItem } from './SlashMenu';
@@ -71,6 +73,14 @@ function caretBelowPicture(editor: Editor): void {
   chain.setTextSelection(pos + 1).scrollIntoView().run();
 }
 
+/** A right-click on a numbered list: where to show the menu, and which list it changes. */
+interface ListMenuState {
+  x: number;
+  y: number;
+  pos: number;
+  current: ListFormat;
+}
+
 interface SlashState {
   host: HTMLElement;
   query: string;
@@ -88,6 +98,7 @@ export function RichEditor(props: RichEditorProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const editorBox = useRef<Editor | null>(null);
 
+  const [listMenu, setListMenu] = useState<ListMenuState | null>(null);
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashRef = useRef<SlashState | null>(null);
@@ -172,6 +183,16 @@ export function RichEditor(props: RichEditorProps) {
           spellcheck: 'true',
         },
         handleKeyDown: (_view, event) => !!latest.current.onKeyDown?.(event),
+        handleDOMEvents: {
+          contextmenu: (view, event) => {
+            const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            const list = hit && numberedListAt(view.state, hit.pos);
+            if (!list) return false;
+            event.preventDefault();
+            setListMenu({ x: event.clientX, y: event.clientY, pos: list.pos, current: list.format });
+            return true;
+          },
+        },
         handlePaste: (_view, event) => {
           const files = pictureFiles(event.clipboardData?.files);
           if (files.length === 0) return false;
@@ -249,6 +270,22 @@ export function RichEditor(props: RichEditorProps) {
       </AttachmentsContext.Provider>
       <FormatBar editor={editor} />
       <TableMenu editor={editor} />
+      {listMenu && (
+        <ListFormatMenu
+          x={listMenu.x}
+          y={listMenu.y}
+          current={listMenu.current}
+          onClose={() => setListMenu(null)}
+          onPick={(format) => {
+            setListMenu(null);
+
+            // The list may have moved or gone since the right-click.
+            const list = numberedListAt(editor.state, Math.min(listMenu.pos + 1, editor.state.doc.content.size));
+            if (list?.pos === listMenu.pos) editor.view.dispatch(setListFormat(editor.state, list.pos, format));
+            editor.view.focus();
+          }}
+        />
+      )}
       <input
         ref={fileInput}
         type="file"

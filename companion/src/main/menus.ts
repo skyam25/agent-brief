@@ -21,12 +21,30 @@ export interface MenuActions {
   installUpdate: () => void;
 }
 
-/** Restart to Update once a download is ready, otherwise Check for Updates. Nothing in development. */
-function updateItem(a: MenuActions): MenuItemConstructorOptions[] {
-  const { state, available } = a.update;
-  if (state === 'off') return [];
-  if (state === 'ready') return [{ label: `Restart to Update to ${available}`, click: a.installUpdate }];
-  return [{ label: 'Check for Updates…', enabled: state !== 'checking' && state !== 'downloading', click: a.checkForUpdates }];
+/**
+ * The update status and its action. Checks run in the background, so the
+ * menu reports progress itself and never opens the panel. Nothing in development.
+ */
+export function updateItems(a: MenuActions): MenuItemConstructorOptions[] {
+  const { state, available, percent } = a.update;
+  const check: MenuItemConstructorOptions = { label: 'Check for Updates', click: a.checkForUpdates };
+  const status = (label: string): MenuItemConstructorOptions => ({ label, enabled: false });
+  switch (state) {
+    case 'off':
+      return [];
+    case 'checking':
+      return [status('Checking for Updates…')];
+    case 'downloading':
+      return [status(`Downloading ${available ?? 'Update'}${percent ? ` (${percent}%)` : ''}…`)];
+    case 'ready':
+      return [{ label: `Restart to Update to ${available}`, click: a.installUpdate }];
+    case 'current':
+      return [status(`Up to Date (${a.update.version})`), check];
+    case 'error':
+      return [status('Could Not Check for Updates'), { ...check, label: 'Try Again' }];
+    default:
+      return [check];
+  }
 }
 
 /** The standard Edit menu is what makes ⌘C, ⌘V and ⌘Z work in Electron on macOS. */
@@ -36,7 +54,7 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
       role: 'appMenu',
       submenu: [
         { role: 'about' },
-        ...updateItem(a),
+        ...updateItems(a),
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'Command+,', click: a.openSettings },
         { label: 'Install Command Line Tool…', click: a.installCli },
@@ -67,6 +85,7 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
 }
 
 export function trayMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
+  const update = updateItems(a);
   return [
     { label: 'Show Panel', click: a.showPanel },
     { label: 'New Board', click: a.newBoard },
@@ -76,7 +95,7 @@ export function trayMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
     { label: 'Settings…', click: a.openSettings },
     { label: 'Install Command Line Tool…', click: a.installCli },
     { label: 'Install Claude Code Plugin…', click: a.installPlugin },
-    ...updateItem(a),
+    ...(update.length ? [{ type: 'separator' } as const, ...update] : []),
     { type: 'separator' },
     { label: 'Quit Agent Brief', role: 'quit' },
   ];

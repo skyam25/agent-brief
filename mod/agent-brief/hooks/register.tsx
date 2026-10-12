@@ -854,7 +854,7 @@ export const register: Register = (on, options) => {
       log($, `items section failed: ${String(err)}`)
     }
     try {
-      const text = sectionText(await read($, modeRef), await read($, fidelityRef), e.outputStyle !== null)
+      const text = sectionText(await read($, modeRef), await read($, fidelityRef))
       if (text !== null) added.push({ id: MODE_SECTION, scope: 'session', text })
     } catch (err) {
       log($, `mode section failed: ${String(err)}`)

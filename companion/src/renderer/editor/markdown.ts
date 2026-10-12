@@ -7,6 +7,7 @@ import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
 import type { MarkdownManager } from '@tiptap/markdown';
 import StarterKit from '@tiptap/starter-kit';
+import { ListDepthFormats, NumberedList } from './lists';
 
 const SLOT = /\{\{[^{}\n]{1,80}\}\}/g;
 
@@ -21,8 +22,11 @@ export function schemaExtensions(image: AnyExtension = Image): AnyExtension[] {
     StarterKit.configure({
       underline: false,
       heading: { levels: [1, 2, 3] },
+      orderedList: false,
       link: { openOnClick: false, autolink: true, linkOnPaste: true, defaultProtocol: 'https' },
     }),
+    NumberedList,
+    ListDepthFormats,
     TableKit.configure({ table: false }),
     PromptTable.configure({ resizable: false }),
     TaskList,
