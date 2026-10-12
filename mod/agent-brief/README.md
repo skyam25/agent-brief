@@ -146,6 +146,8 @@ The panel lists each session's deliverables under that session. The mod records 
 
 The `show_image` tool draws a picture inline in the transcript, where the terminal can (Ghostty, kitty). Claude uses it after visual work: a Playwright screenshot of a page it changed, a board it drew on, a design it made. The picture goes to the screen, not to Claude, so it costs no tokens.
 
+An organization policy can refuse plugin tools, which removes `show_image` and `declare_output`. The commands stay. Claude then runs `agent-brief show <file>` and `agent-brief output <title> --path <file>` with Bash, and the plugin draws or records them from the command's result.
+
 - The row holds the picture with Open page (or Open), Open board when `board` is set, Show in Finder and Copy path. Open board starts the app when needed, as `/sketch` does.
 - `options` with 2 to 4 pictures draws one sheet with the options side by side, lettered A to D, and a Pick button for each. A tab per option shows it alone at full size, and All goes back to the sheet. Pick puts "Go with option B (Title)" in the prompt box, after anything already typed, and you press Enter.
 - Each shown file is copied into `<project>/.feedback/shown/`, converted to PNG with `sips` when it is not one, so the row keeps its picture after a temp folder is cleared. The newest 40 copies stay.

@@ -143,6 +143,9 @@ export function textOf(output: unknown): string {
   if (output && typeof output === 'object' && typeof (output as { result?: unknown }).result === 'string') {
     return (output as { result: string }).result
   }
+  if (output && typeof output === 'object' && typeof (output as { stdout?: unknown }).stdout === 'string') {
+    return (output as { stdout: string }).stdout
+  }
   return ''
 }
 
@@ -394,8 +397,22 @@ export function expiredPrompt(shown: Shown): string {
   return `The picture "${shown.title}" expired (${files} gone). Please regenerate it and show it to me again with show_image.`
 }
 
-/** The system prompt section: show pictures while the terminal draws them; otherwise say nothing was seen. */
-export function showInstructions(canImage: boolean, cause: DrawCause, sessionId: string): string {
+/**
+ * The system prompt section: show pictures while the terminal draws them; otherwise say nothing was seen.
+ * `isCli` swaps the show_image tool for `agent-brief show` in Bash, for sessions whose policy refuses the tool.
+ */
+export function showInstructions(canImage: boolean, cause: DrawCause, sessionId: string, isCli = false): string {
+  if (canImage && isCli) {
+    return (
+      'This terminal shows pictures inline. The show_image tool is off here, so show a picture by running `agent-brief show <file>` with Bash; the picture draws in its result. ' +
+      'After visual work, screenshot it with headless Playwright and show it before you say you are done, instead of telling the user to open a file or a localhost URL. ' +
+      'Show an Agent Brief board after you draw on it (agent-brief png, then agent-brief show <png> --board <name>), and show each screenshot you snap to a Stack board. ' +
+      'For a UI fix, show before and after as two commands. To offer directions, pass 2 to 4 files with --labels "A|B|C" and --title; the user picks one with a button. ' +
+      'For a UI idea, write a wireframe DSL block to a .wireframe file (the wireframe skill has the grammar) and show that file. ' +
+      'Add --url for a page. Run `agent-brief show --help` for the rest. ' +
+      'The picture goes to the user, not to you; Read the file yourself only if you need to check it.'
+    )
+  }
   if (canImage) {
     return (
       'This terminal shows pictures inline. After visual work, screenshot it with headless Playwright and show it with show_image before you say you are done, instead of telling the user to open a file or a localhost URL. ' +
@@ -406,5 +423,6 @@ export function showInstructions(canImage: boolean, cause: DrawCause, sessionId:
     )
   }
   const why = cantDraw(cause, 'it', sessionId).claude.replace(/, so the user saw a notice instead of it\./, '.')
-  return `Pictures can't draw in this session (${why}) Anything shown with show_image was not seen: the user saw a notice instead. Don't say they saw it.`
+  const how = isCli ? 'agent-brief show' : 'show_image'
+  return `Pictures can't draw in this session (${why}) Anything shown with ${how} was not seen: the user saw a notice instead. Don't say they saw it.`
 }

@@ -14,6 +14,7 @@ import {
   type ReadResponse,
   type SessionsResponse,
   type Skeleton,
+  bashRequestLine,
 } from '../src/protocol';
 import { formatBoards, formatRead, formatSessions, formatStatus } from './format';
 import { commandHelp, DOCS, topHelp } from './help';
@@ -48,7 +49,10 @@ interface Args {
   rest: string[];
 }
 
-const VALUE_FLAGS = new Set(['board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout']);
+const VALUE_FLAGS = new Set([
+  'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
+  'title', 'labels', 'url', 'path', 'status',
+]);
 const BOOL_FLAGS = new Set(['json', 'help']);
 
 function parseArgs(argv: string[]): Args {
@@ -211,6 +215,42 @@ function regionQuery(ctx: Ctx, extra: string[] = []): string {
 const tilde = (home: string, p: string) => (p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p);
 
 const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
+  // `show` and `output` print a request line for the mod's Bash hook, which draws or records it.
+  // They need no app, so they work where a policy stops the mod's own tools.
+
+  async show(ctx) {
+    const files = ctx.positional;
+    if (files.length === 0) throw new UsageError('show needs a picture file');
+    if (files.length > 4) throw new UsageError('show takes at most 4 pictures');
+    const cwd = ctx.io.cwd ?? process.cwd();
+    const labels = str(ctx.args, 'labels')?.split('|').map((l) => l.trim());
+    const items = files.map((f, i) => ({ path: path.resolve(cwd, f), ...(labels?.[i] ? { title: labels[i] } : {}) }));
+    const title = str(ctx.args, 'title');
+    const board = str(ctx.args, 'board');
+    const url = str(ctx.args, 'url');
+    const extras = { ...(board ? { board } : {}), ...(url ? { url } : {}) };
+    const input =
+      items.length === 1
+        ? { ...items[0], ...(title ? { title } : {}), ...extras }
+        : { options: items, ...(title ? { title } : {}), ...extras };
+    ctx.out(bashRequestLine({ kind: 'show', input }));
+    ctx.out('Agent Brief draws this when its plugin runs in this Claude Code session. Without the plugin, nothing is shown.');
+  },
+
+  async output(ctx) {
+    const title = ctx.positional.join(' ').trim();
+    if (title === '') throw new UsageError('output needs a title');
+    const file = str(ctx.args, 'path');
+    const url = str(ctx.args, 'url');
+    if ((file === undefined) === (url === undefined)) throw new UsageError('output needs exactly one of --path or --url');
+    const status = str(ctx.args, 'status') ?? 'drafting';
+    if (status !== 'drafting' && status !== 'ready') throw new UsageError('--status is drafting or ready');
+    const cwd = ctx.io.cwd ?? process.cwd();
+    const where = file !== undefined ? { path: path.resolve(cwd, file) } : { url: url! };
+    ctx.out(bashRequestLine({ kind: 'output', input: { title, ...where, status } }));
+    ctx.out('Agent Brief records this when its plugin runs in this Claude Code session. Without the plugin, nothing is recorded.');
+  },
+
   async 'herdr-pictures'(ctx) {
     const action = ctx.positional[0] ?? 'status';
     if (action !== 'on' && action !== 'off' && action !== 'status') {

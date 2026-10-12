@@ -63,9 +63,20 @@ import {
 } from './modes'
 import type { ModeChoice } from './modes'
 import { registerModeGuard } from './mode-guard'
-import { OUTPUTS_SECTION, outputsInstructions } from './outputs'
+import { DECLARE_TOOL, OUTPUTS_SECTION, outputsInstructions } from './outputs'
 import { registerOutputs } from './outputs-file'
-import { PROBE_KEY, SHOW_COMMAND_SPEC, SHOW_TOOL_SPEC, boardOfKey, needsProbe, noteProbe, registerShow, showSection, startShow } from './show'
+import {
+  PROBE_KEY,
+  SHOW_COMMAND_SPEC,
+  SHOW_TOOL_SPEC,
+  boardOfKey,
+  needsProbe,
+  noteProbe,
+  noteShowToolRefused,
+  registerShow,
+  showSection,
+  startShow,
+} from './show'
 import type { ShowEnvironment } from './show'
 import { CLEAR_PIXEL } from './show-logic'
 
@@ -97,6 +108,9 @@ type CompanionConfig = {
 type Reply = { ok: boolean; status: number; body: unknown }
 
 const delivered = new Set<string>()
+
+/** Set when the engine refused to register declare_output, as an organization's plugin policy does. */
+let isDeclareRefused = false
 let companionConfig: CompanionConfig = { companionSocket: '', companionLaunch: '' }
 let isStopped = false
 let refresh: { cancel: () => void } | undefined
@@ -619,13 +633,18 @@ export const register: Register = (on, options) => {
         inputSchema: { type: 'object', properties: {} },
         isDeferred: false,
       })
+    } catch (err) {
+      log($, `feedback start failed: ${String(err)}`)
+    }
+    // Commands register apart from tools, so a policy that refuses the plugin's tools leaves them working.
+    try {
       await $.command.register({
         name: 'apply-feedback',
         description: 'Apply recorded browser feedback (newest unapplied, or the named session)',
         argumentHint: '[name]',
       })
     } catch (err) {
-      log($, `start failed: ${String(err)}`)
+      log($, `apply-feedback refused: ${String(err)}`)
     }
     try {
       await $.command.register({
@@ -678,6 +697,12 @@ export const register: Register = (on, options) => {
         },
         isDeferred: false,
       })
+      isDeclareRefused = false
+    } catch (err) {
+      isDeclareRefused = true
+      log($, `declare_output refused: ${String(err)}`)
+    }
+    try {
       await $.command.register({
         name: 'outputs',
         description: "List this session's outputs: declared deliverables, then touched documents",
@@ -687,10 +712,16 @@ export const register: Register = (on, options) => {
     }
     try {
       startShow(await showEnvironment($, started.cwd, config.nodePath))
-      await $.tool.register(SHOW_TOOL_SPEC)
       await $.command.register(SHOW_COMMAND_SPEC)
     } catch (err) {
       log($, `show start failed: ${String(err)}`)
+    }
+    try {
+      await $.tool.register(SHOW_TOOL_SPEC)
+      noteShowToolRefused(false)
+    } catch (err) {
+      noteShowToolRefused(true)
+      log($, `show_image refused: ${String(err)}`)
     }
     return started
   })
@@ -811,7 +842,8 @@ export const register: Register = (on, options) => {
       log($, `mode section failed: ${String(err)}`)
     }
     try {
-      added.push({ id: OUTPUTS_SECTION, scope: 'session', text: outputsInstructions() })
+      const isCli = isDeclareRefused && !e.tools.includes(DECLARE_TOOL)
+      added.push({ id: OUTPUTS_SECTION, scope: 'session', text: outputsInstructions(isCli) })
     } catch (err) {
       log($, `outputs section failed: ${String(err)}`)
     }

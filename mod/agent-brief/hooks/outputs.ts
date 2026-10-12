@@ -2,6 +2,7 @@ import { DOCUMENT_EXTENSIONS, OUTPUT_SKIP_DIRS } from './companion-protocol'
 import type { OutputKind, OutputOrigin, OutputRecord, OutputStatus, OutputTier, OutputsFile } from './companion-protocol'
 
 export const OUTPUTS_SECTION = 'agent-brief:outputs'
+export const DECLARE_TOOL = 'mcp__agent-brief__declare_output'
 
 export const DECLARE_USAGE =
   'declare_output needs a title and exactly one of path or url. ' +
@@ -227,13 +228,20 @@ export function declareResultText(record: OutputRecord): string {
 }
 
 /** The system prompt section that tells Claude when to declare an output. */
-export function outputsInstructions(): string {
+/** The system prompt section. `isCli` swaps the declare_output tool for `agent-brief output` in Bash. */
+export function outputsInstructions(isCli = false): string {
+  const declare = isCli
+    ? 'run `agent-brief output "<title>" --path <file> --status drafting` with Bash for it (the declare_output tool is off here)'
+    : 'call the `declare_output` tool for it'
+  const where = isCli
+    ? 'Pass `--path` relative to the project for a file. Pass `--url` for an artifact or a published page.'
+    : 'Pass `path` relative to the project for a file. Pass `url` for an artifact or a published page.'
   return `# Outputs (Agent Brief)
 
 The Agent Brief panel lists this session's deliverables. The user opens them there to review.
-When the user asks for a doc, brief, report, spec, page, deck or artifact, call the \`declare_output\` tool for it.
-Pass \`path\` relative to the project for a file. Pass \`url\` for an artifact or a published page.
-Call it with status \`drafting\` when you start the deliverable. Call it again with \`ready\` when it is done.
+When the user asks for a doc, brief, report, spec, page, deck or artifact, ${declare}.
+${where}
+Declare it with status \`drafting\` when you start the deliverable. Declare it again with \`ready\` when it is done.
 Declare one primary output per request, usually. Pick the one the user will read first.
 Never declare code, config, tests or files that serve the code.
 Never declare the items file or anything under .feedback.
