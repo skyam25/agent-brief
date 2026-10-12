@@ -57,6 +57,7 @@ type Config = {
 
 const sessionsRef = atom({ plugin: 'agent-brief', key: 'sessions' } as const, [])
 const ingestingRef = atom({ plugin: 'agent-brief', key: 'ingesting' } as const, null)
+const trackingRef = atom({ plugin: 'agent-brief', key: 'tracking' } as const, false)
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -248,7 +249,14 @@ async function currentTracking($: EngineInterface): Promise<Tracking | undefined
   if (!isUp) return cached
   const reply = await call($, 'GET', sessionPath(sessionId))
   if (reply === undefined) return cached
-  tracking = { sessionId, ...trackingOf(reply.ok ? reply.body : undefined) }
+  return setTracking($, sessionId, reply.ok ? reply.body : undefined)
+}
+
+/** Keeps the app's answer, and redraws the band's Track button when it changed. */
+async function setTracking($: EngineInterface, sessionId: string, body: unknown): Promise<Tracking> {
+  tracking = { sessionId, ...trackingOf(body) }
+  const isOn = tracking.trackItems
+  await update($, trackingRef, () => isOn)
   return tracking
 }
 
@@ -264,8 +272,7 @@ async function trackCommand($: EngineInterface, args: string): Promise<string> {
   const reply = await call($, 'PATCH', sessionPath(sessionId), body)
   if (reply === undefined) return TRACK_NOT_RUNNING
   if (!reply.ok) return TRACK_UNSUPPORTED
-  tracking = { sessionId, ...trackingOf(reply.body) }
-  return trackReply(tracking, await $.session.cwd())
+  return trackReply(await setTracking($, sessionId, reply.body), await $.session.cwd())
 }
 
 type OpenMode = 'sketch' | 'write'
@@ -576,10 +583,11 @@ export const register: Register = (on, options) => {
     return { text: `Applying feedback: ${session.name}` }
   })
 
-  // A one-row band with Sketch and Write buttons: a click, or ctrl+x tab then Enter, does what /sketch or /write does.
+  // A one-row band with Sketch, Write and Track buttons: a click, or ctrl+x tab then Enter, does what /sketch, /write or /track does.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const ingesting = await read($, ingestingRef)
+    const isTracking = await read($, trackingRef)
     const { Box, Button, Text } = $.ui.resolve(e)
     const open = async (mode: OpenMode) => {
       const result = mode === 'write' ? await writeFromBox($) : (await openCompanion($, 'sketch')).message
@@ -590,6 +598,14 @@ export const register: Register = (on, options) => {
         <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void open('sketch')} />
         <Text> </Text>
         <Button key="write" label="¶ Write" hotkey="w" onPress={() => void open('write')} />
+        <Text> </Text>
+        <Button
+          key="track"
+          label={isTracking ? '☑ Track' : '☐ Track'}
+          hotkey="t"
+          {...(isTracking ? { variant: 'primary' as const } : {})}
+          onPress={() => void trackCommand($, '').then(text => $.ui.toast(text, { timeoutMs: 8000 }))}
+        />
         {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}
       </Box>
     )

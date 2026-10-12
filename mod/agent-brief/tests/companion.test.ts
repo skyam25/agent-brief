@@ -350,6 +350,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     const band = JSON.stringify(await $.ui.render(BAND))
     expect(band).toContain('"label":"✎ Sketch"')
     expect(band).toContain('"label":"¶ Write"')
+    expect(band).toContain('"label":"☐ Track"')
     const survey = { ...BAND, props: { ...BAND.props, hasSurvey: true } }
     expect(textOf(await $.ui.render(survey))).toBe('engine band')
   })
@@ -522,5 +523,45 @@ describe('item tracking', () => {
     })
     expect(await $.command.run(command('track', 'maybe'))).toEqual({ text: 'Use /track, /track on or /track off.' })
     expect(app.to('PATCH', `/sessions/${SESSION_ID}`)).toHaveLength(1)
+  })
+
+  test('the Track button toggles tracking, which turns the items section on and off', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'track' })
+    await clock.settle()
+    expect(app.sessions.get(SESSION_ID)!.trackItems).toBe(true)
+    expect(world.toasts.at(-1)).toContain('Item tracking on.')
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☑ Track"')
+    expect(await ids($)).toEqual(['intro', 'agent-brief:items'])
+
+    await $.ui.press({ plugin: 'agent-brief', key: 'track' })
+    await clock.settle()
+    expect(world.toasts.at(-1)).toBe('Item tracking off.')
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☐ Track"')
+    expect(await ids($)).toEqual(['intro'])
+  })
+
+  test('the Track button follows a change made in the panel', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    await start()
+    await clock.settle()
+    app.sessions.get(SESSION_ID)!.trackItems = true
+    await ids($)
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☑ Track"')
+  })
+
+  test('a Track press with the app down says so and stays off', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    app.isUp = false
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'track' })
+    await clock.settle()
+    expect(world.toasts.at(-1)).toBe('Agent Brief is not running. Start it, then run /track again.')
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☐ Track"')
   })
 })
