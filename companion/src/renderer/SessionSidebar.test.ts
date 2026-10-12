@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionBriefEntry } from '../shared/ipc';
-import { folderTail, groupBriefs } from './SessionSidebar';
+import { folderTail, groupBriefs, sidebarOrder } from './SessionSidebar';
 
 const brief = (sessionId: string, isLive: boolean): SessionBriefEntry => ({ sessionId, title: sessionId, at: 0, isLive, isTarget: false, hasContent: false });
 
@@ -9,6 +9,10 @@ describe('groupBriefs', () => {
     const { running, ended } = groupBriefs([brief('a', false), brief('b', true), brief('c', false), brief('d', true)]);
     expect(running.map((b) => b.sessionId)).toEqual(['b', 'd']);
     expect(ended.map((b) => b.sessionId)).toEqual(['a', 'c']);
+  });
+
+  it('orders the shortcuts as the sidebar lists them', () => {
+    expect(sidebarOrder([brief('a', false), brief('b', true), brief('c', false), brief('d', true)])).toEqual(['b', 'd', 'a', 'c']);
   });
 });
 
