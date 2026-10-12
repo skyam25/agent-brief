@@ -16,7 +16,7 @@ import { Mic } from './Mic';
 import { OutputsStore } from './outputs';
 import { PullIn } from './PullIn';
 import { ResumeRow } from './ResumeRow';
-import { SessionSidebar, useSidebar } from './SessionSidebar';
+import { SessionSidebar, sidebarOrder, useSidebar } from './SessionSidebar';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
@@ -205,7 +205,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     setChooserOpen,
   });
   usePanelKeys({
-    tabs: briefs.map((b) => b.sessionId),
+    tabs: sidebarOrder(briefs),
     activeBrief,
     switchBrief,
     openNotes,

@@ -36,6 +36,12 @@ export function groupBriefs(briefs: SessionBriefEntry[]): { running: SessionBrie
   return { running: briefs.filter((b) => b.isLive), ended: briefs.filter((b) => !b.isLive) };
 }
 
+/** The sessions in the order the sidebar lists them, which ⌃1–9 and ⌃Tab follow. */
+export function sidebarOrder(briefs: SessionBriefEntry[]): string[] {
+  const { running, ended } = groupBriefs(briefs);
+  return [...running, ...ended].map((b) => b.sessionId);
+}
+
 export interface SidebarState {
   open: boolean;
   /** The sidebar covers the work, and a pick closes it. */
