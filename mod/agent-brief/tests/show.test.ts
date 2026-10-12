@@ -469,7 +469,7 @@ describe('a policy that refuses the plugin\'s tools', () => {
         isExpanded: false,
         calls: [
           { tool: 'Bash', input: { command: 'ls' }, isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: 'a\n' } },
-          { tool: 'Bash', input: { command: 'agent-brief show' }, isRunning: false, isErrored: false, isInterrupted: false, output },
+          { tool_use_id: 'b1', tool: 'Bash', input: { command: 'agent-brief show' }, isRunning: false, isErrored: false, isInterrupted: false, output },
         ],
       },
     })
@@ -479,6 +479,32 @@ describe('a policy that refuses the plugin\'s tools', () => {
     const plain = await $.ui.mount(group({ stdout: 'b\n' }))
     expect(textOf(await plain.drawn())).toBe('expanded false')
     await plain.unmount()
+  })
+
+  test('a show command\'s row in an unfolded group draws the picture under the call', async ($, on) => {
+    const printed = bash(on)
+    await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    printed.stdout = `${bashRequestLine({ kind: 'show', input: { path: SHOT } })}\n`
+    const reply = await run($, `agent-brief show ${SHOT}`)
+    const callRow = (id: string) => ({
+      plugin: 'agent-brief',
+      surface: 'terminal' as const,
+      component: 'ToolUse' as const,
+      requestId: id,
+      viewport: VIEWPORT,
+      props: { tool_use_id: id, tool: 'Bash', input: { command: 'agent-brief show' }, isRunning: false, isErrored: false, isInterrupted: false, output: reply.result },
+    })
+    const standalone = await $.ui.mount(callRow('b1'))
+    expect(await standalone.find({ type: 'Image' })).toBeUndefined()
+    await standalone.unmount()
+    const call = { tool_use_id: 'b1', tool: 'Bash', input: {}, isRunning: false, isErrored: false, isInterrupted: false, output: reply.result }
+    const group = await $.ui.mount({ plugin: 'agent-brief', surface: 'terminal', component: 'ToolGroup', requestId: 'g1', viewport: VIEWPORT, props: { isActive: false, isExpanded: false, calls: [call] } })
+    await group.drawn()
+    await group.unmount()
+    const grouped = await $.ui.mount(callRow('b1'))
+    expect(textOf(await grouped.drawn())).toContain('engine band')
+    expect(await grouped.find({ type: 'Image' })).toBeDefined()
+    await grouped.unmount()
   })
 
   test('a missing file comes back as the line Claude acts on', async ($, on) => {

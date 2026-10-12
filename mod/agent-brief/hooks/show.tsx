@@ -11,6 +11,7 @@ import {
   UNCONFIRMED_NOTE,
   WIREFRAME_FILE,
   SHOW_PANE,
+  SHOW_MARK,
   SHOW_SECTION,
   SHOW_TOOL,
   SHOW_USAGE,
@@ -84,6 +85,9 @@ const viewOf = (site: string): View => {
 
 /** Each failed show's notice, by tool call, for the box drawn in its place. */
 const notices = new Map<string, ShowNotice>()
+
+/** `agent-brief show` calls inside an unfolded group. Their output draws in the call's own row, with no ToolResult. */
+const inGroup = new Set<string>()
 
 type Ui = ElementTable
 type ImageElement = ElementTable<'terminal'>['Image'] | undefined
@@ -473,6 +477,23 @@ function tableOf($: EngineInterface, e: RenderInput): { ui: Ui; Image: ImageElem
   return { ui: $.ui.resolve(e), Image: undefined }
 }
 
+/** The picture in a transcript row. A row scrolled back into view sends its pictures again. */
+async function RowViewer($: EngineInterface, e: RenderInput, shown: Shown, onScreen: unknown) {
+  const { ui, Image } = tableOf($, e)
+  const view = viewOf(e.requestId)
+  if (onScreen === null) view.wasAway = true
+  else if (view.wasAway && onScreen) {
+    view.wasAway = false
+    view.resend = true
+  }
+  const tree = await Viewer(ui, Image, $, e.requestId, shown, e.viewport, false)
+  if (view.resend) {
+    view.resend = false
+    void $.clock.sleep(120).then(() => resend($, e.requestId), () => undefined)
+  }
+  return tree
+}
+
 const OPTION_PROPERTIES = {
   path: { type: 'string', description: 'A picture file: absolute, or relative to the project. PNG, JPEG, WebP, GIF, TIFF, SVG or .wireframe.' },
   wireframe: { type: 'string', description: 'A wireframe DSL block, rendered here. The wireframe skill has the grammar.' },
@@ -645,21 +666,40 @@ export function registerShow(on: On): void {
     }
   })
 
-  // The call's own row: one short line, not the whole input.
-  on('ui.render', { component: 'ToolUse' }, ($, e, next) => {
-    const props = e.props as { tool: string; input: unknown; isRunning: boolean }
-    if (props.tool !== SHOW_TOOL) return next(e)
-    const { Text } = $.ui.resolve(e)
-    return <Text>{toolLine(props.input, props.isRunning)}</Text>
-  })
-
   // The transcript folds shell commands into one count line, which hides an `agent-brief show` picture.
   // A group that holds one unfolds in place, so the picture draws without ctrl+o.
   on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
-    const props = e.props as { calls: ReadonlyArray<{ tool: string; output?: unknown }>; isExpanded: boolean }
-    if (props.isExpanded) return next(e)
-    const hasShow = props.calls.some(c => c.tool === 'Bash' && shownOf(c.output) !== null)
-    return hasShow ? next({ ...e, props: { ...e.props, isExpanded: true } } as typeof e) : next(e)
+    const props = e.props as { calls: ReadonlyArray<{ tool_use_id?: string; tool: string; output?: unknown }>; isExpanded: boolean }
+    const shows = props.calls.filter(c => c.tool === 'Bash' && shownOf(c.output) !== null)
+    for (const c of shows) if (c.tool_use_id) inGroup.add(c.tool_use_id)
+    if (props.isExpanded || shows.length === 0) return next(e)
+    return next({ ...e, props: { ...e.props, isExpanded: true } } as typeof e)
+  })
+
+  // The call's own row: one short line, not the whole input.
+  // In an unfolded group, a show command's row also carries its picture.
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const props = e.props as { tool: string; tool_use_id: string; output?: unknown; isErrored: boolean; onScreen?: unknown }
+    if (props.tool === SHOW_TOOL) {
+      const { Text } = $.ui.resolve(e)
+      return <Text>{toolLine((e.props as { input: unknown }).input, (e.props as { isRunning: boolean }).isRunning)}</Text>
+    }
+    if (props.tool !== 'Bash' || props.isErrored || !inGroup.has(props.tool_use_id)) return next(e)
+    const shown = shownOf(props.output)
+    const out = props.output as { stdout: string } | undefined
+    if (!shown || !out) return next(e)
+    const stdout = out.stdout
+      .split('\n')
+      .filter(l => !l.startsWith(SHOW_MARK))
+      .join('\n')
+    const row = await next({ ...e, props: { ...e.props, output: { ...out, stdout } } } as typeof e)
+    const { Box } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {row}
+        {await RowViewer($, e, shown, props.onScreen)}
+      </Box>
+    )
   })
 
   // Inline in the transcript: the picture is the tool's result row.
@@ -667,27 +707,14 @@ export function registerShow(on: On): void {
     const props = e.props as { tool: string; tool_use_id: string; output: unknown; isErrored: boolean; onScreen?: unknown }
     const isShow = props.tool === SHOW_TOOL || (props.tool === 'Bash' && shownOf(props.output) !== null)
     if (!isShow) return next(e)
-    const { ui, Image } = tableOf($, e)
-    const room = (e.viewport?.columns ?? 100) - 10
     if (props.isErrored) {
       const n = notices.get(props.tool_use_id)
       if (!n) return next(e)
-      return NoticeBox(ui, $, room, { title: n.title, text: n.text, copy: n.prompt, label: 'Copy prompt' })
+      const room = (e.viewport?.columns ?? 100) - 10
+      return NoticeBox(tableOf($, e).ui, $, room, { title: n.title, text: n.text, copy: n.prompt, label: 'Copy prompt' })
     }
     const shown = shownOf(props.output)
-    if (!shown) return next(e)
-    const view = viewOf(e.requestId)
-    if (props.onScreen === null) view.wasAway = true
-    else if (view.wasAway && props.onScreen) {
-      view.wasAway = false
-      view.resend = true
-    }
-    const tree = await Viewer(ui, Image, $, e.requestId, shown, e.viewport, false)
-    if (view.resend) {
-      view.resend = false
-      void $.clock.sleep(120).then(() => resend($, e.requestId), () => undefined)
-    }
-    return tree
+    return shown ? RowViewer($, e, shown, props.onScreen) : next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: SHOW_PANE }, async ($, e) => {
