@@ -17,6 +17,7 @@ import type {
   SessionsResponse,
   UpdateRequest,
 } from '../protocol';
+import type { ReviewPayload } from '../shared/review';
 
 export interface Region {
   x: number;
@@ -70,6 +71,8 @@ export interface DeliveryInput {
   mode?: 'fill' | 'submit';
   /** The project-relative file `text` was opened from. The prompt asks Claude to apply the draft to it. */
   sourcePath?: string;
+  /** Comments pinned to an HTML file, written as review.md. Their pictures are among `images`. */
+  review?: ReviewPayload;
 }
 
 export interface CompanionServerOptions {

@@ -103,7 +103,7 @@ test('Write mode lists a session\'s outputs, opens them, and sends an edited cop
   expect(delivery!.draft).toContain('Apply the changes to docs/pricing.md');
   expect(existsSync(join(delivery!.dir, 'draft.md'))).toBe(true);
 
-  // Other files open outside the panel.
+  // An HTML output opens in the review pane, which can still hand it to the browser.
   await showPanel(app, page);
   await page.getByTestId('brief-tab').filter({ hasText: 'Pricing' }).getByRole('tab').click();
   if ((await page.getByTestId('mode-write').getAttribute('aria-selected')) !== 'true') await page.getByTestId('mode-write').click();
@@ -111,7 +111,10 @@ test('Write mode lists a session\'s outputs, opens them, and sends an edited cop
   if ((await touched.getAttribute('aria-expanded')) !== 'true') await touched.click();
   const opened = () => app.evaluate(() => [...(globalThis as any).__companion.openedOutputs]);
   await page.getByTestId('output-row-1').click();
+  await expect(page.frameLocator('[data-testid="review-frame"]').locator('h1')).toHaveText('Pricing');
+  await page.getByTestId('review-external').click();
   await expect.poll(opened).toContain(join(cwd, 'site', 'index.html'));
+  await page.getByTestId('review-close').click();
 
   // Hide drops a row until Claude touches it again.
   await page.getByTestId('output-row-0').hover();

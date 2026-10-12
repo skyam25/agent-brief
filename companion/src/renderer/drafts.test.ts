@@ -299,3 +299,53 @@ describe('onTab', () => {
     expect(book.firstOnTab('s2', tabs)).toBeUndefined();
   });
 });
+
+describe('DraftBook reviews', () => {
+  const jpg = 'data:image/jpeg;base64,CCCC';
+  const anchor = { selector: 'h2', tag: 'h2', fx: 0.5, fy: 0.5, rect: { x: 0, y: 0, width: 1, height: 1 }, scrollY: 0, viewport: { width: 1, height: 1 } };
+  const pin = (id: string, picture?: string) => ({ id, text: '', anchor, createdAt: 1, ...(picture ? { picture } : {}) });
+
+  it('keeps an empty review off disk, and saves it once it has a pin with its picture', async () => {
+    const host = fakeHost();
+    const book = new DraftBook(host, () => t++);
+    const review = book.create('', undefined, 's1', undefined, { path: 'site/index.html', comments: [] });
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.disk.size).toBe(0);
+    book.addComment(review.id, pin('c1', 'crop0001'), jpg);
+    await book.flush();
+    expect(host.disk.get(review.id)?.review?.comments.map((c) => c.id)).toEqual(['c1']);
+    expect(host.disk.get(review.id)?.attachments).toEqual({ crop0001: jpg });
+  });
+
+  it('keeps comment pictures when the overall note changes, and lets one go with its pin', async () => {
+    const host = fakeHost();
+    const book = new DraftBook(host, () => t++);
+    const review = book.create('', undefined, 's1', undefined, { path: 'a.html', comments: [] });
+    book.addComment(review.id, pin('c1', 'crop0001'), jpg);
+    book.addComment(review.id, pin('c2'));
+    book.edit(review.id, 'Overall, tighter.');
+    expect(book.get(review.id)?.attachments).toEqual({ crop0001: jpg });
+    book.removeComment(review.id, 'c1');
+    expect(book.get(review.id)?.attachments).toBeUndefined();
+    expect(book.get(review.id)?.review?.comments.map((c) => c.id)).toEqual(['c2']);
+  });
+
+  it('adds heard words to a pin or the overall note', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    const review = book.create('Start.', undefined, 's1', undefined, { path: 'a.html', comments: [] });
+    book.addComment(review.id, pin('c1'));
+    book.appendTo(review.id, 'c1', ' bigger heading ');
+    book.appendTo(review.id, 'c1', 'and bolder');
+    book.appendTo(review.id, undefined, 'Darker overall.');
+    expect(book.get(review.id)?.review?.comments[0]?.text).toBe('bigger heading and bolder');
+    expect(book.get(review.id)?.body).toBe('Start. Darker overall.');
+  });
+
+  it('opens a new review instead of reusing an empty note', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    const note = book.create('', undefined, 's1');
+    const review = book.create('', undefined, 's1', undefined, { path: 'a.html', comments: [] });
+    expect(review.id).not.toBe(note.id);
+    expect(book.selected?.review?.path).toBe('a.html');
+  });
+});

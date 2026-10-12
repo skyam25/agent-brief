@@ -129,3 +129,43 @@ describe('pictures in a delivery', () => {
     expect(readFileSync(join(dir, 'draft.md'), 'utf8')).toBe(buildDraft('id1', input));
   });
 });
+
+describe('a review of an HTML file', () => {
+  const anchor = {
+    selector: 'main > h2',
+    tag: 'h2',
+    text: 'Pricing plans',
+    heading: 'Pricing',
+    fx: 0.5,
+    fy: 0.5,
+    rect: { x: 10, y: 200, width: 300, height: 40 },
+    scrollY: 0,
+    viewport: { width: 800, height: 600 },
+  };
+  const review = {
+    path: 'site/index.html',
+    body: 'Feels cramped overall.',
+    comments: [{ id: 'c1', text: 'Make this bigger.', anchor, picture: 'abcdef12', createdAt: 1 }],
+  };
+  const images = [{ name: 'abcdef12.jpg', data: Buffer.from('jpg'), mime: 'image/jpeg' }];
+
+  it('points at review.md and asks Claude to make the changes, in two lines', () => {
+    expect(buildDraft('id1', { boardName: '', review, images })).toBe(
+      '@.feedback/sketches/id1/review.md\nReview of site/index.html from Agent Brief, 1 comment pinned to the page. Make the changes in site/index.html, then say what changed.',
+    );
+  });
+
+  it('writes review.md with each pin and its picture, and no draft.md', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'b1');
+    await writeBundle(dir, { boardName: '', text: review.body, review, images });
+    expect(existsSync(join(dir, 'draft.md'))).toBe(false);
+    expect(readFileSync(join(dir, 'images', 'abcdef12.jpg'), 'utf8')).toBe('jpg');
+    const md = readFileSync(join(dir, 'review.md'), 'utf8');
+    expect(md).toContain('# Review of site/index.html');
+    expect(md).toContain('## Overall\n\nFeels cramped overall.');
+    expect(md).toContain('## 1. h2 “Pricing plans”\n\nMake this bigger.');
+    expect(md).toContain('- Element: `main > h2`');
+    expect(md).toContain('- Under heading: “Pricing”');
+    expect(md).toContain('- Picture: .feedback/sketches/b1/images/abcdef12.jpg');
+  });
+});

@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import { imageRefs } from '../shared/drafts';
+import { reviewAsk, reviewMarkdown } from '../shared/review';
 import type { DeliveryInput } from './contract';
 
 const pad = (n: number, width = 2) => String(n).padStart(width, '0');
@@ -82,13 +83,16 @@ export function cleanSourcePath(raw: unknown): string | undefined {
 /**
  * The prompt Claude Code receives. A written draft goes first, word for word, then the sketch lines.
  * A draft opened from a project file is not repeated. Its lines point at draft.md and ask Claude to apply it to the file.
+ * A review's lines point at review.md instead.
  */
 export function buildDraft(id: string, input: DeliveryInput): string {
   const rel = `.feedback/sketches/${id}`;
   const source = cleanSourcePath(input.sourcePath);
-  const sourceLines = source
-    ? [`@${rel}/draft.md`, `My edited copy of ${source} from Agent Brief. Apply the changes to ${source}, keep what I did not touch, then say what changed.`]
-    : undefined;
+  const sourceLines = input.review
+    ? [`@${rel}/review.md`, reviewAsk(input.review)]
+    : source
+      ? [`@${rel}/draft.md`, `My edited copy of ${source} from Agent Brief. Apply the changes to ${source}, keep what I did not touch, then say what changed.`]
+      : undefined;
   const text = sourceLines ? sourceLines.join('\n') : input.text && rewriteImages(input.text, id, input.images ?? []).trim();
   if (!input.png) return text ?? '';
   const lines = [`@${rel}/sketch.png`, `Sketch from the Agent Brief board "${input.boardName}".`];
@@ -111,7 +115,12 @@ export async function writeBundle(dir: string, input: DeliveryInput): Promise<vo
       writeFile(join(dir, 'board.excalidraw'), JSON.stringify(input.scene, null, 2)),
     );
   }
-  if (input.text || cleanSourcePath(input.sourcePath)) {
+  if (input.review) {
+    const rel = `.feedback/sketches/${basename(dir)}/images`;
+    const files = new Map((input.images ?? []).map((img) => [basename(img.name).replace(/\.[^.]*$/, ''), basename(img.name)]));
+    const picturePath = (id: string) => (files.has(id) ? `${rel}/${files.get(id)}` : undefined);
+    writes.push(writeFile(join(dir, 'review.md'), reviewMarkdown(input.review, picturePath)));
+  } else if (input.text || cleanSourcePath(input.sourcePath)) {
     writes.push(writeFile(join(dir, 'draft.md'), rewriteImages(input.text ?? '', basename(dir), input.images ?? [])));
   }
   if (input.notes) writes.push(writeFile(join(dir, 'notes.md'), input.notes));

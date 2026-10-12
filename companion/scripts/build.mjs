@@ -20,17 +20,26 @@ export const mainOptions = {
   outExtension: { '.js': '.cjs' },
 };
 
+/** The script the review pane adds to each HTML page it shows. */
+export const overlayOptions = {
+  entryPoints: { 'review/overlay': 'src/review/overlay.ts' },
+  bundle: true,
+  platform: 'browser',
+  format: 'iife',
+  target: 'chrome130',
+  outdir: 'out',
+  logLevel: 'warning',
+};
+
 export async function buildMain() {
-  await esbuild(mainOptions);
+  await Promise.all([esbuild(mainOptions), esbuild(overlayOptions)]);
 }
 
 export async function watchMain(onRebuild) {
-  const ctx = await context({
-    ...mainOptions,
-    plugins: [{ name: 'notify', setup: (b) => b.onEnd((r) => r.errors.length === 0 && onRebuild()) }],
-  });
-  await ctx.watch();
-  return ctx;
+  const notify = [{ name: 'notify', setup: (b) => b.onEnd((r) => r.errors.length === 0 && onRebuild()) }];
+  const contexts = await Promise.all([context({ ...mainOptions, plugins: notify }), context({ ...overlayOptions, plugins: notify })]);
+  await Promise.all(contexts.map((c) => c.watch()));
+  return contexts[0];
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

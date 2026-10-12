@@ -1,7 +1,8 @@
 /** Holds the drafts Write mode shows, with the open one and debounced saves. */
 
-import { newDraftId, referencedImages, sortDrafts } from '../shared/drafts';
+import { keptImages, newDraftId, sortDrafts } from '../shared/drafts';
 import type { CompanionApi, Draft, DraftSource } from '../shared/ipc';
+import type { DraftReview, ReviewComment } from '../shared/review';
 
 export const DRAFT_SAVE_MS = 400;
 /** How long a failed save waits before it tries again. */
@@ -13,9 +14,9 @@ type DraftHost = Pick<CompanionApi, 'listDrafts' | 'saveDraft' | 'deleteDraft'>;
 
 /**
  * A draft with nothing in it stays in memory, so leaving it leaves nothing behind.
- * Its attachments need no check, because `edit` keeps only the ones the body references.
+ * Its attachments need no check, because `edit` keeps only the ones the body and comments use.
  */
-const isEmpty = (d: Draft) => !d.body.trim() && !d.board;
+const isEmpty = (d: Draft) => !d.body.trim() && !d.board && !d.review?.comments.length;
 
 /**
  * Whether a draft belongs on a tab: a session tab holds the notes filed under it,
@@ -113,33 +114,76 @@ export class DraftBook {
    * Starts a note filed under `sessionId`, or unfiled, and opens it. Reuses the
    * open note when it is still empty and filed the same way, unless main asked
    * for a note with another `id`, which it keeps for a session. A `source` marks
-   * the note as a copy of that output file.
+   * the note as a copy of that output file, and a `review` makes it a review of an HTML file.
    */
-  create(body = '', id?: string, sessionId?: string, source?: DraftSource): Draft {
+  create(body = '', id?: string, sessionId?: string, source?: DraftSource, review?: DraftReview): Draft {
     const open = this.selected;
-    if (open && isEmpty(open) && !body && !source && open.sessionId === sessionId && (id === undefined || open.id === id)) return open;
+    if (open && isEmpty(open) && !body && !source && !review && !open.review && open.sessionId === sessionId && (id === undefined || open.id === id)) return open;
     const t = this.now();
     const draft: Draft = { id: id ?? newDraftId(t), body, status: 'note', rank: 0, createdAt: t, updatedAt: t };
     if (sessionId) draft.sessionId = sessionId;
     if (source) draft.source = source;
+    if (review) draft.review = review;
     this.drafts = sortDrafts([draft, ...this.drafts]);
     this.select(draft.id);
     if (body) this.save(draft.id);
     return draft;
   }
 
-  /** Sets the body and keeps exactly the attachments it references. */
+  /** Sets the body and keeps exactly the attachments it and the review's comments use. */
   edit(id: string, body: string): void {
     const draft = this.get(id);
     if (!draft) return;
+    this.patch(id, { body, attachments: this.keep(draft, { body, review: draft.review }) });
+  }
+
+  /** The attachments `next` uses, from the draft, from ones taken out lately, or from other drafts. The rest wait loose. */
+  private keep(draft: Draft, next: Pick<Draft, 'body' | 'review'>): Record<string, string> {
     const had = draft.attachments ?? {};
     const attachments: Record<string, string> = {};
-    for (const imageId of referencedImages(body)) {
+    for (const imageId of keptImages(next)) {
       const data = had[imageId] ?? this.loose.get(imageId) ?? this.drafts.find((d) => d.attachments?.[imageId])?.attachments?.[imageId];
       if (data) attachments[imageId] = data;
     }
     for (const [imageId, data] of Object.entries(had)) if (!attachments[imageId]) this.keepLoose(imageId, data);
-    this.patch(id, { body, attachments });
+    return attachments;
+  }
+
+  /** Adds a pin to a review, with the picture of its element when there is one. */
+  addComment(id: string, comment: ReviewComment, picture?: string): void {
+    const draft = this.get(id);
+    if (!draft?.review) return;
+    const review = { ...draft.review, comments: [...draft.review.comments, comment] };
+    const attachments = { ...draft.attachments, ...(picture && comment.picture ? { [comment.picture]: picture } : {}) };
+    this.patch(id, { review, attachments });
+  }
+
+  /** Changes a pin's words. */
+  editComment(id: string, commentId: string, text: string): void {
+    const draft = this.get(id);
+    if (!draft?.review) return;
+    this.patch(id, { review: { ...draft.review, comments: draft.review.comments.map((c) => (c.id === commentId ? { ...c, text } : c)) } });
+  }
+
+  /** Adds words to the end of a pin's, or to the overall note when `commentId` is undefined. */
+  appendTo(id: string, commentId: string | undefined, words: string): void {
+    const draft = this.get(id);
+    const add = words.trim();
+    if (!draft || !add) return;
+    const joined = (text: string) => (text.trim() ? `${text.trimEnd()} ${add}` : add);
+    if (commentId === undefined) this.edit(id, joined(draft.body));
+    else {
+      const comment = draft.review?.comments.find((c) => c.id === commentId);
+      if (comment) this.editComment(id, commentId, joined(comment.text));
+    }
+  }
+
+  /** Takes a pin off a review. Its picture waits loose for a moment, like any removed picture. */
+  removeComment(id: string, commentId: string): void {
+    const draft = this.get(id);
+    if (!draft?.review) return;
+    const review = { ...draft.review, comments: draft.review.comments.filter((c) => c.id !== commentId) };
+    this.patch(id, { review, attachments: this.keep(draft, { body: draft.body, review }) });
   }
 
   /** Keeps a pasted picture on the draft under `imageId`. The body references it as `att:<imageId>`. */

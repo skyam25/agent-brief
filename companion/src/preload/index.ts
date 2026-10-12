@@ -62,6 +62,11 @@ const api: CompanionApi = {
   onOutputs: (fn) => ipcRenderer.on(CH.outputs, (_e, info: OutputsInfo) => fn(info)),
   openOutput: (sessionId, ref) => ipcRenderer.invoke(CH.openOutput, sessionId, ref),
   dismissOutput: (sessionId, ref) => ipcRenderer.invoke(CH.dismissOutput, sessionId, ref),
+  openOutputElsewhere: (sessionId, ref) => ipcRenderer.invoke(CH.openOutputElsewhere, sessionId, ref),
+  reviewUrl: (sessionId, path) => ipcRenderer.invoke(CH.reviewUrl, sessionId, path),
+  capturePanel: (rect) => ipcRenderer.invoke(CH.capturePanel, rect),
+  transcribeClip: (clip) => ipcRenderer.invoke(CH.transcribeClip, clip),
+  openLink: (url) => ipcRenderer.invoke(CH.openLink, url),
 };
 
 contextBridge.exposeInMainWorld('companion', api);
