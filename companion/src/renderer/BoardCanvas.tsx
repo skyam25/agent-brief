@@ -1,8 +1,9 @@
 import { Excalidraw } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Theme } from '../shared/ipc';
 import type { BoardController, LoadedScene } from './controller';
+import { FrameTool } from './FrameTool';
 import { installPen } from './pen';
 
 /** The Excalidraw canvas with pen handling, trimmed to drawing: no main menu, library or help. */
@@ -14,6 +15,7 @@ export function BoardCanvas(props: {
 }) {
   const { controller, onReady } = props;
   const ref = useRef<HTMLDivElement>(null);
+  const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
 
   useEffect(() => {
     const pen = installPen(() => ref.current);
@@ -37,6 +39,7 @@ export function BoardCanvas(props: {
       if (controller.api) return;
       controller.attach(api);
       onReady(api);
+      setApi(api);
       requestAnimationFrame(() => ref.current?.querySelector<HTMLElement>('.excalidraw')?.focus());
     },
     [controller, onReady],
@@ -61,6 +64,7 @@ export function BoardCanvas(props: {
         }}
         UIOptions={{ canvasActions: { loadScene: false, export: false, saveToActiveFile: false, toggleTheme: false } }}
       />
+      {api && ref.current && <FrameTool api={api} root={ref.current} />}
     </div>
   );
 }

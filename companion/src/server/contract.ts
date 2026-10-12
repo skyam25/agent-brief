@@ -9,6 +9,7 @@ import type {
   DrawRequest,
   DrawResponse,
   BoardsResponse,
+  ModePatch,
   MutateResponse,
   OpenRequest,
   OpenResponse,
@@ -38,6 +39,10 @@ export interface BoardBackend {
   tracking?(sessionId: string): { trackItems: boolean } | undefined;
   /** Turns item tracking on or off for a session. */
   setTracking?(sessionId: string, on: boolean): void | Promise<void>;
+  /** A session's mode, mirrored from the mod. Undefined in default mode. */
+  mode?(sessionId: string): ModePatch | undefined;
+  /** Stores the mode the mod reports. `default` clears it, and a mode other than prototype has no fidelity. */
+  setMode?(sessionId: string, patch: ModePatch): void | Promise<void>;
 }
 
 /** What the app hands over when you press Send. */
@@ -63,6 +68,8 @@ export interface DeliveryInput {
   /** Short plain-text transcript for the draft. */
   speech?: string;
   mode?: 'fill' | 'submit';
+  /** The project-relative file `text` was opened from. The prompt asks Claude to apply the draft to it. */
+  sourcePath?: string;
 }
 
 export interface CompanionServerOptions {
@@ -80,7 +87,7 @@ export interface CompanionServer {
   deliver(input: DeliveryInput): Promise<Delivery>;
   /** Fires when the session list or target changes. Returns an unsubscribe. */
   onSessionsChange(fn: (s: SessionsResponse) => void): () => void;
-  /** Re-sends the session list after the backend changed what it adds, such as tracking. */
+  /** Re-sends the session list after the backend changed what it adds, such as tracking or mode. */
   refreshSessions(): void;
   /** Fires on POST /open, after backend.open resolves. */
   onOpen(fn: (req: OpenRequest) => void): () => void;

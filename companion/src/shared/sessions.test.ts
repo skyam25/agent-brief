@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hostLabel, hueOf, sessionTitle, shortFolder, shortPath } from './sessions';
+import { hostLabel, hueOf, modeLabel, sessionTitle, shortFolder, shortPath } from './sessions';
 
 describe('session words', () => {
   it('names where a session runs, herdr first', () => {
@@ -14,6 +14,19 @@ describe('session words', () => {
     expect(sessionTitle({ sessionId: 's', cwd: '/x', title: 'Login' })).toBe('Login');
     expect(shortPath('/Users/me/app', '/Users/me')).toBe('~/app');
     expect(shortPath('/opt/app', '/Users/me')).toBe('/opt/app');
+  });
+});
+
+describe('modeLabel', () => {
+  it('names the mode, with the fidelity only for prototype, and nothing for default', () => {
+    expect(modeLabel('product')).toBe('Product');
+    expect(modeLabel('orchestrate')).toBe('Orchestrate');
+    expect(modeLabel('prototype')).toBe('Prototype');
+    expect(modeLabel('prototype', 'freeze-patch')).toBe('Prototype · Freeze + patch');
+    expect(modeLabel('prototype', 'styled')).toBe('Prototype · Styled HTML');
+    expect(modeLabel('product', 'wireframe')).toBe('Product');
+    expect(modeLabel('default')).toBeUndefined();
+    expect(modeLabel(undefined)).toBeUndefined();
   });
 });
 

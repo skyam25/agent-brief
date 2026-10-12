@@ -196,6 +196,30 @@ test('an ended session keeps its tab, which still opens its board', async () => 
   await expect(page.getByTestId('send')).toHaveText('Send to…');
 });
 
+test('a tab shows the mode the mod reports, and drops it when the session ends', async () => {
+  const { page } = ctx;
+  await register('s1', 'Alpha');
+  await register('s2', 'Beta');
+  await openFor({ sessionId: 's1' });
+  await openFor({ sessionId: 's2' });
+  await expect(page.getByTestId('brief-mode')).toHaveCount(0);
+
+  await sock(socketPath, 'PATCH', '/sessions/s1', { mode: 'prototype', fidelity: 'freeze-patch' });
+  await sock(socketPath, 'PATCH', '/sessions/s2', { mode: 'product' });
+  await expect(briefTab(page, 'Alpha').getByTestId('brief-mode')).toHaveText('Prototype · Freeze + patch');
+  await expect(briefTab(page, 'Beta').getByTestId('brief-mode')).toHaveText('Product');
+  await themeShots(ctx, 'tab-modes', { x: 0, y: 0, width: 1100, height: 140 });
+
+  await sock(socketPath, 'PATCH', '/sessions/s2', { mode: 'default' });
+  await expect(briefTab(page, 'Beta').getByTestId('brief-mode')).toHaveCount(0);
+
+  // The mode lives with the session. A resumed session starts in default until the mod reports again.
+  await sock(socketPath, 'DELETE', '/sessions/s1');
+  await expect(briefTab(page, 'Alpha').getByTestId('brief-mode')).toHaveCount(0);
+  await register('s1', 'Alpha');
+  expect((await sock<any>(socketPath, 'GET', '/sessions/s1')).body.mode).toBeUndefined();
+});
+
 test('tabs that do not fit wait behind +N', async () => {
   const { app, page } = ctx;
   for (const [id, title] of [['s1', 'Alpha'], ['s2', 'Beta'], ['s3', 'Gamma'], ['s4', 'Delta'], ['s5', 'Epsilon']]) {

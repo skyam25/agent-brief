@@ -1,6 +1,6 @@
 /** Words for a Claude Code session in the panel. */
 
-import type { SessionHost, SessionInfo } from '../protocol';
+import type { PrototypeFidelity, SessionHost, SessionInfo, SessionMode } from '../protocol';
 
 const TERMINALS: Record<string, string> = {
   ghostty: 'Ghostty',
@@ -10,6 +10,22 @@ const TERMINALS: Record<string, string> = {
   WezTerm: 'WezTerm',
   WarpTerminal: 'Warp',
   tmux: 'tmux',
+};
+
+const MODES: Record<SessionMode, string> = {
+  default: '',
+  product: 'Product',
+  prototype: 'Prototype',
+  orchestrate: 'Orchestrate',
+};
+
+const FIDELITIES: Record<PrototypeFidelity, string> = {
+  wireframe: 'Wireframe',
+  styled: 'Styled HTML',
+  'live-patch': 'Live patch',
+  'freeze-patch': 'Freeze + patch',
+  interactive: 'Interactive',
+  existing: 'Existing',
 };
 
 const GHOSTTY_BUNDLE = 'com.mitchellh.ghostty';
@@ -22,6 +38,13 @@ export function hostLabel(host: SessionHost | undefined): string | undefined {
   if (host?.herdrPane) return 'herdr';
   if (!host?.terminal) return undefined;
   return TERMINALS[host.terminal] ?? host.terminal;
+}
+
+/** The session's mode as its chip reads, such as `Prototype · Wireframe`. Undefined in default mode. */
+export function modeLabel(mode: SessionMode | undefined, fidelity?: PrototypeFidelity): string | undefined {
+  if (!mode || !MODES[mode]) return undefined;
+  const detail = mode === 'prototype' && fidelity ? FIDELITIES[fidelity] : undefined;
+  return detail ? `${MODES[mode]} · ${detail}` : MODES[mode];
 }
 
 /** The last folder of a path. */

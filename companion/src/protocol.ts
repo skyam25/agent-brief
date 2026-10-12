@@ -58,15 +58,31 @@ export interface SessionInfo {
   trackItems?: boolean;
   /** Set by the app when tracking is on: `<cwd>/.feedback/items/<sessionId>.md`. */
   itemsPath?: string;
+  /** Set by the app for a live session: `<cwd>/.feedback/outputs/<sessionId>.json`, where the mod records outputs. */
+  outputsPath?: string;
+  /** The session's mode, mirrored from the mod. Absent means default. */
+  mode?: SessionMode;
+  /** The prototype fidelity, mirrored from the mod. Only set with `mode: 'prototype'`. */
+  fidelity?: PrototypeFidelity;
 }
 
-// GET   /sessions/:id              → SessionInfo, with its tracking state
-// PATCH /sessions/:id              TrackingPatch → SessionInfo
+// GET   /sessions/:id              → SessionInfo, with its tracking state and mode
+// PATCH /sessions/:id              TrackingPatch | ModePatch → SessionInfo
 // Tracking is the user's choice, from the panel or `/track` in the session.
 // The app only reads the items file; Claude writes it, and the panel appends the user's decisions.
+// Mode is the mod's. The app stores and shows it; it never sets it.
 
 export interface TrackingPatch {
   trackItems: boolean;
+}
+
+export type SessionMode = 'default' | 'product' | 'prototype' | 'orchestrate';
+
+export type PrototypeFidelity = 'wireframe' | 'styled' | 'live-patch' | 'freeze-patch' | 'interactive' | 'existing';
+
+export interface ModePatch {
+  mode: SessionMode;
+  fidelity?: PrototypeFidelity;
 }
 
 export interface SessionHost {
@@ -114,6 +130,58 @@ export interface OpenResponse {
   targetSessionId?: string;
   /** True when Write mode started the new note with the request's text. */
   noteText?: boolean;
+}
+
+// ── Outputs file ──────────────────────────────────────────────────────────
+// `<cwd>/.feedback/outputs/<sessionId>.json`. The mod writes it; the app only
+// reads it. Claude declares a deliverable with the `declare_output` tool, and
+// the mod's hook on Write, Edit and NotebookEdit records every document-type
+// file the session touches. One record per `ref`.
+
+export function outputsFile(cwd: string, sessionId: string): string {
+  return `${cwd}/.feedback/outputs/${sessionId}.json`;
+}
+
+/** Extensions the hook records, lower case, without the dot. */
+export const DOCUMENT_EXTENSIONS: readonly string[] = ['md', 'markdown', 'mdx', 'html', 'htm', 'pdf', 'docx', 'pptx', 'xlsx'];
+
+/** Folders under the cwd whose files are never outputs. */
+export const OUTPUT_SKIP_DIRS: readonly string[] = ['.feedback', '.claude', 'node_modules'];
+
+export type OutputKind = 'markdown' | 'html' | 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'artifact' | 'other';
+
+/** `declared` when Claude named it with `declare_output`; `detected` when only the hook saw it. */
+export type OutputTier = 'declared' | 'detected';
+
+export type OutputStatus = 'drafting' | 'ready';
+
+/** `created` when the session made the file, or replaced most of it; `edited` otherwise. */
+export type OutputOrigin = 'created' | 'edited';
+
+export interface OutputRecord {
+  /** The path relative to the session's cwd, or the URL. The record's key. */
+  ref: string;
+  /** Present when `ref` is a URL. */
+  url?: string;
+  title?: string;
+  kind: OutputKind;
+  tier: OutputTier;
+  /** Only a declared output has a status. */
+  status?: OutputStatus;
+  origin?: OutputOrigin;
+  /** Epoch ms of the latest `declare_output` call. */
+  declaredAt?: number;
+  /** Epoch ms of the hook's first and latest write. Absent for a URL. */
+  firstWriteAt?: number;
+  lastWriteAt?: number;
+  /** How many writes the hook saw. */
+  writes?: number;
+}
+
+export interface OutputsFile {
+  version: 1;
+  sessionId: string;
+  outputs: OutputRecord[];
 }
 
 // ── Deliveries ────────────────────────────────────────────────────────────

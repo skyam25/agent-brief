@@ -1,6 +1,6 @@
 # agent-brief
 
-The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. With `/track` it has Claude keep a list of items you answer in the panel. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
+The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. With `/track` it has Claude keep a list of items you answer in the panel. With `/mode` it sets how Claude works in this session. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
 
 ## How it works
 
@@ -53,6 +53,7 @@ The mod links each session to the Agent Brief sketch panel over a Unix socket. I
 - At `session.start` the mod registers the session (`POST /sessions` with id, folder and title) once `/health` answers. It registers again every 60 s, and again whenever the app comes back after being down.
 - At `session.end` it sends `DELETE /sessions/<id>`.
 - `/track` sends `PATCH /sessions/<id>` with `{ trackItems }`. Each system prompt reads `GET /sessions/<id>` for `trackItems` and `itemsPath`.
+- A mode change sends `PATCH /sessions/<id>` with `{ mode, fidelity? }`, and so does the first registration of a session outside default mode. The app shows the mode; it never sets it.
 - A loop long-polls `GET /deliveries?session=<id>&wait=25`. While the app is down, the loop checks `/health` after 5 s, then 10 s, 20 s and 30 s, and keeps checking every 30 s.
 - A delivery is acknowledged after it lands. The mod remembers delivered ids, so a delivery the app lists twice (for example after a failed ack) is never filled or sent twice.
 
@@ -83,7 +84,7 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each mode, **✎ Sketch** and **¶ Write**, and a **☐ Track** toggle that does what a bare `/track` does.
+The band above the prompt has a button for each panel mode, **✎ Sketch** and **¶ Write**, a **☐ Track** toggle that does what a bare `/track` does, and a **◇ Mode** button that picks the session mode.
 
 ### Item tracking and `/track [on|off]`
 
@@ -121,9 +122,58 @@ Every reply that changed an item ends with two lines, `Done: #…` and `Open: #�
 
 Item tracking needs Agent Brief 0.2.6 or newer, which serves `GET` and `PATCH /sessions/<id>`. On an older app, `/track` says to update, and the prompt stays unchanged.
 
+### Outputs and `/outputs`
+
+The panel lists each session's deliverables under that session. The mod records them in `<project>/.feedback/outputs/<session id>.json`, and it is the only writer. It works with the app closed.
+
+- **Declared:** Claude calls the `declare_output` tool with a `title` and either a `path` relative to the project or a `url` for an artifact or published page. It declares with status `drafting` when it starts the deliverable and again with `ready` when it is done. The tool answers with one line and never toasts.
+- **Touched:** a hook on Write, Edit and NotebookEdit records every document-type file the session writes, subagents included. The types are Markdown, HTML, PDF, Word, PowerPoint and Excel. Files outside the project, and files under `.feedback/`, `.claude/` or `node_modules/`, are never recorded. A denied or failed write records nothing, and a failure to record never blocks the tool.
+- A record marks a file `created` when the session made it or a Write replaced more than half of it, and `edited` otherwise. It also counts the writes.
+- A declare on a file the hook already saw moves it from touched to declared and keeps its write count.
+- Each system prompt carries a short section that tells Claude when to declare. Claude declares the thing you asked for, one primary output per request, and never code, config or tests.
+- `/outputs` prints the declared outputs, newest first, then the touched ones.
+
 ### Skill
 
 `skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `agent-brief` CLI, and to post a browser session it drives as numbered screenshots with `agent-brief snap`, which needs Agent Brief 0.2.5 or newer.
+
+## Modes
+
+A session mode sets how Claude works in that session. The mod owns it and works without the app, which only shows it.
+
+| Mode | What Claude does | Tools |
+| --- | --- | --- |
+| `default` | Runs as Claude Code does without the mod | Untouched |
+| `product` | Discovery, analysis, specs, acceptance criteria, go-to-market | Edits to source files are denied. Markdown, text, CSV, JSON, YAML and anything under `.feedback/` stay writable. Browser tools, NotebookEdit, LSP and Workflow wait behind ToolSearch. |
+| `prototype` | Fast, disposable prototypes at a chosen fidelity | Browser tools load up front. NotebookEdit, LSP and Workflow wait behind ToolSearch. |
+| `orchestrate` | Splits the work and hands each task to a subagent | Edit, Write and NotebookEdit are denied in the main loop and wait behind ToolSearch. Subagents can still edit. |
+
+Prototype takes a fidelity rung:
+
+| Fidelity | Alias | Picker label |
+| --- | --- | --- |
+| `wireframe` | `wire` | Wireframe |
+| `styled` | `html` | Styled HTML |
+| `live-patch` | `live` | Live patch |
+| `freeze-patch` | `freeze` | Freeze + patch |
+| `interactive` | `inter` | Interactive |
+| `existing` | `iterate` | Match existing |
+
+- `/mode` reports the current mode. `/mode product`, `/mode orchestrate` and `/mode default` set one. `/mode prototype <fidelity>` sets prototype at that rung.
+- The **◇ Mode** button (hotkey `m`) opens a picker row. Prototype opens a second row for the fidelity. The button shows the mode, such as **◇ Prototype · styled HTML**, in the accent color outside default.
+- A folder default lives in `.claude/agent-brief.local.md`. The mod looks in the session folder, then each parent up to and including your home folder, and the first file found wins. It reads `mode:` and `fidelity:` from the frontmatter and ignores invalid values. A prototype with no valid fidelity is ignored, so that session opens in default.
+
+  ```markdown
+  ---
+  mode: prototype
+  fidelity: wireframe
+  ---
+  ```
+
+- A mode set in the session outlives a plugin reload. The folder default applies only to a session that has not set one.
+- Default mode is untouched Claude Code. The mode adds no prompt section, moves no tool and denies nothing. The outputs section is separate and always present.
+- The mod never reads or changes the project's output style. When one is active, product and orchestrate add no section, and prototype adds only its fidelity line.
+- Each other mode adds one short section to the system prompt, after the prompt cache boundary. Its text depends only on the mode and fidelity. Switching mid-session changes that section and the tool list, so the next turn re-reads the conversation without the cache.
 
 ## Command line
 

@@ -363,3 +363,66 @@ test('a drawing at the origin of an empty board shows below the toolbar', async 
   expect(frameTop).toBeGreaterThanOrEqual(toolbarBottom);
   await page.screenshot({ path: join(RESULTS, 'reveal-below-toolbar.png') });
 });
+
+test('the opacity label sits at the knob once a selection shows the style panel', async () => {
+  const { app, page } = ctx;
+  // With the pen in hand the panel mounts hidden, and must measure its real width when a selection shows it.
+  await pickPen(page);
+  await page.locator('.excalidraw .range-input').waitFor({ state: 'attached' });
+  await backend(app, 'draw', 'current', { elements: [{ type: 'rectangle', id: 'box', x: 0, y: 0, label: 'Pick me' }] });
+  await page.evaluate(() => (window as any).__excalidraw.updateScene({ appState: { selectedElementIds: { box: true } } }));
+  await page.locator('.canvas[data-selection="true"] .App-menu__left').waitFor();
+  const slider = await page.evaluate(() => {
+    const input = document.querySelector<HTMLElement>('.excalidraw .range-input')!;
+    const bubble = document.querySelector<HTMLElement>('.excalidraw .value-bubble')!;
+    return { width: input.offsetWidth, left: parseFloat(bubble.style.left), text: bubble.textContent };
+  });
+  expect(slider.text).toBe('100');
+  expect(slider.width).toBeGreaterThan(100);
+  expect(slider.left).toBeCloseTo(slider.width - 7.5, 0);
+});
+
+test('H picks the hand tool for dragging the board', async () => {
+  const { page } = ctx;
+  const tool = () => page.evaluate(() => (window as any).__excalidraw.getAppState().activeTool.type);
+  await page.evaluate(() => (document.querySelector('.excalidraw') as HTMLElement).focus());
+  await page.keyboard.press('h');
+  await expect.poll(tool).toBe('hand');
+  await page.keyboard.press('v');
+  await expect.poll(tool).toBe('selection');
+});
+
+test('the frame tool has its own toolbar button after the eraser', async () => {
+  const { page } = ctx;
+  const tool = () => page.evaluate(() => (window as any).__excalidraw.getAppState().activeTool.type);
+  const button = page.getByTestId('toolbar-frame-button');
+  const trigger = page.locator('.App-toolbar__extra-tools-trigger');
+
+  // It sits between the eraser and the More tools menu.
+  const order = await page.evaluate(() =>
+    [...document.querySelectorAll('.App-toolbar .Stack_horizontal [data-testid]')].map((el) => (el as HTMLElement).dataset.testid),
+  );
+  expect(order.slice(-3)).toEqual(['toolbar-eraser', 'toolbar-frame-button', 'dropdown-menu-button']);
+
+  await button.click({ force: true });
+  await expect.poll(tool).toBe('frame');
+  await expect(button).toBeChecked();
+  await expect(trigger).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await page.screenshot({ path: join(RESULTS, 'frame-tool-button.png') });
+
+  const box = (await interactiveCanvas(page).boundingBox())!;
+  await page.mouse.move(box.x + 200, box.y + 250);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 500, box.y + 450, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await live()).filter((e) => e.type === 'frame').length).toBe(1);
+
+  // Shortcuts still reach the board after a click on the button.
+  await button.click({ force: true });
+  await expect.poll(tool).toBe('frame');
+  await page.keyboard.press('r');
+  await expect.poll(tool).toBe('rectangle');
+  await expect(button).not.toBeChecked();
+  await page.keyboard.press('f');
+  await expect(button).toBeChecked();
+});

@@ -46,7 +46,44 @@ import {
   trackingOf,
 } from './companion-logic'
 import type { Tracking } from './companion-logic'
-import type { Delivery, OpenRequest, TrackingPatch } from './companion-protocol'
+import { outputsFile } from './companion-protocol'
+import type { Delivery, OpenRequest, OutputsFile, TrackingPatch } from './companion-protocol'
+import {
+  FIDELITY_IDS,
+  MODE_IDS,
+  MODE_SECTION,
+  MODE_USAGE,
+  bandLabel,
+  deferralOf,
+  denyText,
+  fidelityLabel,
+  isEditDenied,
+  modeFilePaths,
+  modeLabel,
+  modePatch,
+  modeReport,
+  modeToast,
+  parseModeArgs,
+  parseModeFile,
+  sectionText,
+} from './modes'
+import type { ModeChoice } from './modes'
+import {
+  DECLARE_USAGE,
+  OUTPUTS_SECTION,
+  declareResultText,
+  emptyOutputsFile,
+  isDocumentPath,
+  kindOf,
+  originOf,
+  outputsInstructions,
+  outputsListText,
+  parseDeclare,
+  parseOutputsFile,
+  relRef,
+  upsertDeclared,
+  upsertWrite,
+} from './outputs'
 
 type Config = {
   inboxDir: string
@@ -58,6 +95,10 @@ type Config = {
 const sessionsRef = atom({ plugin: 'agent-brief', key: 'sessions' } as const, [])
 const ingestingRef = atom({ plugin: 'agent-brief', key: 'ingesting' } as const, null)
 const trackingRef = atom({ plugin: 'agent-brief', key: 'tracking' } as const, false)
+const MODE_STATE = { plugin: 'agent-brief', key: 'mode' } as const
+const modeRef = atom(MODE_STATE, 'default')
+const fidelityRef = atom({ plugin: 'agent-brief', key: 'fidelity' } as const, null)
+const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -118,10 +159,13 @@ async function sessionExtras($: EngineInterface) {
 
 async function registerSession($: EngineInterface): Promise<boolean> {
   const sessionId = await $.session.id()
+  const isNew = registeredId !== sessionId
   const info = sessionInfo(sessionId, await $.session.cwd(), await sessionExtras($))
   const reply = await call($, 'POST', '/sessions', info)
-  if (reply?.ok) registeredId = sessionId
-  return reply?.ok === true
+  if (!reply?.ok) return false
+  registeredId = sessionId
+  if (isNew && (await read($, modeRef)) !== 'default') await mirrorMode($)
+  return true
 }
 
 async function ack($: EngineInterface, id: string): Promise<void> {
@@ -273,6 +317,89 @@ async function trackCommand($: EngineInterface, args: string): Promise<string> {
   if (reply === undefined) return TRACK_NOT_RUNNING
   if (!reply.ok) return TRACK_UNSUPPORTED
   return trackReply(await setTracking($, sessionId, reply.body), await $.session.cwd())
+}
+
+/** Tells the app this session's mode. Best effort, and only while the app is up. */
+async function mirrorMode($: EngineInterface): Promise<void> {
+  if (!isUp) return
+  const body = modePatch(await read($, modeRef), await read($, fidelityRef))
+  const reply = await call($, 'PATCH', sessionPath(await $.session.id()), body)
+  if (reply !== undefined && !reply.ok) log($, `mode mirror answered ${reply.status}`)
+}
+
+/** Sets the mode for `/mode` and the band, and returns what to tell the user. */
+async function applyMode($: EngineInterface, { mode, fidelity }: ModeChoice): Promise<string> {
+  const rung = mode === 'prototype' ? fidelity : null
+  const isChanged = (await read($, modeRef)) !== mode || (await read($, fidelityRef)) !== rung
+  await update($, modeRef, () => mode)
+  await update($, fidelityRef, () => rung)
+  if (isChanged) $.ui.invalidate('tool.describe')
+  void mirrorMode($).catch(err => log($, `mode mirror failed: ${String(err)}`))
+  return modeToast(mode, rung, isChanged)
+}
+
+/** Answers `/mode [mode] [fidelity]`. */
+async function modeCommand($: EngineInterface, args: string): Promise<string> {
+  const parsed = parseModeArgs(args)
+  if (parsed.kind === 'usage') return MODE_USAGE
+  if (parsed.kind === 'report') return modeReport(await read($, modeRef), await read($, fidelityRef))
+  return applyMode($, parsed)
+}
+
+/** The first folder file found from the cwd up to the home dir. A missing file is normal. */
+async function folderMode($: EngineInterface): Promise<ModeChoice | undefined> {
+  const home = (await $.env.get('HOME')) ?? ''
+  for (const path of modeFilePaths(await $.session.cwd(), home)) {
+    const text = await $.fs.read(path).catch(() => undefined)
+    if (typeof text === 'string') return parseModeFile(text)
+  }
+  return undefined
+}
+
+/** A mode the session already holds survives a reload; otherwise the folder default applies. */
+async function resolveMode($: EngineInterface): Promise<void> {
+  if ((await $.state.get(MODE_STATE)).value === undefined) {
+    const found = await folderMode($)
+    if (found !== undefined) {
+      await update($, modeRef, () => found.mode)
+      await update($, fidelityRef, () => found.fidelity)
+    }
+  }
+  await update($, pickingRef, () => 'none')
+  if ((await read($, modeRef)) !== 'default') $.ui.invalidate('tool.describe')
+}
+
+/** This session's outputs file, or an empty one when it is missing or unreadable. */
+async function readOutputs($: EngineInterface): Promise<{ path: string; file: OutputsFile }> {
+  const sessionId = await $.session.id()
+  const path = outputsFile(await $.session.cwd(), sessionId)
+  const text = await $.fs.read(path).catch(() => undefined)
+  const file = (typeof text === 'string' ? parseOutputsFile(text) : undefined) ?? emptyOutputsFile(sessionId)
+  return { path, file }
+}
+
+/** Chains outputs file changes so one write cannot clobber another, a subagent's included. */
+let outputsQueue: Promise<unknown> = Promise.resolve()
+
+function changeOutputs($: EngineInterface, change: (file: OutputsFile) => OutputsFile): Promise<OutputsFile> {
+  const run = outputsQueue.then(async () => {
+    const { path, file } = await readOutputs($)
+    const changed = change(file)
+    await $.fs.write(path, `${JSON.stringify(changed, null, 2)}\n`)
+    return changed
+  })
+  outputsQueue = run.catch(() => undefined)
+  return run
+}
+
+/** Answers `declare_output`. Never toasts. */
+async function declareOutput($: EngineInterface, input: unknown): Promise<string> {
+  const request = parseDeclare(input, await $.session.cwd())
+  if (request === undefined) return DECLARE_USAGE
+  const at = await $.clock.now()
+  const file = await changeOutputs($, f => upsertDeclared(f, { ...request, at }))
+  const record = file.outputs.find(o => o.ref === request.ref)
+  return record === undefined ? DECLARE_USAGE : declareResultText(record)
 }
 
 type OpenMode = 'sketch' | 'write'
@@ -537,9 +664,42 @@ export const register: Register = (on, options) => {
         description: "Track this session's items in the Agent Brief panel",
         argumentHint: '[on|off]',
       })
+      await resolveMode($).catch(err => log($, `mode resolution failed: ${String(err)}`))
+      await $.command.register({
+        name: 'mode',
+        description: "Set this session's mode: default, product, prototype <fidelity>, orchestrate.",
+        argumentHint: '[default | product | prototype <fidelity> | orchestrate]',
+      })
       startCompanion($, companionSettings)
     } catch (err) {
       log($, `companion start failed: ${String(err)}`)
+    }
+    try {
+      await $.tool.register({
+        name: 'declare_output',
+        description:
+          'Names a deliverable the user asked for (a doc, brief, report, spec, page, deck or artifact) so it shows in the Agent Brief panel. ' +
+          'Call it with status drafting when you start the deliverable and again with ready when it is done. ' +
+          'Pass path for a file relative to the project, or url for an artifact or published page, never both. ' +
+          'Never declare code, config, tests or other files that serve the code.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'What the user would call it, such as "Pricing strategy"' },
+            path: { type: 'string', description: 'The file, relative to the project' },
+            url: { type: 'string', description: 'An http or https link to an artifact or published page' },
+            status: { type: 'string', enum: ['drafting', 'ready'], default: 'drafting' },
+          },
+          required: ['title'],
+        },
+        isDeferred: false,
+      })
+      await $.command.register({
+        name: 'outputs',
+        description: "List this session's outputs: declared deliverables, then touched documents",
+      })
+    } catch (err) {
+      log($, `outputs start failed: ${String(err)}`)
     }
     return started
   })
@@ -558,6 +718,10 @@ export const register: Register = (on, options) => {
     await save($, markConsumed(sessions, session.name))
     return { result: latestText(session, report) }
   }).catch(() => ({ result: 'The feedback inbox failed to read the session. Read .feedback/<name>/report.md directly.' }))
+
+  on('tool.call', { tool: 'mcp__agent-brief__declare_output' }, async ($, e) => ({ result: await declareOutput($, e) })).catch(
+    () => ({ result: 'Agent Brief could not record the output. The panel will not list it until a later declare succeeds.' }),
+  )
 
   on('tool.call', { tool: 'mcp__agent-brief__feedback_list' }, async $ => {
     const sessions = await load($)
@@ -583,16 +747,61 @@ export const register: Register = (on, options) => {
     return { text: `Applying feedback: ${session.name}` }
   })
 
-  // A one-row band with Sketch, Write and Track buttons: a click, or ctrl+x tab then Enter, does what /sketch, /write or /track does.
+  // A one-row band with Sketch, Write, Track and Mode buttons: a click, or ctrl+x tab then Enter, does what /sketch, /write, /track or /mode does.
+  // The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const ingesting = await read($, ingestingRef)
     const isTracking = await read($, trackingRef)
+    const mode = await read($, modeRef)
+    const fidelity = await read($, fidelityRef)
+    const picking = await read($, pickingRef)
     const { Box, Button, Text } = $.ui.resolve(e)
     const open = async (mode: OpenMode) => {
       const result = mode === 'write' ? await writeFromBox($) : (await openCompanion($, 'sketch')).message
       if (result !== SKETCH_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
     }
+    const pick = (row: 'none' | 'mode' | 'fidelity') => update($, pickingRef, () => row)
+    const choose = async (choice: ModeChoice) => {
+      await pick('none')
+      $.ui.toast(await applyMode($, choice), { timeoutMs: 8000 })
+    }
+    const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
+
+    if (picking === 'mode') {
+      return (
+        <Box gap={1}>
+          <Text dimColor>Mode</Text>
+          {MODE_IDS.map(id => (
+            <Button
+              key={`mode-${id}`}
+              label={modeLabel(id)}
+              {...current(id === mode)}
+              onPress={() => void (id === 'prototype' ? pick('fidelity') : choose({ mode: id, fidelity: null }))}
+            />
+          ))}
+          <Button key="mode-cancel" label="Cancel" dimColor onPress={() => void pick('none')} />
+        </Box>
+      )
+    }
+
+    if (picking === 'fidelity') {
+      return (
+        <Box gap={1}>
+          <Text dimColor>Prototype fidelity</Text>
+          {FIDELITY_IDS.map(id => (
+            <Button
+              key={`fidelity-${id}`}
+              label={fidelityLabel(id)}
+              {...current(mode === 'prototype' && id === fidelity)}
+              onPress={() => void choose({ mode: 'prototype', fidelity: id })}
+            />
+          ))}
+          <Button key="fidelity-back" label="Back" dimColor onPress={() => void pick('mode')} />
+        </Box>
+      )
+    }
+
     return (
       <Box>
         <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void open('sketch')} />
@@ -605,6 +814,14 @@ export const register: Register = (on, options) => {
           hotkey="t"
           {...(isTracking ? { variant: 'primary' as const } : {})}
           onPress={() => void trackCommand($, '').then(text => $.ui.toast(text, { timeoutMs: 8000 }))}
+        />
+        <Text> </Text>
+        <Button
+          key="mode"
+          label={bandLabel(mode, fidelity)}
+          hotkey="m"
+          {...(mode !== 'default' ? { variant: 'primary' as const } : {})}
+          onPress={() => void pick('mode')}
         />
         {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}
       </Box>
@@ -619,20 +836,78 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'sketch' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim() })).message }))
   on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
   on('command.run', { command: 'track' }, async ($, e) => ({ text: await trackCommand($, e.args) }))
+  on('command.run', { command: 'mode' }, async ($, e) => ({ text: await modeCommand($, e.args) }))
+  on('command.run', { command: 'outputs' }, async $ => ({ text: outputsListText((await readOutputs($)).file) }))
 
   // With item tracking on, the system prompt tells Claude to keep the items file.
+  // Outside default mode, it also carries the mode's posture.
+  // The outputs section is always on.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
+    const added: { id: string; scope: 'session'; text: string }[] = []
     try {
       const state = await currentTracking($)
-      if (state?.trackItems !== true || state.itemsPath === undefined) return composed
-      const section = { id: ITEMS_SECTION, scope: 'session' as const, text: itemsInstructions(state.itemsPath) }
-      return { sections: [...composed.sections, section] }
+      if (state?.trackItems === true && state.itemsPath !== undefined) {
+        added.push({ id: ITEMS_SECTION, scope: 'session', text: itemsInstructions(state.itemsPath) })
+      }
     } catch (err) {
       log($, `items section failed: ${String(err)}`)
-      return composed
     }
+    try {
+      const text = sectionText(await read($, modeRef), await read($, fidelityRef), e.outputStyle !== null)
+      if (text !== null) added.push({ id: MODE_SECTION, scope: 'session', text })
+    } catch (err) {
+      log($, `mode section failed: ${String(err)}`)
+    }
+    try {
+      added.push({ id: OUTPUTS_SECTION, scope: 'session', text: outputsInstructions() })
+    } catch (err) {
+      log($, `outputs section failed: ${String(err)}`)
+    }
+    return added.length === 0 ? composed : { sections: [...composed.sections, ...added] }
   })
+
+  // Outside default mode, the mode moves some tools behind ToolSearch and keeps others in front.
+  on('tool.describe', async ($, e, next) => {
+    const isDeferred = deferralOf(await read($, modeRef), e.tool)
+    if (isDeferred === undefined) return next(e)
+    return { ...(await next(e)), isDeferred }
+  })
+
+  // Product mode refuses edits to source files; orchestrate refuses every edit from the main loop.
+  // A guard that fails lets the edit through.
+  on('tool.call', { tool: ['Edit', 'Write', 'NotebookEdit'] }, async ($, e, next) => {
+    const mode = await read($, modeRef)
+    const path = e.tool === 'NotebookEdit' ? e.notebook_path : e.file_path
+    if (!isEditDenied(mode, e.tool, path, e.agentId !== undefined)) return next(e)
+    return { deny: denyText(mode) }
+  }).catch(($, e, next) => next(e))
+
+  // Records each document-type file the session writes, subagents included.
+  // It runs inside the mode guard, so a denied edit never reaches it. A failure here never blocks the tool.
+  on('tool.call', { tool: ['Edit', 'Write', 'NotebookEdit'] }, async ($, e, next) => {
+    const path = e.tool === 'NotebookEdit' ? e.notebook_path : e.file_path
+    const cwd = await $.session.cwd().catch(() => undefined)
+    const isDocument = cwd !== undefined && typeof path === 'string' && isDocumentPath(cwd, path)
+    const before = isDocument ? await $.fs.stat(path).catch(() => undefined) : undefined
+    const result = await next(e)
+    const isRefused = typeof (result as { deny?: unknown }).deny === 'string'
+    if (!isDocument || isRefused || (result as { isError?: unknown }).isError === true) return result
+    try {
+      const ref = relRef(cwd, path)
+      const origin = originOf({
+        existedBefore: before !== undefined,
+        previousSize: before?.size ?? 0,
+        newSize: e.tool === 'Write' ? e.content.length : 0,
+        tool: e.tool,
+      })
+      const at = await $.clock.now()
+      await changeOutputs($, file => upsertWrite(file, { ref, kind: kindOf(ref), origin, at }))
+    } catch (err) {
+      log($, `output record failed: ${String(err)}`)
+    }
+    return result
+  }).catch(($, e, next) => next(e))
 
   // Large pastes show as placeholders in the box; keep what each held so Write can carry it.
   on('prompt.edit', async ($, e, next) => {

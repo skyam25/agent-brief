@@ -12,14 +12,14 @@ describe('ingest on /apply-feedback', () => {
     mock.store(on)
 
     await $.session.start(SESSION)
-    expect(world.tools.sort()).toEqual(['feedback_latest', 'feedback_list'])
-    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'write', 'track'])
+    expect(world.tools.sort()).toEqual(['declare_output', 'feedback_latest', 'feedback_list'])
+    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'write', 'track', 'mode', 'outputs'])
     await clock.advance(60_000)
 
     expect(world.runs.some(r => r.argv[1]?.endsWith('/bin/ingest.mjs'))).toBe(false)
     expect(world.toasts).toEqual([])
     expect(textOf(await $.ui.render(BAND))).not.toContain('feedback session')
-    expect((await $.prompt.compose(COMPOSE)).sections.map(s => s.id)).toEqual(['intro'])
+    expect((await $.prompt.compose(COMPOSE)).sections.map(s => s.id)).toEqual(['intro', 'agent-brief:outputs'])
     const listed = String(((await $.tool.call({ tool: LIST } as never)) as { result?: unknown }).result)
     expect(listed).toContain('1 recording waits in the inbox')
   })

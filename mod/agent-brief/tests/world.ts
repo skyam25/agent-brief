@@ -58,12 +58,14 @@ export type World = {
   submitted: string[]
   tools: string[]
   commands: string[]
+  /** True makes every `fs.write` fail. */
+  isWriteRefused: boolean
   /** Answers each `process.run`; the default claims every mv and prints an ok ingest. */
   answer: (argv: readonly string[]) => { exitCode: number; stdout: string; stderr: string }
 }
 
 /** Seats an in-memory file system, host and engine beneath the plugin. */
-export function worldOf(on: On, files: Readonly<Record<string, string>> = {}): World {
+export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cwd = CWD): World {
   const world: World = {
     files: new Map(Object.entries(files)),
     runs: [],
@@ -71,6 +73,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}): W
     submitted: [],
     tools: [],
     commands: [],
+    isWriteRefused: false,
     answer: argv => {
       if (argv[0] === 'mv') {
         const [, from, to] = argv
@@ -103,21 +106,27 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}): W
       value: [...names].sort().map(([name, kind], i) => ({ name, kind, size: 1, mtimeMs: 1000 + i, isLink: false })),
     }
   })
-  on('fs.stat', ($, e) =>
-    world.files.has(e.path)
-      ? { value: { kind: 'file' as const, size: 1, mtimeMs: 5000, isLink: false } }
-      : { deny: `ENOENT: ${e.path}` },
-  )
+  on('fs.stat', ($, e) => {
+    const text = world.files.get(e.path)
+    return text === undefined
+      ? { deny: `ENOENT: ${e.path}` }
+      : { value: { kind: 'file' as const, size: text.length, mtimeMs: 5000, isLink: false } }
+  })
   on('fs.read', ($, e) => {
     const text = world.files.get(e.path)
     return text === undefined ? { deny: `ENOENT: ${e.path}` } : { value: text }
+  })
+  on('fs.write', ($, e) => {
+    if (world.isWriteRefused) return { deny: `EACCES: ${e.path}` }
+    world.files.set(e.path, e.text)
+    return { value: undefined }
   })
   on('process.run', ($, e) => {
     world.runs.push({ argv: e.argv, ...(e.init?.timeoutMs !== undefined ? { timeoutMs: e.init.timeoutMs } : {}) })
     return { value: { ...world.answer(e.argv), isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
-  on('session.cwd', () => ({ value: CWD }))
+  on('session.cwd', () => ({ value: cwd }))
   on('ui.toast', ($, e) => {
     world.toasts.push(e.text)
     return { value: undefined }

@@ -51,6 +51,18 @@ describe('DraftStore', () => {
     expect(() => store.save({ ...draft('b'), sessionId: 7 } as unknown as Draft)).toThrow(/sessionId/);
   });
 
+  it('keeps the source file a note was opened from, and drops a malformed one', () => {
+    const store = new DraftStore(temp());
+    store.save(draft('a', { source: { path: 'docs/plan.md' } }));
+    expect(store.get('a')?.source).toEqual({ path: 'docs/plan.md' });
+    expect(store.list()[0].source).toEqual({ path: 'docs/plan.md' });
+    for (const source of [undefined, null, 'docs/plan.md', {}, { path: '' }, { path: '  ' }, { path: 7 }]) {
+      expect(store.save({ ...draft('b'), source } as unknown as Draft), JSON.stringify(source)).not.toHaveProperty('source');
+    }
+    const extra = store.save({ ...draft('c'), source: { path: 'x.md', other: 1 } } as unknown as Draft);
+    expect(extra.source).toEqual({ path: 'x.md' });
+  });
+
   it('skips a damaged file instead of failing the whole list', () => {
     const store = new DraftStore(temp());
     store.save(draft('a'));

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, isAbsolute, join, relative, resolve } from 'node:path';
+import { delimiter, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   app,
   clipboard,
@@ -18,9 +18,9 @@ import {
   Tray,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protocol';
+import { defaultSocketPath, outputsFile, SOCKET_ENV, type SessionsResponse } from '../protocol';
 import type { BoardBackend, DeliveryInput } from '../server/contract';
-import { buildDraft, freeId, rewriteImages, writeBundle } from '../server/bundle';
+import { buildDraft, cleanSourcePath, freeId, rewriteImages, writeBundle } from '../server/bundle';
 import { createCompanionServer, itemsFile, type CompanionServer } from '../server/index';
 import {
   CH,
@@ -32,6 +32,7 @@ import {
   type Launcher,
   type NewNote,
   type OpenDraft,
+  type OutputsInfo,
   type LaunchOptions,
   type MicrophoneAccess,
   type Mode,
@@ -47,6 +48,7 @@ import {
 import { createBoardBackend } from './backend';
 import { newDraftId } from '../shared/drafts';
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
+import { isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { folderName, isGhostty } from '../shared/sessions';
 import {
   forgetBoard,
@@ -57,7 +59,8 @@ import {
   sketchBoard,
   type SessionBrief,
 } from './session-briefs';
-import { deliveryImages, DraftStore } from './drafts';
+import { SessionModes } from './session-modes';
+import { deliveryImages, DraftStore, MAX_DRAFT_BODY } from './drafts';
 import { ItemsWatcher } from './items-watch';
 import { TemplateStore } from './templates';
 import { RendererBridge } from './bridge';
@@ -154,14 +157,25 @@ async function composeFrom(p: SendPayload): Promise<{ input: DeliveryInput; warn
     },
   });
   const images = deliveryImages(p.images);
-  return { input: images.length ? { ...input, images } : input, warnings };
+  const sourcePath = cleanSourcePath(p.sourcePath);
+  return { input: { ...input, ...(images.length ? { images } : {}), ...(sourcePath ? { sourcePath } : {}) }, warnings };
 }
 
 /** A delivery from either mode. A written draft alone needs no voice work. */
 async function composeOutgoing(p: Outgoing): Promise<{ input: DeliveryInput; warnings: string[] }> {
   if (!isTextPayload(p)) return composeFrom(p);
   const images = deliveryImages(p.images);
-  return { input: { boardName: '', text: p.text, ...(images.length ? { images } : {}), mode: state.state.deliveryMode }, warnings: [] };
+  const sourcePath = cleanSourcePath(p.sourcePath);
+  return {
+    input: {
+      boardName: '',
+      text: p.text,
+      ...(images.length ? { images } : {}),
+      ...(sourcePath ? { sourcePath } : {}),
+      mode: state.state.deliveryMode,
+    },
+    warnings: [],
+  };
 }
 
 /** History fields that depend on what went out. The text points at bundle `id`'s picture files. */
@@ -309,6 +323,7 @@ async function start(): Promise<void> {
           ...(draft ? { draftId: draft.id } : {}),
           ...(b.last ? { last: b.last } : {}),
           ...(b.trackItems ? { trackItems: true } : {}),
+          ...(live?.mode ? { mode: live.mode, ...(live.fidelity ? { fidelity: live.fidelity } : {}) } : {}),
           at: b.at,
           isLive: !!live,
           isTarget: targetSessionId === sessionId,
@@ -319,6 +334,7 @@ async function start(): Promise<void> {
   const publishBriefs = () => {
     send(CH.briefs, briefEntries());
     syncItemsWatch();
+    syncOutputsWatch();
   };
   /**
    * Records what a session opened. Claude Code opening it moves its tab to the front;
@@ -426,10 +442,13 @@ async function start(): Promise<void> {
     return { draft: decisionsDraft(relative(cwd, path), decisions, doc) };
   };
 
-  /** Files tests asked to open, in place of opening them. */
+  /** Files and links tests asked to open, in place of opening them. */
   const openedOutputs: string[] = [];
-  /** Opens an item's output file. Only files inside the session's folder open, symlinks included. */
-  const openItemOutput = async (sessionId: string, path: unknown): Promise<void> => {
+  /**
+   * Resolves a path Claude named against the session's folder. Only an existing file
+   * inside the folder resolves, symlinks included.
+   */
+  const projectFile = (sessionId: string, path: unknown): { cwd: string; target: string } => {
     const cwd = itemsCwdOf(sessionId);
     if (!cwd) throw new Error(`Agent Brief does not know session ${sessionId}`);
     if (typeof path !== 'string' || path.trim() === '') throw new Error('No file named');
@@ -441,6 +460,10 @@ async function start(): Promise<void> {
     if (!within(cwd, target)) throw new Error(`${path} is outside the project`);
     if (!existsSync(target)) throw new Error(`${path} does not exist yet`);
     if (!within(realpathSync(cwd), realpathSync(target))) throw new Error(`${path} is outside the project`);
+    return { cwd, target };
+  };
+  /** Opens a project file in its default app. */
+  const openFile = async (target: string): Promise<void> => {
     if (testMode) {
       openedOutputs.push(target);
       return;
@@ -448,6 +471,120 @@ async function start(): Promise<void> {
     const failed = await shell.openPath(target);
     if (failed) throw new Error(failed);
   };
+  /** Opens an item's output file. */
+  const openItemOutput = async (sessionId: string, path: unknown): Promise<void> => {
+    await openFile(projectFile(sessionId, path).target);
+  };
+
+  // Outputs: the mod records each session's documents, and the app watches every live session with a brief.
+  const outputsPathOf = (sessionId: string) => {
+    const cwd = itemsCwdOf(sessionId);
+    return cwd ? outputsFile(cwd, sessionId) : undefined;
+  };
+  /** The session's outputs, with the ones the user hid left out. */
+  const outputsInfo = (sessionId: string): OutputsInfo | undefined => {
+    const path = outputsPathOf(sessionId);
+    if (!path) return undefined;
+    let text: string | undefined;
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      text = undefined;
+    }
+    const dismissed = briefs()[sessionId]?.dismissedOutputs ?? {};
+    const hidden = (ref: string, touched: number) => Object.hasOwn(dismissed, ref) && touched <= dismissed[ref];
+    const records = (text === undefined ? undefined : parseOutputsFile(text))?.outputs ?? [];
+    return {
+      sessionId,
+      path,
+      exists: text !== undefined,
+      outputs: sortOutputs(records.filter((r) => !hidden(r.ref, outputTouchedAt(r)))),
+    };
+  };
+  const pushOutputs = (sessionId: string) => {
+    const info = outputsInfo(sessionId);
+    if (info) send(CH.outputs, info);
+  };
+  const outputsWatch = new ItemsWatcher(pushOutputs);
+  function syncOutputsWatch(): void {
+    const want = new Map<string, string>();
+    for (const id of Object.keys(briefs())) {
+      const path = liveSession(id) ? outputsPathOf(id) : undefined;
+      if (path) want.set(id, path);
+    }
+    outputsWatch.sync(want);
+  }
+  /**
+   * Hides an output until the file records a later write or declaration for it.
+   * Keeps the brief's place, and forgets dismissals for refs the file no longer lists.
+   */
+  const dismissOutput = (sessionId: string, ref: unknown) => {
+    if (typeof ref !== 'string' || ref === '') throw new Error('No output named');
+    const path = outputsPathOf(sessionId);
+    if (!path) throw new Error(`Agent Brief does not know session ${sessionId}`);
+    let text = '';
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      throw new Error(`Agent Brief has no outputs for session ${sessionId}`);
+    }
+    const records = parseOutputsFile(text)?.outputs ?? [];
+    const record = records.find((r) => r.ref === ref);
+    if (!record) throw new Error(`${ref} is not among the session's outputs`);
+    const prev = briefs()[sessionId];
+    const kept = Object.entries(prev?.dismissedOutputs ?? {}).filter(([r]) => records.some((x) => x.ref === r));
+    const dismissedOutputs = { ...Object.fromEntries(kept), [ref]: outputTouchedAt(record) };
+    const live = liveSession(sessionId);
+    const at = prev?.at ?? Date.now();
+    state.update({ sessionBriefs: remember(briefs(), sessionId, { dismissedOutputs, ...(live ? liveFields(live) : {}) }, at) });
+    if (!prev) publishBriefs();
+    pushOutputs(sessionId);
+  };
+  const MARKDOWN = new Set(['.md', '.markdown', '.mdx']);
+  const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+  /**
+   * Opens an output. A link opens in the browser. A Markdown file opens in Write mode as a
+   * note filed under the session, reusing the note already open on that file. Any other
+   * file opens in its default app.
+   */
+  const openOutput = async (sessionId: string, ref: unknown): Promise<void> => {
+    if (typeof ref !== 'string' || ref.trim() === '') throw new Error('No output named');
+    if (isUrlRef(ref)) {
+      let url: URL;
+      try {
+        url = new URL(ref);
+      } catch {
+        throw new Error(`${ref} is not a valid link`);
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Agent Brief opens only http and https links');
+      if (testMode) openedOutputs.push(url.href);
+      else await shell.openExternal(url.href);
+      return;
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) throw new Error('Agent Brief opens only http and https links');
+    const { target } = projectFile(sessionId, ref);
+    if (!MARKDOWN.has(extname(target).toLowerCase())) {
+      await openFile(target);
+      return;
+    }
+    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.source?.path === ref);
+    if (existing) {
+      const open: OpenDraft = { id: existing.id, sessionId };
+      send(CH.openDraft, open);
+      rememberBrief(sessionId, { draftId: existing.id, last: 'draft' }, false);
+      return;
+    }
+    if (statSync(target).size > MAX_OUTPUT_BYTES) throw new Error(`${ref} is over 4 MB, too large to open as a note`);
+    const text = readFileSync(target, 'utf8');
+    if (text.length > MAX_DRAFT_BODY) throw new Error(`${ref} is longer than a note can hold (${MAX_DRAFT_BODY.toLocaleString('en-US')} characters)`);
+    const id = newDraftId();
+    const note: NewNote = { text, id, sessionId, source: { path: ref } };
+    send(CH.newNote, note);
+    rememberBrief(sessionId, { draftId: id, last: 'draft' }, false);
+  };
+
+  // Each live session's mode. The mod sets it over PATCH /sessions/:id; the app only shows it.
+  const modes = new SessionModes();
 
   const backend: BoardBackend = {
     ...baseBackend,
@@ -456,6 +593,8 @@ async function start(): Promise<void> {
       return b ? { trackItems: !!b.trackItems } : undefined;
     },
     setTracking,
+    mode: (sessionId) => modes.get(sessionId),
+    setMode: (sessionId, patch) => modes.set(sessionId, patch),
     async open(req) {
       // The user just typed /sketch, so the session's terminal is still in front.
       const s = liveSession(req.sessionId);
@@ -499,6 +638,7 @@ async function start(): Promise<void> {
     if (refreshed !== briefs()) state.update({ sessionBriefs: refreshed });
     publishBriefs();
     for (const id of ghosttyTerminals.keys()) if (!s.sessions.some((x) => x.sessionId === id)) ghosttyTerminals.delete(id);
+    modes.keepOnly(s.sessions.map((x) => x.sessionId));
   });
   try {
     await server.listen();
@@ -507,6 +647,7 @@ async function start(): Promise<void> {
     console.error(`[companion] socket server did not start: ${(err as Error).message}`);
   }
   syncItemsWatch();
+  syncOutputsWatch();
 
   /** Deletes the draft a successful Send used up. History keeps its text. The Send went out even if this fails. */
   function usedUp(payload: Outgoing): void {
@@ -924,6 +1065,9 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.readItems, (_e, sessionId: string) => itemsInfo(sessionId));
   ipcMain.handle(CH.saveDecisions, (_e, sessionId: string, decisions: unknown) => saveDecisions(sessionId, decisions));
   ipcMain.handle(CH.openItemOutput, (_e, sessionId: string, path: unknown) => openItemOutput(sessionId, path));
+  ipcMain.handle(CH.readOutputs, (_e, sessionId: string) => outputsInfo(sessionId));
+  ipcMain.handle(CH.openOutput, (_e, sessionId: string, ref: unknown) => openOutput(sessionId, ref));
+  ipcMain.handle(CH.dismissOutput, (_e, sessionId: string, ref: unknown) => dismissOutput(sessionId, ref));
   ipcMain.on(CH.setMode, (_e, mode: Mode) => {
     if (mode !== 'sketch' && mode !== 'write' && mode !== 'items') return;
     state.update({ mode });
@@ -996,6 +1140,7 @@ async function start(): Promise<void> {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     itemsWatch.close();
+    outputsWatch.close();
   });
   app.on('activate', openStandalone);
   app.on('second-instance', openStandalone);

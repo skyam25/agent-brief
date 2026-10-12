@@ -432,17 +432,17 @@ describe('item tracking', () => {
     const { app, clock, start } = await setup($, on)
     await start()
     await clock.settle()
-    expect(await ids($), 'off by default').toEqual(['intro'])
+    expect(await ids($), 'off by default').toEqual(['intro', 'agent-brief:outputs'])
     expect(app.to('GET', `/sessions/${SESSION_ID}`)).toHaveLength(1)
 
     app.sessions.get(SESSION_ID)!.trackItems = true
     const section = await itemsText($)
     expect(section?.scope).toBe('session')
     expect(section?.text).toContain(ITEMS)
-    expect(await ids($)).toEqual(['intro', 'agent-brief:items'])
+    expect(await ids($)).toEqual(['intro', 'agent-brief:items', 'agent-brief:outputs'])
 
     app.sessions.get(SESSION_ID)!.trackItems = false
-    expect(await ids($), 'off again').toEqual(['intro'])
+    expect(await ids($), 'off again').toEqual(['intro', 'agent-brief:outputs'])
   })
 
   test('keeps the last answer when the app stops answering', async ($, on) => {
@@ -450,12 +450,12 @@ describe('item tracking', () => {
     await start()
     await clock.settle()
     app.sessions.get(SESSION_ID)!.trackItems = true
-    expect(await ids($)).toEqual(['intro', 'agent-brief:items'])
+    expect(await ids($)).toEqual(['intro', 'agent-brief:items', 'agent-brief:outputs'])
 
     app.isUp = false
-    expect(await ids($), 'the GET fails').toEqual(['intro', 'agent-brief:items'])
+    expect(await ids($), 'the GET fails').toEqual(['intro', 'agent-brief:items', 'agent-brief:outputs'])
     await clock.advance(10_000)
-    expect(await ids($), 'the loop knows the app is down').toEqual(['intro', 'agent-brief:items'])
+    expect(await ids($), 'the loop knows the app is down').toEqual(['intro', 'agent-brief:items', 'agent-brief:outputs'])
   })
 
   test('adds nothing and asks nothing when the app is down from the start', async ($, on) => {
@@ -463,7 +463,7 @@ describe('item tracking', () => {
     app.isUp = false
     await start()
     await clock.settle()
-    expect(await ids($)).toEqual(['intro'])
+    expect(await ids($)).toEqual(['intro', 'agent-brief:outputs'])
     expect(app.to('GET', `/sessions/${SESSION_ID}`)).toEqual([])
   })
 
@@ -472,7 +472,7 @@ describe('item tracking', () => {
     app.isPreTrackingApp = true
     await start()
     await clock.settle()
-    expect(await ids($)).toEqual(['intro'])
+    expect(await ids($)).toEqual(['intro', 'agent-brief:outputs'])
   })
 
   test('/track on, /track off and a bare /track send the right PATCH', async ($, on) => {
@@ -535,13 +535,13 @@ describe('item tracking', () => {
     expect(app.sessions.get(SESSION_ID)!.trackItems).toBe(true)
     expect(world.toasts.at(-1)).toContain('Item tracking on.')
     expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☑ Track"')
-    expect(await ids($)).toEqual(['intro', 'agent-brief:items'])
+    expect(await ids($)).toEqual(['intro', 'agent-brief:items', 'agent-brief:outputs'])
 
     await $.ui.press({ plugin: 'agent-brief', key: 'track' })
     await clock.settle()
     expect(world.toasts.at(-1)).toBe('Item tracking off.')
     expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☐ Track"')
-    expect(await ids($)).toEqual(['intro'])
+    expect(await ids($)).toEqual(['intro', 'agent-brief:outputs'])
   })
 
   test('the Track button follows a change made in the panel', async ($, on) => {

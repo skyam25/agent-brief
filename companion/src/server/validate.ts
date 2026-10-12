@@ -4,9 +4,12 @@ import type {
   DeleteRequest,
   DrawRequest,
   ElementUpdate,
+  ModePatch,
   OpenRequest,
+  PrototypeFidelity,
   SessionHost,
   SessionInfo,
+  SessionMode,
   Skeleton,
   TrackingPatch,
   UpdateRequest,
@@ -150,10 +153,35 @@ export function parseSession(body: unknown): SessionInfo {
   return { sessionId, cwd, title, pid: o.pid as number | undefined, summary, host };
 }
 
-export function parseTracking(body: unknown): TrackingPatch {
+const SESSION_MODES: SessionMode[] = ['default', 'product', 'prototype', 'orchestrate'];
+const FIDELITIES: PrototypeFidelity[] = ['wireframe', 'styled', 'live-patch', 'freeze-patch', 'interactive', 'existing'];
+
+/** PATCH /sessions/:id sets tracking, mode, or both. */
+export interface SessionPatch {
+  tracking?: TrackingPatch;
+  mode?: ModePatch;
+}
+
+export function parseSessionPatch(body: unknown): SessionPatch {
   const o = object(body, 'body');
-  if (typeof o.trackItems !== 'boolean') fail('body.trackItems must be true or false');
-  return { trackItems: o.trackItems as boolean };
+  if (o.trackItems === undefined && o.mode === undefined && o.fidelity === undefined) fail('body must set trackItems or mode');
+  const patch: SessionPatch = {};
+  if (o.trackItems !== undefined) {
+    if (typeof o.trackItems !== 'boolean') fail('body.trackItems must be true or false');
+    patch.tracking = { trackItems: o.trackItems as boolean };
+  }
+  if (o.mode !== undefined || o.fidelity !== undefined) patch.mode = parseMode(o);
+  return patch;
+}
+
+function parseMode(o: Obj): ModePatch {
+  const mode = o.mode as SessionMode;
+  if (!SESSION_MODES.includes(mode)) fail(`body.mode must be one of ${SESSION_MODES.join(', ')}`);
+  if (o.fidelity === undefined) return { mode };
+  if (mode !== 'prototype') fail('body.fidelity goes only with mode prototype');
+  const fidelity = o.fidelity as PrototypeFidelity;
+  if (!FIDELITIES.includes(fidelity)) fail(`body.fidelity must be one of ${FIDELITIES.join(', ')}`);
+  return { mode, fidelity };
 }
 
 export function parseOpen(body: unknown): OpenRequest {

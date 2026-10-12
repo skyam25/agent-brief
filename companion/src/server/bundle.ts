@@ -3,7 +3,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { imageRefs } from '../shared/drafts';
 import type { DeliveryInput } from './contract';
 
@@ -67,11 +67,30 @@ export function rewriteImages(text: string, bundleId: string, images: readonly {
     .join('\n');
 }
 
-/** The prompt Claude Code receives. A written draft goes first, word for word, then the sketch lines. */
+/**
+ * A draft's source file as the prompt may name it: a project-relative path on one line,
+ * with no `..` segment. Undefined for anything else.
+ */
+export function cleanSourcePath(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const path = raw.trim();
+  if (!path || path.length > 1024 || /[\u0000-\u001f\u007f]/.test(path) || isAbsolute(path)) return undefined;
+  if (path.split(/[\\/]/).includes('..')) return undefined;
+  return path;
+}
+
+/**
+ * The prompt Claude Code receives. A written draft goes first, word for word, then the sketch lines.
+ * A draft opened from a project file is not repeated. Its lines point at draft.md and ask Claude to apply it to the file.
+ */
 export function buildDraft(id: string, input: DeliveryInput): string {
-  const text = input.text && rewriteImages(input.text, id, input.images ?? []).trim();
-  if (!input.png) return text ?? '';
   const rel = `.feedback/sketches/${id}`;
+  const source = cleanSourcePath(input.sourcePath);
+  const sourceLines = source
+    ? [`@${rel}/draft.md`, `My edited copy of ${source} from Agent Brief. Apply the changes to ${source}, keep what I did not touch, then say what changed.`]
+    : undefined;
+  const text = sourceLines ? sourceLines.join('\n') : input.text && rewriteImages(input.text, id, input.images ?? []).trim();
+  if (!input.png) return text ?? '';
   const lines = [`@${rel}/sketch.png`, `Sketch from the Agent Brief board "${input.boardName}".`];
   if (text) lines.unshift(text, '');
   if (input.speech) lines.push(`Said while drawing: "${input.speech}"`);
@@ -92,7 +111,9 @@ export async function writeBundle(dir: string, input: DeliveryInput): Promise<vo
       writeFile(join(dir, 'board.excalidraw'), JSON.stringify(input.scene, null, 2)),
     );
   }
-  if (input.text) writes.push(writeFile(join(dir, 'draft.md'), rewriteImages(input.text, basename(dir), input.images ?? [])));
+  if (input.text || cleanSourcePath(input.sourcePath)) {
+    writes.push(writeFile(join(dir, 'draft.md'), rewriteImages(input.text ?? '', basename(dir), input.images ?? [])));
+  }
   if (input.notes) writes.push(writeFile(join(dir, 'notes.md'), input.notes));
   if (input.timelineMd) writes.push(writeFile(join(dir, 'timeline.md'), input.timelineMd));
   if (input.transcript !== undefined) {

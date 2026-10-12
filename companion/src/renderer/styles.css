@@ -749,6 +749,35 @@ button.recording {
   font-variant-numeric: tabular-nums;
 }
 
+/* The session's mode, mirrored from Claude Code. */
+
+.brief-tabs .mode-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--accent);
+  background: var(--hover);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.brief-tabs .tab[aria-current='true'] .mode-chip {
+  background: var(--bg);
+}
+
+.brief-list .mode-chip {
+  display: inline-block;
+  max-width: none;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
 /* The fixed Notes tab sits apart from the session tabs: no dot, no close. */
 
 .brief-tabs .notes-tab {
@@ -894,8 +923,25 @@ button.recording {
   display: none;
 }
 
+/* Hidden, not display: none. The opacity slider measures its own width once, and a zero width parks the value label at the left edge. */
 .canvas:not([data-selection='true']) .excalidraw .App-menu__left {
-  display: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* A selection adds sections and a scrollbar; the reserved gutter keeps the slider the same width either way. */
+.excalidraw .App-menu__left {
+  scrollbar-gutter: stable;
+}
+
+/* The frame button joins the toolbar row; see FrameTool.tsx. More tools stays unlit while frame is the active tool. */
+.excalidraw .frame-tool-host {
+  display: contents;
+}
+
+.canvas[data-frame-tool='true'] .excalidraw .App-toolbar__extra-tools-trigger--selected {
+  background: transparent;
+  color: inherit;
 }
 
 /* Keeps the global input padding and border off Excalidraw's opacity slider, so the track ends at the knob. */
@@ -1097,6 +1143,89 @@ button.recording {
   gap: 3px;
   margin-right: 6px;
   color: var(--accent);
+}
+
+/* A session's outputs, above its notes. Dismiss shows on hover and focus. */
+
+.outputs li.output-item {
+  position: relative;
+}
+
+.write button.output-row {
+  padding-right: 30px;
+}
+
+.outputs .output-ref {
+  font-size: 11px;
+}
+
+.outputs .kind-tag,
+.outputs .status-chip {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.outputs .kind-tag {
+  background: var(--hover);
+}
+
+.outputs .status-chip.drafting {
+  border: 1px solid var(--line);
+}
+
+.outputs .status-chip.ready {
+  background: var(--selected);
+  color: var(--fg);
+}
+
+.outputs .origin {
+  font-size: 11px;
+}
+
+.write button.output-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 4px;
+  width: 24px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.outputs li.output-item:hover button.output-dismiss,
+.write button.output-dismiss:focus-visible {
+  opacity: 1;
+}
+
+.write button.output-dismiss:hover {
+  color: var(--fg);
+}
+
+.write button.touched-toggle {
+  height: 24px;
+  margin: 2px 0;
+  padding: 0 4px;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.write button.touched-toggle:hover {
+  background: transparent;
+  color: var(--fg);
+}
+
+/* The open draft's source file, above the editor. */
+
+.draft-source {
+  margin: 0;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .editor {

@@ -16,6 +16,7 @@ import { HistoryPopover } from './HistoryPopover';
 import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
 import { ItemsStore } from './items';
 import { ItemsView } from './ItemsView';
+import { OutputsStore } from './outputs';
 import { PullIn } from './PullIn';
 import { ResumeRow } from './ResumeRow';
 import { SendTo } from './SendTo';
@@ -31,6 +32,7 @@ interface Boot {
   book: DraftBook;
   shelf: TemplateShelf;
   items: ItemsStore;
+  outputs: OutputsStore;
 }
 
 async function boot(host: CompanionApi): Promise<Boot> {
@@ -41,11 +43,12 @@ async function boot(host: CompanionApi): Promise<Boot> {
   const book = new DraftBook(host);
   const shelf = new TemplateShelf(host);
   const items = new ItemsStore(host);
+  const outputs = new OutputsStore(host);
   await Promise.all([book.load(), shelf.load()]);
   // A launch in Write mode opens on the Notes tab, at the top of its list.
   const first = book.drafts.find((d) => !d.sessionId);
   if (info.mode === 'write' && first) book.select(first.id);
-  return { info, controller, scene: loaded, book, shelf, items };
+  return { info, controller, scene: loaded, book, shelf, items, outputs };
 }
 
 export function App({ host }: { host: CompanionApi }) {
@@ -95,7 +98,7 @@ function ModeSwitch(props: { mode: Mode; hasItems: boolean; onChange: (mode: Mod
   );
 }
 
-function Panel({ host, info, controller, scene, book, shelf, items }: Boot & { host: CompanionApi }) {
+function Panel({ host, info, controller, scene, book, shelf, items, outputs }: Boot & { host: CompanionApi }) {
   const board = useSyncExternalStore(
     (fn) => controller.subscribe(fn),
     () => controller.board,
@@ -191,10 +194,10 @@ function Panel({ host, info, controller, scene, book, shelf, items }: Boot & { h
       changeMode('sketch');
       setNewBoardRequest((n) => n + 1);
     });
-    host.onNewNote(({ text, id, sessionId }) => {
+    host.onNewNote(({ text, id, sessionId, source }) => {
       // A note for no session comes with the Send target cleared, so the Notes tab shows.
       if (!sessionId) setEndedActive(undefined);
-      book.create(text, id, sessionId);
+      book.create(text, id, sessionId, source);
       changeMode('write');
     });
     host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode('write')));
@@ -344,7 +347,7 @@ function Panel({ host, info, controller, scene, book, shelf, items }: Boot & { h
       const payload = await controller.payload();
       if (!linked) return { payload, clearsBoard: true };
       return {
-        payload: { ...payload, text: linked.body, draftId: linked.id, ...withImages(linked) },
+        payload: { ...payload, text: linked.body, draftId: linked.id, ...fromDraft(linked) },
         clearsBoard: true,
         sent: { body: linked.body, board: linked.board },
       };
@@ -358,15 +361,15 @@ function Panel({ host, info, controller, scene, book, shelf, items }: Boot & { h
     }
     await book.flush();
     const sent = { body: draft.body, board: draft.board };
-    if (!draft.board) return { payload: { text: draft.body, draftId: draft.id, ...withImages(draft) }, clearsBoard: false, sent };
+    if (!draft.board) return { payload: { text: draft.body, draftId: draft.id, ...fromDraft(draft) }, clearsBoard: false, sent };
     if (draft.board !== controller.board) await controller.switchTo(draft.board);
-    return { payload: { ...(await controller.payload()), text: draft.body, draftId: draft.id, ...withImages(draft) }, clearsBoard: true, sent };
+    return { payload: { ...(await controller.payload()), text: draft.body, draftId: draft.id, ...fromDraft(draft) }, clearsBoard: true, sent };
   };
 
-  /** The pictures a draft's body references, as a payload field. Absent when there are none. */
-  const withImages = (draft: Draft) => {
+  /** The payload fields a draft adds: the pictures its body references and the output file it was copied from, when it has them. */
+  const fromDraft = (draft: Draft) => {
     const images = draftImages(draft);
-    return images.length ? { images } : {};
+    return { ...(images.length ? { images } : {}), ...(draft.source ? { sourcePath: draft.source.path } : {}) };
   };
 
   /** Why Send in Items mode has nothing to send, if it has not. */
@@ -641,6 +644,9 @@ function Panel({ host, info, controller, scene, book, shelf, items }: Boot & { h
             onOpenBoard={openBoard}
             onFiled={(where) => notify(`Moved to ${where}.`)}
             onFilingMenu={dismissToast}
+            outputs={outputs}
+            onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
+            onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
           />
         )}
         {mode === 'items' && (

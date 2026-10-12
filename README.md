@@ -76,6 +76,13 @@ A send from Items mode is text alone, such as `Decisions on 2 items in .feedback
 - Every `Out:` line is a link that opens the file, so you can see what Claude is working on and what it finished.
 - Claude ends a reply that touched items with `Done:` and `Open:` lines, so the chat and the panel agree.
 
+## Review Claude's outputs
+
+- Write mode lists each session's deliverables above its notes. Claude declares the thing you asked for, such as a strategy doc, a brief or a page, with the `declare_output` tool, and the row shows Drafting until Claude marks it Ready. Files Claude only touched sit under **Touched**, folded away. `/outputs` in the session prints the same list.
+- Click a Markdown output and it opens as a note filed under the session. Edit it, then press Send. Claude gets your copy and a prompt to apply the changes to the file. Other files open in their app, and an artifact or published page opens in the browser.
+- Hide hides a row until Claude writes or declares it again.
+- The mod keeps the list in `<project>/.feedback/outputs/<session>.json`. The app only reads it.
+
 ## Choose where it goes
 
 - Opened from Claude Code, the board is bound to that session. A chip by Send names it, and clicking the chip brings its terminal forward.
