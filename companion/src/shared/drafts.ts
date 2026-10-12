@@ -15,9 +15,6 @@ export function sortDrafts(drafts: Draft[]): Draft[] {
   return [...ready, ...notes];
 }
 
-/** The id a draft's Markdown gives a picture, as in `![alt](att:<id>)`. */
-export const ATTACHMENT_ID = /^[a-z0-9]{6,24}$/;
-
 /** A picture reference: `![alt](att:<id>)`, with an optional title. Group 1 is the alt text, group 2 the id. */
 const IMAGE_REF = /!\[((?:\\.|[^\]\\])*)\]\(att:([a-z0-9]{6,24})(?:\s+"[^"]*")?\)/g;
 

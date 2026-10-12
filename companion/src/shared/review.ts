@@ -1,6 +1,6 @@
 /** Review drafts: comments pinned to elements of a project's HTML file, and the review.md a Send writes. */
 
-import { ATTACHMENT_ID } from './drafts';
+import { ATTACHMENT_ID } from './attachments';
 
 export interface ReviewRect {
   x: number;

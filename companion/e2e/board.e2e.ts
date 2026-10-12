@@ -426,3 +426,50 @@ test('the frame tool has its own toolbar button after the eraser', async () => {
   await page.keyboard.press('f');
   await expect(button).toBeChecked();
 });
+
+test('Cmd+A selects the board after a click on the panel controls', async () => {
+  const { app, page } = ctx;
+  await backend(app, 'draw', 'current', {
+    elements: [
+      { type: 'rectangle', id: 'a', x: 100, y: 100 },
+      { type: 'ellipse', id: 'b', x: 300, y: 100 },
+    ],
+  });
+  const state = () =>
+    page.evaluate(() => ({
+      selected: Object.keys((window as any).__excalidraw.getAppState().selectedElementIds).length,
+      text: String(window.getSelection()),
+    }));
+
+  // A mode round trip hands focus back to the board.
+  await page.getByTestId('mode-write').click();
+  await page.getByTestId('mode-sketch').click();
+  expect(await page.evaluate(() => document.activeElement?.classList.contains('excalidraw'))).toBe(true);
+
+  // Focus left on a control still sends Cmd+A to the board.
+  await page.getByTestId('mode-sketch').focus();
+  await page.keyboard.press('Meta+a');
+  expect(await state()).toEqual({ selected: 2, text: '' });
+});
+
+test('a paste lands on the board while focus and the pointer sit on the panel controls', async () => {
+  const { page } = ctx;
+  const png = readFileSync(join(ROOT, 'build/icons/icon-1024.png')).toString('base64');
+  const tab = page.getByTestId('mode-sketch');
+  await tab.hover();
+  await tab.focus();
+  const paste = (item: { text?: string; png?: string }) =>
+    page.evaluate((item) => {
+      const data = new DataTransfer();
+      if (item.text) data.setData('text/plain', item.text);
+      if (item.png) data.items.add(new File([Uint8Array.from(atob(item.png), (c) => c.charCodeAt(0))], 'shot.png', { type: 'image/png' }));
+      (document.activeElement as HTMLElement).dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, item);
+  const kinds = async () => (await live()).map((e) => e.type).sort();
+
+  await paste({ text: 'pasted words' });
+  await expect.poll(kinds, { timeout: 5000 }).toEqual(['text']);
+  await tab.focus();
+  await paste({ png });
+  await expect.poll(kinds, { timeout: 5000 }).toEqual(['image', 'text']);
+});
