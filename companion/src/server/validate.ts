@@ -192,7 +192,14 @@ export function parseOpen(body: unknown): OpenRequest {
     prompt: optString(o, 'prompt', 'body'),
     mode: openMode(o),
     text: openText(o),
+    layout: openLayout(o),
   };
+}
+
+function openLayout(o: Obj): OpenRequest['layout'] {
+  const layout = optString(o, 'layout', 'body');
+  if (layout !== undefined && layout !== 'freeform' && layout !== 'stack') fail('body.layout must be freeform or stack');
+  return layout;
 }
 
 function openText(o: Obj): string | undefined {

@@ -2,7 +2,8 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CURRENT_BOARD } from '../protocol';
+import { CURRENT_BOARD, type BoardLayout } from '../protocol';
+import { layoutOfScene } from '../board/stack';
 import type { BoardEntry, Mode, Settings } from '../shared/ipc';
 import { badRequest, notFound, BoardError } from '../board/errors';
 import type { SessionBriefs } from './session-briefs';
@@ -93,13 +94,15 @@ export class BoardStore {
         const name = f.slice(0, -SCENE_EXT.length);
         const path = join(this.dir, f);
         let elementCount = 0;
+        let layout: BoardLayout = 'freeform';
         try {
           const scene = JSON.parse(readFileSync(path, 'utf8')) as { elements?: { isDeleted?: boolean }[] };
           elementCount = (scene.elements ?? []).filter((e) => !e.isDeleted).length;
+          layout = layoutOfScene(scene);
         } catch {
           elementCount = 0;
         }
-        return { name, updatedAt: statSync(path).mtimeMs, elementCount };
+        return { name, updatedAt: statSync(path).mtimeMs, elementCount, ...(layout === 'stack' ? { layout } : {}) };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }

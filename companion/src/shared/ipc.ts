@@ -1,6 +1,7 @@
 /** IPC between the main process and the panel renderer. */
 
 import type {
+  BoardLayout,
   SessionHost,
   BoardsResponse,
   DeleteRequest,
@@ -35,6 +36,8 @@ export interface BoardOps {
   resetSession: { args: Record<string, never>; result: void };
   /** Writes pending scene and notes saves to disk. */
   flush: { args: Record<string, never>; result: void };
+  /** Sets a board's layout. */
+  layout: { args: { board: string; layout: BoardLayout }; result: void };
 }
 
 export type BoardOpName = keyof BoardOps;

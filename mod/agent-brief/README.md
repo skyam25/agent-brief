@@ -1,6 +1,6 @@
 # agent-brief
 
-The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. With `/track` it has Claude keep a list of items you answer in the panel. With `/mode` it sets how Claude works in this session. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
+The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or the board in its Stack layout for screenshots with `/stack`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. With `/track` it has Claude keep a list of items you answer in the panel. With `/mode` it sets how Claude works in this session. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
 
 ## How it works
 
@@ -72,6 +72,15 @@ A fill never replaces the box. If the box is empty, the draft goes in as it is. 
 2. If the app never answers, replies with the launch command and the socket path, and points at the `companionLaunch` and `companionSocket` settings.
 3. Registers the session, then opens the panel with this session as the Send target. Any text after `/sketch` shows at the top of the panel.
 4. Replies `Agent Brief open — sketch, then press Send.`
+
+### `/stack [what to capture or ask]`
+
+The Stack button above the prompt does the same. Works like `/sketch`, but sets the board to the Stack layout and replies `Agent Brief open in Stack — drop or paste screenshots, talk, then press Send.`
+
+- Each drop or paste of screenshots becomes a numbered group, one group per row, newest at the bottom.
+- Dropping on a group, or pasting while a group is selected, adds to that group. Dragging a picture out to empty space gives it its own group.
+- Speech stays on the timeline. Send names each picture by its group, such as `2a`, so Claude can match what was said to what was pasted.
+- Needs an Agent Brief app with Stack. An older app opens the board as it is.
 
 ### `/write [text | last]`
 
