@@ -1,6 +1,7 @@
 /** Draft helpers both processes use. */
 
 import type { Draft, DraftImage } from './ipc';
+import { reviewPictures } from './review';
 
 /** A sortable id like `mgk3x2a1-9f2c`. */
 export function newDraftId(now = Date.now()): string {
@@ -30,10 +31,13 @@ export function referencedImages(body: string): string[] {
   return [...new Set(imageRefs(body).map((r) => r.id))];
 }
 
-/** The attachments a draft's body references, as a Send hands them over. */
+/** The attachments a draft keeps: the ones its body references, then its review comments' pictures. */
+export const keptImages = (d: Pick<Draft, 'body' | 'review'>): string[] => [...new Set([...referencedImages(d.body), ...reviewPictures(d.review)])];
+
+/** The attachments a draft uses, as a Send hands them over. */
 export function draftImages(d: Draft): DraftImage[] {
   const all = d.attachments ?? {};
-  return referencedImages(d.body)
+  return keptImages(d)
     .filter((id) => all[id])
     .map((id) => ({ id, data: all[id] }));
 }

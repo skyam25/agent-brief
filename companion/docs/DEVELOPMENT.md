@@ -59,6 +59,7 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - Opening an output:
   - An http(s) link opens in the browser. Other schemes are refused.
   - A Markdown file (`.md`, `.markdown`, `.mdx`, up to 4 MB) opens in Write as a note filed under the session, with `source: { path }`. A note the session already has on that file reopens instead.
+  - An HTML file (`.html`, `.htm`) opens in the review pane as a draft with `review: { path, comments }`. A review the session already has on that file reopens instead.
   - Any other file opens in its default app.
   - Files get the same check as item outputs. They must exist inside the session's folder, symlinks resolved.
   - Tests record opened files and links in `openedOutputs`.
@@ -70,6 +71,21 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
   ```
 
   With a sketch, those lines come first and the sketch lines follow. A source path that is absolute, multi-line or climbs out with `..` is dropped, and the text goes out word for word.
+
+## Review pane
+
+- Main serves project files over `agent-brief-review://<token>/<path>` (`src/main/review-protocol.ts`). Each project folder gets a random token, so each is its own origin, apart from the panel's.
+- The handler refuses paths outside the folder, links that leave it, and dot files and folders such as `.env` and `.git`. Responses are `no-store`, so Reload shows Claude's latest write.
+- HTML responses get `<script src="/__agent-brief__/overlay.js">` as the first script in `<head>`. The overlay (`src/review/overlay.ts`, built to `out/review/overlay.js`) runs in the page's main world. It draws in a closed shadow root and talks to the pane only by `postMessage`, with the types in `src/review/messages.ts`.
+- The frame is `sandbox="allow-scripts allow-same-origin allow-forms"`. The page keeps its own origin, so its storage works, and it still cannot reach the panel. The panel CSP allows `frame-src agent-brief-review:`. `will-frame-navigate` keeps the frame on the scheme. The permission handler refuses every request from it.
+- A pin's anchor holds a unique CSS selector, the tag, the element's text, any selected text, the nearest heading above, and the pin's spot as fractions of the element box. Main crops the panel with `capturePage` at the element's visible box, and the crop is saved as a draft attachment. A draft keeps 40 attachments, so pins past 36 go without a picture.
+- Voice: `ReviewVoice` records one clip at a time, and each clip belongs to the selected comment or the overall note. Selecting or pinning another comment ends the clip, and main turns it into text through ffmpeg and yap (`review:transcribe`). Send waits for pending text.
+- Send writes `review.md` and points the prompt at it:
+
+  ```
+  @.feedback/sketches/<id>/review.md
+  Review of <path> from Agent Brief, <n> comments pinned to the page. Make the changes in <path>, then say what changed.
+  ```
 
 ## Session mode
 
