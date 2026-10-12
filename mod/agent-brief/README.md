@@ -142,6 +142,19 @@ The panel lists each session's deliverables under that session. The mod records 
 - Each system prompt carries a short section that tells Claude when to declare. Claude declares the thing you asked for, one primary output per request, and never code, config or tests.
 - `/outputs` prints the declared outputs, newest first, then the touched ones.
 
+### Pictures in the chat
+
+The `show_image` tool draws a picture inline in the transcript, where the terminal can (Ghostty, kitty). Claude uses it after visual work: a Playwright screenshot of a page it changed, a board it drew on, a design it made. The picture goes to the screen, not to Claude, so it costs no tokens.
+
+- The row holds the picture with Open page (or Open), Open board when `board` is set, Show in Finder and Copy path. Open board starts the app when needed, as `/sketch` does.
+- `options` with 2 to 4 pictures draws tabs, a Side by side toggle when the row is wide enough, and a Pick button. Pick puts "Go with option 2 (Title)" in the prompt box, after anything already typed, and you press Enter.
+- Each shown file is copied into `<project>/.feedback/shown/`, converted to PNG with `sips` when it is not one, so the row keeps its picture after a temp folder is cleared. The newest 40 copies stay.
+- A missing or unreadable file draws a notice with a Copy prompt button. A terminal that cannot draw pictures draws one with the way back, and the system prompt tells Claude the picture was not seen. In tmux, `set -g allow-passthrough on` is needed.
+- A wireframe needs no file. Claude passes a wireframe DSL block as `wireframe` (or SVG text as `svg`, or a `.svg` or `.wireframe` path). The mod renders it with `bin/wireframe-render.mjs`, rasterizes the SVG with `rsvg-convert` (`brew install librsvg`) or, without it, a QuickLook thumbnail cropped to the SVG's shape, and keeps the `.wireframe`, `.svg` and `.png` together in `.feedback/shown/`. A block that fails to parse comes back to Claude as an error naming the line. `options` take wireframes too, so a choice of directions draws as tabs with Pick.
+- `/show <path>` opens a picture in a pane without asking Claude.
+
+The renderer and the `wireframe` skill are copies from [wireframe-dsl](../../../wireframe-dsl) (`helpers/wireframe-render.mjs` and `skills/wireframe/`, commit ea2b72e). To refresh them, run `npm run build` there and copy both over; the skill's only edits are the renderer path (`bin/`) and the "Show it in the chat first" section.
+
 ### Skill
 
 `skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `agent-brief` CLI, and to post a browser session it drives as numbered screenshots with `agent-brief snap`, which needs Agent Brief 0.2.5 or newer.

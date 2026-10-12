@@ -156,6 +156,15 @@ When you drive a browser for the user, with Playwright or another browser tool, 
 3. Tell the user the board is ready, and that they can mark it up, add notes or record voice, then press Send. Their Send arrives in this session as your next prompt, with a PNG of the board and the user's notes. Send also empties the board, and History keeps a copy, so start the next round of snapshots on a fresh board.
 4. When you read their feedback, run `agent-brief read --board <run>`. The user's strokes inside a step's frame list under that frame. Crop each marked frame with `png --region` and Read it, because a stroke only means something against the screenshot under it.
 
+## Showing a picture in the chat
+
+The `show_image` tool draws a picture inline in the user's terminal, in Ghostty or kitty. The picture goes to their screen, not to you, so it costs no tokens. Use it so the user sees what you did without opening a file.
+
+- After you draw on a board, run `agent-brief png --out /tmp/board.png` and call `show_image` with that path and `board` set to the board's name. The row gets an Open board button.
+- After each `agent-brief snap`, also show the screenshot with `show_image`, with `url` set to the page it is of.
+- To offer directions, call `show_image` once with `options`, 2 to 4 pictures each with a `title`. The user switches between them, sees them side by side, and presses Pick. The pick lands in their prompt box as "Go with option 2 (Title)".
+- The tool answers "Not shown" when the terminal cannot draw pictures. Then the user saw a notice, not the picture. Do not say they saw it.
+
 ## Rules
 
 - Never delete or move the user's elements unless they ask. Elements marked `(user)` are theirs.

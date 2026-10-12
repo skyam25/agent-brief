@@ -65,6 +65,8 @@ import type { ModeChoice } from './modes'
 import { registerModeGuard } from './mode-guard'
 import { OUTPUTS_SECTION, outputsInstructions } from './outputs'
 import { registerOutputs } from './outputs-file'
+import { SHOW_COMMAND_SPEC, SHOW_TOOL_SPEC, boardOfKey, registerShow, showSection, startShow } from './show'
+import type { ShowEnvironment } from './show'
 
 type Config = {
   inboxDir: string
@@ -364,7 +366,7 @@ type Opened = { message: string; tookText: boolean }
 async function openCompanion(
   $: EngineInterface,
   mode: OpenMode,
-  { prompt = '', text = '', layout }: { prompt?: string; text?: string; layout?: BoardLayout } = {},
+  { prompt = '', text = '', layout, board }: { prompt?: string; text?: string; layout?: BoardLayout; board?: string } = {},
 ): Promise<Opened> {
   const fail = (message: string): Opened => ({ message, tookText: false })
   if (!(await isHealthy($))) {
@@ -381,6 +383,7 @@ async function openCompanion(
     ...(mode === 'write' ? { mode } : {}),
     ...(mode === 'write' && text !== '' ? { text } : {}),
     ...(layout ? { layout } : {}),
+    ...(board ? { board } : {}),
   }
   const opened = await call($, 'POST', '/open', body)
   if (!opened?.ok) return fail('Agent Brief is running but did not open the panel.')
@@ -552,6 +555,28 @@ async function inboxNote($: EngineInterface, config: Config): Promise<string> {
   return `\n${n === 1 ? '1 recording waits' : `${n} recordings wait`} in the inbox. Ask the user to run /apply-feedback in the project it belongs to.`
 }
 
+/** The terminal and tmux facts the picture hooks need. A tmux with passthrough off is known before the first picture. */
+async function showEnvironment($: EngineInterface, cwd: string, nodePath: string): Promise<ShowEnvironment> {
+  const missing = () => undefined
+  const term = (await $.env.get('TERM').catch(missing)) ?? ''
+  const isTmux = !!(await $.env.get('TMUX').catch(missing)) || /^tmux/i.test(term)
+  let isPassthroughOff = false
+  if (isTmux) {
+    const pass = await $.process.run(['tmux', 'show', '-gv', 'allow-passthrough']).catch(() => undefined)
+    isPassthroughOff = pass !== undefined && pass.exitCode === 0 && /^off$/i.test(pass.stdout.trim())
+  }
+  return {
+    cwd,
+    home: (await $.env.get('HOME').catch(missing)) ?? '',
+    sessionId: await $.session.id().catch(() => ''),
+    program: (await $.env.get('TERM_PROGRAM').catch(missing)) ?? '',
+    term,
+    isTmux,
+    isPassthroughOff,
+    nodePath,
+  }
+}
+
 const noSession = (name: string | undefined) =>
   name ? `No feedback session named "${name}".` : 'No feedback sessions in .feedback/ or the inbox yet.'
 
@@ -654,6 +679,13 @@ export const register: Register = (on, options) => {
       })
     } catch (err) {
       log($, `outputs start failed: ${String(err)}`)
+    }
+    try {
+      startShow(await showEnvironment($, started.cwd, config.nodePath))
+      await $.tool.register(SHOW_TOOL_SPEC)
+      await $.command.register(SHOW_COMMAND_SPEC)
+    } catch (err) {
+      log($, `show start failed: ${String(err)}`)
     }
     return started
   })
@@ -761,12 +793,24 @@ export const register: Register = (on, options) => {
     } catch (err) {
       log($, `outputs section failed: ${String(err)}`)
     }
+    const show = showSection(e.tools)
+    if (show !== null) added.push(show)
     return added.length === 0 ? composed : { sections: [...composed.sections, ...added] }
   })
 
   // The mode guard wraps the outputs recorder, so a denied edit is never recorded.
   registerModeGuard(on)
   registerOutputs(on)
+
+  // Pictures in the transcript. Their Open board button starts the app when needed, as /sketch does.
+  registerShow(on)
+  on('ui.press', async ($, e, next) => {
+    const board = boardOfKey(e.element)
+    if (board === undefined) return next(e)
+    const result = (await openCompanion($, 'sketch', { board })).message
+    if (result !== SKETCH_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
+    return next(e)
+  })
 
   // Large pastes show as placeholders in the box; keep what each held so Write can carry it.
   on('prompt.edit', async ($, e, next) => {
