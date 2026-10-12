@@ -148,27 +148,27 @@ test('the tab row: one tab per session, a click switches board and Send, close k
   // Newest first; the session that opened last is active and named on Send.
   await expect(tabs(page)).toHaveText([/Beta/, /Alpha/]);
   await expect(briefTab(page, 'Beta')).toHaveAttribute('aria-current', 'true');
-  await expect(page.getByTestId('send')).toHaveText('Send to Beta');
+  await expect(page.getByTestId('send-menu')).toHaveText('Beta');
   await expect(briefTab(page, 'Alpha').getByTestId('brief-unsent')).toBeVisible();
   await expect(briefTab(page, 'Beta').getByTestId('brief-unsent')).toHaveCount(0);
 
   await briefTab(page, 'Alpha').getByRole('tab').click();
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
-  await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
+  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
   await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
 
   // Notes is ⌃1, so the sessions start at ⌃2; ⌃Tab cycles through Notes too.
   await page.keyboard.press('Control+3');
-  await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
+  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
   await page.keyboard.press('Control+2');
-  await expect(page.getByTestId('send')).toHaveText('Send to Beta');
+  await expect(page.getByTestId('send-menu')).toHaveText('Beta');
   await page.keyboard.press('Control+Tab');
-  await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
+  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
   await page.keyboard.press('Control+Tab');
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
   await page.keyboard.press('Control+Shift+Tab');
-  await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
+  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
 
   await themeShots(ctx, 'tabs', { x: 0, y: 0, width: 1100, height: 140 });
 
@@ -194,7 +194,7 @@ test('an ended session keeps its tab, which still opens its board', async () => 
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
   await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
   // An ended session cannot take a Send, so Send asks where to go.
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
 });
 
 test('a tab shows the mode the mod reports, and drops it when the session ends', async () => {
@@ -238,6 +238,6 @@ test('tabs that do not fit wait behind +N', async () => {
   await expect(page.getByTestId('brief-list-item')).toHaveCount(5);
   if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tabs-overflow-open.png'), clip: { x: 0, y: 0, width: 560, height: 480 } });
   await page.getByTestId('brief-list-item').filter({ hasText: 'Alpha' }).click();
-  await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
+  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
   await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
 });

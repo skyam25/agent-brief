@@ -47,7 +47,7 @@ test('the Notes tab is first and always there, and has no Items', async () => {
   await expect(notesTab(page)).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('mode-items')).toHaveCount(0);
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
   await expect.poll(target).toBeUndefined();
 });
 

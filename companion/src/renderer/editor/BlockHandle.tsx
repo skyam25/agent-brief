@@ -106,11 +106,17 @@ export function BlockHandle(props: { editor: Editor; box: RefObject<HTMLDivEleme
       setHover(block && r && e.clientY >= r.top - 4 && e.clientY <= r.bottom + 4 ? block.pos : undefined);
     };
     const onLeave = () => setHover(undefined);
+
+    // Typing hands the + to the caret. The resting pointer takes it back on its next move.
+    const onKey = () => setHover(undefined);
+    const view = editor.view.dom;
     el.addEventListener('mousemove', onMove);
     el.addEventListener('mouseleave', onLeave);
+    view.addEventListener('keydown', onKey);
     return () => {
       el.removeEventListener('mousemove', onMove);
       el.removeEventListener('mouseleave', onLeave);
+      view.removeEventListener('keydown', onKey);
     };
   }, [editor, box]);
 

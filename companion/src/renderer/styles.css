@@ -87,7 +87,7 @@ button:disabled {
   padding: 0 10px;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button {
+:is(.strip, .composer, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -95,18 +95,18 @@ button:disabled {
   white-space: nowrap;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.icon-button {
+:is(.strip, .composer, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.icon-button {
   width: 32px;
   padding: 0;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.small {
+:is(.strip, .composer, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.small {
   height: 24px;
   padding: 0 6px;
   border-radius: 6px;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.icon-button.small {
+:is(.strip, .composer, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.icon-button.small {
   width: 24px;
   padding: 0;
 }
@@ -196,15 +196,11 @@ button.link {
   text-overflow: ellipsis;
 }
 
-/* The right end keeps its full width; when the window is too narrow it wraps to a row of its own, Send last. */
+/* The right end keeps its full width; when the window is too narrow it wraps to a row of its own. */
 .top {
   flex: 1 0 auto;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.send-group {
-  flex: none;
 }
 
 .strip button.pill {
@@ -281,7 +277,7 @@ button.mic .badge {
   height: 7px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 2px var(--island);
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 button.recording {
@@ -403,22 +399,52 @@ button.recording {
   justify-content: space-between;
 }
 
-/* Send and the chooser */
+/* The composer: Send and where it goes, under the work in every mode */
+
+.composer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
 
 .send-to {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   min-width: 0;
 }
 
-.send-to .send-named {
-  display: block;
-  min-width: 96px;
-  max-width: 220px;
+.send-to .send-target {
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  padding: 0 8px 0 10px;
+  font-weight: 500;
+}
+
+.send-target .name {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.send-target .icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.send-to .send-named {
+  flex: none;
+  min-width: 80px;
+  justify-content: center;
+}
+
+/* The composer sits at the bottom, so its chooser opens upward. */
+.composer .popover-panel {
+  top: auto;
+  bottom: calc(100% + 8px);
 }
 
 .chooser {

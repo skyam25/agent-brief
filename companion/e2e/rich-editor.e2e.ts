@@ -196,6 +196,25 @@ test('the gutter + opens the block menu on an empty line, and below a hovered bl
   await expect.poll(() => draftBody(page)).toBe('# Plan\n\n- [ ] write tests');
 });
 
+test('the gutter + follows the caret to a new line while the pointer rests on the old one', async () => {
+  const { page } = ctx;
+  const plus = page.getByTestId('block-plus');
+  await editor(page).click();
+  await page.keyboard.type('first line');
+  const line = editor(page).locator('p').first();
+  await line.hover();
+  await expect(plus).toBeVisible();
+
+  await page.keyboard.press('Enter');
+  const fresh = (await editor(page).locator('p').nth(1).boundingBox())!;
+  await expect
+    .poll(async () => {
+      const box = (await plus.boundingBox())!;
+      return Math.abs(box.y + box.height / 2 - (fresh.y + fresh.height / 2));
+    }, { timeout: 2000 })
+    .toBeLessThan(6);
+});
+
 test('an empty draft offers its templates as chips, and a chip fills the draft', async () => {
   const { page } = ctx;
   const chips = page.getByTestId('starter-chip');

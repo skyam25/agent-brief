@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { SessionsResponse } from '../protocol';
 import type { Launcher, LaunchOptions } from '../shared/ipc';
 import { folderName, hueOf, sessionTitle, shortFolder } from '../shared/sessions';
@@ -15,9 +15,9 @@ export const LAUNCHER_LABELS: Record<Launcher, string> = {
 const launchLabel = (l: Launcher) => (l === 'copy' ? LAUNCHER_LABELS.copy : `Start in ${LAUNCHER_LABELS[l]}`);
 
 /**
- * Send and where it goes: one primary button and a chevron, in the same place
- * whether or not a session is chosen. With a target, Send names it; without
- * one, Send asks where to go first. The chevron always picks another.
+ * The composer's right end: the target chip, the mic, then Send. The chip
+ * names where Send goes and opens the chooser. Without a target, Send opens
+ * the chooser too.
  */
 export function SendTo(props: {
   sessions: SessionsResponse;
@@ -29,29 +29,34 @@ export function SendTo(props: {
   onSendNew: (cwd: string, via: Launcher) => void;
   loadOptions: () => Promise<LaunchOptions>;
   chooseFolder: () => Promise<string | undefined>;
+  /** Sits between the chip and Send. */
+  mic?: ReactNode;
 }) {
   const target = props.sessions.sessions.find((s) => s.sessionId === props.sessions.targetSessionId);
+  const name = target && (target.title || folderName(target.cwd));
   return (
     <div className="anchor send-to">
       <button
-        className="primary send-named"
+        className="ghost send-target"
         title={target ? `${sessionTitle(target)}\n${target.cwd}${target.summary ? `\n${target.summary}` : ''}` : 'Choose a session to send to'}
-        aria-haspopup={target ? undefined : 'dialog'}
-        aria-pressed={target ? undefined : props.open}
-        onClick={target ? props.onSend : () => props.onOpenChange(!props.open)}
-        data-testid="send"
-      >
-        {target ? `Send to ${target.title || folderName(target.cwd)}` : 'Send to…'}
-      </button>
-      <button
-        className="ghost icon-button"
-        aria-label="Send somewhere else"
-        title="Send somewhere else"
+        aria-haspopup="dialog"
         aria-pressed={props.open}
         onClick={() => props.onOpenChange(!props.open)}
         data-testid="send-menu"
       >
+        <span className={target ? 'dot live' : 'dot'} aria-hidden="true" />
+        <span className="name">{name ?? 'Choose a session'}</span>
         <ChevronIcon />
+      </button>
+      {props.mic}
+      <button
+        className="primary send-named"
+        title={target ? `Send to ${name}` : 'Choose a session to send to'}
+        aria-haspopup={target ? undefined : 'dialog'}
+        onClick={target ? props.onSend : () => props.onOpenChange(!props.open)}
+        data-testid="send"
+      >
+        Send
       </button>
       {props.open && <Chooser {...props} onClose={() => props.onOpenChange(false)} />}
     </div>

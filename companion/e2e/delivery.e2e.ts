@@ -37,7 +37,7 @@ test('C2.4 the socket file is owner-only (0600)', async () => {
 
 test('opened standalone, Send asks where to go and never picks a session itself', async () => {
   const { page } = ctx;
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
   await page.getByTestId('send').click();
   await expect(page.getByTestId('send-chooser')).toContainText('No Claude Code session has the companion open');
 
@@ -46,7 +46,7 @@ test('opened standalone, Send asks where to go and never picks a session itself'
   await expect(page.getByTestId('send-to-session')).toHaveText(/Login work.*tighten the header/);
   await page.screenshot({ path: join(RESULTS, 'send-chooser.png') });
   expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('brief-tab')).toHaveCount(0);
   expect(await panelVisible()).toBe(true);
@@ -158,7 +158,7 @@ test('POST /open shows the board and the prompt and picks the session', async ()
   expect(opened.body).toEqual({ board: 'login', targetSessionId: 's2' });
   await expect(page.getByTestId('board-picker')).toHaveText('login');
   await expect(page.getByTestId('prompt')).toHaveText(/Sketch the login screen/);
-  await expect(page.getByTestId('send')).toHaveText(`Send to ${cwd.split('/').pop()}`);
+  await expect(page.getByTestId('send-menu')).toHaveText(cwd.split('/').pop()!);
   expect(await app.evaluate(() => globalThis.__companion.panel.isVisible())).toBe(true);
 });
 
@@ -167,10 +167,10 @@ test('a session opened by /sketch is the named Send and the active tab until it 
   const cwd = project();
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Login work', host: { terminal: 'ghostty', bundleId: 'com.mitchellh.ghostty' } });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
-  await expect(page.getByTestId('send')).toHaveText('Send to Login work');
+  await expect(page.getByTestId('send-menu')).toHaveText('Login work');
   const tab = page.getByTestId('brief-tab').filter({ hasText: 'Login work' });
   await expect(tab).toHaveAttribute('aria-current', 'true');
-  await page.screenshot({ path: join(RESULTS, 'send-named.png'), clip: { x: 0, y: 0, width: 1100, height: 120 } });
+  await page.screenshot({ path: join(RESULTS, 'send-named.png') });
 
   // A click on the active tab brings the terminal forward.
   await tab.getByRole('tab').click();
@@ -180,16 +180,16 @@ test('a session opened by /sketch is the named Send and the active tab until it 
 
   // The session leaving clears the target; Send asks again.
   await sock(socketPath, 'DELETE', '/sessions/s1');
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
   await expect(tab).toHaveAttribute('aria-current', 'false');
 
   // Hiding and showing from the hotkey drops a target /sketch set.
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd });
   await sock(socketPath, 'POST', '/open', { sessionId: 's2' });
-  await expect(page.getByTestId('send')).not.toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).not.toHaveText('Choose a session');
   await app.evaluate(() => globalThis.__companion.toggle());
   await showPanel(app, page);
-  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
   expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
 });
 
