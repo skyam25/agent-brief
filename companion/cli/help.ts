@@ -66,6 +66,16 @@ export const DOCS: Record<string, Doc> = {
     about: 'Removes elements by id. Unknown ids are skipped.',
     example: 'agent-brief delete a b',
   },
+  show: {
+    usage: 'agent-brief show <file>... [--title <text>] [--labels "A|B|C"] [--board <name>] [--url <link>]',
+    about: 'Shows a picture inline in the Claude Code session that runs it. Two to four files are options the user picks from; --labels names them in order. PNG, JPEG, WebP, GIF, TIFF, SVG or .wireframe. Needs the agent-brief plugin in that session, not the app.',
+    example: 'agent-brief show .feedback/shots/after.png --title "Checkout after the fix"',
+  },
+  output: {
+    usage: 'agent-brief output <title> (--path <file> | --url <link>) [--status drafting|ready]',
+    about: "Lists a deliverable in the Agent Brief panel's Outputs. Needs the agent-brief plugin in the session that runs it.",
+    example: 'agent-brief output "Pricing brief" --path docs/pricing.md --status ready',
+  },
   'herdr-pictures': {
     usage: 'agent-brief herdr-pictures [on|off|status]',
     about: 'Lets Claude Code draw pictures in Herdr panes. "on" adds a marked block to your zsh and bash startup files, and a fish conf.d file, that sets CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1 only when HERDR_ENV is set. "off" removes it. "status" shows each file and this shell.',
@@ -74,7 +84,7 @@ export const DOCS: Record<string, Doc> = {
 };
 
 /** Commands that use no board and print no JSON. */
-const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures']);
+const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output']);
 
 export function commandHelp(name: string): string {
   const d = DOCS[name];

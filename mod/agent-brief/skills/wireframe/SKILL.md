@@ -38,6 +38,8 @@ The `show_image` tool draws a wireframe inline in the user's terminal (Ghostty o
 
 To offer alternatives, call `show_image` once with a `title` for the choice and `options`, 2 to 4 entries each with `wireframe` and a `title`. Leave letters out of the option titles, because the sheet letters them A to D. The user sees them side by side, opens one alone from its tab, and presses Pick, which puts "Go with option B (Title)" in their prompt box. Vary the layout across options, not only the copy.
 
+When `show_image` is not in your tools, write each block to a `.wireframe` file and run `agent-brief show <file> --title "<title>"` with Bash. For alternatives, pass 2 to 4 files with `--labels "A|B"`.
+
 Write files under `wireframes/` (the loop below) when the user wants to keep the mockup, drop it in a doc or PR, or asked for a file. For a quick look, or a choice between directions, show it in the chat and skip the files.
 
 ## The loop

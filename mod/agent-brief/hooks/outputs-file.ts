@@ -1,8 +1,9 @@
 import type { EngineInterface, On } from 'claude-code'
 
-import { outputsFile } from './companion-protocol'
+import { bashRequestOf, outputsFile } from './companion-protocol'
 import type { OutputsFile } from './companion-protocol'
 import {
+  DECLARE_TOOL,
   DECLARE_USAGE,
   declareResultText,
   emptyOutputsFile,
@@ -57,9 +58,20 @@ function log($: EngineInterface, text: string): void {
 
 /** The session's outputs file: declared deliverables and the documents the session writes. */
 export function registerOutputs(on: On): void {
-  on('tool.call', { tool: 'mcp__agent-brief__declare_output' }, async ($, e) => ({ result: await declareOutput($, e) })).catch(
+  on('tool.call', { tool: DECLARE_TOOL }, async ($, e) => ({ result: await declareOutput($, e) })).catch(
     () => ({ result: 'Agent Brief could not record the output. The panel will not list it until a later declare succeeds.' }),
   )
+
+  // `agent-brief output` in Bash declares the same way, where a policy refuses the declare_output tool.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const done = await next(e)
+    const out = 'result' in done ? (done.result as { stdout?: unknown } | null | undefined) : undefined
+    if (!out || typeof out.stdout !== 'string') return done
+    const request = bashRequestOf(out.stdout)
+    if (request?.kind !== 'output') return done
+    const stdout = await declareOutput($, request.input)
+    return { result: { ...out, stdout }, ...(done.context ? { context: done.context } : {}) }
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'outputs' }, async $ => ({ text: outputsListText((await readOutputs($)).file) }))
 

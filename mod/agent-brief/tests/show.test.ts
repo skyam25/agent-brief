@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { SHOW_TOOL, fit, optionTitle, requestedOf, sheetOf, shownOf, sizeFor, thumbnailCrop, toolLine, viewBoxOf } from '../hooks/show-logic'
+import { bashRequestLine } from '../hooks/companion-protocol'
 import { BAND, COMPOSE, CWD, SESSION, command, textOf, worldOf } from './world'
 import type { World } from './world'
 
@@ -57,10 +58,11 @@ async function setup(
   $: Parameters<TestBody>[0],
   on: Parameters<TestBody>[1],
   files: Record<string, string> = { [SHOT]: 'png' },
-  { probe = 'drew', env = {} }: { probe?: Probe; env?: Record<string, string> } = {},
+  { probe = 'drew', env = {}, isToolRefused = false }: { probe?: Probe; env?: Record<string, string>; isToolRefused?: boolean } = {},
 ) {
   const world = worldOf(on, files) as World & { hasRsvg: boolean }
   world.env = env
+  world.isToolRefused = isToolRefused
   on('ui.blit', () => (probe === 'alt' ? { value: { deny: 'the Image draws its alt here: the terminal draws no placeholder images' } } : { value: {} }))
   world.hasRsvg = true
   answerPictures(world)
@@ -412,5 +414,67 @@ describe('/show', () => {
     const ui = await $.ui.mount({ plugin: 'agent-brief', surface: 'terminal', component: 'Pane', requestId: 'agent-brief-show', viewport: VIEWPORT, props: {} as never })
     expect(await ui.find({ type: 'Image' })).toBeDefined()
     await ui.unmount()
+  })
+})
+
+describe('a policy that refuses the plugin\'s tools', () => {
+  /** Answers Bash beneath the plugin with what the command prints. Seat it before setup. */
+  function bash(on: Parameters<TestBody>[1]) {
+    const printed = { stdout: '' }
+    on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: printed.stdout, stderr: '', interrupted: false } }) as never)
+    return printed
+  }
+
+  const run = ($: Parameters<TestBody>[0], command: string) =>
+    $.tool.call({ tool: 'Bash', tool_use_id: 'b1', command } as never) as Promise<{ result?: { stdout: string } }>
+
+  test('leaves /show, /outputs and /apply-feedback registered', async ($, on) => {
+    const { world } = await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    expect(world.tools).toEqual([])
+    expect(world.commands).toEqual(expect.arrayContaining(['show', 'outputs', 'apply-feedback', 'sketch', 'mode']))
+  })
+
+  test('points the system prompt at agent-brief show and agent-brief output', async ($, on) => {
+    await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    const sections = (await $.prompt.compose(COMPOSE)).sections
+    expect(sections.find(s => s.id === 'agent-brief:show')?.text).toContain('`agent-brief show <file>` with Bash')
+    expect(sections.find(s => s.id === 'agent-brief:outputs')?.text).toContain('`agent-brief output')
+  })
+
+  test('agent-brief show in Bash answers as show_image does, and its row draws the picture', async ($, on) => {
+    const printed = bash(on)
+    await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    printed.stdout = `${bashRequestLine({ kind: 'show', input: { path: SHOT, title: 'Pricing page' } })}\nAgent Brief draws this when its plugin runs.\n`
+    const reply = await run($, `agent-brief show ${SHOT} --title "Pricing page"`)
+    expect(reply.result?.stdout.split('\n')[0]).toBe('Shown: Pricing page (1440×900).')
+    const ui = await $.ui.mount({ ...resultRow(reply.result), props: { tool_use_id: 't1', tool: 'Bash', output: reply.result, isErrored: false } })
+    expect(await ui.find({ type: 'Image' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a missing file comes back as the line Claude acts on', async ($, on) => {
+    const printed = bash(on)
+    await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    printed.stdout = `${bashRequestLine({ kind: 'show', input: { path: `${CWD}/shots/gone.png` } })}\n`
+    const reply = await run($, 'agent-brief show shots/gone.png')
+    expect(reply.result?.stdout).toContain(`There's no file at ${CWD}/shots/gone.png`)
+  })
+
+  test('agent-brief output in Bash records a declared output', async ($, on) => {
+    const printed = bash(on)
+    on('session.id', () => ({ value: 's1' }))
+    const { world } = await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    printed.stdout = `${bashRequestLine({ kind: 'output', input: { title: 'Pricing brief', path: `${CWD}/docs/pricing.md`, status: 'ready' } })}\n`
+    const reply = await run($, 'agent-brief output "Pricing brief" --path docs/pricing.md --status ready')
+    expect(reply.result?.stdout).not.toContain('agent-brief:request')
+    const file = [...world.files].find(([path]) => path === `${CWD}/.feedback/outputs/s1.json`)
+    expect(JSON.parse(file![1]).outputs[0]).toMatchObject({ ref: 'docs/pricing.md', title: 'Pricing brief', tier: 'declared', status: 'ready' })
+  })
+
+  test('other Bash output passes through untouched', async ($, on) => {
+    const printed = bash(on)
+    await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    printed.stdout = 'hello\n'
+    expect((await run($, 'echo hello')).result?.stdout).toBe('hello\n')
   })
 })

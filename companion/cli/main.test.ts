@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { ReadResponse } from '../src/protocol';
+import { bashRequestOf, type ReadResponse } from '../src/protocol';
 import { main } from './main';
 import { fail, useFakeApp } from './testkit';
 
@@ -276,5 +276,39 @@ describe('errors and help', () => {
     const r = await run(['read', '--bogus']);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain('--bogus');
+  });
+});
+
+describe('show and output', () => {
+  it('show prints one request line with absolute paths, and needs no app', async () => {
+    const r = await run(['show', 'shots/a.png', '--title', 'Pricing', '--board', 'checkout']);
+    expect(r.code).toBe(0);
+    expect(app.seen).toEqual([]);
+    expect(bashRequestOf(r.stdout)).toEqual({
+      kind: 'show',
+      input: { path: path.join(app.dir, 'shots/a.png'), title: 'Pricing', board: 'checkout' },
+    });
+  });
+
+  it('show makes two to four files options, named by --labels', async () => {
+    const r = await run(['show', '/x/a.png', '/x/b.png', '--labels', 'Bold | Quiet', '--title', 'Hero']);
+    expect(bashRequestOf(r.stdout)).toEqual({
+      kind: 'show',
+      input: { options: [{ path: '/x/a.png', title: 'Bold' }, { path: '/x/b.png', title: 'Quiet' }], title: 'Hero' },
+    });
+    expect((await run(['show'])).code).toBe(2);
+    expect((await run(['show', 'a', 'b', 'c', 'd', 'e'])).code).toBe(2);
+  });
+
+  it('output needs a title and exactly one of --path or --url', async () => {
+    const r = await run(['output', 'Pricing', 'brief', '--url', 'https://claude.ai/artifact/x', '--status', 'ready']);
+    expect(bashRequestOf(r.stdout)).toEqual({
+      kind: 'output',
+      input: { title: 'Pricing brief', url: 'https://claude.ai/artifact/x', status: 'ready' },
+    });
+    expect((await run(['output', '--path', 'a.md'])).code).toBe(2);
+    expect((await run(['output', 'T'])).code).toBe(2);
+    expect((await run(['output', 'T', '--path', 'a.md', '--url', 'https://x'])).code).toBe(2);
+    expect((await run(['output', 'T', '--path', 'a.md', '--status', 'done'])).code).toBe(2);
   });
 });

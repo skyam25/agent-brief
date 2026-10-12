@@ -60,6 +60,8 @@ export type World = {
   commands: string[]
   /** True makes every `fs.write` fail. */
   isWriteRefused: boolean
+  /** True refuses every `tool.register`, as an organization's plugin policy does. */
+  isToolRefused: boolean
   /** Environment variables beside HOME. */
   env: Record<string, string>
   /** Answers each `process.run`; the default claims every mv and prints an ok ingest. */
@@ -76,6 +78,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
     tools: [],
     commands: [],
     isWriteRefused: false,
+    isToolRefused: false,
     env: {},
     answer: argv => {
       if (argv[0] === 'mv') {
@@ -137,6 +140,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
   })
   on('ui.log', () => ({ value: undefined }))
   on('tool.register', ($, e) => {
+    if (world.isToolRefused) return { deny: 'plugins outside policy may not add tools' }
     world.tools.push(e.name)
     return { value: { tool: `mcp__agent-brief__${e.name}` } }
   })

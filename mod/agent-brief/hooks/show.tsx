@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ElementTable, On, RenderInput, RenderViewport } from 'claude-code'
 
 import { fillRequest } from './companion-logic'
+import { bashRequestOf } from './companion-protocol'
 import {
   IMAGE_FILE,
   OPTIONS_TITLE,
@@ -546,53 +547,88 @@ export const SHOW_TOOL_SPEC = {
 
 export const SHOW_COMMAND_SPEC = { name: 'show', description: 'Show a picture in a pane: /show <path>', argumentHint: '<path>' }
 
-/** The system prompt section for this session, when the tool is on offer. Called from the plugin's one `prompt.compose` hook. */
+/** Set when the engine refused to register show_image, as an organization's plugin policy does. */
+let isToolRefused = false
+
+export function noteShowToolRefused(isRefused: boolean): void {
+  isToolRefused = isRefused
+}
+
+/**
+ * The system prompt section for this session: for the show_image tool when it is on offer,
+ * for `agent-brief show` when its registration was refused, else none.
+ * Called from the plugin's one `prompt.compose` hook.
+ */
 export function showSection(tools: readonly string[]): { id: string; scope: 'session'; text: string } | null {
-  if (!tools.includes(SHOW_TOOL)) return null
-  return { id: SHOW_SECTION, scope: 'session', text: showInstructions(canImage, drawCause, sessionId) }
+  const isCli = !tools.includes(SHOW_TOOL)
+  if (isCli && !isToolRefused) return null
+  return { id: SHOW_SECTION, scope: 'session', text: showInstructions(canImage, drawCause, sessionId, isCli) }
+}
+
+/**
+ * Prepares what a show request names and answers with the text Claude reads,
+ * the drawing data on its last line. A failure answers `{ deny }` with its notice.
+ */
+async function showFor($: EngineInterface, request: unknown): Promise<{ result: string } | { deny: string; notice?: ShowNotice }> {
+  const requested = requestedOf(request)
+  if (typeof requested === 'string') return { deny: `show_image: ${requested}` }
+  const input = request as { title?: unknown; url?: unknown; board?: unknown }
+  let current: Requested = requested[0]!
+  try {
+    const items: ShownItem[] = []
+    for (const r of requested) {
+      current = r
+      const item = await prepareItem($, r)
+      items.push(requested.length > 1 ? { ...item, title: optionTitle(item.title) } : item)
+    }
+    const sheet =
+      items.length > 1
+        ? await prepareSheet($, items).catch((err: unknown) => {
+            log($, `options sheet: ${String(err)}`)
+            return undefined
+          })
+        : undefined
+    const shown: Shown = {
+      title: typeof input.title === 'string' && input.title ? input.title : items.length > 1 ? OPTIONS_TITLE : items[0]!.title,
+      items,
+      ...(sheet ? { sheet } : {}),
+      ...(typeof input.url === 'string' && input.url ? { url: input.url } : {}),
+      ...(typeof input.board === 'string' && input.board ? { board: input.board } : {}),
+    }
+    void storeDir($).then(dir => (dir ? trimStore($, dir) : undefined))
+    const opening = !canImage
+      ? `Not shown: ${cantDraw(drawCause, shown.title, sessionId).claude} Don't say it was shown.`
+      : isProbed
+        ? shownText(shown, cwd)
+        : `${shownText(shown, cwd)} ${UNCONFIRMED_NOTE}`
+    return { result: `${opening}\n${markLine(shown)}` }
+  } catch (err) {
+    const n = noticeOf(err, current.path !== undefined ? expandPath(current.path, cwd, home) : current.title ?? 'the wireframe', home)
+    return { deny: `show_image: ${n.message}`, notice: n }
+  }
 }
 
 /** The `show_image` tool, `/show`, and the picture drawn in the transcript or a pane. */
 export function registerShow(on: On): void {
   on('tool.call', { tool: SHOW_TOOL }, async ($, e) => {
-    const requested = requestedOf(e)
-    if (typeof requested === 'string') return { deny: `show_image: ${requested}` }
-    const input = e as { title?: unknown; url?: unknown; board?: unknown }
-    let current: Requested = requested[0]!
-    try {
-      const items: ShownItem[] = []
-      for (const r of requested) {
-        current = r
-        const item = await prepareItem($, r)
-        items.push(requested.length > 1 ? { ...item, title: optionTitle(item.title) } : item)
-      }
-      const sheet =
-        items.length > 1
-          ? await prepareSheet($, items).catch((err: unknown) => {
-              log($, `options sheet: ${String(err)}`)
-              return undefined
-            })
-          : undefined
-      const shown: Shown = {
-        title: typeof input.title === 'string' && input.title ? input.title : items.length > 1 ? OPTIONS_TITLE : items[0]!.title,
-        items,
-        ...(sheet ? { sheet } : {}),
-        ...(typeof input.url === 'string' && input.url ? { url: input.url } : {}),
-        ...(typeof input.board === 'string' && input.board ? { board: input.board } : {}),
-      }
-      void storeDir($).then(dir => (dir ? trimStore($, dir) : undefined))
-      const opening = !canImage
-        ? `Not shown: ${cantDraw(drawCause, shown.title, sessionId).claude} Don't say it was shown.`
-        : isProbed
-          ? shownText(shown, cwd)
-          : `${shownText(shown, cwd)} ${UNCONFIRMED_NOTE}`
-      return { result: `${opening}\n${markLine(shown)}` }
-    } catch (err) {
-      const n = noticeOf(err, current.path !== undefined ? expandPath(current.path, cwd, home) : current.title ?? 'the wireframe', home)
-      notices.set(e.tool_use_id, n)
-      return { deny: `show_image: ${n.message}` }
-    }
+    const answer = await showFor($, e)
+    if ('result' in answer) return answer
+    if (answer.notice) notices.set(e.tool_use_id, answer.notice)
+    return { deny: answer.deny }
   }).catch(() => ({ deny: 'show_image: the picture could not be shown.' }))
+
+  // `agent-brief show` in Bash asks for the same picture. Its output becomes the show's result,
+  // so the picture draws where a policy refuses the show_image tool.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const done = await next(e)
+    const out = 'result' in done ? (done.result as { stdout?: unknown } | null | undefined) : undefined
+    if (!out || typeof out.stdout !== 'string') return done
+    const request = bashRequestOf(out.stdout)
+    if (request?.kind !== 'show') return done
+    const answer = await showFor($, request.input)
+    const stdout = 'result' in answer ? answer.result : answer.deny
+    return { result: { ...out, stdout }, ...(done.context ? { context: done.context } : {}) }
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'show' }, async ($, e) => {
     const arg = e.args.trim()
@@ -620,7 +656,8 @@ export function registerShow(on: On): void {
   // Inline in the transcript: the picture is the tool's result row.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const props = e.props as { tool: string; tool_use_id: string; output: unknown; isErrored: boolean; onScreen?: unknown }
-    if (props.tool !== SHOW_TOOL) return next(e)
+    const isShow = props.tool === SHOW_TOOL || (props.tool === 'Bash' && shownOf(props.output) !== null)
+    if (!isShow) return next(e)
     const { ui, Image } = tableOf($, e)
     const room = (e.viewport?.columns ?? 100) - 10
     if (props.isErrored) {

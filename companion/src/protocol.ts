@@ -186,6 +186,38 @@ export interface OutputsFile {
   outputs: OutputRecord[];
 }
 
+// ── Bash requests ─────────────────────────────────────────────────────────
+// `agent-brief show` and `agent-brief output` print one line: this mark, then
+// a BashRequest as JSON. The mod's Bash hook reads it and rewrites the output.
+// This path works where an organization's policy stops plugins adding tools.
+
+export const BASH_REQUEST_MARK = 'agent-brief:request ';
+
+/** One picture `agent-brief show` names. `path` is absolute. */
+export interface ShowRequestItem {
+  path: string;
+  title?: string;
+}
+
+export type BashRequest =
+  | { kind: 'show'; input: { path?: string; title?: string; board?: string; url?: string; options?: ShowRequestItem[] } }
+  | { kind: 'output'; input: { title: string; path?: string; url?: string; status?: OutputStatus } };
+
+export const bashRequestLine = (request: BashRequest): string => `${BASH_REQUEST_MARK}${JSON.stringify(request)}`;
+
+/** The request in a command's output, or undefined when it has none. */
+export function bashRequestOf(stdout: string): BashRequest | undefined {
+  const line = stdout.split('\n').find((l) => l.startsWith(BASH_REQUEST_MARK));
+  if (line === undefined) return undefined;
+  try {
+    const value = JSON.parse(line.slice(BASH_REQUEST_MARK.length)) as Partial<BashRequest>;
+    const isKind = value.kind === 'show' || value.kind === 'output';
+    return isKind && typeof value.input === 'object' && value.input !== null ? (value as BashRequest) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Deliveries ────────────────────────────────────────────────────────────
 // GET /deliveries?session=<id>&wait=<seconds> long-polls. It answers at once
 // when deliveries are queued, else after `wait` seconds (max 30) with none.
