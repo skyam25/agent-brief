@@ -18,9 +18,6 @@ export const SVG_RASTER_WIDTH = 1600
 /** The most pictures one call shows as options. */
 export const MAX_OPTIONS = 4
 
-/** Side by side needs this many columns for two pictures. */
-export const SIDE_BY_SIDE_MIN = 100
-
 /** One picture. `path` is the PNG the terminal reads; `source` is the file as the user knows it. */
 export type ShownItem = {
   path: string
@@ -30,12 +27,74 @@ export type ShownItem = {
   title: string
 }
 
-/** What the transcript row draws: one picture, or several options under one title. */
+/** The options laid out as one lettered picture. */
+export type ShownSheet = { path: string; width: number; height: number }
+
+/** What the transcript row draws: one picture, or several options under one title, with their sheet when it was made. */
 export type Shown = {
   title: string
   items: ShownItem[]
+  sheet?: ShownSheet
   url?: string
   board?: string
+}
+
+/** The title a call without one gets when it shows options. */
+export const OPTIONS_TITLE = 'Options'
+
+/** An option's letter: A, B, C, D. */
+export const optionLetter = (index: number) => String.fromCharCode(65 + index)
+
+/** Drops a label put before an option's title, such as "A · " or "2. ", since the sheet letters each option. */
+export const optionTitle = (title: string) => title.replace(/^\s*(?:option\s+)?[A-Da-d1-4]\s*[.):·•\-–—]\s+/i, '') || title
+
+const SHEET_CELL = 720
+const SHEET_GAP = 28
+const SHEET_HEAD = 68
+const SHEET_PAD = 18
+const SHEET_MAX_PICTURE = 1200
+
+/** One option as the sheet draws it. `href` is the picture as a data URI. */
+export type SheetCell = { href: string; width: number; height: number; title: string }
+
+const xml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const px = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * Lays the options out as one SVG of equal lettered cards: one row of two
+ * or three, or two by two for four. Each row's cards share the tallest
+ * picture's height, so the cards line up and the pictures share a top edge.
+ */
+export function sheetOf(cells: SheetCell[]): { svg: string; width: number; height: number } {
+  const perRow = cells.length === 4 ? 2 : cells.length
+  const inner = SHEET_CELL - 2 * SHEET_PAD
+  const maxChars = Math.floor((inner - 56) / 14)
+  const rows: SheetCell[][] = []
+  for (let i = 0; i < cells.length; i += perRow) rows.push(cells.slice(i, i + perRow))
+  const pictureHeights = rows.map(row => Math.min(SHEET_MAX_PICTURE, Math.max(...row.map(c => (inner * c.height) / c.width))))
+  const cardHeights = pictureHeights.map(h => SHEET_HEAD + h + SHEET_PAD)
+  const width = perRow * SHEET_CELL + (perRow - 1) * SHEET_GAP
+  const height = cardHeights.reduce((sum, h) => sum + h, 0) + (rows.length - 1) * SHEET_GAP
+  const font = 'font-family="Helvetica Neue, Helvetica, Arial, sans-serif"'
+  let body = ''
+  let y = 0
+  rows.forEach((row, r) => {
+    row.forEach((c, k) => {
+      const x = k * (SHEET_CELL + SHEET_GAP)
+      const scale = Math.min(inner / c.width, pictureHeights[r]! / c.height)
+      const w = c.width * scale
+      const title = c.title.length > maxChars ? `${c.title.slice(0, maxChars - 1)}…` : c.title
+      body +=
+        `<rect x="${x + 1}" y="${y + 1}" width="${SHEET_CELL - 2}" height="${px(cardHeights[r]! - 2)}" rx="14" fill="#1C1F27" stroke="#2E323D" stroke-width="2"/>` +
+        `<rect x="${x + SHEET_PAD}" y="${y + SHEET_PAD}" width="36" height="36" rx="8" fill="#3B82F6"/>` +
+        `<text x="${x + SHEET_PAD + 18}" y="${y + SHEET_PAD + 26}" text-anchor="middle" font-size="22" font-weight="700" fill="#FFFFFF" ${font}>${optionLetter(r * perRow + k)}</text>` +
+        `<text x="${x + SHEET_PAD + 52}" y="${y + SHEET_PAD + 27}" font-size="26" fill="#E6E8EE" ${font}>${xml(title)}</text>` +
+        `<image href="${c.href}" x="${px(x + SHEET_PAD + (inner - w) / 2)}" y="${y + SHEET_HEAD}" width="${px(w)}" height="${px(c.height * scale)}"/>`
+    })
+    y += cardHeights[r]! + SHEET_GAP
+  })
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${px(height)}" viewBox="0 0 ${width} ${px(height)}">${body}</svg>`
+  return { svg, width, height: Math.ceil(height) }
 }
 
 /** A typed or dragged-in path: quotes, backslash-escaped spaces and ~ allowed. */
@@ -65,11 +124,14 @@ export function fit(width: number, height: number, maxCols: number, maxRows: num
   return { columns: Math.min(255, columns), rows: Math.max(1, Math.min(255, rows)) }
 }
 
-/** The cell box for a picture given the room: at most 120 columns in a row, 220 in a pane, and a share of the screen's height. */
+/**
+ * The cell box for a picture given the room. It fills the width and stops
+ * where the card would no longer fit on one screen. A transcript row leaves
+ * space for the prompt below it.
+ */
 export function sizeFor(width: number, height: number, room: number, rows: number, isPane: boolean) {
-  const maxCols = Math.max(Math.min(room, 24), Math.min(room, isPane ? 220 : 120))
-  const maxRows = isPane ? Math.max(6, rows - 8) : Math.max(8, Math.min(40, Math.floor(rows * 0.55)))
-  return fit(width, height, maxCols, maxRows)
+  const maxRows = isPane ? Math.max(6, rows - 8) : Math.max(8, rows - 12)
+  return fit(width, height, room, maxRows)
 }
 
 /** A tool result's text, whether it came as a string, content blocks or a `{ result }` record. */
@@ -108,9 +170,12 @@ export function shownOf(output: unknown): Shown | null {
     const value = JSON.parse(line.slice(SHOW_MARK.length)) as Partial<Shown>
     const items = (Array.isArray(value.items) ? value.items : []).map(itemOf).filter((i): i is ShownItem => i !== null)
     if (items.length === 0) return null
+    const sheet = (value.sheet ?? {}) as Partial<ShownSheet>
+    const hasSheet = typeof sheet.path === 'string' && typeof sheet.width === 'number' && typeof sheet.height === 'number'
     return {
       title: typeof value.title === 'string' && value.title ? value.title : items[0]!.title,
       items,
+      ...(hasSheet ? { sheet: { path: sheet.path!, width: sheet.width!, height: sheet.height! } } : {}),
       ...(typeof value.url === 'string' ? { url: value.url } : {}),
       ...(typeof value.board === 'string' ? { board: value.board } : {}),
     }
@@ -151,13 +216,13 @@ export function shownText(shown: Shown, cwd = ''): string {
     const it = shown.items[0]!
     return `Shown: ${shown.title} (${it.width}×${it.height}).${svgNote(it)}`
   }
-  const names = shown.items.map((it, i) => `${i + 1}. ${it.title}`).join(', ')
+  const names = shown.items.map((it, i) => `${optionLetter(i)}. ${it.title}`).join(', ')
   return `Shown ${shown.items.length} options for ${shown.title}: ${names}. The user picks one by replying.`
 }
 
 /** What the Pick button puts in the prompt box. */
 export const pickText = (shown: Shown, index: number) =>
-  `Go with option ${index + 1} (${shown.items[index]?.title ?? ''}) for ${shown.title}.`
+  `Go with option ${optionLetter(index)} (${shown.items[index]?.title ?? ''}) for ${shown.title}.`
 
 /** The pixel size from `sips -g pixelWidth -g pixelHeight`. */
 export function pngSizeOf(stdout: string): { width: number; height: number } | null {
@@ -278,6 +343,9 @@ export function terminalOf(program: string, term: string): string {
   return program.toLowerCase() || 'other'
 }
 
+/** Makes Claude Code draw pictures in Herdr, which it doesn't trust with them by name. */
+const HERDR_FORCE = 'CLAUDE_CODE_FORCE_TERMINAL_IMAGES'
+
 /** Resumes this chat outside the background service, so pictures draw again. */
 export const resumeCommand = (sessionId: string) =>
   `CLAUDE_CODE_DISABLE_AGENT_VIEW=1 claude --resume${sessionId ? ` ${sessionId}` : ''}`
@@ -295,11 +363,11 @@ export function cantDraw(cause: DrawCause, name: string, sessionId: string) {
   }
   if (cause === 'herdr') {
     return {
-      title: "Herdr can't show pictures",
-      text: `"${name}" is ready, but Claude Code can't draw pictures inside a Herdr pane. Open this chat in a plain Ghostty tab to see it:`,
-      command: `claude --resume${sessionId ? ` ${sessionId}` : ''}`,
+      title: 'Turn on pictures for Herdr',
+      text: `"${name}" is ready, but Claude Code skips pictures in Herdr panes until a setting is on. Quit Claude, then run this in the pane to turn it on and come back to this chat:`,
+      command: `agent-brief herdr-pictures on && ${HERDR_FORCE}=1 claude --resume${sessionId ? ` ${sessionId}` : ''}`,
       label: 'Copy command',
-      claude: `Claude Code can't draw pictures inside a Herdr pane, so the user saw a notice instead of ${name}. They can resume the chat in a plain Ghostty tab to see it.`,
+      claude: `Claude Code skips pictures in a Herdr pane until ${HERDR_FORCE}=1 is set, so the user saw a notice instead of ${name}. Offer to run "agent-brief herdr-pictures on", which sets it for new Herdr panes; Claude then needs a restart.`,
     }
   }
   if (cause === 'terminal') {

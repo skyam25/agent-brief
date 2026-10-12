@@ -117,7 +117,8 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
   })
   on('fs.read', ($, e) => {
     const text = world.files.get(e.path)
-    return text === undefined ? { deny: `ENOENT: ${e.path}` } : { value: text }
+    if (text === undefined) return { deny: `ENOENT: ${e.path}` }
+    return { value: e.as === 'bytes' ? { base64: btoa(text) } : text }
   })
   on('fs.write', ($, e) => {
     if (world.isWriteRefused) return { deny: `EACCES: ${e.path}` }

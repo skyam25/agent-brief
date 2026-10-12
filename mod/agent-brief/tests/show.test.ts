@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { SHOW_TOOL, fit, requestedOf, shownOf, sizeFor, thumbnailCrop, toolLine, viewBoxOf } from '../hooks/show-logic'
+import { SHOW_TOOL, fit, optionTitle, requestedOf, sheetOf, shownOf, sizeFor, thumbnailCrop, toolLine, viewBoxOf } from '../hooks/show-logic'
 import { BAND, COMPOSE, CWD, SESSION, command, textOf, worldOf } from './world'
 import type { World } from './world'
 
@@ -107,8 +107,10 @@ describe('fitting a picture to cells', () => {
     expect(fit(4000, 10, 400, 40)).toEqual({ columns: 255, rows: 1 })
   })
 
-  test('a transcript row takes at most 120 columns and about half the screen; a pane takes more', () => {
-    expect(sizeFor(1440, 900, 200, 40, false)).toEqual({ columns: 71, rows: 22 })
+  test('fills the width until the card would not fit on one screen', () => {
+    expect(sizeFor(3000, 600, 180, 50, false)).toEqual({ columns: 180, rows: 18 })
+    expect(sizeFor(1440, 900, 250, 70, false)).toEqual({ columns: 186, rows: 58 })
+    expect(sizeFor(1440, 900, 200, 40, false)).toEqual({ columns: 90, rows: 28 })
     expect(sizeFor(1440, 900, 200, 40, true)).toEqual({ columns: 103, rows: 32 })
     expect(sizeFor(1440, 900, 12, 40, false).columns).toBe(12)
   })
@@ -179,11 +181,35 @@ describe('show_image', () => {
     expect(reply.deny).toContain("isn't a picture")
   })
 
-  test('options become one shown with every item', async ($, on) => {
+  test('options become one shown with every item and a lettered sheet', async ($, on) => {
+    const { world } = await setup($, on, { [SHOT]: 'png', [SHOT_B]: 'png' })
+    const reply = await call($, { title: 'Hero', options: [{ path: SHOT, title: 'A · Bold' }, { path: SHOT_B, title: 'Quiet' }] })
+    expect(reply.result?.split('\n')[0]).toBe('Shown 2 options for Hero: A. Bold, B. Quiet. The user picks one by replying.')
+    const shown = shownOf(reply.result)!
+    expect(shown.items.map(i => i.title)).toEqual(['Bold', 'Quiet'])
+    expect(shown.sheet?.path).toMatch(/\/\.feedback\/shown\/options-\d+-\d+\.png$/)
+    const raster = world.runs.find(r => r.argv[0] === 'rsvg-convert' && r.argv.at(-1) === shown.sheet!.path)
+    expect(raster?.argv.slice(1, 3)).toEqual(['-w', '1468'])
+  })
+
+  test('options without a title are titled Options', async ($, on) => {
     await setup($, on, { [SHOT]: 'png', [SHOT_B]: 'png' })
+    const reply = await call($, { options: [{ path: SHOT, title: 'Bold' }, { path: SHOT_B, title: 'Quiet' }] })
+    expect(shownOf(reply.result)?.title).toBe('Options')
+  })
+
+  test('options still show when the sheet cannot be made', async ($, on) => {
+    const { world } = await setup($, on, { [SHOT]: 'png', [SHOT_B]: 'png' })
+    const answer = world.answer
+    world.answer = argv => (argv[0] === 'rsvg-convert' ? { exitCode: 1, stdout: '', stderr: 'bad svg' } : answer(argv))
     const reply = await call($, { title: 'Hero', options: [{ path: SHOT, title: 'Bold' }, { path: SHOT_B, title: 'Quiet' }] })
-    expect(reply.result?.split('\n')[0]).toBe('Shown 2 options for Hero: 1. Bold, 2. Quiet. The user picks one by replying.')
-    expect(shownOf(reply.result)?.items.map(i => i.title)).toEqual(['Bold', 'Quiet'])
+    expect(reply.deny).toBeUndefined()
+    const shown = shownOf(reply.result)!
+    expect(shown.sheet).toBeUndefined()
+    const ui = await $.ui.mount(resultRow(reply.result))
+    expect(await ui.find({ key: 'all' })).toBeUndefined()
+    expect(await ui.find({ key: 'pick' })).toMatchObject({ text: '✓ Pick A' })
+    await ui.unmount()
   })
 
   test('a wireframe block renders through the vendored renderer, then rsvg-convert, and keeps its source', async ($, on) => {
@@ -224,7 +250,7 @@ describe('show_image', () => {
     const reply = await call($, { title: 'Hero', options: [{ wireframe: DSL, title: 'Bold' }, { wireframe: DSL, title: 'Quiet' }] })
     expect(reply.deny).toBeUndefined()
     const ui = await $.ui.mount(resultRow(reply.result))
-    expect(await ui.find({ key: 'tab-1' })).toMatchObject({ text: '2 Quiet' })
+    expect(await ui.find({ key: 'tab-1' })).toMatchObject({ text: 'B Quiet' })
     await ui.unmount()
   })
 
@@ -261,11 +287,32 @@ describe('knowing whether pictures draw', () => {
   test('in a Herdr pane the first call already says it was not shown, and the row draws a Herdr notice', async ($, on) => {
     await setup($, on, { [SHOT]: 'png' }, { probe: 'alt', env: { HERDR_ENV: '1', TERM_PROGRAM: 'herdr' } })
     const reply = await call($, { path: SHOT, title: 'Pricing page' })
-    expect(reply.result?.split('\n')[0]).toMatch(/^Not shown: Claude Code can't draw pictures inside a Herdr pane/)
+    expect(reply.result?.split('\n')[0]).toMatch(/^Not shown: Claude Code skips pictures in a Herdr pane until CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1 is set/)
+    expect(reply.result).toContain('agent-brief herdr-pictures on')
     const ui = await $.ui.mount(resultRow(reply.result))
-    expect(textOf(await ui.drawn())).toContain("Herdr can't show pictures")
+    expect(textOf(await ui.drawn())).toContain('Turn on pictures for Herdr')
     expect(await ui.find({ type: 'Image' })).toBeUndefined()
     await ui.unmount()
+  })
+})
+
+describe('the options sheet', () => {
+  test('drops a letter or number put before an option title', () => {
+    expect(optionTitle('A · Bottom composer')).toBe('Bottom composer')
+    expect(optionTitle('2. Quiet')).toBe('Quiet')
+    expect(optionTitle('Option C: Dock')).toBe('Dock')
+    expect(optionTitle('A great idea')).toBe('A great idea')
+    expect(optionTitle('B-side')).toBe('B-side')
+  })
+
+  test('lays two or three in a row and four two by two, with cards as tall as the tallest picture', () => {
+    const cell = (height: number, title = 'X') => ({ href: 'data:image/png;base64,', width: 1600, height, title })
+    expect(sheetOf([cell(800), cell(1600)])).toMatchObject({ width: 1468, height: 770 })
+    expect(sheetOf([cell(800), cell(800), cell(800)]).width).toBe(2216)
+    expect(sheetOf([cell(800), cell(800), cell(800), cell(800)])).toMatchObject({ width: 1468, height: 2 * (68 + 342 + 18) + 28 })
+    const svg = sheetOf([cell(800, 'Fish & <chips>'), cell(800)]).svg
+    expect(svg).toContain('Fish &amp; &lt;chips&gt;')
+    expect(svg).toContain('>B</text>')
   })
 })
 
@@ -297,24 +344,31 @@ describe('the picture in the transcript', () => {
     await ui.unmount()
   })
 
-  test('options draw as tabs with a Pick button, and side by side when there is room', async ($, on) => {
+  test('options draw as one sheet with a Pick for each, and a tab shows one alone', async ($, on) => {
     const { world, box } = await setup($, on, { [SHOT]: 'png', [SHOT_B]: 'png' })
     const reply = await call($, { title: 'Hero', options: [{ path: SHOT, title: 'Bold' }, { path: SHOT_B, title: 'Quiet' }] })
+    const shown = shownOf(reply.result)!
     const ui = await $.ui.mount(resultRow(reply.result))
-    expect(await ui.findAll({ type: 'Image' })).toHaveLength(1)
-    expect(await ui.find({ key: 'tab-0' })).toMatchObject({ text: '1 Bold' })
-    expect(await ui.find({ key: 'tab-1' })).toMatchObject({ text: '2 Quiet' })
-    expect(await ui.find({ key: 'pick' })).toMatchObject({ text: '✓ Pick 1' })
+    const images = await ui.findAll({ type: 'Image' })
+    expect(images).toHaveLength(1)
+    expect(JSON.stringify(images[0])).toContain(shown.sheet!.path)
+    expect(await ui.find({ key: 'all' })).toMatchObject({ text: '⧉ All' })
+    expect(await ui.find({ key: 'tab-0' })).toMatchObject({ text: 'A Bold' })
+    expect(await ui.find({ key: 'pick-0' })).toMatchObject({ text: '✓ Pick A' })
+    expect(await ui.find({ key: 'pick-1' })).toMatchObject({ text: '✓ Pick B' })
+    expect(await ui.find({ key: 'open' })).toBeUndefined()
+    expect(textOf(await ui.drawn())).toContain('2 options')
 
     await ui.press({ key: 'tab-1' })
-    expect(await ui.find({ key: 'pick' })).toMatchObject({ text: '✓ Pick 2' })
+    expect(JSON.stringify(await ui.find({ type: 'Image' }))).toContain(shown.items[1]!.path)
+    expect(textOf(await ui.drawn())).toContain('B of 2')
+    expect(await ui.find({ key: 'pick' })).toMatchObject({ text: '✓ Pick B' })
+    expect(await ui.find({ key: 'open' })).toBeDefined()
     await ui.press({ key: 'pick' })
     expect(world.toasts.at(-1)).toBe('Your pick is in the prompt box — press Enter')
-    expect(box.text).toBe('Go with option 2 (Quiet) for Hero.')
+    expect(box.text).toBe('Go with option B (Quiet) for Hero.')
 
-    await ui.press({ key: 'side' })
-    expect(await ui.findAll({ type: 'Image' })).toHaveLength(2)
-    expect(await ui.find({ key: 'pick-0' })).toBeDefined()
+    await ui.press({ key: 'all' })
     expect(await ui.find({ key: 'pick-1' })).toBeDefined()
     await ui.unmount()
   })

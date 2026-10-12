@@ -97,6 +97,13 @@ A send from Items mode is text alone, such as `Decisions on 2 items in .feedback
 - Claude reads the board as text and exports PNGs of any region.
 - Its changes appear live, and one undo removes a whole batch.
 
+## Pictures in Herdr
+
+- Claude shows screenshots, boards and wireframes inline in Ghostty and kitty.
+- Inside [Herdr](https://herdr.dev), Claude Code skips pictures unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` is set, though Herdr draws them fine.
+- Run `agent-brief herdr-pictures on` once. It adds a marked block to your zsh and bash startup files, and a fish `conf.d` file, which set that variable only inside Herdr panes.
+- Restart Claude in a new Herdr pane afterwards. `agent-brief herdr-pictures off` removes the block, and `status` shows where it is.
+
 ## History
 
 - The last 10 sends are kept with thumbnails and notes.

@@ -4,6 +4,7 @@ import type { EngineInterface, ElementTable, On, RenderInput, RenderViewport } f
 import { fillRequest } from './companion-logic'
 import {
   IMAGE_FILE,
+  OPTIONS_TITLE,
   SVG_FILE,
   SVG_RASTER_WIDTH,
   UNCONFIRMED_NOTE,
@@ -19,12 +20,15 @@ import {
   expiredPrompt,
   markLine,
   noticeOf,
+  optionLetter,
+  optionTitle,
   pickText,
   pngSizeOf,
   requestedOf,
   showInstructions,
   shownOf,
   shownText,
+  sheetOf,
   sizeFor,
   stemOf,
   terminalOf,
@@ -32,7 +36,7 @@ import {
   toolLine,
   viewBoxOf,
 } from './show-logic'
-import type { DrawCause, Requested, ShowNotice, Shown, ShownItem } from './show-logic'
+import type { DrawCause, Requested, ShowNotice, Shown, ShownItem, ShownSheet } from './show-logic'
 
 /** The Open board button's key carries the board, so register.tsx can open it on `ui.press` with its own `$`. */
 export const boardKey = (board: string) => `board:${board}`
@@ -40,9 +44,6 @@ export const boardOfKey = (key: string): string | undefined => (key.startsWith('
 
 /** Copies kept in `.feedback/shown`, newest first. */
 const STORE_KEEP = 40
-
-/** The narrowest a picture gets when several share a row. */
-const SIDE_MIN_COLUMNS = 30
 
 const shownRef = atom({ plugin: 'agent-brief', key: 'shown' } as const, null)
 
@@ -64,8 +65,8 @@ let inHerdr = false
 
 /** How one transcript row or the pane shows its pictures. */
 type View = {
-  tab: number
-  isSideBySide: boolean
+  /** The option drawn alone; unset draws the sheet. */
+  focus?: number
   /** Scrolled out of view since it was last drawn. */
   wasAway?: boolean
   /** Back in view: send the pictures to the terminal again after drawing. */
@@ -76,7 +77,7 @@ type View = {
 const views = new Map<string, View>()
 const viewOf = (site: string): View => {
   let one = views.get(site)
-  if (!one) views.set(site, (one = { tab: 0, isSideBySide: false }))
+  if (!one) views.set(site, (one = {}))
   return one
 }
 
@@ -126,22 +127,22 @@ async function storePath($: EngineInterface, dir: string, stem: string, ext: str
  * Turns an SVG into a PNG the terminal can draw: rsvg-convert where it is
  * installed, else a QuickLook thumbnail cropped back to the SVG's shape.
  */
-async function rasterize($: EngineInterface, svg: string, png: string): Promise<void> {
+async function rasterize($: EngineInterface, svg: string, png: string, size = SVG_RASTER_WIDTH): Promise<void> {
   if (hasRsvg !== true) {
     const found = await $.process.run(['sh', '-c', 'command -v rsvg-convert']).catch(() => undefined)
     hasRsvg = found !== undefined && found.exitCode === 0
   }
   if (hasRsvg) {
-    const r = await $.process.run(['rsvg-convert', '-w', String(SVG_RASTER_WIDTH), '--keep-aspect-ratio', svg, '-o', png])
+    const r = await $.process.run(['rsvg-convert', '-w', String(size), '--keep-aspect-ratio', svg, '-o', png])
     if (r.exitCode === 0) return
     throw new Error(`could not read ${svg}: ${r.stderr.trim().slice(0, 200)}`)
   }
   const dir = png.slice(0, png.lastIndexOf('/'))
-  const thumb = await $.process.run(['qlmanage', '-t', '-s', String(SVG_RASTER_WIDTH), '-o', dir, svg]).catch(() => undefined)
+  const thumb = await $.process.run(['qlmanage', '-t', '-s', String(size), '-o', dir, svg]).catch(() => undefined)
   const made = `${dir}/${baseName(svg)}.png`
   if (!thumb || thumb.exitCode !== 0 || !(await exists($, made))) throw new Error(`no rasterizer for ${svg}`)
   const box = viewBoxOf(await $.fs.read(svg).catch(() => ''))
-  const crop = thumbnailCrop(box ?? { width: 1, height: 1 }, SVG_RASTER_WIDTH)
+  const crop = thumbnailCrop(box ?? { width: 1, height: 1 }, size)
   const cut = await $.process.run(['sips', '-c', String(crop.height), String(crop.width), '--cropOffset', '0', '0', made, '--out', png])
   if (cut.exitCode !== 0) throw new Error(`could not read ${svg}: ${cut.stderr.trim().slice(0, 200)}`)
   void $.process.run(['rm', '-f', made]).catch(() => undefined)
@@ -217,6 +218,24 @@ async function prepareItem($: EngineInterface, r: Requested): Promise<ShownItem>
     throw new Error(`could not convert ${source}: .feedback/shown cannot be made in the project`)
   }
   return { path, source, ...(await pngSize($, path, source)), title: r.title ?? baseName(source) }
+}
+
+/** Lays the options out as one lettered PNG in the store, so they line up and draw as one picture. */
+async function prepareSheet($: EngineInterface, items: ShownItem[]): Promise<ShownSheet> {
+  const dir = await storeDir($)
+  if (!dir) throw new Error('.feedback/shown cannot be made in the project')
+  const cells = []
+  for (const item of items) {
+    const bytes = await $.fs.read(item.path, { as: 'bytes' })
+    cells.push({ href: `data:image/png;base64,${bytes.base64}`, width: item.width, height: item.height, title: item.title })
+  }
+  const sheet = sheetOf(cells)
+  const svg = await storePath($, dir, 'options', '.svg')
+  await $.fs.write(svg, sheet.svg)
+  const png = svg.replace(/\.svg$/, '.png')
+  await rasterize($, svg, png, sheet.width)
+  void $.process.run(['rm', '-f', svg]).catch(() => undefined)
+  return { path: png, ...(await pngSize($, png, svg)) }
 }
 
 /** The key of the band's clear pixel, drawn until a probe settles whether pictures draw here. */
@@ -345,7 +364,7 @@ async function pick($: EngineInterface, shown: Shown, index: number): Promise<vo
   }
 }
 
-/** The picture, or the options as tabs or side by side, with the buttons under it. */
+/** The picture, or the options as one lettered sheet with a tab for each, with the buttons under it. */
 async function Viewer(
   ui: Ui,
   Image: ImageElement,
@@ -362,18 +381,17 @@ async function Viewer(
   const room = columns - (isPane ? 6 : 10)
   const n = shown.items.length
   const hasOptions = n > 1
-  const sideWidth = Math.floor((room - 2 * (n - 1)) / n)
-  const canSide = hasOptions && sideWidth >= SIDE_MIN_COLUMNS
-  const isSide = canSide && view.isSideBySide
-  const tab = Math.min(view.tab, n - 1)
-  const active = shown.items[tab]!
+  const sheet = hasOptions ? shown.sheet : undefined
+  const focus = view.focus !== undefined ? Math.min(view.focus, n - 1) : sheet ? undefined : 0
+  const active = focus === undefined ? undefined : shown.items[focus]!
+  const drawn: ShownItem = active ?? { ...sheet!, source: sheet!.path, title: shown.title }
 
   if (!canImage) {
     const w = cantDraw(drawCause, shown.title, sessionId)
     return NoticeBox(ui, $, room, { ...w, copy: w.command })
   }
-  for (const item of shown.items) {
-    if (await isGone($, item.path)) {
+  for (const file of [...shown.items.map(i => i.path), ...(sheet ? [sheet.path] : [])]) {
+    if (await isGone($, file)) {
       return NoticeBox(ui, $, room, {
         title: 'This picture has expired',
         text: `"${shown.title}" was cleared from the project's .feedback folder, and its file is no longer there. Copy the prompt and paste it to Claude to send it again.`,
@@ -391,80 +409,55 @@ async function Viewer(
     )
   }
 
-  const picture = (item: ShownItem, key: string, width: number) => {
-    const box = sizeFor(item.width, item.height, width, rows, isPane)
-    return { box, element: <Image key={key} source={{ file: item.path, format: 'png' }} columns={box.columns} rows={box.rows} alt={`[image: ${item.title}]`} /> }
-  }
+  const box = sizeFor(drawn.width, drawn.height, room, rows, isPane)
+  view.mounted = [{ key: 'view', file: drawn.path }]
+  probe($, site, 'view', drawn.path)
 
   const tabs = hasOptions && (
     <Box flexDirection="row" columnGap={1} flexWrap="wrap">
-      {shown.items.map((item, i) => (
+      {sheet && (
         <Button
-          key={`tab-${i}`}
-          variant={!isSide && i === tab ? 'primary' : 'secondary'}
-          label={`${i + 1} ${item.title}`}
+          key="all"
+          variant={focus === undefined ? 'primary' : 'secondary'}
+          label="⧉ All"
           onPress={() => {
-            view.tab = i
-            view.isSideBySide = false
-            redraw($)
-          }}
-        />
-      ))}
-      {canSide && (
-        <Button
-          key="side"
-          variant={isSide ? 'primary' : 'secondary'}
-          label="⧉ Side by side"
-          onPress={() => {
-            view.isSideBySide = !view.isSideBySide
+            view.focus = undefined
             redraw($)
           }}
         />
       )}
+      {shown.items.map((item, i) => (
+        <Button
+          key={`tab-${i}`}
+          variant={i === focus ? 'primary' : 'secondary'}
+          label={`${optionLetter(i)} ${item.title}`}
+          onPress={() => {
+            view.focus = i
+            redraw($)
+          }}
+        />
+      ))}
     </Box>
   )
 
-  let width: number
-  let stage
-  if (isSide) {
-    const drawn = shown.items.map((item, i) => ({ item, i, ...picture(item, `view-${i}`, sideWidth) }))
-    view.mounted = drawn.map(d => ({ key: `view-${d.i}`, file: d.item.path }))
-    probe($, site, 'view-0', drawn[0]!.item.path)
-    width = drawn.reduce((w, d) => w + d.box.columns, 0) + 2 * (n - 1)
-    stage = (
-      <Box flexDirection="row" columnGap={2} alignItems="flex-start">
-        {drawn.map(d => (
-          <Box key={`side-${d.i}`} flexDirection="column" width={d.box.columns}>
-            <Text bold wrap="truncate-end">
-              {d.i + 1} {d.item.title}
-            </Text>
-            {d.element}
-            <Button key={`pick-${d.i}`} plain label={`✓ Pick ${d.i + 1}`} onPress={() => void pick($, shown, d.i)} />
-          </Box>
-        ))}
-      </Box>
-    )
-  } else {
-    const one = picture(active, 'view', room)
-    view.mounted = [{ key: 'view', file: active.path }]
-    probe($, site, 'view', active.path)
-    width = one.box.columns
-    stage = one.element
-  }
-
+  const note = !hasOptions ? `${drawn.width}×${drawn.height}` : focus === undefined ? `${n} options` : `${optionLetter(focus)} of ${n}`
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} width={Math.max(width, 40) + 4}>
+    <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} width={Math.max(box.columns, 40) + 4}>
       <Box flexDirection="row" justifyContent="space-between" gap={2}>
         <Text bold wrap="truncate-end">
           {shown.title}
         </Text>
-        <Text dimColor>{isSide ? `${n} options` : `${active.width}×${active.height}`}</Text>
+        <Text dimColor>{note}</Text>
       </Box>
       {tabs}
-      {stage}
+      <Image key="view" source={{ file: drawn.path, format: 'png' }} columns={box.columns} rows={box.rows} alt={`[image: ${drawn.title}]`} />
       <Box flexDirection="row" columnGap={2} flexWrap="wrap">
-        {hasOptions && !isSide && <Button key="pick" variant="primary" label={`✓ Pick ${tab + 1}`} onPress={() => void pick($, shown, tab)} />}
-        {!isSide && Actions(ui, $, shown, active)}
+        {hasOptions && focus === undefined
+          ? shown.items.map((_, i) => (
+              <Button key={`pick-${i}`} variant="secondary" label={`✓ Pick ${optionLetter(i)}`} onPress={() => void pick($, shown, i)} />
+            ))
+          : hasOptions && <Button key="pick" variant="primary" label={`✓ Pick ${optionLetter(focus!)}`} onPress={() => void pick($, shown, focus!)} />}
+        {focus !== undefined && Actions(ui, $, shown, drawn)}
       </Box>
     </Box>
   )
@@ -496,10 +489,10 @@ const TOOL_INPUT = {
       type: 'array',
       minItems: 2,
       maxItems: 4,
-      description: '2 to 4 pictures to choose between, as tabs and side by side, each with a Pick button. Each is a path, a wireframe or an svg with a title. Use instead of a single picture.',
+      description: '2 to 4 pictures to choose between, drawn as one sheet lettered A to D, with a tab to see each alone and a Pick button for each. Each is a path, a wireframe or an svg with a title. Use instead of a single picture.',
       items: {
         type: 'object',
-        properties: { ...OPTION_PROPERTIES, title: { type: 'string', description: 'The option’s name, a few words' } },
+        properties: { ...OPTION_PROPERTIES, title: { type: 'string', description: 'The option’s name, a few words, without a letter or number; the sheet letters each option' } },
       },
     },
   },
@@ -544,7 +537,7 @@ export const SHOW_TOOL_SPEC = {
     "Shows a picture to the user, inline in their terminal. Accepts PNG, JPEG, WebP, GIF and TIFF.\n\n" +
     'Use it without being asked whenever you have made or changed something visual, before you say the work is done: screenshot a page or component with headless Playwright, or show a design, chart, board or generated image. ' +
     "Do this instead of asking the user to open a file or a localhost URL. Don't use it when nothing visual changed.\n\n" +
-    'Pass `options` with 2 to 4 pictures to offer directions; the user switches between them, sees them side by side, and picks one with a button. ' +
+    'Pass `options` with 2 to 4 pictures to offer directions, and a `title` for the choice; they draw side by side as one sheet lettered A to D, and the user picks one with a button. ' +
     'Pass `board` when the picture is an Agent Brief board, and `url` when it is a page.\n\n' +
     "The picture goes to the user's screen, not to you. Read the file yourself only if you need to check it.",
   inputSchema: TOOL_INPUT,
@@ -570,11 +563,20 @@ export function registerShow(on: On): void {
       const items: ShownItem[] = []
       for (const r of requested) {
         current = r
-        items.push(await prepareItem($, r))
+        const item = await prepareItem($, r)
+        items.push(requested.length > 1 ? { ...item, title: optionTitle(item.title) } : item)
       }
+      const sheet =
+        items.length > 1
+          ? await prepareSheet($, items).catch((err: unknown) => {
+              log($, `options sheet: ${String(err)}`)
+              return undefined
+            })
+          : undefined
       const shown: Shown = {
-        title: typeof input.title === 'string' && input.title ? input.title : items[0]!.title,
+        title: typeof input.title === 'string' && input.title ? input.title : items.length > 1 ? OPTIONS_TITLE : items[0]!.title,
         items,
+        ...(sheet ? { sheet } : {}),
         ...(typeof input.url === 'string' && input.url ? { url: input.url } : {}),
         ...(typeof input.board === 'string' && input.board ? { board: input.board } : {}),
       }
@@ -598,7 +600,7 @@ export function registerShow(on: On): void {
     try {
       const item = await prepareItem($, { path: arg })
       const shown: Shown = { title: item.title, items: [item] }
-      views.set(SHOW_PANE, { tab: 0, isSideBySide: false })
+      views.set(SHOW_PANE, {})
       await update($, shownRef, () => shown)
       await $.ui.open({ id: SHOW_PANE, title: item.title })
       return { text: `Showing ${item.title} (${item.width}×${item.height}).` }
