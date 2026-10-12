@@ -274,6 +274,13 @@ describe('open', () => {
     expect((await h.call('POST', '/open', { mode: 'write', text: 'x'.repeat(200_001) })).status).toBe(400);
   });
 
+  it('passes the layout through and refuses an unknown one', async () => {
+    const h = await start();
+    await h.call('POST', '/open', { board: 'shots', layout: 'stack' });
+    expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ board: 'shots', layout: 'stack' }));
+    expect((await h.call('POST', '/open', { layout: 'grid' })).status).toBe(400);
+  });
+
   it('accepts an empty body', async () => {
     const h = await start();
     const r = await h.call('POST', '/open');

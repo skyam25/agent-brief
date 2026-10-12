@@ -78,6 +78,23 @@ export class StrokeLog {
     }
   }
 
+  /**
+   * Takes in changes the app made itself, such as the Stack layout moving
+   * pictures. Nothing new is logged, but each moved element's latest event
+   * takes its new box, so the timeline places marks on it correctly.
+   */
+  absorb(elements: Elements): void {
+    const next = snapshot(elements);
+    const before = new Map(this.prev.map((e) => [e.id, e]));
+    for (const el of next) {
+      const was = before.get(el.id);
+      if (!was || el.isDeleted || (was.x === el.x && was.y === el.y && was.width === el.width && was.height === el.height)) continue;
+      const last = this.lastFor(el.id);
+      if (last && last.kind !== 'erase') last.bbox = { x: el.x, y: el.y, width: el.width, height: el.height };
+    }
+    this.prev = next;
+  }
+
   private lastFor(id: string): StrokeEvent | undefined {
     for (let i = this.events.length - 1; i >= 0; i--) if (this.events[i].elementId === id) return this.events[i];
     return undefined;

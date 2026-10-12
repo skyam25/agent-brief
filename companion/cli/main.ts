@@ -45,7 +45,7 @@ interface Args {
   rest: string[];
 }
 
-const VALUE_FLAGS = new Set(['board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width']);
+const VALUE_FLAGS = new Set(['board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout']);
 const BOOL_FLAGS = new Set(['json', 'help']);
 
 function parseArgs(argv: string[]): Args {
@@ -225,6 +225,11 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const board = str(ctx.args, 'board');
     const prompt = str(ctx.args, 'prompt');
     const sessionId = str(ctx.args, 'session');
+    const layout = str(ctx.args, 'layout');
+    if (layout !== undefined && layout !== 'freeform' && layout !== 'stack') {
+      throw new UsageError(`--layout must be freeform or stack, got "${layout}"`);
+    }
+    if (layout) body.layout = layout;
     if (board) body.board = board;
     if (prompt) body.prompt = prompt;
     if (sessionId) body.sessionId = sessionId;

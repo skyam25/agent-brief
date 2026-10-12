@@ -58,6 +58,16 @@ export const NotesIcon = () => (
   </Icon>
 );
 
+/** Rows of pictures, for the Stack layout. */
+export const StackIcon = () => (
+  <Icon>
+    <rect x="3" y="3" width="7" height="5" rx="1" />
+    <rect x="14" y="3" width="7" height="5" rx="1" />
+    <rect x="3" y="11" width="7" height="5" rx="1" />
+    <path d="M3 20h18" />
+  </Icon>
+);
+
 export const HistoryIcon = () => (
   <Icon>
     <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />

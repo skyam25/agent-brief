@@ -222,6 +222,16 @@ describe('/sketch', () => {
     expect(world.runs.filter(r => r.argv[0] === 'sh'), 'no launch').toEqual([])
   })
 
+  test('/stack opens the session board in the Stack layout', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    await start()
+    await clock.settle()
+    expect(world.commands).toContain('stack')
+    const out = await $.command.run(command('stack', ' checkout bugs '))
+    expect(out).toEqual({ text: 'Agent Brief open in Stack — drop or paste screenshots, talk, then press Send.' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, prompt: 'checkout bugs', layout: 'stack' })
+  })
+
   test('/write opens a new note for this session, starting with the words after it', async ($, on) => {
     const { app, world, clock, start } = await setup($, on)
     await start()
@@ -349,6 +359,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await clock.settle()
     const band = JSON.stringify(await $.ui.render(BAND))
     expect(band).toContain('"label":"✎ Sketch"')
+    expect(band).toContain('"label":"▤ Stack"')
     expect(band).toContain('"label":"¶ Write"')
     expect(band).toContain('"label":"☐ Track"')
     const survey = { ...BAND, props: { ...BAND.props, hasSurvey: true } }
@@ -362,6 +373,16 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await $.ui.render(BAND)
     await $.ui.press({ plugin: 'agent-brief', key: 'sketch' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID })
+    expect(world.toasts).toEqual([])
+  })
+
+  test('a Stack press opens the session board in the Stack layout', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'stack' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, layout: 'stack' })
     expect(world.toasts).toEqual([])
   })
 
