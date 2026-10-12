@@ -181,7 +181,8 @@ test('a session opened by /sketch is the named Send and the active tab until it 
   // The session leaving clears the target; Send asks again.
   await sock(socketPath, 'DELETE', '/sessions/s1');
   await expect(page.getByTestId('send')).toHaveText('Send to…');
-  await expect(tab).toHaveAttribute('aria-current', 'false');
+  await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByTestId('ended-toggle')).toContainText('Ended 1');
 
   // Hiding and showing from the hotkey drops a target /sketch set.
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd });

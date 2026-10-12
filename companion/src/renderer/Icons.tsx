@@ -90,6 +90,13 @@ export const CloseIcon = () => (
   </Icon>
 );
 
+export const SidebarIcon = () => (
+  <Icon>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16" />
+  </Icon>
+);
+
 export const CheckIcon = () => (
   <Icon>
     <path d="M20 6 9 17l-5-5" />
