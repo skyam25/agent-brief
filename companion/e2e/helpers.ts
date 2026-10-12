@@ -315,6 +315,12 @@ export function briefTab(page: Page, title: string) {
   return page.getByTestId('brief-tab').filter({ hasText: title });
 }
 
+/** Unfolds the sidebar's Ended group, where ended sessions wait. */
+export async function showEnded(page: Page): Promise<void> {
+  const toggle = page.getByTestId('ended-toggle');
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+}
+
 /** Saves `<name>-light.png` and `<name>-dark.png` when UI_SHOTS names a folder. */
 export async function themeShots(ctx: Launched, name: string, clip?: { x: number; y: number; width: number; height: number }): Promise<void> {
   const dir = process.env.UI_SHOTS;

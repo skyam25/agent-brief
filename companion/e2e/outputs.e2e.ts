@@ -106,8 +106,12 @@ test('Write mode lists a session\'s outputs, opens them, and sends an edited cop
   // An HTML output opens in the review pane, which can still hand it to the browser.
   await showPanel(app, page);
   await page.getByTestId('brief-tab').filter({ hasText: 'Pricing' }).getByRole('tab').click();
-  if ((await page.getByTestId('mode-write').getAttribute('aria-selected')) !== 'true') await page.getByTestId('mode-write').click();
+  // The tab switch can land Sketch after a first check, so retry until Write holds.
   const touched = page.getByTestId('outputs-touched-toggle');
+  await expect(async () => {
+    if ((await page.getByTestId('mode-write').getAttribute('aria-selected')) !== 'true') await page.getByTestId('mode-write').click();
+    await expect(touched).toBeVisible({ timeout: 1000 });
+  }).toPass();
   if ((await touched.getAttribute('aria-expanded')) !== 'true') await touched.click();
   const opened = () => app.evaluate(() => [...globalThis.__companion.openedOutputs]);
   await page.getByTestId('output-row-1').click();

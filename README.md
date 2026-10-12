@@ -12,10 +12,10 @@ Sketch, write, talk and paste screenshots on your Mac, then hand all of it to Cl
 
 ## Notes and sessions
 
-- The tab row under the toolbar starts with a fixed **Notes** tab, then one tab per Claude Code session. Notes holds what belongs to no session yet, such as a thought captured with the hotkey. A session tab holds that session's board, its notes and its items.
+- The sidebar on the left starts with a fixed **Notes** entry, then one entry per Claude Code session, running ones first. The sidebar button in the toolbar hides it, and a narrow panel opens it as a drawer. Notes holds what belongs to no session yet, such as a thought captured with the hotkey. A session tab holds that session's board, its notes and its items.
 - A note is filed under a session or unfiled. `/write` files the note it opens under that session. Any note can be moved with **File under…**, and an unfiled note sits in Notes until you file it or send it.
 - Send from a session tab goes to that session. Send from Notes asks where to go.
-- A session that has ended keeps its tab, with a hollow dot. The tab shows a resume command, `cd <project> && claude --resume <id>`, with **Copy** and **Open in** Ghostty, Terminal or herdr. Resume it and the tab goes live again on its own, with its board, notes and items where you left them.
+- A session that has ended moves to the folded **Ended** group, with a hollow dot. Opening it shows a resume command, `cd <project> && claude --resume <id>`, with **Copy** and **Open in** Ghostty, Terminal or herdr. Resume it and the tab goes live again on its own, with its board, notes and items where you left them.
 - Click a tab or press ⌃1 for Notes and ⌃2 onward for sessions. ⌃Tab cycles.
 
 ## Sketch
