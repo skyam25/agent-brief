@@ -20,6 +20,14 @@ export type SessionMode = 'default' | 'product' | 'prototype' | 'orchestrate'
 
 export type PrototypeFidelity = 'wireframe' | 'styled' | 'live-patch' | 'freeze-patch' | 'interactive' | 'existing'
 
+/** As `Shown` in hooks/show-logic.ts: what the /show pane draws. */
+export type ShownState = {
+  title: string
+  items: { path: string; source: string; width: number; height: number; title: string }[]
+  url?: string
+  board?: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'agent-brief': {
@@ -30,6 +38,7 @@ declare module 'claude-code' {
       fidelity: PrototypeFidelity | null
       /** Which picker row the band shows in place of its buttons. */
       picking: 'none' | 'mode' | 'fidelity'
+      shown: ShownState | null
     }
   }
 }
