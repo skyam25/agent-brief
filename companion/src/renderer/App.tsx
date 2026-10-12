@@ -4,18 +4,18 @@ import type { SessionsResponse } from '../protocol';
 import type { CompanionApi, InitInfo, Mode, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
 import { BoardPicker, LayoutSwitch } from './BoardPicker';
-import { BriefTabs } from './BriefTabs';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { DraftBook, onTab } from './drafts';
 import { TemplateShelf } from './templates';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
-import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
+import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, SidebarIcon } from './Icons';
 import { ItemsStore } from './items';
 import { ItemsView } from './ItemsView';
 import { OutputsStore } from './outputs';
 import { PullIn } from './PullIn';
 import { ResumeRow } from './ResumeRow';
+import { SessionSidebar, useSidebar } from './SessionSidebar';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
@@ -178,6 +178,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     [changeMode, controller],
   );
 
+  const sidebar = useSidebar();
   const { briefs, activeBrief, active, switchBrief, openNotes, closeBrief, leaveEnded } = useBriefTabs({
     host,
     book,
@@ -281,215 +282,228 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
 
   return (
     <div className="panel">
-      <header className="strip">
-        {/* Items shows on session tabs, and stays while Items is open so a cleared target can pick a tab again. */}
-        <ModeSwitch mode={mode} hasItems={!!activeBrief || mode === 'items'} onChange={changeMode} />
-        {mode === 'sketch' && (
-          <>
-            <BoardPicker
-              host={host}
-              board={board}
-              newRequest={newBoardRequest}
-              onSwitch={(name) => void controller.switchTo(name).catch(report('switch boards'))}
-              onCreate={(name, layout) => void controller.createBoard(name, layout).catch(report('create the board'))}
-              onRename={(name) => {
-                const from = controller.board;
-                void controller
-                  .renameBoard(name)
-                  .then(() => book.renameBoard(from, controller.board))
-                  .catch(report('rename the board'));
-              }}
-              onDelete={(name) =>
-                controller
-                  .deleteBoard(name)
-                  .then(() => book.forgetBoard(name))
-                  .catch(report('delete the board'))
-              }
-            />
-            <LayoutSwitch layout={layout} onChange={(l) => void controller.setLayout(l).catch(report('change the layout'))} />
-            <PullIn book={book} board={board} onOpen={openDraft} />
-          </>
-        )}
-        <TopStrip
-          tools={
-            <>
-              {mode === 'sketch' && (
-                <button
-                  className="ghost icon-button"
-                  title="Notes"
-                  aria-label="Notes"
-                  aria-pressed={notesOpen}
-                  onClick={() => setNotesOpen((o) => !o)}
-                  data-testid="notes-toggle"
-                >
-                  <NotesIcon />
-                </button>
-              )}
-              <div className="anchor">
-                <button
-                  className="ghost icon-button"
-                  title="History"
-                  aria-label="History"
-                  aria-pressed={historyOpen}
-                  onClick={() => setHistoryOpen((o) => !o)}
-                  data-testid="history-toggle"
-                >
-                  <HistoryIcon />
-                </button>
-                {historyOpen && (
-                  <HistoryPopover
-                    host={host}
-                    onOpen={(id) => {
-                      setHistoryOpen(false);
-                      void host
-                        .restoreHistory(id)
-                        .then(async ({ board, draftId }) => {
-                          if (board) await controller.switchTo(board);
-                          if (!draftId) return changeMode('sketch');
-                          await book.load();
-                          openDraft(draftId);
-                        })
-                        .catch(report('open that send'));
-                    }}
-                    onClose={() => setHistoryOpen(false)}
-                  />
-                )}
-              </div>
-              <div className="anchor">
-                <button
-                  className="ghost icon-button"
-                  title="Settings"
-                  aria-label="Settings"
-                  aria-pressed={settingsOpen}
-                  onClick={() => setSettingsOpen((o) => !o)}
-                  data-testid="settings-toggle"
-                >
-                  <GearIcon />
-                </button>
-                {settingsOpen && (
-                  <SettingsPopover
-                    settings={settings}
-                    update={update}
-                    onCheckUpdate={() => void host.checkForUpdate().then(setUpdate)}
-                    onInstallUpdate={() => void host.installUpdate()}
-                    onChange={async (patch) => {
-                      // Show toggles at once; the reply corrects them if main refuses.
-                      setSettings((s) => ({ ...s, ...patch, hotkey: s.hotkey }));
-                      const result = await host.setSettings(patch);
-                      setSettings(result.settings);
-                      return result.ok ? undefined : result.error;
-                    }}
-                    onClose={() => setSettingsOpen(false)}
-                  />
-                )}
-              </div>
-            </>
-          }
-          sendControl={
-            <SendTo
-              sessions={sessions}
-              home={info.home}
-              open={chooserOpen}
-              onOpenChange={openChooser}
-              onSend={() => void send()}
-              onSendTo={(id) => void sendTo(id)}
-              onSendNew={(cwd, via) => void sendNew(cwd, via)}
-              loadOptions={() => host.launchOptions()}
-              chooseFolder={() => host.chooseFolder()}
-            />
-          }
-          recording={recording}
-          elapsedMs={elapsedMs}
-          hasVoice={!reviewing && hasVoice}
-          onMicrophone={mode === 'sketch' ? () => void toggleRecording() : reviewing ? () => void toggleReviewVoice() : undefined}
-          micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
-        />
-      </header>
-      <BriefTabs
+      <SessionSidebar
         briefs={briefs}
         activeId={activeBrief}
         home={info.home}
+        sidebar={sidebar}
         onNotes={openNotes}
         onSwitch={switchBrief}
         onClose={closeBrief}
         onFocus={(id) => void host.focusSession(id)}
       />
-      {active && !active.isLive && (
-        <ResumeRow
-          key={active.sessionId}
-          brief={active}
-          loadOptions={() => host.launchOptions()}
-          onResume={(via) =>
-            void host
-              .resumeSession(active.sessionId, via)
-              .then((r) => notify(r.message, r.ok ? 'info' : 'error'))
-              .catch(report('resume the session'))
-          }
-        />
-      )}
-      <PromptBanner prompt={prompt} onDismiss={() => setPrompt(undefined)} />
-      <main className="body">
-        <BoardCanvas controller={controller} scene={scene} theme={theme} active={mode === 'sketch'} onReady={onReady} />
-        {mode === 'write' && (
-          <WriteView
-            book={book}
-            shelf={shelf}
-            listBoards={listBoards}
-            focusRequest={focusRequest}
-            sessionId={activeBrief}
-            tabs={briefs}
-            onSend={() => void send()}
-            onOpenBoard={openBoard}
-            onFiled={(where) => notify(`Moved to ${where}.`)}
-            onFilingMenu={dismissToast}
-            outputs={outputs}
-            onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
-            onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
-            review={reviewProps}
+      <div className="work">
+        <header className="strip">
+          <button
+            className="ghost icon-button"
+            title={sidebar.open ? 'Hide sessions' : 'Show sessions'}
+            aria-label={sidebar.open ? 'Hide sessions' : 'Show sessions'}
+            aria-pressed={sidebar.open}
+            onClick={sidebar.toggle}
+            data-testid="sidebar-toggle"
+          >
+            <SidebarIcon />
+          </button>
+          {/* Items shows on session tabs, and stays while Items is open so a cleared target can pick a tab again. */}
+          <ModeSwitch mode={mode} hasItems={!!activeBrief || mode === 'items'} onChange={changeMode} />
+          {mode === 'sketch' && (
+            <>
+              <BoardPicker
+                host={host}
+                board={board}
+                newRequest={newBoardRequest}
+                onSwitch={(name) => void controller.switchTo(name).catch(report('switch boards'))}
+                onCreate={(name, layout) => void controller.createBoard(name, layout).catch(report('create the board'))}
+                onRename={(name) => {
+                  const from = controller.board;
+                  void controller
+                    .renameBoard(name)
+                    .then(() => book.renameBoard(from, controller.board))
+                    .catch(report('rename the board'));
+                }}
+                onDelete={(name) =>
+                  controller
+                    .deleteBoard(name)
+                    .then(() => book.forgetBoard(name))
+                    .catch(report('delete the board'))
+                }
+              />
+              <LayoutSwitch layout={layout} onChange={(l) => void controller.setLayout(l).catch(report('change the layout'))} />
+              <PullIn book={book} board={board} onOpen={openDraft} />
+            </>
+          )}
+          <TopStrip
+            tools={
+              <>
+                {mode === 'sketch' && (
+                  <button
+                    className="ghost icon-button"
+                    title="Notes"
+                    aria-label="Notes"
+                    aria-pressed={notesOpen}
+                    onClick={() => setNotesOpen((o) => !o)}
+                    data-testid="notes-toggle"
+                  >
+                    <NotesIcon />
+                  </button>
+                )}
+                <div className="anchor">
+                  <button
+                    className="ghost icon-button"
+                    title="History"
+                    aria-label="History"
+                    aria-pressed={historyOpen}
+                    onClick={() => setHistoryOpen((o) => !o)}
+                    data-testid="history-toggle"
+                  >
+                    <HistoryIcon />
+                  </button>
+                  {historyOpen && (
+                    <HistoryPopover
+                      host={host}
+                      onOpen={(id) => {
+                        setHistoryOpen(false);
+                        void host
+                          .restoreHistory(id)
+                          .then(async ({ board, draftId }) => {
+                            if (board) await controller.switchTo(board);
+                            if (!draftId) return changeMode('sketch');
+                            await book.load();
+                            openDraft(draftId);
+                          })
+                          .catch(report('open that send'));
+                      }}
+                      onClose={() => setHistoryOpen(false)}
+                    />
+                  )}
+                </div>
+                <div className="anchor">
+                  <button
+                    className="ghost icon-button"
+                    title="Settings"
+                    aria-label="Settings"
+                    aria-pressed={settingsOpen}
+                    onClick={() => setSettingsOpen((o) => !o)}
+                    data-testid="settings-toggle"
+                  >
+                    <GearIcon />
+                  </button>
+                  {settingsOpen && (
+                    <SettingsPopover
+                      settings={settings}
+                      update={update}
+                      onCheckUpdate={() => void host.checkForUpdate().then(setUpdate)}
+                      onInstallUpdate={() => void host.installUpdate()}
+                      onChange={async (patch) => {
+                        // Show toggles at once; the reply corrects them if main refuses.
+                        setSettings((s) => ({ ...s, ...patch, hotkey: s.hotkey }));
+                        const result = await host.setSettings(patch);
+                        setSettings(result.settings);
+                        return result.ok ? undefined : result.error;
+                      }}
+                      onClose={() => setSettingsOpen(false)}
+                    />
+                  )}
+                </div>
+              </>
+            }
+            sendControl={
+              <SendTo
+                sessions={sessions}
+                home={info.home}
+                open={chooserOpen}
+                onOpenChange={openChooser}
+                onSend={() => void send()}
+                onSendTo={(id) => void sendTo(id)}
+                onSendNew={(cwd, via) => void sendNew(cwd, via)}
+                loadOptions={() => host.launchOptions()}
+                chooseFolder={() => host.chooseFolder()}
+              />
+            }
+            recording={recording}
+            elapsedMs={elapsedMs}
+            hasVoice={!reviewing && hasVoice}
+            onMicrophone={mode === 'sketch' ? () => void toggleRecording() : reviewing ? () => void toggleReviewVoice() : undefined}
+            micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
           />
-        )}
-        {mode === 'items' && (
-          <ItemsView
-            store={items}
+        </header>
+        {active && !active.isLive && (
+          <ResumeRow
+            key={active.sessionId}
             brief={active}
-            home={info.home}
-            onTrack={(sessionId, on) => void host.setTracking(sessionId, on).catch(report('change item tracking'))}
-            onSend={() => void send()}
-            onOpenOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
+            loadOptions={() => host.launchOptions()}
+            onResume={(via) =>
+              void host
+                .resumeSession(active.sessionId, via)
+                .then((r) => notify(r.message, r.ok ? 'info' : 'error'))
+                .catch(report('resume the session'))
+            }
           />
         )}
-        {mode === 'sketch' && notesOpen && (
-          <aside className="notes">
-            <header>
-              <span>
-                Notes <span className="muted">· {board}</span>
-              </span>
-              <button
-                className="ghost icon-button small"
-                title="Close notes"
-                aria-label="Close notes"
-                onClick={() => setNotesOpen(false)}
-              >
-                <CloseIcon />
-              </button>
-            </header>
-            <textarea
-              data-testid="notes"
-              placeholder={`Notes for ${board}`}
-              value={notes}
-              onChange={(e) => controller.setNotes(e.target.value)}
+        <PromptBanner prompt={prompt} onDismiss={() => setPrompt(undefined)} />
+        <main className="body">
+          <BoardCanvas controller={controller} scene={scene} theme={theme} active={mode === 'sketch'} onReady={onReady} />
+          {mode === 'write' && (
+            <WriteView
+              book={book}
+              shelf={shelf}
+              listBoards={listBoards}
+              focusRequest={focusRequest}
+              sessionId={activeBrief}
+              tabs={briefs}
+              onSend={() => void send()}
+              onOpenBoard={openBoard}
+              onFiled={(where) => notify(`Moved to ${where}.`)}
+              onFilingMenu={dismissToast}
+              outputs={outputs}
+              onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
+              onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
+              review={reviewProps}
             />
-          </aside>
-        )}
-        <Toast
-          toast={toast}
-          onDismiss={dismissToast}
-          onHistory={() => {
-            dismissToast();
-            setHistoryOpen(true);
-          }}
-        />
-      </main>
+          )}
+          {mode === 'items' && (
+            <ItemsView
+              store={items}
+              brief={active}
+              home={info.home}
+              onTrack={(sessionId, on) => void host.setTracking(sessionId, on).catch(report('change item tracking'))}
+              onSend={() => void send()}
+              onOpenOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
+            />
+          )}
+          {mode === 'sketch' && notesOpen && (
+            <aside className="notes">
+              <header>
+                <span>
+                  Notes <span className="muted">· {board}</span>
+                </span>
+                <button
+                  className="ghost icon-button small"
+                  title="Close notes"
+                  aria-label="Close notes"
+                  onClick={() => setNotesOpen(false)}
+                >
+                  <CloseIcon />
+                </button>
+              </header>
+              <textarea
+                data-testid="notes"
+                placeholder={`Notes for ${board}`}
+                value={notes}
+                onChange={(e) => controller.setNotes(e.target.value)}
+              />
+            </aside>
+          )}
+          <Toast
+            toast={toast}
+            onDismiss={dismissToast}
+            onHistory={() => {
+              dismissToast();
+              setHistoryOpen(true);
+            }}
+          />
+        </main>
+      </div>
     </div>
   );
 }

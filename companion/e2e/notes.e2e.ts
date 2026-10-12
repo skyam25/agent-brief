@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionsResponse } from '../src/protocol';
-import { briefTab, draftsOnDisk, launch, type Launched, openPanelFor, projectDir, registerSession, showPanel, sock, tempDataDir, themeShots, typeDraft } from './helpers';
+import { briefTab, draftsOnDisk, launch, type Launched, openPanelFor, projectDir, registerSession, showEnded, showPanel, sock, tempDataDir, themeShots, typeDraft } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -124,6 +124,7 @@ test('an ended session shows how to resume it, until it comes back', async () =>
   await expect(page.getByTestId('resume-row')).toHaveCount(0);
 
   await sock(socketPath, 'DELETE', '/sessions/s1');
+  await showEnded(page);
   await briefTab(page, 'Alpha').getByRole('tab').click();
   await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
   const row = page.getByTestId('resume-row');

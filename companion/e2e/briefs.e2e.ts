@@ -2,7 +2,7 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DeliveriesResponse, SessionInfo, SessionsResponse } from '../src/protocol';
-import { briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, sock, tempDataDir, themeShots } from './helpers';
+import { briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, showEnded, sock, tempDataDir, themeShots } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -189,6 +189,9 @@ test('an ended session keeps its tab, which still opens its board', async () => 
   await openFor({ sessionId: 's2' });
   await sock(socketPath, 'DELETE', '/sessions/s1');
 
+  // Ended sessions fold away until the group opens.
+  await expect(briefTab(page, 'Alpha')).toHaveCount(0);
+  await showEnded(page);
   await expect(briefTab(page, 'Alpha').locator('.dot')).not.toHaveClass(/live/);
   await briefTab(page, 'Alpha').getByRole('tab').click();
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
@@ -221,23 +224,32 @@ test('a tab shows the mode the mod reports, and drops it when the session ends',
   expect((await sock<SessionInfo>(socketPath, 'GET', '/sessions/s1')).body.mode).toBeUndefined();
 });
 
-test('tabs that do not fit wait behind +N', async () => {
+test('the sidebar lists running sessions, folds ended ones, hides, and opens as a drawer when narrow', async () => {
   const { app, page } = ctx;
-  for (const [id, title] of [['s1', 'Alpha'], ['s2', 'Beta'], ['s3', 'Gamma'], ['s4', 'Delta'], ['s5', 'Epsilon']]) {
+  for (const [id, title] of [['s1', 'Alpha'], ['s2', 'Beta'], ['s3', 'Gamma']]) {
     await register(id, title);
     await openFor({ sessionId: id });
   }
-  await app.evaluate(() => globalThis.__companion.panel.win.setSize(560, 600));
-  await expect(page.getByTestId('brief-more')).toBeVisible();
-  const visible = await tabs(page).count();
-  expect(visible).toBeLessThan(5);
-  await expect(page.getByTestId('brief-more')).toHaveText(`+${5 - visible}`);
-  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tabs-overflow.png'), clip: { x: 0, y: 0, width: 560, height: 140 } });
+  await sock(socketPath, 'DELETE', '/sessions/s1');
+  await expect(tabs(page)).toHaveCount(2);
+  await expect(page.getByTestId('ended-toggle')).toHaveText('Ended 1');
+  await showEnded(page);
+  await expect(tabs(page)).toHaveCount(3);
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'sidebar.png'), clip: { x: 0, y: 0, width: 600, height: 360 } });
 
-  await page.getByTestId('brief-more').click();
-  await expect(page.getByTestId('brief-list-item')).toHaveCount(5);
-  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tabs-overflow-open.png'), clip: { x: 0, y: 0, width: 560, height: 480 } });
-  await page.getByTestId('brief-list-item').filter({ hasText: 'Alpha' }).click();
-  await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
-  await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
+  // The toggle hides the sidebar and remembers it.
+  await page.getByTestId('sidebar-toggle').click();
+  await expect(page.getByTestId('brief-tabs')).toHaveCount(0);
+  await page.getByTestId('sidebar-toggle').click();
+  await expect(page.getByTestId('brief-tabs')).toBeVisible();
+
+  // A narrow panel opens it over the work, and a pick closes it.
+  await app.evaluate(() => globalThis.__companion.panel.win.setSize(560, 600));
+  await expect(page.getByTestId('brief-tabs')).toHaveCount(0);
+  await page.getByTestId('sidebar-toggle').click();
+  await expect(page.getByTestId('brief-tabs')).toHaveClass(/overlay/);
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'sidebar-drawer.png') });
+  await briefTab(page, 'Beta').getByRole('tab').click();
+  await expect(page.getByTestId('brief-tabs')).toHaveCount(0);
+  await expect(page.getByTestId('send')).toHaveText('Send to Beta');
 });

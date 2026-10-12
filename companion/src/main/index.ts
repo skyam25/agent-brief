@@ -176,7 +176,10 @@ async function start(): Promise<void> {
       const b = briefs.get(sessionId);
       return b ? { trackItems: !!b.trackItems } : undefined;
     },
-    setTracking: (sessionId, on) => briefs.keepPlace(sessionId, { trackItems: on }),
+    setTracking(sessionId, on) {
+      // Turning tracking off never makes a brief, which would show as an empty tab.
+      if (on || briefs.get(sessionId)) briefs.keepPlace(sessionId, { trackItems: on });
+    },
     mode: (sessionId) => modes.get(sessionId),
     setMode: (sessionId, patch) => modes.set(sessionId, patch),
     async open(req) {
