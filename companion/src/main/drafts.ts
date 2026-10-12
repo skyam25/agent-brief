@@ -3,11 +3,29 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { badRequest } from '../board/errors';
-import { sortDrafts } from '../shared/drafts';
-import type { Draft } from '../shared/ipc';
+import { ATTACHMENT_ID, sortDrafts } from '../shared/drafts';
+import type { Draft, DraftImage } from '../shared/ipc';
+import type { DeliveryInput } from '../server/contract';
 
 const ID = /^[\w-]{1,64}$/;
 const MAX_BODY = 200_000;
+const MAX_ATTACHMENTS = 40;
+const MAX_PICTURE = 6 * 1024 * 1024;
+const PICTURE = /^data:image\/(png|jpeg|webp|gif);base64,/;
+
+/** Checks a draft's pictures. Undefined when it has none. */
+function cleanAttachments(raw: unknown): Record<string, string> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw badRequest('draft attachments must map picture ids to data URLs');
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > MAX_ATTACHMENTS) throw badRequest(`a draft holds at most ${MAX_ATTACHMENTS} pictures`);
+  for (const [id, data] of entries) {
+    if (!ATTACHMENT_ID.test(id)) throw badRequest('picture ids are 6 to 24 lowercase letters and digits');
+    if (typeof data !== 'string' || !PICTURE.test(data)) throw badRequest('a picture must be a png, jpeg, webp or gif data URL');
+    if (data.length >= MAX_PICTURE) throw badRequest('each picture must be under 6 MB');
+  }
+  return entries.length ? Object.fromEntries(entries as [string, string][]) : undefined;
+}
 
 /** Checks a draft from the renderer and keeps only the fields a draft has. */
 export function cleanDraft(raw: unknown): Draft {
@@ -17,16 +35,40 @@ export function cleanDraft(raw: unknown): Draft {
   if (typeof d.body !== 'string' || d.body.length > MAX_BODY) throw badRequest('draft body must be text under 200,000 characters');
   if (d.status !== 'note' && d.status !== 'ready') throw badRequest('draft status is note or ready');
   if (d.board !== undefined && typeof d.board !== 'string') throw badRequest('draft board must be a board name');
+  if (d.sessionId !== undefined && typeof d.sessionId !== 'string') throw badRequest('draft sessionId must be a session id');
+  const attachments = cleanAttachments(d.attachments);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   return {
     id: d.id,
     body: d.body,
     status: d.status,
     ...(d.board ? { board: d.board } : {}),
+    ...(d.sessionId ? { sessionId: d.sessionId } : {}),
+    ...(attachments ? { attachments } : {}),
     rank: num(d.rank),
     createdAt: num(d.createdAt),
     updatedAt: num(d.updatedAt),
   };
+}
+
+const PICTURE_DATA = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/;
+const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+
+/** Decodes a Send's pictures into bundle files named `<id>.<ext>`. Skips a malformed one with a warning. */
+export function deliveryImages(images: readonly DraftImage[] | undefined): NonNullable<DeliveryInput['images']> {
+  const out: NonNullable<DeliveryInput['images']> = [];
+  const seen = new Set<string>();
+  for (const img of images ?? []) {
+    const m = typeof img?.data === 'string' ? PICTURE_DATA.exec(img.data) : null;
+    if (!m || typeof img.id !== 'string' || !ATTACHMENT_ID.test(img.id)) {
+      console.warn(`[companion] skipped picture ${String(img?.id)}: not a png, jpeg, webp or gif data URL`);
+      continue;
+    }
+    if (seen.has(img.id)) continue;
+    seen.add(img.id);
+    out.push({ name: `${img.id}.${EXT[m[1]]}`, data: Buffer.from(m[2], 'base64'), mime: m[1] });
+  }
+  return out;
 }
 
 export class DraftStore {

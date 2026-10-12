@@ -3,6 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import {
   expandPastes,
   fillRequest,
+  itemsInstructions,
   lastReply,
   rememberPaste,
   launchFailureText,
@@ -13,6 +14,9 @@ import {
   summaryOf,
   socketPathOf,
   toastFor,
+  trackReply,
+  trackTarget,
+  trackingOf,
 } from '../hooks/companion-logic'
 
 describe('socketPathOf', () => {
@@ -130,5 +134,38 @@ describe('pastes and replies for Write', () => {
     const msg = (role: string, text: string) => ({ role, text })
     expect(lastReply([])).toBeUndefined()
     expect(lastReply([msg('user', 'hi'), msg('assistant', '  Plan: ship it  '), msg('assistant', ''), msg('user', '/write last')])).toBe('Plan: ship it')
+  })
+})
+
+describe('item tracking', () => {
+  test('the instructions name the items file and the reply ending', () => {
+    const text = itemsInstructions('/work/.feedback/items/s1.md')
+    expect(text).toContain('Keep the items file at /work/.feedback/items/s1.md.')
+    expect(text).toContain('# Items · <short title>')
+    expect(text).toContain('`Done: #…`')
+    expect(text).toContain('Never edit or remove a `You:` line.')
+    expect(text).toContain('add an `Out:` line with its path relative to the project')
+  })
+
+  test('trackingOf reads the session body and treats anything else as off', () => {
+    expect(trackingOf({ trackItems: true, itemsPath: '/w/i.md' })).toEqual({ trackItems: true, itemsPath: '/w/i.md' })
+    expect(trackingOf({ trackItems: 'yes', itemsPath: '' })).toEqual({ trackItems: false })
+    expect(trackingOf(undefined)).toEqual({ trackItems: false })
+  })
+
+  test('trackTarget takes on, off, or flips', () => {
+    expect(trackTarget('on', false)).toBe(true)
+    expect(trackTarget(' Off ', true)).toBe(false)
+    expect(trackTarget('', false)).toBe(true)
+    expect(trackTarget('', true)).toBe(false)
+    expect(trackTarget('maybe', true)).toBeUndefined()
+  })
+
+  test('trackReply names the items path relative to the project', () => {
+    expect(trackReply({ trackItems: true, itemsPath: '/w/.feedback/items/s1.md' }, '/w')).toBe(
+      'Item tracking on. Claude keeps items in .feedback/items/s1.md and you answer them in the panel.',
+    )
+    expect(trackReply({ trackItems: true, itemsPath: '/elsewhere/s1.md' }, '/w')).toContain('items in /elsewhere/s1.md and')
+    expect(trackReply({ trackItems: false }, '/w')).toBe('Item tracking off.')
   })
 })

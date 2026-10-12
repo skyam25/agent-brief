@@ -1,6 +1,7 @@
 /** IPC between the main process and the panel renderer. */
 
 import type {
+  SessionHost,
   BoardsResponse,
   DeleteRequest,
   DrawRequest,
@@ -12,6 +13,9 @@ import type {
 } from '../protocol';
 import type { Region } from '../server/contract';
 import type { StrokeEvent } from '../voice/types';
+import type { Decision, ItemsDoc } from './items';
+
+export type { Decision } from './items';
 
 /** Requests main sends to the renderer, which owns the Excalidraw scene. */
 export interface BoardOps {
@@ -20,8 +24,8 @@ export interface BoardOps {
   update: { args: { board: string; req: UpdateRequest; batchId: string }; result: MutateResponse };
   remove: { args: { board: string; req: DeleteRequest; batchId: string }; result: MutateResponse };
   png: { args: { board: string; region?: Region; maxEdge: number }; result: Uint8Array };
-  /** Makes `board` the visible board. */
-  show: { args: { board: string }; result: void };
+  /** Makes `board` the visible board. A tab switch leaves the mode to the renderer. */
+  show: { args: { board: string; fromSwitch?: boolean }; result: void };
   /** Builds what Send hands over, from the visible board. */
   payload: { args: Record<string, never>; result: SendPayload };
   /** Forgets the stroke log and clips after a Send that used them. */
@@ -59,12 +63,23 @@ export interface SendPayload {
   text?: string;
   /** The draft this Send uses up. Main deletes it once the Send goes out. */
   draftId?: string;
+  /** The pictures the draft text references, as `att:<id>`. */
+  images?: DraftImage[];
+}
+
+/** A picture a draft carries, as the Send hands it over. */
+export interface DraftImage {
+  id: string;
+  /** A data URL: png, jpeg, webp or gif. */
+  data: string;
 }
 
 /** A written draft with no sketch. */
 export interface TextPayload {
   text: string;
   draftId?: string;
+  /** The pictures the text references, as `att:<id>`. */
+  images?: DraftImage[];
 }
 
 /** What Send hands to main from either mode. */
@@ -72,8 +87,8 @@ export type Outgoing = SendPayload | TextPayload;
 
 export const isTextPayload = (p: Outgoing): p is TextPayload => !('png' in p);
 
-/** The panel shows the board or the drafts. */
-export type Mode = 'sketch' | 'write';
+/** The panel shows the board, the drafts, or the active session's items. */
+export type Mode = 'sketch' | 'write' | 'items';
 
 /** Notes wait until you send them; Ready drafts form the queue. */
 export type DraftStatus = 'note' | 'ready';
@@ -85,6 +100,10 @@ export interface Draft {
   status: DraftStatus;
   /** A board whose sketch goes out with this draft. */
   board?: string;
+  /** The Claude Code session this note is filed under. Absent for a note in the Notes tab. */
+  sessionId?: string;
+  /** Pictures pasted into the draft, by id. Each is a data URL, long edge 1600 px or less. The body references one as `![alt](att:<id>)`. */
+  attachments?: Record<string, string>;
   /** Position in the Ready queue, lowest first. */
   rank: number;
   createdAt: number;
@@ -206,7 +225,18 @@ export interface Template {
 export interface NewNote {
   text?: string;
   id?: string;
+  /** The session the note is filed under, when /write or the Write button opened it for one. */
+  sessionId?: string;
 }
+
+/** A note /write reopens, with the session to file it under when it has none. */
+export interface OpenDraft {
+  id: string;
+  sessionId?: string;
+}
+
+/** What a tab switch opened: the session's note, or its board. */
+export type SwitchResult = { draftId: string } | { board: string };
 
 /** One Claude Code session's latest brief, for switching between them. */
 export interface SessionBriefEntry {
@@ -227,6 +257,22 @@ export interface SessionBriefEntry {
   isTarget: boolean;
   /** Its board or note holds something not sent yet. */
   hasContent: boolean;
+  /** The user asked Claude to keep an items file for this session. */
+  trackItems?: boolean;
+  /** Where the session ran, kept for ended sessions too. */
+  host?: SessionHost;
+  /** For an ended session with a known folder: `cd <cwd> && claude --resume <sessionId>`. */
+  resume?: string;
+}
+
+/** A session's items file as the panel shows it. */
+export interface ItemsDocInfo {
+  sessionId: string;
+  /** `<cwd>/.feedback/items/<sessionId>.md`. */
+  path: string;
+  /** False until Claude writes the file. */
+  exists: boolean;
+  doc: ItemsDoc;
 }
 
 export interface CompanionApi extends BoardHost {
@@ -271,13 +317,13 @@ export interface CompanionApi extends BoardHost {
   /** Fires when the capture shortcut, a menu or /write asks for a new note, with any starting text and the id main chose. */
   onNewNote(fn: (note: NewNote) => void): void;
   /** Fires when /write reopens a session's note. */
-  onOpenDraft(fn: (id: string) => void): void;
+  onOpenDraft(fn: (open: OpenDraft) => void): void;
   /** Each tracked session's latest brief, newest first. */
   listBriefs(): Promise<SessionBriefEntry[]>;
   /** Fires when a brief, a session or the Send target changes. */
   onBriefs(fn: (briefs: SessionBriefEntry[]) => void): void;
-  /** Makes the session the Send target, when it is still running, and opens its brief. */
-  switchBrief(sessionId: string): Promise<void>;
+  /** Makes the session the Send target, when it is still running, and opens its brief. The renderer picks the mode. */
+  switchBrief(sessionId: string): Promise<SwitchResult>;
   /** Stops tracking a session's brief. Its board and note stay. */
   forgetBrief(sessionId: string): Promise<void>;
   /** Ready drafts first by rank, then notes, newest first. */
@@ -289,6 +335,18 @@ export interface CompanionApi extends BoardHost {
   /** Creates a template when `id` is absent, and returns it with its id. */
   saveTemplate(template: { id?: string; title: string; body: string }): Promise<Template>;
   deleteTemplate(id: string): Promise<void>;
+  /** Turns item tracking on or off for a session. The brief list and GET /sessions/:id follow. */
+  setTracking(sessionId: string, on: boolean): Promise<void>;
+  /** The session's items file, parsed. Undefined for a session the app does not know. */
+  readItems(sessionId: string): Promise<ItemsDocInfo | undefined>;
+  /** Fires when a tracked session's items file changes on disk. */
+  onItems(fn: (info: ItemsDocInfo) => void): void;
+  /** Appends the decisions as `You:` lines in the file and returns the prompt text that reports them. */
+  saveDecisions(sessionId: string, decisions: Decision[]): Promise<{ draft: string }>;
+  /** Starts a terminal in the ended session's folder running its resume command. `copy` puts the command on the clipboard. */
+  resumeSession(sessionId: string, via: Launcher): Promise<SendResult>;
+  /** Opens a file an item names on an `Out:` line. Rejects a path outside the session's folder or one that does not exist. */
+  openItemOutput(sessionId: string, path: string): Promise<void>;
 }
 
 export const CH = {
@@ -339,4 +397,10 @@ export const CH = {
   listTemplates: 'templates:list',
   saveTemplate: 'templates:save',
   deleteTemplate: 'templates:delete',
+  setTracking: 'tracking:set',
+  readItems: 'items:read',
+  items: 'items:changed',
+  saveDecisions: 'items:decide',
+  openItemOutput: 'items:open-output',
+  resumeSession: 'sessions:resume',
 } as const;

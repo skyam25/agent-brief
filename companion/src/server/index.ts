@@ -24,6 +24,7 @@ import {
   parseOpen,
   parseRegion,
   parseSession,
+  parseTracking,
   parseUpdate,
 } from './validate';
 
@@ -34,6 +35,11 @@ const SWEEP_INTERVAL_MS = 15_000;
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 const DEFAULT_WAIT_S = 25;
 const MAX_WAIT_S = 30;
+
+/** Where a tracked session keeps its items: `<cwd>/.feedback/items/<sessionId>.md`. */
+export function itemsFile(cwd: string, sessionId: string): string {
+  return join(cwd, '.feedback', 'items', `${sessionId}.md`);
+}
 
 class HttpError extends Error {
   constructor(
@@ -98,11 +104,26 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
 
   // ── Sessions ────────────────────────────────────────────────────────────
 
+  /** A session with the tracking state the app keeps for it. */
+  function withTracking(s: SessionInfo): SessionInfo {
+    const t = backend.tracking?.(s.sessionId);
+    if (!t) return { ...s };
+    return { ...s, trackItems: t.trackItems, ...(t.trackItems ? { itemsPath: itemsFile(s.cwd, s.sessionId) } : {}) };
+  }
+
   function snapshot(): SessionsResponse {
     return {
-      sessions: [...sessionMap.values()].map((s) => ({ ...s })),
+      sessions: [...sessionMap.values()].map(withTracking),
       targetSessionId: target,
     };
+  }
+
+  /** A live session for the `/sessions/:id` routes, or 404. */
+  function liveSession(id: string): SessionInfo {
+    sweep();
+    const s = sessionMap.get(id);
+    if (!s) throw notFound(`no session ${id}`);
+    return s;
   }
 
   function emitSessions(): void {
@@ -272,6 +293,17 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       if (parts.length === 2 && method === 'DELETE') {
         return { json: { removed: removeSession(id) } };
       }
+      if (parts.length === 2 && method === 'GET') {
+        return { json: withTracking(liveSession(id)) };
+      }
+      if (parts.length === 2 && method === 'PATCH') {
+        const patch = parseTracking(await readJson(req));
+        const s = liveSession(id);
+        if (!backend.setTracking) throw new HttpError(503, 'unavailable', 'this app does not track items');
+        await backend.setTracking(id, patch.trackItems);
+        emitSessions();
+        return { json: withTracking(s) };
+      }
     }
 
     if (root === 'open' && parts.length === 1 && method === 'POST') {
@@ -421,6 +453,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
     },
     setTarget,
     deliver,
+    refreshSessions: emitSessions,
     onSessionsChange(fn) {
       sessionListeners.add(fn);
       return () => sessionListeners.delete(fn);

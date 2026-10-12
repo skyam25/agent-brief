@@ -3,8 +3,9 @@ import type { SessionsResponse } from '../protocol';
 import type { Launcher, LaunchOptions } from '../shared/ipc';
 import { folderName, hueOf, sessionTitle, shortFolder } from '../shared/sessions';
 import { CheckIcon, ChevronIcon, TerminalIcon } from './Icons';
+import { usePointerOutside } from './hooks';
 
-const LAUNCHER_LABELS: Record<Launcher, string> = {
+export const LAUNCHER_LABELS: Record<Launcher, string> = {
   ghostty: 'Ghostty',
   terminal: 'Terminal',
   herdr: 'herdr',
@@ -72,14 +73,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
     // Loads once each time the chooser opens.
   }, []);
 
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const anchor = ref.current?.parentElement;
-      if (anchor && !anchor.contains(e.target as Node)) props.onClose();
-    };
-    window.addEventListener('pointerdown', onDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
-  }, [props.onClose]);
+  usePointerOutside(ref, props.onClose, { parent: true });
 
   const choose = async () => {
     const picked = await props.chooseFolder();

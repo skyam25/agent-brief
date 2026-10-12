@@ -1,6 +1,22 @@
 # Agent Brief
 
-Sketch, talk and paste screenshots on your Mac, then hand all of it to Claude Code in one press. Claude sees what you drew, hears what you said, and can draw back on the same board.
+Sketch, write, talk and paste screenshots on your Mac, then hand all of it to Claude Code in one press. Claude sees what you drew, hears what you said, draws back on the same board, and keeps a list of the work's items that you answer from the panel instead of the chat.
+
+## Three modes
+
+| Mode | Key | Holds |
+|---|---|---|
+| Sketch | ⌘1 | A whiteboard for strokes, screenshots and voice |
+| Write | ⌘2 | Notes and briefs, with templates and a Ready queue |
+| Items | ⌘3 | The active session's items, with your call on each one |
+
+## Notes and sessions
+
+- The tab row under the toolbar starts with a fixed **Notes** tab, then one tab per Claude Code session. Notes holds what belongs to no session yet, such as a thought captured with the hotkey. A session tab holds that session's board, its notes and its items.
+- A note is filed under a session or unfiled. `/write` files the note it opens under that session. Any note can be moved with **File under…**, and an unfiled note sits in Notes until you file it or send it.
+- Send from a session tab goes to that session. Send from Notes asks where to go.
+- A session that has ended keeps its tab, with a hollow dot. The tab shows a resume command, `cd <project> && claude --resume <id>`, with **Copy** and **Open in** Ghostty, Terminal or herdr. Resume it and the tab goes live again on its own, with its board, notes and items where you left them.
+- Click a tab or press ⌃1 for Notes and ⌃2 onward for sessions. ⌃Tab cycles.
 
 ## Sketch
 
@@ -15,10 +31,17 @@ Sketch, talk and paste screenshots on your Mac, then hand all of it to Claude Co
 - Speech and strokes share one clock, so "this one" points at what you drew while you said it.
 - Transcription runs on your Mac. Audio never leaves it.
 
+## Write
+
+- A note saves as you type. Mark it Ready to queue it, and Send uses up the first in the queue.
+- Notes hold headings, bullets, tables and pasted screenshots, and the screenshots go to Claude with the text.
+- Templates are markdown files with `{{slots}}`. Pick one with `/`, Tab between slots, and Send warns once about a slot left empty.
+- A note can carry a board, so its text leads the prompt and the sketch follows.
+
 ## Hand it to Claude Code
 
-- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session. `/write`, or the Write button, opens a new note for it instead. The button carries over what you typed in the prompt box, and `/write last` starts the note with Claude's last reply.
-- Each session keeps its own brief. Run `/sketch` or `/write` again and the board or note you left unsent comes back. A tab row under the toolbar holds one tab per session; click a tab, or press ⌃1–⌃9, to switch, and Send goes to that tab's session.
+- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session. `/write`, or the Write button, opens a note for it instead. The button carries over what you typed in the prompt box, and `/write last` starts the note with Claude's last reply.
+- Run `/sketch` or `/write` again and the board or note you left unsent comes back.
 - Send writes a bundle into the project and gives Claude a prompt that points at it.
 - The prompt goes in by itself, or waits in the prompt box if you prefer to add to it first.
 - The panel closes and the board clears, ready for the next idea.
@@ -42,6 +65,16 @@ A timeline reads like this:
 [00:33–00:35] pasted image B · right · large
 [00:37–00:42] 🎙️ "The left panel needs to be wider." — nearest: image B, pasted 2s before
 ```
+
+A send from Items mode is text alone, such as `Decisions on 2 items in .feedback/items/<session>.md:` followed by one line per item.
+
+## Track items
+
+- Flip **Track items** in Items mode, or run `/track` in the session. Nothing changes until you do.
+- With it on, Claude keeps the work's items in `<project>/.feedback/items/<session>.md`. Each item carries Claude's note, a proposal, a question or two options, an `Out:` line for every file it writes, and a done line saying what changed. Claude writes the file only when the work has several parts.
+- Items mode shows that list. Open items that wait on you are marked. Type your call and press Send. The panel adds your answers to the file as `You:` lines and sends Claude a short message listing them.
+- Every `Out:` line is a link that opens the file, so you can see what Claude is working on and what it finished.
+- Claude ends a reply that touched items with `Done:` and `Open:` lines, so the chat and the panel agree.
 
 ## Choose where it goes
 
@@ -73,7 +106,7 @@ A timeline reads like this:
 ## Get it
 
 - **App.** Download the latest [release](https://github.com/skyam25/agent-brief/releases/latest), unzip it, and move Agent Brief.app into Applications. It needs macOS on Apple Silicon.
-- **Claude Code side.** In Claude Code, run `/plugin marketplace add skyam25/agent-brief`, then `/plugin install agent-brief@agent-brief`.
+- **Claude Code side.** Pick Install Claude Code Plugin… from the app's menu. Claude Code then loads the plugin from inside the app, so it updates with the app. To use the plugin without the app, run `/plugin marketplace add skyam25/agent-brief`, then `/plugin install agent-brief@agent-brief`.
 - **Voice.** Transcription uses [yap](https://github.com/finnvoor/yap) and ffmpeg: `brew install yap ffmpeg`.
 
 ## In this repository
@@ -81,7 +114,7 @@ A timeline reads like this:
 | Folder | Holds |
 |---|---|
 | [`companion/`](companion) | The macOS app and the `agent-brief` command line tool |
-| [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, `/write`, their buttons, delivery and the feedback inbox |
+| [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, `/write`, `/track`, their buttons, delivery and the feedback inbox |
 
 Building the app, tests and packaging are in [companion/docs/DEVELOPMENT.md](companion/docs/DEVELOPMENT.md).
 

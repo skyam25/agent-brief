@@ -34,6 +34,10 @@ export interface BoardBackend {
   draw(board: string, req: DrawRequest): Promise<DrawResponse>;
   update(board: string, req: UpdateRequest): Promise<MutateResponse>;
   remove(board: string, req: DeleteRequest): Promise<MutateResponse>;
+  /** A session's item tracking. Undefined when the app keeps nothing for it. */
+  tracking?(sessionId: string): { trackItems: boolean } | undefined;
+  /** Turns item tracking on or off for a session. */
+  setTracking?(sessionId: string, on: boolean): void | Promise<void>;
 }
 
 /** What the app hands over when you press Send. */
@@ -46,8 +50,10 @@ export interface DeliveryInput {
   scene?: unknown;
   /** Empty for a written draft alone. */
   boardName: string;
-  /** A written draft that leads the prompt. */
+  /** A written draft that leads the prompt. It references pictures as `![alt](att:<id>)`. */
   text?: string;
+  /** The pictures `text` references. `name` is `<id>.<ext>`. */
+  images?: { name: string; data: Buffer; mime: string }[];
   notes?: string;
   /** Rendered stroke and speech timeline (Phase 3). */
   timelineMd?: string;
@@ -74,6 +80,8 @@ export interface CompanionServer {
   deliver(input: DeliveryInput): Promise<Delivery>;
   /** Fires when the session list or target changes. Returns an unsubscribe. */
   onSessionsChange(fn: (s: SessionsResponse) => void): () => void;
+  /** Re-sends the session list after the backend changed what it adds, such as tracking. */
+  refreshSessions(): void;
   /** Fires on POST /open, after backend.open resolves. */
   onOpen(fn: (req: OpenRequest) => void): () => void;
 }

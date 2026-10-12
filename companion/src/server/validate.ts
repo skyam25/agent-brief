@@ -8,6 +8,7 @@ import type {
   SessionHost,
   SessionInfo,
   Skeleton,
+  TrackingPatch,
   UpdateRequest,
 } from '../protocol';
 import type { Region } from './contract';
@@ -147,6 +148,12 @@ export function parseSession(body: unknown): SessionInfo {
     };
   }
   return { sessionId, cwd, title, pid: o.pid as number | undefined, summary, host };
+}
+
+export function parseTracking(body: unknown): TrackingPatch {
+  const o = object(body, 'body');
+  if (typeof o.trackItems !== 'boolean') fail('body.trackItems must be true or false');
+  return { trackItems: o.trackItems as boolean };
 }
 
 export function parseOpen(body: unknown): OpenRequest {

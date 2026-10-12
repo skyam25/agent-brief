@@ -17,6 +17,10 @@ export type FakeCompanion = {
   isBoxBlocked: boolean
   /** True makes the ack route answer 500. */
   isAckBroken: boolean
+  /** True answers GET and PATCH /sessions/:id with 404, like an app before 0.2.6. */
+  isPreTrackingApp: boolean
+  /** Sessions the app knows, by id, with their item tracking. */
+  sessions: Map<string, { cwd: string; trackItems: boolean }>
   /** The prompt box. */
   box: { text: string; cursor: number }
   fills: { text: string; mode: string }[]
@@ -60,6 +64,8 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
     isOldApp: false,
     isBoxBlocked: false,
     isAckBroken: false,
+    isPreTrackingApp: false,
+    sessions: new Map(),
     box: { text: '', cursor: 0 },
     fills: [],
     queue: [],
@@ -110,6 +116,24 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
       const open = text === undefined ? {} : JSON.parse(text)
       const tookText = !fake.isOldApp && open.mode === 'write' && Boolean(open.text)
       return reply(200, { board: 'main', ...(tookText ? { noteText: true } : {}) })
+    }
+    if (path === '/sessions' && method === 'POST') {
+      const info = JSON.parse(text!) as { sessionId: string; cwd: string }
+      const known = fake.sessions.get(info.sessionId)
+      fake.sessions.set(info.sessionId, { cwd: info.cwd, trackItems: known?.trackItems ?? false })
+      return reply(200, { sessions: [] })
+    }
+    const sessionId = /^\/sessions\/([^/]+)$/.exec(path)?.[1]
+    if (sessionId !== undefined && (method === 'GET' || method === 'PATCH')) {
+      const known = fake.sessions.get(decodeURIComponent(sessionId))
+      if (fake.isPreTrackingApp || !known) return reply(404, { error: 'not found', code: 'not_found' })
+      if (method === 'PATCH') known.trackItems = (JSON.parse(text!) as { trackItems: boolean }).trackItems
+      return reply(200, {
+        sessionId,
+        cwd: known.cwd,
+        trackItems: known.trackItems,
+        ...(known.trackItems ? { itemsPath: `${known.cwd}/.feedback/items/${sessionId}.md` } : {}),
+      })
     }
     const ackId = /^\/deliveries\/([^/]+)\/ack$/.exec(path)?.[1]
     if (ackId !== undefined) {

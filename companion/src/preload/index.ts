@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { CH, type BoardRequest, type CompanionApi, type NewNote, type SessionBriefEntry } from '../shared/ipc';
+import { CH, type BoardRequest, type CompanionApi, type ItemsDocInfo, type NewNote, type OpenDraft, type SessionBriefEntry } from '../shared/ipc';
 
 const api: CompanionApi = {
   init: () => ipcRenderer.invoke(CH.init),
@@ -41,7 +41,7 @@ const api: CompanionApi = {
   onVisibility: (fn) => ipcRenderer.on(CH.visibility, (_e, visible) => fn(visible)),
   setMode: (mode) => ipcRenderer.send(CH.setMode, mode),
   onNewNote: (fn) => ipcRenderer.on(CH.newNote, (_e, note?: NewNote) => fn(note ?? {})),
-  onOpenDraft: (fn) => ipcRenderer.on(CH.openDraft, (_e, id: string) => fn(id)),
+  onOpenDraft: (fn) => ipcRenderer.on(CH.openDraft, (_e, open: OpenDraft | string) => fn(typeof open === 'string' ? { id: open } : open)),
   listBriefs: () => ipcRenderer.invoke(CH.listBriefs),
   onBriefs: (fn) => ipcRenderer.on(CH.briefs, (_e, briefs: SessionBriefEntry[]) => fn(briefs)),
   switchBrief: (sessionId) => ipcRenderer.invoke(CH.switchBrief, sessionId),
@@ -52,6 +52,12 @@ const api: CompanionApi = {
   listTemplates: () => ipcRenderer.invoke(CH.listTemplates),
   saveTemplate: (template) => ipcRenderer.invoke(CH.saveTemplate, template),
   deleteTemplate: (id) => ipcRenderer.invoke(CH.deleteTemplate, id),
+  setTracking: (sessionId, on) => ipcRenderer.invoke(CH.setTracking, sessionId, on),
+  readItems: (sessionId) => ipcRenderer.invoke(CH.readItems, sessionId),
+  onItems: (fn) => ipcRenderer.on(CH.items, (_e, info: ItemsDocInfo) => fn(info)),
+  saveDecisions: (sessionId, decisions) => ipcRenderer.invoke(CH.saveDecisions, sessionId, decisions),
+  openItemOutput: (sessionId, path) => ipcRenderer.invoke(CH.openItemOutput, sessionId, path),
+  resumeSession: (sessionId, via) => ipcRenderer.invoke(CH.resumeSession, sessionId, via),
 };
 
 contextBridge.exposeInMainWorld('companion', api);

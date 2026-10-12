@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { BRIEF_TTL_MS, forgetBoard, MAX_BRIEFS, prune, remember, sessionBoardName, sketchBoard, type SessionBriefs } from './session-briefs';
+import {
+  BRIEF_TTL_MS,
+  forgetBoard,
+  liveFields,
+  MAX_BRIEFS,
+  prune,
+  refreshLive,
+  remember,
+  sessionBoardName,
+  sketchBoard,
+  type SessionBriefs,
+} from './session-briefs';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 100 * DAY;
@@ -21,6 +32,35 @@ describe('prune and remember', () => {
     let briefs = remember({}, 'a', { board: 'login' }, NOW);
     briefs = remember(briefs, 'a', { draftId: 'd1' }, NOW + 1);
     expect(briefs.a).toEqual({ board: 'login', draftId: 'd1', at: NOW + 1 });
+  });
+
+  it('keeps item tracking across later opens, and can turn it off without moving the brief', () => {
+    let briefs = remember({}, 'a', { board: 'login' }, NOW);
+    briefs = remember(briefs, 'a', { trackItems: true }, NOW);
+    briefs = remember(briefs, 'a', { draftId: 'd1', last: 'draft' }, NOW + 1);
+    expect(briefs.a).toEqual({ board: 'login', draftId: 'd1', last: 'draft', trackItems: true, at: NOW + 1 });
+    briefs = remember(briefs, 'a', { trackItems: false }, briefs.a!.at);
+    expect(briefs.a).toEqual({ board: 'login', draftId: 'd1', last: 'draft', trackItems: false, at: NOW + 1 });
+    expect(forgetBoard(briefs, 'login').a?.trackItems).toBe(false);
+  });
+});
+
+describe('liveFields and refreshLive', () => {
+  const host = { terminal: 'ghostty', bundleId: 'com.mitchellh.ghostty' };
+
+  it('keeps the terminal a session ran in, and keeps it when a later open knows none', () => {
+    const live = { sessionId: 'a', cwd: '/p/app', host };
+    expect(liveFields(live)).toEqual({ title: 'app', cwd: '/p/app', host });
+    let briefs = remember({}, 'a', { board: 'login', ...liveFields(live) }, NOW);
+    briefs = remember(briefs, 'a', { draftId: 'd1', ...liveFields({ sessionId: 'a', cwd: '/p/app', title: 'Fix login' }) }, NOW + 1);
+    expect(briefs.a).toEqual({ board: 'login', draftId: 'd1', title: 'Fix login', cwd: '/p/app', host, at: NOW + 1 });
+  });
+
+  it('updates a registered session brief in place, and leaves the rest alone', () => {
+    const briefs: SessionBriefs = { a: { board: 'login', cwd: '/p/app', title: 'app', at: NOW - DAY }, b: { board: 'x', at: NOW } };
+    const next = refreshLive(briefs, [{ sessionId: 'a', cwd: '/p/app', host }, { sessionId: 'c', cwd: '/p/c' }]);
+    expect(next).toEqual({ a: { board: 'login', cwd: '/p/app', title: 'app', host, at: NOW - DAY }, b: { board: 'x', at: NOW } });
+    expect(refreshLive(next, [{ sessionId: 'a', cwd: '/p/app', host: { ...host } }])).toBe(next);
   });
 });
 

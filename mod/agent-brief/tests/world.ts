@@ -21,6 +21,16 @@ export const BAND: RenderInput<'AbovePrompt'> = {
   },
 }
 
+/** What the engine passes `prompt.compose`. */
+export const COMPOSE = {
+  model: 'claude-opus-5-5',
+  promptModel: 'claude-opus-5-5',
+  surfaces: ['terminal' as const],
+  tools: [],
+  outputStyle: null,
+  traits: [],
+}
+
 export const command = (name: string, args = '') => ({
   command: name,
   args,

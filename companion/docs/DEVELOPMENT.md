@@ -24,19 +24,30 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 | Boards | `<data>/boards/<name>.excalidraw`, notes in `<name>.notes.md` |
 | Settings | `<data>/state.json`: board, panel size, hotkey, delivery mode, open at login, recent projects |
 | History | `<data>/history/`: the last 10 sends, each with its PNG and scene |
+| Drafts | `<data>/drafts/<id>.json`, pasted pictures inline as data URLs under `attachments` |
 | Data folder | `~/Library/Application Support/Agent Brief`, or `COMPANION_DATA_DIR` |
 | Socket | `~/Library/Application Support/AgentBrief/agent-brief.sock` (mode 0600), or `COMPANION_SOCKET` |
 | Deliveries | `<session cwd>/.feedback/sketches/<id>/` |
+| Items | `<session cwd>/.feedback/items/<session id>.md`, written by Claude, appended to by Send in Items mode |
 
 ## Sending
 
 - `/sketch` in Claude Code opens the panel bound to that session, and Send reads "Send to <session>". The session's tab is active; clicking it again brings its terminal forward.
 - Main remembers each session's latest board and note in `state.json` (`sessionBriefs`, 30 days, at most 100). `/sketch` reopens the remembered board. The first time, it takes the current board if it is empty and no other session holds it, else it makes a board named after the session's title or folder (`Beta`, then `Beta 2`). `/write` without text reopens the session's note until it is sent. A board switch in the panel updates the record of the Send target's session; a History restore does not.
-- The tab row shows one tab per record, newest first: a filled dot for a running session, a hollow one for an ended session, and • for unsent content. Closing a tab forgets the record and keeps the board and note. Tabs that don't fit wait behind "+N". ⌃1–⌃9 jump and ⌃Tab cycles; ⌘1 and ⌘2 stay on Sketch and Write.
+- The tab row starts with a fixed Notes tab, then one tab per record, newest first: a filled dot for a running session, a hollow one for an ended session, and • for unsent content. Notes is active when no session is the target; clicking it clears the target. Closing a session tab forgets the record and keeps the board and note. Tabs that don't fit wait behind "+N". ⌃1 is Notes, ⌃2 onward are sessions, ⌃Tab cycles; ⌘1, ⌘2 and ⌘3 stay on Sketch, Write and Items.
+- A draft carries `sessionId` when it is filed under a session. Write lists the active tab's drafts only; Notes lists the unfiled ones, plus drafts whose session tab was closed. `/write` files the note it opens, and File under… moves one between tabs.
+- An ended session's brief keeps its `cwd` and `host`. The tab shows `cd <cwd> && claude --resume <id>` with Copy and Open in Ghostty, Terminal or herdr (`resumeSession` in `launch.ts`). Resuming re-registers the same session id, so the tab goes live without a new record.
 - Opening the panel any other way (hotkey, tray, Dock) binds no session. Send reads "Send to…" and lists the running sessions, or starts a new one in a project folder.
+- A draft's Markdown references a picture as `![alt](att:<id>)`. Send writes each one to `<bundle>/images/<id>.<ext>` and turns the reference into an `@` line for that file, in `prompt.md`, `draft.md` and the history entry alike.
 - A new session opens in Ghostty, Terminal or a herdr tab, running `claude` on the bundle's `prompt.md`. Copy command puts the same start line on the clipboard instead.
 - The target clears when its session exits. The app never picks a session on its own.
 - Jumping back is exact for herdr panes and for the Ghostty terminal `/sketch` ran in. Other apps come forward as a whole.
+
+## Items
+
+- `trackItems` lives on the session's brief in `state.json`. The mod reads it through `GET /sessions/:id` and adds the items instructions to Claude's prompt only while it is true. `PATCH /sessions/:id` flips it from `/track`.
+- `src/main/items-watch.ts` watches each tracked session's file and pushes `items:changed` to the panel. It polls every 1.5 s until the folder exists.
+- `src/shared/items.ts` parses and serializes the file. `withDecisions` appends `You:` lines and leaves every other byte as it was.
 
 ## Pen
 
@@ -65,10 +76,13 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 
 ## Packaging
 
-`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons and the CLI (`Resources/bin/agent-brief`, plus a `companion` alias). It does not bundle ffmpeg or yap, which it finds at runtime. Nothing is installed into /Applications.
+`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons, the CLI (`Resources/bin/agent-brief`, plus a `companion` alias) and the Claude Code plugin (`Resources/plugin/`). It does not bundle ffmpeg or yap, which it finds at runtime. Nothing is installed into /Applications.
 
 - `bin/agent-brief` is a shell wrapper. Inside the bundle it runs `agent-brief.mjs` with the app's Electron as Node (`ELECTRON_RUN_AS_NODE=1`). In a checkout it uses `node`.
 - Install Command Line Tool… links `~/.local/bin/agent-brief` to that wrapper.
+- `Resources/plugin/` is a marketplace laid out like the repo: `.claude-plugin/marketplace.json` and `mod/agent-brief/` without `tests/` or the generated `.claude-plugin/types/`.
+- Install Claude Code Plugin… runs `claude plugin marketplace add <Resources/plugin>`, then `claude plugin install agent-brief@agent-brief` if it is not installed. In a checkout it adds the repo root instead.
+- Both installs refuse while macOS runs the app from a translocated copy, before the user moves it into Applications.
 - `pnpm dist` signs with the Developer ID cert and the hardened runtime. `build/entitlements.mac.plist` grants JIT, the mic and Apple Events.
 - `pnpm dist:notarize` also notarizes, using the `companion-notary` keychain profile from `xcrun notarytool store-credentials`.
 
@@ -82,5 +96,13 @@ To release:
 2. Run `pnpm release`, or `pnpm release --notes-file notes.md`.
 
 The script builds, notarizes and verifies the app. It then creates the `v<version>` release with three files: `Agent-Brief-<version>-arm64.zip`, its `.blockmap`, and `latest-mac.yml`, which is the file installed copies read. A release without `latest-mac.yml` is invisible to the updater.
+
+### The CLI and the plugin follow the app
+
+- The CLI link and the plugin registration both point into the bundle. An update replaces the bundle in place, so both pick up the new version with no extra step.
+- Claude Code reads a directory marketplace's plugin in place, not from its cache. New sessions load the new plugin. Open sessions keep the old hooks until `/reload-plugins` or a restart.
+- `claude plugin marketplace add` under the existing name `agent-brief` re-points the registration and keeps the installed plugin and its options. `claude plugin marketplace remove` deletes the options, so the app never removes.
+- 15 s after a packaged launch, the app repairs both if the app moved. It re-points the CLI link when its target is gone. It re-points the plugin when it is registered from an app bundle that no longer exists. Checkouts, GitHub sources and copies that still exist stay as they are.
+- `COMPANION_TEST_CLAUDE` names a stand-in `claude` for test runs.
 
 `COMPANION_UPDATE_URL=<url>` points a packaged build at a folder served over HTTP that holds those files. It also turns updates on in test mode, which is how an update is tried locally before a release.

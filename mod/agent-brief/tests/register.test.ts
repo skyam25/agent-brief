@@ -1,18 +1,9 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { BAND, CWD, INBOX, SESSION, command, textOf, worldOf } from './world'
+import { BAND, COMPOSE, CWD, INBOX, SESSION, command, textOf, worldOf } from './world'
 
 const LATEST = 'mcp__agent-brief__feedback_latest'
 const LIST = 'mcp__agent-brief__feedback_list'
-
-const COMPOSE = {
-  model: 'claude-opus-5-5',
-  promptModel: 'claude-opus-5-5',
-  surfaces: ['terminal' as const],
-  tools: [],
-  outputStyle: null,
-  traits: [],
-}
 
 describe('ingest on /apply-feedback', () => {
   test('nothing is ingested or announced until the user asks', async ($, on) => {
@@ -22,7 +13,7 @@ describe('ingest on /apply-feedback', () => {
 
     await $.session.start(SESSION)
     expect(world.tools.sort()).toEqual(['feedback_latest', 'feedback_list'])
-    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'write'])
+    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'write', 'track'])
     await clock.advance(60_000)
 
     expect(world.runs.some(r => r.argv[1]?.endsWith('/bin/ingest.mjs'))).toBe(false)

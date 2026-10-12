@@ -1,13 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SessionBriefEntry } from '../shared/ipc';
 import { shortPath } from '../shared/sessions';
-import { CheckIcon, ChevronIcon, CloseIcon } from './Icons';
+import { CheckIcon, ChevronIcon, CloseIcon, NotesIcon } from './Icons';
 import { ago } from './WriteView';
 
 /** A tab's width, its gap, and the "+N" button's width, which decide how many tabs fit. */
 const TAB_W = 176;
 const GAP = 2;
 const MORE_W = 64;
+/** The fixed Notes tab with its divider, and the row's side padding. */
+const NOTES_W = 104;
+const ROW_PAD = 24;
 
 /** How many tabs show in `width`, leaving room for the overflow button when some must hide. */
 export function tabsThatFit(count: number, width: number): number {
@@ -24,13 +27,16 @@ export function visibleTabs(briefs: SessionBriefEntry[], fit: number, activeId: 
 }
 
 /**
- * One tab per Claude Code session's brief, newest first. The active tab is the
- * session Send goes to. Tabs that don't fit wait behind "+N".
+ * The fixed Notes tab, then one tab per Claude Code session's brief, newest
+ * first. The active session tab is the session Send goes to; Notes has no
+ * session. Tabs that don't fit wait behind "+N".
  */
 export function BriefTabs(props: {
   briefs: SessionBriefEntry[];
+  /** The active session tab. Undefined when Notes is active. */
   activeId?: string;
   home?: string;
+  onNotes: () => void;
   onSwitch: (sessionId: string) => void;
   onClose: (sessionId: string) => void;
   /** A click on the active tab brings its terminal forward. */
@@ -48,16 +54,28 @@ export function BriefTabs(props: {
     const observer = new ResizeObserver(measure);
     observer.observe(row);
     return () => observer.disconnect();
-  }, [props.briefs.length > 0]);
+  }, []);
 
-  if (props.briefs.length === 0) return null;
-  const fit = width ? tabsThatFit(props.briefs.length, width) : props.briefs.length;
+  const fit = width ? tabsThatFit(props.briefs.length, width - NOTES_W - ROW_PAD) : props.briefs.length;
   const shown = visibleTabs(props.briefs, fit, props.activeId);
   const hidden = props.briefs.length - shown.length;
 
   return (
     <nav className="brief-tabs" ref={rowRef} aria-label="Session briefs" data-testid="brief-tabs">
       <div className="tabs" role="tablist">
+        <div className="tab notes-tab" aria-current={props.activeId === undefined} data-testid="notes-tab">
+          <button
+            className="ghost label"
+            role="tab"
+            aria-selected={props.activeId === undefined}
+            title="Notes for no session, and scratch boards. Send asks where to go."
+            onClick={() => props.activeId !== undefined && props.onNotes()}
+          >
+            <NotesIcon />
+            <span className="title">Notes</span>
+          </button>
+        </div>
+        <span className="tab-divider" aria-hidden="true" />
         {shown.map((b) => (
           <Tab key={b.sessionId} brief={b} isActive={b.sessionId === props.activeId} {...props} />
         ))}

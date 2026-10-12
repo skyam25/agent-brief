@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { BoardBackend } from './contract';
 import { createCompanionServer } from './index';
 import { harness, request, tempDir } from './testkit';
 
@@ -10,11 +11,21 @@ afterEach(async () => {
   while (open.length) await open.pop()!.close();
 });
 
-async function start() {
-  const h = harness();
+async function start<B extends Partial<BoardBackend>>(extra?: B) {
+  const h = harness(extra);
   open.push(h.server);
   await h.server.listen();
   return h;
+}
+
+/** A server whose backend keeps item tracking in a map, as the app does. */
+async function startTracked() {
+  const tracked = new Map<string, boolean>();
+  const h = await start({
+    tracking: vi.fn((id: string) => (tracked.has(id) ? { trackItems: tracked.get(id)! } : undefined)),
+    setTracking: vi.fn((id: string, on: boolean) => void tracked.set(id, on)),
+  });
+  return { ...h, tracked };
 }
 
 describe('lifecycle', () => {
@@ -346,6 +357,91 @@ describe('sessions', () => {
     off();
     await h.call('DELETE', '/sessions/a');
     expect(seen).toHaveLength(4);
+  });
+});
+
+describe('item tracking', () => {
+  it('answers one session with its tracking, and 404 for an unknown one', async () => {
+    const h = await startTracked();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', title: 'T' });
+    const plain = await h.call('GET', '/sessions/a');
+    expect(plain.status).toBe(200);
+    expect(plain.body).toEqual({ sessionId: 'a', cwd: '/x', title: 'T', lastSeen: h.clock.t });
+
+    h.tracked.set('a', true);
+    expect((await h.call('GET', '/sessions/a')).body).toMatchObject({ trackItems: true, itemsPath: '/x/.feedback/items/a.md' });
+    h.tracked.set('a', false);
+    const off = (await h.call('GET', '/sessions/a')).body;
+    expect(off.trackItems).toBe(false);
+    expect(off.itemsPath).toBeUndefined();
+
+    const missing = await h.call('GET', '/sessions/zzz');
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe('not_found');
+  });
+
+  it('turns tracking on and off, fires onSessionsChange, and answers the session', async () => {
+    const h = await startTracked();
+    await h.call('POST', '/sessions', { sessionId: 'a b', cwd: '/x' });
+    const seen: unknown[] = [];
+    h.server.onSessionsChange((s) => seen.push(s.sessions[0]?.trackItems));
+
+    const on = await h.call('PATCH', '/sessions/a%20b', { trackItems: true });
+    expect(on.status).toBe(200);
+    expect(on.body).toMatchObject({ sessionId: 'a b', trackItems: true, itemsPath: '/x/.feedback/items/a b.md' });
+    expect(h.backend.setTracking).toHaveBeenCalledWith('a b', true);
+
+    const off = await h.call('PATCH', '/sessions/a%20b', { trackItems: false });
+    expect(off.body).toMatchObject({ sessionId: 'a b', trackItems: false });
+    expect(off.body.itemsPath).toBeUndefined();
+    expect(seen).toEqual([true, false]);
+  });
+
+  it('refuses a bad body and an unknown session', async () => {
+    const h = await startTracked();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    for (const body of [undefined, {}, { trackItems: 'yes' }, [true]]) {
+      const r = await h.call('PATCH', '/sessions/a', body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.body.code).toBe('bad_request');
+    }
+    const missing = await h.call('PATCH', '/sessions/zzz', { trackItems: true });
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe('not_found');
+    expect(h.backend.setTracking).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 when the backend keeps no tracking', async () => {
+    const h = await start();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    const r = await h.call('PATCH', '/sessions/a', { trackItems: true });
+    expect(r.status).toBe(503);
+    expect(r.body.code).toBe('unavailable');
+  });
+
+  it('carries tracking on every session in the list', async () => {
+    const h = await startTracked();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    await h.call('POST', '/sessions', { sessionId: 'b', cwd: '/y' });
+    await h.call('POST', '/sessions', { sessionId: 'c', cwd: '/z' });
+    await h.call('PATCH', '/sessions/a', { trackItems: true });
+    await h.call('PATCH', '/sessions/b', { trackItems: false });
+    const list = (await h.call('GET', '/sessions')).body.sessions;
+    expect(list.map((s: any) => [s.sessionId, s.trackItems, s.itemsPath])).toEqual([
+      ['a', true, '/x/.feedback/items/a.md'],
+      ['b', false, undefined],
+      ['c', undefined, undefined],
+    ]);
+    expect(h.server.sessions().sessions[0]).toMatchObject({ trackItems: true });
+  });
+
+  it('refreshSessions re-sends the list with its tracking', async () => {
+    const h = await start({ tracking: () => ({ trackItems: true }) });
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    const fn = vi.fn();
+    h.server.onSessionsChange(fn);
+    h.server.refreshSessions();
+    expect(fn).toHaveBeenCalledWith(expect.objectContaining({ sessions: [expect.objectContaining({ trackItems: true })] }));
   });
 });
 

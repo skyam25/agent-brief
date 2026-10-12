@@ -1,9 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DeliveriesResponse } from '../src/protocol';
-import { launch, type Launched, RESULTS, sendToSession, showPanel, sock, tempDataDir } from './helpers';
+import { draftBody, launch, type Launched, RESULTS, selectedText, sendToSession, showPanel, sock, tempDataDir, typeDraft } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -23,39 +23,41 @@ test.afterEach(async () => {
 });
 
 const panelVisible = () => ctx.app.evaluate(() => (globalThis as any).__companion.panel.isVisible());
-const selection = (page: Page) =>
-  page.getByTestId('draft-body').evaluate((el: HTMLTextAreaElement) => el.value.slice(el.selectionStart, el.selectionEnd));
 const templateFiles = () => readdirSync(join(dataDir, 'templates')).sort();
 
 test('typing / inserts a template and Tab walks its slots', async () => {
   const { page } = ctx;
   expect(templateFiles()).toEqual(['bug-report.md', 'feature.md', 'plan-first.md']);
   const body = page.getByTestId('draft-body');
-  await body.pressSequentially('Context first.\n/bug');
+  await body.click();
+  await page.keyboard.type('Context first.\n/bug');
   await expect(page.getByTestId('slash-menu')).toBeVisible();
+  // No block type matches "bug", so the template is the only item.
   await expect(page.getByTestId('slash-item')).toHaveText([/Bug report/]);
   await page.screenshot({ path: join(RESULTS, 'templates-slash.png') });
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('slash-menu')).toHaveCount(0);
-  await expect(body).toHaveValue(/^Context first\.\nSomething is broken: \{\{what you saw\}\}/);
-  expect(await selection(page)).toBe('{{what you saw}}');
+  await expect.poll(() => draftBody(page)).toMatch(/^Context first\.\n\nSomething is broken: \{\{what you saw\}\}/);
+  await expect.poll(() => selectedText(page)).toBe('{{what you saw}}');
 
   await page.keyboard.type('login loops back to the form');
   await page.keyboard.press('Tab');
-  expect(await selection(page)).toBe('{{steps}}');
+  await expect.poll(() => selectedText(page)).toBe('{{steps}}');
   await page.keyboard.press('Shift+Tab');
   // Back wraps to the last slot, since the first is filled now.
-  expect(await selection(page)).toBe('{{what should happen}}');
+  await expect.poll(() => selectedText(page)).toBe('{{what should happen}}');
   await page.screenshot({ path: join(RESULTS, 'templates-slots.png') });
 
   // Escape closes the menu, keeps the text, and leaves the panel up.
-  await body.press('Meta+ArrowDown');
-  await body.pressSequentially('\n/pla');
+  await page.keyboard.press('Meta+ArrowDown');
+  // ProseMirror reads the moved caret a moment later. Enter before then lands at the old spot.
+  await page.waitForTimeout(100);
+  await page.keyboard.type('\n/pla');
   await expect(page.getByTestId('slash-menu')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('slash-menu')).toHaveCount(0);
   expect(await panelVisible()).toBe(true);
-  await expect(body).toHaveValue(/\n\/pla$/);
+  await expect.poll(() => draftBody(page)).toMatch(/\n\/pla$/);
 });
 
 test('Send points out empty slots once, then sends as is', async () => {
@@ -64,13 +66,13 @@ test('Send points out empty slots once, then sends as is', async () => {
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Login work' });
   await page.getByTestId('draft-new-menu').click();
   await page.getByTestId('new-menu-item').filter({ hasText: 'Feature' }).click();
-  await expect.poll(() => selection(page)).toBe('{{the feature}}');
+  await expect.poll(() => selectedText(page)).toBe('{{the feature}}');
   await page.keyboard.type('split the panel into two windows');
 
   await sendToSession(page, 'Login work');
   await expect(page.getByTestId('send-status')).toHaveText('3 empty slots. Send again to send anyway.');
-  await expect.poll(() => selection(page)).toBe('{{the problem it solves}}');
-  await page.getByTestId('draft-body').evaluate((el: HTMLTextAreaElement) => el.blur());
+  await expect.poll(() => selectedText(page)).toBe('{{the problem it solves}}');
+  await page.getByTestId('draft-body').evaluate((el: HTMLElement) => el.blur());
   await page.getByTestId('send').click();
   await expect.poll(panelVisible).toBe(false);
   const { body } = await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=s1&wait=0');
@@ -93,11 +95,11 @@ test('templates are written here and saved from a draft', async () => {
     .toBe('---\ntitle: Code review\n---\nReview {{the branch}} for {{what to look for}}.');
 
   await page.getByTestId('template-use').click();
-  await expect(page.getByTestId('draft-body')).toHaveValue('Review {{the branch}} for {{what to look for}}.');
-  await expect.poll(() => selection(page)).toBe('{{the branch}}');
+  await expect(page.getByTestId('draft-body')).toHaveText('Review {{the branch}} for {{what to look for}}.');
+  await expect.poll(() => selectedText(page)).toBe('{{the branch}}');
 
   // Any draft can become a template.
-  await page.getByTestId('draft-body').fill('Write release notes for {{version}}.');
+  await typeDraft(page, 'Write release notes for {{version}}.');
   await page.getByTestId('draft-more').click();
   await page.getByTestId('save-template').click();
   await page.getByTestId('save-template-name').fill('Release notes');

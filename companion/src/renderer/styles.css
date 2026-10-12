@@ -80,14 +80,14 @@ button:disabled {
 
 /* App chrome sizing. Scoped so Excalidraw's own buttons keep their styles. */
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) :is(button, select, input:not([type='checkbox'])) {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) :is(button, select, input:not([type='checkbox'])) {
   height: 32px;
   box-sizing: border-box;
   border-radius: 8px;
   padding: 0 10px;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -95,18 +95,18 @@ button:disabled {
   white-space: nowrap;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button.icon-button {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.icon-button {
   width: 32px;
   padding: 0;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button.small {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.small {
   height: 24px;
   padding: 0 6px;
   border-radius: 6px;
 }
 
-:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row) button.icon-button.small {
+:is(.strip, .popover-panel, .notes, .brief-tabs, .toast, .prompt-row, .resume-row, .items) button.icon-button.small {
   width: 24px;
   padding: 0;
 }
@@ -749,6 +749,71 @@ button.recording {
   font-variant-numeric: tabular-nums;
 }
 
+/* The fixed Notes tab sits apart from the session tabs: no dot, no close. */
+
+.brief-tabs .notes-tab {
+  flex: 0 0 auto;
+}
+
+.brief-tabs .notes-tab .label {
+  padding: 0 10px 0 8px;
+  color: var(--muted);
+}
+
+.brief-tabs .notes-tab[aria-current='true'] .label {
+  color: var(--fg);
+}
+
+.brief-tabs .tab-divider {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--line);
+}
+
+/* An ended session's state and resume command, under the tab row. */
+
+.resume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 12px 6px 18px;
+  color: var(--muted);
+}
+
+.resume-row .state {
+  flex: none;
+}
+
+.resume-row .command {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--fg);
+  font: 12px ui-monospace, Menlo, monospace;
+}
+
+.resume-row .split-button > button.icon-button {
+  width: 24px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.popover-panel.resume-menu {
+  right: auto;
+  left: 0;
+  top: calc(100% + 4px);
+  width: auto;
+  padding: 6px;
+}
+
 .dot {
   flex: none;
   width: 8px;
@@ -1099,39 +1164,446 @@ button.recording {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-.slash-menu {
+/* The block editor. It scrolls; its menus float inside it, except the slash menu, which hangs from body. */
+
+.rich-editor {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.rich-content {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.rich-doc {
+  flex: 1;
+  box-sizing: border-box;
+  padding: 20px 24px 40px;
+  outline: none;
+  color: var(--fg);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  tab-size: 4;
+}
+
+.rich-doc > :first-child {
+  margin-top: 0;
+}
+
+.rich-doc p {
+  margin: 0 0 6px;
+}
+
+.rich-doc p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--muted);
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.rich-doc h1,
+.rich-doc h2,
+.rich-doc h3 {
+  margin: 18px 0 6px;
+  line-height: 1.3;
+  font-weight: 650;
+}
+
+.rich-doc h1 {
+  font-size: 22px;
+}
+
+.rich-doc h2 {
+  font-size: 18px;
+}
+
+.rich-doc h3 {
+  font-size: 15px;
+}
+
+.rich-doc ul,
+.rich-doc ol {
+  margin: 0 0 6px;
+  padding-left: 24px;
+}
+
+.rich-doc li > p {
+  margin: 0 0 2px;
+}
+
+.rich-doc li::marker {
+  color: var(--muted);
+}
+
+.rich-doc ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 2px;
+}
+
+.rich-doc ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rich-doc ul[data-type='taskList'] li > label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 22px;
+  user-select: none;
+}
+
+.rich-doc ul[data-type='taskList'] li > label input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.rich-doc ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.rich-doc ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.rich-doc blockquote {
+  margin: 4px 0 8px;
+  padding: 0 0 0 14px;
+  border-left: 3px solid var(--line);
+  color: color-mix(in srgb, var(--fg) 80%, var(--muted));
+}
+
+.rich-doc code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--hover);
+  font: 12.5px ui-monospace, Menlo, monospace;
+}
+
+.rich-doc pre {
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--hover);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.rich-doc pre code {
+  padding: 0;
+  background: none;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.rich-doc hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.rich-doc hr.ProseMirror-selectednode {
+  border-top-color: var(--accent);
+}
+
+.rich-doc a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: text;
+}
+
+.rich-doc mark.slot {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.rich-doc .suggestion {
+  color: var(--accent);
+}
+
+/* Tables */
+
+.rich-doc .tableWrapper {
+  margin: 4px 0 10px;
+  overflow-x: auto;
+}
+
+.rich-doc table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+}
+
+.rich-doc th,
+.rich-doc td {
+  position: relative;
+  min-width: 60px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  vertical-align: top;
+  text-align: left;
+}
+
+.rich-doc th {
+  background: color-mix(in srgb, var(--hover) 70%, transparent);
+  font-weight: 600;
+}
+
+.rich-doc :is(th, td) > p {
+  margin: 0;
+}
+
+.rich-doc .selectedCell::after {
+  content: '';
   position: absolute;
-  left: 20px;
-  z-index: 3;
-  width: 320px;
-  padding: 4px;
+  inset: 0;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+}
+
+/* Pictures */
+
+.rich-image {
+  position: relative;
+  margin: 6px 0 10px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.rich-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  border-radius: 8px;
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+}
+
+.rich-image[data-selected] img,
+.rich-image[data-selected] .missing {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rich-image .missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 240px;
+  height: 120px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  font-size: 12px;
+}
+
+.write .rich-image button.image-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
   background: var(--raised);
-  border-radius: 10px;
+  color: var(--fg);
   box-shadow: var(--shadow-popover);
 }
 
-.slash-menu [role='option'] {
+.write .rich-image button.image-delete:hover {
+  color: var(--error);
+}
+
+.write .rich-image input.image-caption {
+  display: block;
+  width: 0;
+  min-width: 100%;
+  height: 24px;
+  margin-top: 4px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  outline: none;
+}
+
+.write .rich-image input.image-caption:focus {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+/* Format bar and table controls: a compact pill over the selection or the table. */
+
+.format-bar {
+  z-index: 4;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px 8px;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--raised);
+  border-radius: 9px;
+  box-shadow: var(--shadow-popover);
+}
+
+.write .format-bar button.format-button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.write .format-bar button.format-button:hover {
+  background: var(--hover);
+}
+
+.write .format-bar button.format-button[aria-pressed='true'] {
+  background: var(--selected);
+  color: var(--accent);
+}
+
+.write .format-bar button.format-button.danger:hover {
+  color: var(--error);
+}
+
+.format-bar .glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.format-bar .glyph.serif {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.format-bar .glyph.small {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.format-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--line);
+}
+
+.format-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.write .format-link input {
+  width: 220px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  outline: none;
+}
+
+/* Slash menu. It hangs from body, so it carries its own type. */
+
+.slash-host {
+  z-index: 50;
+}
+
+.slash-popover {
+  width: 280px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 4px;
+  box-sizing: border-box;
+  background: var(--raised);
+  color: var(--fg);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
+  font: 13px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.slash-popover h4 {
+  margin: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.slash-popover .empty {
+  margin: 8px;
+}
+
+.slash-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px;
   border-radius: 6px;
   cursor: pointer;
 }
 
-.slash-menu [role='option'] span {
+.slash-row[aria-selected='true'] {
+  background: var(--selected);
+}
+
+.slash-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.slash-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.slash-text span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.slash-menu [role='option'][aria-selected='true'],
-.slash-menu [role='option']:hover {
-  background: var(--selected);
-}
-
-.slash-menu p {
-  margin: 6px 8px;
+.slash-hint {
+  font-size: 12px;
 }
 
 .editor footer {
@@ -1190,6 +1662,59 @@ button.recording {
 .chip kbd {
   font: 11px -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--muted);
+}
+
+/* Where a draft is filed: a tag in the list, a chip with a menu in the editor. */
+
+.filing-tag {
+  display: inline-block;
+  max-width: 120px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--hover);
+  font-size: 11px;
+  vertical-align: baseline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filing-tag.filed {
+  color: var(--accent);
+}
+
+.write button.chip.filing {
+  max-width: 200px;
+  padding: 0 6px 0 10px;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.write button.chip.filing.filed {
+  color: var(--accent);
+}
+
+.chip.filing .label-text,
+.filing-menu .label-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.popover-panel.more-menu.filing-menu {
+  left: 0;
+  right: auto;
+}
+
+.filing-menu button {
+  gap: 6px;
+}
+
+.filing-menu button .label-text {
+  flex: 1;
+  text-align: left;
 }
 
 .popover-panel.more-menu {
@@ -1283,4 +1808,207 @@ button.recording {
 .name-template input {
   width: 180px;
   padding: 0 10px;
+}
+
+/* Items mode covers the board like Write mode, in one reading column. */
+
+.items {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+.items-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.items-title {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.items-title .title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.items-title .path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.items button.switch {
+  gap: 8px;
+}
+
+.switch .track {
+  position: relative;
+  width: 26px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--line);
+  transition: background 120ms;
+}
+
+.switch .track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform 120ms;
+}
+
+.switch[aria-checked='true'] .track {
+  background: var(--accent);
+}
+
+.switch[aria-checked='true'] .track::after {
+  transform: translateX(10px);
+}
+
+.items-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px 24px;
+}
+
+.items-empty {
+  max-width: 480px;
+  margin: 24px auto;
+  text-align: center;
+  line-height: 1.55;
+}
+
+.item-list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item.waiting {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.item.done .item-title {
+  color: var(--muted);
+}
+
+.item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-head .num {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.item-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.done-mark {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.waiting-tag {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  white-space: nowrap;
+}
+
+.item-note,
+.item-line {
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.item-line .who {
+  margin-right: 6px;
+  font-weight: 600;
+}
+
+.item-line.you {
+  color: var(--muted);
+}
+
+.item-outputs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  line-height: 1.5;
+}
+
+.item-outputs .who {
+  color: var(--muted);
+}
+
+.item-outputs button.output {
+  display: inline-block;
+  height: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.item-outputs button.output:hover {
+  text-decoration: underline;
+}
+
+.items input.decision {
+  margin-top: 4px;
+}
+
+.items-foot {
+  padding: 8px 24px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }

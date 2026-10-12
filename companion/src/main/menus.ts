@@ -15,6 +15,7 @@ export interface MenuActions {
   newNote: () => void;
   openSettings: () => void;
   installCli: () => void;
+  installPlugin: () => void;
   update: UpdateStatus;
   checkForUpdates: () => void;
   installUpdate: () => void;
@@ -39,6 +40,7 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'Command+,', click: a.openSettings },
         { label: 'Install Command Line Tool…', click: a.installCli },
+        { label: 'Install Claude Code Plugin…', click: a.installPlugin },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -73,6 +75,7 @@ export function trayMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
     { type: 'separator' },
     { label: 'Settings…', click: a.openSettings },
     { label: 'Install Command Line Tool…', click: a.installCli },
+    { label: 'Install Claude Code Plugin…', click: a.installPlugin },
     ...updateItem(a),
     { type: 'separator' },
     { label: 'Quit Agent Brief', role: 'quit' },

@@ -1,6 +1,6 @@
 {
   "name": "agent-brief-app",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Floating sketch, notes and voice panel that hands work to Claude Code.",
   "author": "Simon Yam",
@@ -32,6 +32,19 @@
   },
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",
+    "@tiptap/core": "3.31.4",
+    "@tiptap/extension-bubble-menu": "3.31.4",
+    "@tiptap/extension-image": "3.31.4",
+    "@tiptap/extension-link": "3.31.4",
+    "@tiptap/extension-placeholder": "3.31.4",
+    "@tiptap/extension-table": "3.31.4",
+    "@tiptap/extension-task-item": "3.31.4",
+    "@tiptap/extension-task-list": "3.31.4",
+    "@tiptap/markdown": "3.31.4",
+    "@tiptap/pm": "3.31.4",
+    "@tiptap/react": "3.31.4",
+    "@tiptap/starter-kit": "3.31.4",
+    "@tiptap/suggestion": "3.31.4",
     "electron-updater": "6.8.9",
     "react": "19.3.0",
     "react-dom": "19.3.0"

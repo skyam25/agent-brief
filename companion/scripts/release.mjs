@@ -28,7 +28,10 @@ run('pnpm', ['exec', 'electron-builder', '--mac', '--publish', 'never'], {
 
 const zip = `dist/Agent-Brief-${version}-arm64.zip`;
 const assets = [zip, `${zip}.blockmap`, 'dist/latest-mac.yml'];
-for (const file of assets) if (!existsSync(file)) throw new Error(`missing ${file}`);
+const plugin = 'dist/mac-arm64/Agent Brief.app/Contents/Resources/plugin';
+for (const file of [...assets, `${plugin}/.claude-plugin/marketplace.json`, `${plugin}/mod/agent-brief/hooks/hooks.json`]) {
+  if (!existsSync(file)) throw new Error(`missing ${file}`);
+}
 run('codesign', ['--verify', '--deep', '--strict', 'dist/mac-arm64/Agent Brief.app']);
 run('xcrun', ['stapler', 'validate', 'dist/mac-arm64/Agent Brief.app']);
 

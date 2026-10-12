@@ -3,7 +3,10 @@ import {
   appleQuote,
   focusSession,
   ghosttyFocusScript,
+  claudeCommand,
   ghosttyScript,
+  resumeCommand,
+  resumeSession,
   shellQuote,
   startCommand,
   startSession,
@@ -27,10 +30,10 @@ describe('quoting', () => {
   });
 
   it('builds AppleScript that opens the folder and types the command', () => {
-    const g = ghosttyScript('/p/app', '/p/app/prompt.md');
+    const g = ghosttyScript('/p/app', claudeCommand('/p/app/prompt.md'));
     expect(g).toContain('set initial working directory of cfg to "/p/app"');
     expect(g).toContain(`set initial input of cfg to "claude \\"$(cat '/p/app/prompt.md')\\"\n"`);
-    expect(terminalScript('/p/app', '/p/app/prompt.md')).toContain(
+    expect(terminalScript('/p/app', claudeCommand('/p/app/prompt.md'))).toContain(
       `do script "cd '/p/app' && claude \\"$(cat '/p/app/prompt.md')\\""`,
     );
   });
@@ -48,6 +51,32 @@ describe('startSession', () => {
 
   it('says so when herdr is missing', async () => {
     await expect(startSession(recorder().run, 'herdr', '/p', '/p/x.md')).rejects.toThrow(/herdr is not installed/);
+  });
+});
+
+describe('resumeSession', () => {
+  it('builds the resume line with the folder and id quoted', () => {
+    expect(resumeCommand("/p/my app", 'abc-123')).toBe(`cd '/p/my app' && claude --resume 'abc-123'`);
+    expect(resumeCommand('/p', "x'y")).toBe(`cd '/p' && claude --resume 'x'\\''y'`);
+  });
+
+  it('types the resume command into a Ghostty or Terminal window in the folder', async () => {
+    const { calls, run } = recorder();
+    await resumeSession(run, 'ghostty', '/p/app', 'abc');
+    await resumeSession(run, 'terminal', '/p/app', 'abc');
+    expect(calls[0]?.[2]).toContain('set initial working directory of cfg to "/p/app"');
+    expect(calls[0]?.[2]).toContain(`set initial input of cfg to "claude --resume 'abc'\n"`);
+    expect(calls[1]?.[2]).toContain(`do script "cd '/p/app' && claude --resume 'abc'"`);
+  });
+
+  it('opens a herdr tab in the folder and resumes in its pane', async () => {
+    const { calls, run } = recorder(JSON.stringify({ result: { root_pane: { pane_id: 'w2:p5' } } }));
+    await resumeSession(run, 'herdr', '/p/app', 'abc', '/bin/herdr');
+    expect(calls).toEqual([
+      ['/bin/herdr', 'tab', 'create', '--cwd', '/p/app', '--label', 'resume', '--focus'],
+      ['/bin/herdr', 'pane', 'run', 'w2:p5', `claude --resume 'abc'`],
+    ]);
+    await expect(resumeSession(run, 'herdr', '/p', 'abc')).rejects.toThrow(/herdr is not installed/);
   });
 });
 

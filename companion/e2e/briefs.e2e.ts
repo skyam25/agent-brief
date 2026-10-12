@@ -1,8 +1,7 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { existsSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { launch, type Launched, showPanel, sock, tempDataDir } from './helpers';
+import { briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, sock, tempDataDir, themeShots } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -19,9 +18,8 @@ test.afterEach(async () => {
   await ctx.app.close();
 });
 
-const project = (name: string) => join(mkdtempSync(join(tmpdir(), 'project-')), name);
-const register = (sessionId: string, title: string) => sock(socketPath, 'POST', '/sessions', { sessionId, cwd: project(title), title });
-const openFor = async (body: Record<string, unknown>) => (await sock(socketPath, 'POST', '/open', body)).body;
+const register = (sessionId: string, title: string) => registerSession(socketPath, sessionId, title);
+const openFor = (body: Record<string, unknown>) => openPanelFor(socketPath, body);
 const drawBox = (app: ElectronApplication, board: string, x: number) =>
   app.evaluate((_e, a) => (globalThis as any).__companion.backend.draw(a.board, { elements: [{ type: 'rectangle', x: a.x, y: 0, width: 80, height: 60 }] }), { board, x });
 const onDisk = (app: ElectronApplication, board: string) =>
@@ -93,9 +91,9 @@ test('/write reopens the session note until it is sent, then starts a new one', 
 
   // Another note in between, then /write again from the session.
   await app.evaluate(() => (globalThis as any).__companion.newNote());
-  await expect(page.getByTestId('draft-body')).toHaveValue('');
+  await expect(page.getByTestId('draft-body')).toHaveText('');
   await openFor({ sessionId: 's1', mode: 'write' });
-  await expect(page.getByTestId('draft-body')).toHaveValue('half a plan');
+  await expect(page.getByTestId('draft-body')).toHaveText('half a plan');
 
   // The session is the target, so Send goes straight to it.
   await page.getByTestId('send').click();
@@ -103,7 +101,7 @@ test('/write reopens the session note until it is sent, then starts a new one', 
   await expect.poll(() => app.evaluate(() => (globalThis as any).__companion.drafts.list().length)).toBe(0);
   await showPanel(app, page);
   await openFor({ sessionId: 's1', mode: 'write' });
-  await expect(page.getByTestId('draft-body')).toHaveValue('');
+  await expect(page.getByTestId('draft-body')).toHaveText('');
 });
 
 test('a switch opens the session brief and sets the target; an ended session opens with none', async () => {
@@ -134,11 +132,11 @@ test('a switch opens the session brief and sets the target; an ended session ope
 
 const SHOTS = process.env.UI_SHOTS;
 const tabs = (page: Page) => page.getByTestId('brief-tab');
-const tabFor = (page: Page, title: string) => tabs(page).filter({ hasText: title });
 
 test('the tab row: one tab per session, a click switches board and Send, close keeps the board', async () => {
   const { app, page } = ctx;
-  await expect(page.getByTestId('brief-tabs')).toHaveCount(0);
+  await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
+  await expect(tabs(page)).toHaveCount(0);
   await register('s1', 'Alpha');
   await register('s2', 'Beta');
   await openFor({ sessionId: 's1' });
@@ -148,35 +146,34 @@ test('the tab row: one tab per session, a click switches board and Send, close k
 
   // Newest first; the session that opened last is active and named on Send.
   await expect(tabs(page)).toHaveText([/Beta/, /Alpha/]);
-  await expect(tabFor(page, 'Beta')).toHaveAttribute('aria-current', 'true');
+  await expect(briefTab(page, 'Beta')).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('send')).toHaveText('Send to Beta');
-  await expect(tabFor(page, 'Alpha').getByTestId('brief-unsent')).toBeVisible();
-  await expect(tabFor(page, 'Beta').getByTestId('brief-unsent')).toHaveCount(0);
+  await expect(briefTab(page, 'Alpha').getByTestId('brief-unsent')).toBeVisible();
+  await expect(briefTab(page, 'Beta').getByTestId('brief-unsent')).toHaveCount(0);
 
-  await tabFor(page, 'Alpha').getByRole('tab').click();
+  await briefTab(page, 'Alpha').getByRole('tab').click();
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
   await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
-  await expect(tabFor(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
+  await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
 
-  // ⌃2 jumps to the second tab, ⌃Tab cycles back.
-  await page.keyboard.press('Control+2');
+  // Notes is ⌃1, so the sessions start at ⌃2; ⌃Tab cycles through Notes too.
+  await page.keyboard.press('Control+3');
   await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
-  await page.keyboard.press('Control+1');
+  await page.keyboard.press('Control+2');
   await expect(page.getByTestId('send')).toHaveText('Send to Beta');
   await page.keyboard.press('Control+Tab');
   await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
+  await page.keyboard.press('Control+Tab');
+  await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByTestId('send')).toHaveText('Send to…');
+  await page.keyboard.press('Control+Shift+Tab');
+  await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
 
-  if (SHOTS) {
-    for (const theme of ['light', 'dark'] as const) {
-      await app.evaluate(({ nativeTheme }, t) => (nativeTheme.themeSource = t), theme);
-      await page.waitForTimeout(250);
-      await page.screenshot({ path: join(SHOTS, `tabs-${theme}.png`), clip: { x: 0, y: 0, width: 1100, height: 140 } });
-    }
-  }
+  await themeShots(ctx, 'tabs', { x: 0, y: 0, width: 1100, height: 140 });
 
   // Closing a tab forgets it; its board stays.
-  await tabFor(page, 'Beta').hover();
-  await tabFor(page, 'Beta').getByTestId('brief-close').click();
+  await briefTab(page, 'Beta').hover();
+  await briefTab(page, 'Beta').getByTestId('brief-close').click();
   await expect(tabs(page)).toHaveText([/Alpha/]);
   expect(await app.evaluate(() => (globalThis as any).__companion.store.exists('Beta'))).toBe(true);
 });
@@ -191,10 +188,10 @@ test('an ended session keeps its tab, which still opens its board', async () => 
   await openFor({ sessionId: 's2' });
   await sock(socketPath, 'DELETE', '/sessions/s1');
 
-  await expect(tabFor(page, 'Alpha').locator('.dot')).not.toHaveClass(/live/);
-  await tabFor(page, 'Alpha').getByRole('tab').click();
+  await expect(briefTab(page, 'Alpha').locator('.dot')).not.toHaveClass(/live/);
+  await briefTab(page, 'Alpha').getByRole('tab').click();
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
-  await expect(tabFor(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
+  await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
   // An ended session cannot take a Send, so Send asks where to go.
   await expect(page.getByTestId('send')).toHaveText('Send to…');
 });
@@ -217,5 +214,5 @@ test('tabs that do not fit wait behind +N', async () => {
   if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tabs-overflow-open.png'), clip: { x: 0, y: 0, width: 560, height: 480 } });
   await page.getByTestId('brief-list-item').filter({ hasText: 'Alpha' }).click();
   await expect(page.getByTestId('send')).toHaveText('Send to Alpha');
-  await expect(tabFor(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
+  await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
 });

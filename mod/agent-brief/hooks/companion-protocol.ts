@@ -32,6 +32,15 @@ export interface SessionInfo {
   summary?: string
   /** Where the session runs, for its label and for jumping back to it. */
   host?: SessionHost
+  /** Set by the app. True when the user asked Claude to keep an items file for this session. */
+  trackItems?: boolean
+  /** Set by the app when tracking is on: `<cwd>/.feedback/items/<sessionId>.md`. */
+  itemsPath?: string
+}
+
+// GET /sessions/:id → SessionInfo. PATCH /sessions/:id with TrackingPatch → SessionInfo.
+export interface TrackingPatch {
+  trackItems: boolean
 }
 
 export interface SessionHost {

@@ -54,6 +54,19 @@ export interface SessionInfo {
   host?: SessionHost;
   /** Set by the app. Epoch ms of the last register or poll. */
   lastSeen?: number;
+  /** Set by the app. True when the user asked Claude to keep an items file for this session. */
+  trackItems?: boolean;
+  /** Set by the app when tracking is on: `<cwd>/.feedback/items/<sessionId>.md`. */
+  itemsPath?: string;
+}
+
+// GET   /sessions/:id              → SessionInfo, with its tracking state
+// PATCH /sessions/:id              TrackingPatch → SessionInfo
+// Tracking is the user's choice, from the panel or `/track` in the session.
+// The app only reads the items file; Claude writes it, and the panel appends the user's decisions.
+
+export interface TrackingPatch {
+  trackItems: boolean;
 }
 
 export interface SessionHost {
