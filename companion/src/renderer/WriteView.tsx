@@ -1,38 +1,14 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { draftTitle } from '../shared/drafts';
-import type { BoardEntry, Draft, Template } from '../shared/ipc';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { draftPreview, draftTitle } from '../shared/drafts';
+import type { BoardEntry, Draft, SessionBriefEntry, Template } from '../shared/ipc';
 import { plainSlots } from '../shared/slots';
-import type { DraftBook } from './drafts';
+import { onTab, type DraftBook } from './drafts';
 import { CheckIcon, ChevronIcon, GripIcon, LinkIcon, MoreIcon, PlusIcon, TrashIcon } from './Icons';
-import { focusFirstSlot, SlotArea } from './SlotArea';
+import { focusFirstSlot, RichEditor, type RichEditorHandle } from './editor/RichEditor';
+import { newPictureId } from './editor/pictures';
+import { SlotArea } from './SlotArea';
+import { useEscape, usePointerOutside, useStore } from './hooks';
 import type { TemplateShelf } from './templates';
-
-export function useDrafts(book: DraftBook): DraftBook {
-  useSyncExternalStore(
-    (fn) => book.subscribe(fn),
-    () => book.version,
-  );
-  return book;
-}
-
-/** Closes a menu on Escape. The menu carries `data-escape-owner`, so the panel stays up. */
-export function useEscape(onClose: () => void): void {
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-}
-
-export function useTemplates(shelf: TemplateShelf): TemplateShelf {
-  useSyncExternalStore(
-    (fn) => shelf.subscribe(fn),
-    () => shelf.version,
-  );
-  return shelf;
-}
 
 /** `5m`, `3h`, or a date, for the list. */
 export function ago(ms: number, now = Date.now()): string {
@@ -45,6 +21,12 @@ export function ago(ms: number, now = Date.now()): string {
 
 const matches = (d: Draft, query: string) => !query || d.body.toLowerCase().includes(query.toLowerCase());
 
+/** A session tab, as the filing menu names it. */
+export type FilingTab = Pick<SessionBriefEntry, 'sessionId' | 'title'>;
+
+/** The session tab a draft is filed under, or undefined when it shows on the Notes tab. */
+const filedTab = (d: Draft, tabs: FilingTab[]) => tabs.find((t) => t.sessionId === d.sessionId);
+
 /** Write mode: Ready drafts, notes and templates on the left; the open one on the right. */
 export function WriteView(props: {
   book: DraftBook;
@@ -52,11 +34,19 @@ export function WriteView(props: {
   listBoards: () => Promise<BoardEntry[]>;
   /** Bumped to put the cursor in the editor. */
   focusRequest: number;
+  /** The session tab on show. Undefined on the Notes tab. */
+  sessionId?: string;
+  /** The session tabs a draft can be filed under. */
+  tabs: FilingTab[];
   onSend: () => void;
   onOpenBoard: (board: string) => void;
+  /** A draft moved to another tab; `where` names it. */
+  onFiled?: (where: string) => void;
+  /** The filing menu opened. A toast would cover it, so App clears one. */
+  onFilingMenu?: () => void;
 }) {
-  const book = useDrafts(props.book);
-  const shelf = useTemplates(props.shelf);
+  const book = useStore(props.book);
+  const shelf = useStore(props.shelf);
   const [query, setQuery] = useState('');
   const [templateId, setTemplateId] = useState<string>();
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -82,7 +72,7 @@ export function WriteView(props: {
   const useTemplate = (t: Template) => {
     setNewMenu(false);
     setTemplateId(undefined);
-    book.create(t.body);
+    book.create(t.body, undefined, props.sessionId);
     focusFirstSlot('draft-body');
   };
   const newTemplate = async () => {
@@ -90,8 +80,31 @@ export function WriteView(props: {
     const created = await shelf.create('New template', '');
     openTemplate(created.id);
   };
-  const ready = book.ready.filter((d) => matches(d, query));
-  const notes = book.drafts.filter((d) => d.status === 'note' && matches(d, query) && (d.body.trim() || d.board || d.id === selected?.id));
+  const tabIds = props.tabs.map((t) => t.sessionId);
+  const here = (d: Draft) => onTab(d, props.sessionId, tabIds);
+  const ready = book.ready.filter((d) => here(d) && matches(d, query));
+  const notes = book.drafts.filter(
+    (d) => d.status === 'note' && here(d) && matches(d, query) && (d.body.trim() || d.board || d.id === selected?.id),
+  );
+
+  /** Moves a Ready draft to `index` among the ones shown, counted without it, keeping other tabs' order. */
+  const moveShown = (id: string, index: number) => {
+    const rest = ready.filter((d) => d.id !== id);
+    if (index < 0 || rest.length === 0) return;
+    const queue = book.ready.filter((d) => d.id !== id);
+    const at = index < rest.length ? queue.indexOf(rest[index]!) : queue.indexOf(rest[rest.length - 1]!) + 1;
+    book.move(id, at);
+  };
+
+  /** Files a draft. One that leaves this tab closes, and the next draft here opens. */
+  const fileUnder = (d: Draft, sessionId: string | undefined) => {
+    if (d.sessionId === sessionId) return;
+    book.file(d.id, sessionId);
+    const moved = book.get(d.id);
+    if (!moved || here(moved)) return;
+    book.select(book.firstOnTab(props.sessionId, tabIds)?.id);
+    props.onFiled?.(sessionId ? (filedTab(moved, props.tabs)?.title ?? 'that session') : 'Notes');
+  };
 
   return (
     <div className="write" data-testid="write">
@@ -112,7 +125,7 @@ export function WriteView(props: {
               aria-label="New note"
               onClick={() => {
                 setTemplateId(undefined);
-                book.create();
+                book.create('', undefined, props.sessionId);
               }}
               data-testid="draft-new"
             >
@@ -135,13 +148,13 @@ export function WriteView(props: {
           </div>
         </div>
         <div className="sections">
-          <ReadyQueue book={book} drafts={ready} selectedId={selected?.id} reorder={!query} onOpen={openDraft} />
+          <ReadyQueue drafts={ready} tabs={props.tabs} selectedId={selected?.id} reorder={!query} onOpen={openDraft} onMove={moveShown} />
           <section>
             <SectionHeader title="Notes" count={notes.length} />
             {notes.length === 0 && <p className="muted empty">{query ? 'No notes match.' : 'Notes you jot down wait here until you send them.'}</p>}
             <ul>
               {notes.map((d) => (
-                <DraftRow key={d.id} draft={d} selected={d.id === selected?.id} onSelect={() => openDraft(d.id)} />
+                <DraftRow key={d.id} draft={d} tabs={props.tabs} selected={d.id === selected?.id} onSelect={() => openDraft(d.id)} />
               ))}
             </ul>
           </section>
@@ -194,6 +207,9 @@ export function WriteView(props: {
           book={book}
           shelf={shelf}
           draft={selected}
+          tabs={props.tabs}
+          onFile={(sessionId) => fileUnder(selected, sessionId)}
+          onFilingMenu={props.onFilingMenu}
           listBoards={props.listBoards}
           focusRequest={props.focusRequest}
           onSend={props.onSend}
@@ -209,8 +225,15 @@ export function WriteView(props: {
 }
 
 /** Ready drafts in send order. Drag the grip, or press ⌥↑ and ⌥↓, to reorder. */
-function ReadyQueue(props: { book: DraftBook; drafts: Draft[]; selectedId?: string; reorder: boolean; onOpen: (id: string) => void }) {
-  const { book } = props;
+function ReadyQueue(props: {
+  drafts: Draft[];
+  tabs: FilingTab[];
+  selectedId?: string;
+  reorder: boolean;
+  onOpen: (id: string) => void;
+  /** Moves a draft to `index` among these drafts, counted without it. */
+  onMove: (id: string, index: number) => void;
+}) {
   const [dragging, setDragging] = useState<string>();
   const [dropAt, setDropAt] = useState<number>();
 
@@ -226,7 +249,7 @@ function ReadyQueue(props: { book: DraftBook; drafts: Draft[]; selectedId?: stri
   const nudge = (e: KeyboardEvent, d: Draft, i: number) => {
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
-    book.move(d.id, e.key === 'ArrowUp' ? i - 1 : i + 1);
+    props.onMove(d.id, e.key === 'ArrowUp' ? i - 1 : i + 1);
   };
 
   return (
@@ -238,6 +261,7 @@ function ReadyQueue(props: { book: DraftBook; drafts: Draft[]; selectedId?: stri
           <DraftRow
             key={d.id}
             draft={d}
+            tabs={props.tabs}
             selected={d.id === props.selectedId}
             onSelect={() => props.onOpen(d.id)}
             onKeyDown={props.reorder ? (e) => nudge(e, d, i) : undefined}
@@ -262,7 +286,7 @@ function ReadyQueue(props: { book: DraftBook; drafts: Draft[]; selectedId?: stri
                     },
                     onDrop: (e) => {
                       e.preventDefault();
-                      if (dragging) book.move(dragging, indexAt(e, i));
+                      if (dragging) props.onMove(dragging, indexAt(e, i));
                       setDragging(undefined);
                       setDropAt(undefined);
                     },
@@ -278,6 +302,7 @@ function ReadyQueue(props: { book: DraftBook; drafts: Draft[]; selectedId?: stri
 
 function DraftRow(props: {
   draft: Draft;
+  tabs: FilingTab[];
   selected: boolean;
   onSelect: () => void;
   onKeyDown?: (e: KeyboardEvent) => void;
@@ -293,7 +318,8 @@ function DraftRow(props: {
   const { draft: d, drag } = props;
   const body = plainSlots(d.body);
   const title = draftTitle(body) || 'Empty note';
-  const preview = body.split('\n').filter((l) => l.trim())[1]?.trim();
+  const preview = draftPreview(body);
+  const filed = filedTab(d, props.tabs);
   return (
     <li
       className={drag?.dropBefore ? 'drop-before' : undefined}
@@ -322,16 +348,17 @@ function DraftRow(props: {
             <span className={d.body.trim() ? 'title' : 'title muted'}>{title}</span>
             <span className="muted when">{ago(d.updatedAt)}</span>
           </span>
-          {(d.board || preview) && (
-            <span className="muted preview">
-              {d.board && (
-                <span className="board-tag" title={`Goes with the board ${d.board}`}>
-                  <LinkIcon /> {d.board}
-                </span>
-              )}
-              {preview}
+          <span className="muted preview">
+            <span className={filed ? 'filing-tag filed' : 'filing-tag'} data-testid="draft-row-filing">
+              {filed?.title ?? 'Unfiled'}
             </span>
-          )}
+            {d.board && (
+              <span className="board-tag" title={`Goes with the board ${d.board}`}>
+                <LinkIcon /> {d.board}
+              </span>
+            )}
+            {preview}
+          </span>
         </span>
       </button>
     </li>
@@ -388,14 +415,7 @@ function DeleteButton(props: { what: string; onDelete: () => void; testId: strin
 /** Blank notes come from ⌘N; this menu starts one from a template. */
 function NewMenu(props: { templates: Template[]; onUse: (t: Template) => void; onNewTemplate: () => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const anchor = ref.current?.parentElement;
-      if (anchor && !anchor.contains(e.target as Node)) props.onClose();
-    };
-    window.addEventListener('pointerdown', onDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
-  }, [props.onClose]);
+  usePointerOutside(ref, props.onClose, { parent: true });
   useEscape(props.onClose);
   return (
     <div className="popover-panel new-menu" ref={ref} role="menu" aria-label="New from a template" data-escape-owner data-testid="new-menu">
@@ -497,41 +517,55 @@ function TemplateNamer(props: { shelf: TemplateShelf; body: string; onDone: (mes
   );
 }
 
-/** A ⋯ button whose menu opens upward, for the editor's footer. */
-function MoreMenu(props: { label: string; testId: string; children: (close: () => void) => ReactNode }) {
+/** A button whose menu opens upward, for the editor's footer. `trigger` draws the button. */
+function FooterMenu(props: {
+  trigger: (open: boolean, toggle: () => void) => ReactNode;
+  className?: string;
+  children: (close: () => void) => ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener('pointerdown', onDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
-  }, [open]);
+  usePointerOutside(ref, close, { active: open });
   return (
     <div className="anchor" ref={ref}>
-      <button
-        className="ghost icon-button"
-        aria-label={props.label}
-        title={props.label}
-        aria-haspopup="menu"
-        aria-pressed={open}
-        onClick={() => setOpen((o) => !o)}
-        data-testid={props.testId}
-      >
-        <MoreIcon />
-      </button>
-      {open && <MoreMenuPanel onClose={close}>{props.children(close)}</MoreMenuPanel>}
+      {props.trigger(open, () => setOpen((o) => !o))}
+      {open && (
+        <MoreMenuPanel onClose={close} className={props.className}>
+          {props.children(close)}
+        </MoreMenuPanel>
+      )}
     </div>
   );
 }
 
-function MoreMenuPanel(props: { onClose: () => void; children: ReactNode }) {
+/** A ⋯ button whose menu opens upward. */
+function MoreMenu(props: { label: string; testId: string; children: (close: () => void) => ReactNode }) {
+  return (
+    <FooterMenu
+      trigger={(open, toggle) => (
+        <button
+          className="ghost icon-button"
+          aria-label={props.label}
+          title={props.label}
+          aria-haspopup="menu"
+          aria-pressed={open}
+          onClick={toggle}
+          data-testid={props.testId}
+        >
+          <MoreIcon />
+        </button>
+      )}
+    >
+      {props.children}
+    </FooterMenu>
+  );
+}
+
+function MoreMenuPanel(props: { onClose: () => void; children: ReactNode; className?: string }) {
   useEscape(props.onClose);
   return (
-    <div className="popover-panel more-menu up" role="menu" data-escape-owner>
+    <div className={`popover-panel more-menu up${props.className ? ` ${props.className}` : ''}`} role="menu" data-escape-owner>
       {props.children}
     </div>
   );
@@ -553,18 +587,74 @@ function DeleteItem(props: { what: string; onDelete: () => void; testId: string 
   );
 }
 
-/** The open draft: its text, its board, Ready and Delete. */
+/** The session a draft is filed under, as a chip whose menu files it elsewhere. */
+function FilingMenu(props: { draft: Draft; tabs: FilingTab[]; onFile: (sessionId: string | undefined) => void; onOpen?: () => void }) {
+  const filed = filedTab(props.draft, props.tabs);
+  const item = (sessionId: string | undefined, label: string, close: () => void) => (
+    <button
+      key={sessionId ?? ''}
+      className="ghost"
+      role="menuitemradio"
+      aria-checked={filed?.sessionId === sessionId}
+      onClick={() => {
+        close();
+        props.onFile(sessionId);
+      }}
+      data-testid="file-under"
+      data-session={sessionId ?? ''}
+    >
+      <span className="label-text">{label}</span>
+      {filed?.sessionId === sessionId && <CheckIcon />}
+    </button>
+  );
+  return (
+    <FooterMenu
+      className="filing-menu"
+      trigger={(open, toggle) => (
+        <button
+          className={filed ? 'chip filing filed' : 'chip filing'}
+          aria-haspopup="menu"
+          aria-pressed={open}
+          title={filed ? `Filed under ${filed.title}. Click to file it elsewhere.` : 'On the Notes tab. Click to file it under a session.'}
+          onClick={() => {
+            if (!open) props.onOpen?.();
+            toggle();
+          }}
+          data-testid="draft-filing"
+        >
+          <span className="label-text">{filed?.title ?? 'Unfiled'}</span>
+          <ChevronIcon />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <h3>File under</h3>
+          {props.tabs.map((t) => item(t.sessionId, t.title, close))}
+          {item(undefined, 'Unfiled', close)}
+        </>
+      )}
+    </FooterMenu>
+  );
+}
+
+const NO_PICTURES: Record<string, string> = {};
+
+/** The open draft: its text, its board, where it is filed, Ready and Delete. */
 function DraftEditor(props: {
   book: DraftBook;
   shelf: TemplateShelf;
   draft: Draft;
+  tabs: FilingTab[];
+  onFile: (sessionId: string | undefined) => void;
+  onFilingMenu?: () => void;
   listBoards: () => Promise<BoardEntry[]>;
   focusRequest: number;
   onSend: () => void;
   onOpenBoard: (board: string) => void;
 }) {
   const { book, draft } = props;
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const editor = useRef<RichEditorHandle>(null);
   const [boards, setBoards] = useState<string[]>([]);
   const [naming, setNaming] = useState(false);
   const [saved, setSaved] = useState<string>();
@@ -579,28 +669,35 @@ function DraftEditor(props: {
   }, [props.listBoards]);
 
   useEffect(() => {
-    ref.current?.focus();
+    editor.current?.focus();
   }, [props.focusRequest]);
 
   const ready = draft.status === 'ready';
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Enter' || !e.metaKey) return;
-    e.preventDefault();
+  const onKeyDown = (e: globalThis.KeyboardEvent) => {
+    if (e.key !== 'Enter' || !e.metaKey) return false;
     if (e.shiftKey) book.setReady(draft.id, !ready);
     else props.onSend();
+    return true;
+  };
+  const attach = (dataUrl: string) => {
+    const id = newPictureId();
+    book.attach(draft.id, id, dataUrl);
+    return id;
   };
 
   const boardOptions = draft.board && !boards.includes(draft.board) ? [draft.board, ...boards] : boards;
 
   return (
     <section className="editor">
-      <SlotArea
-        areaRef={ref}
+      <RichEditor
+        editorRef={editor}
         testId="draft-body"
         label="Draft"
-        placeholder={'Write a prompt or jot a note. Type / for a template.\n\n⌘↩ sends it. ⌘⇧↩ marks it Ready.'}
+        placeholder={'Write a prompt or jot a note. Type / for blocks and templates.\n\n⌘↩ sends it. ⌘⇧↩ marks it Ready.'}
         value={draft.body}
         onChange={(body) => book.edit(draft.id, body)}
+        attachments={draft.attachments ?? NO_PICTURES}
+        onAttach={attach}
         onKeyDown={onKeyDown}
         templates={props.shelf.templates}
       />
@@ -626,6 +723,7 @@ function DraftEditor(props: {
             Open board
           </button>
         )}
+        <FilingMenu draft={draft} tabs={props.tabs} onFile={props.onFile} onOpen={props.onFilingMenu} />
         <span className="spacer" />
         {(book.saveError || props.shelf.saveError) && (
           <span className="error" title={book.saveError ?? props.shelf.saveError} data-testid="save-error">

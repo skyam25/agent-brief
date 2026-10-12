@@ -51,7 +51,8 @@ test('opened standalone, Send asks where to go and never picks a session itself'
   await page.screenshot({ path: join(RESULTS, 'send-chooser.png') });
   expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
   await expect(page.getByTestId('send')).toHaveText('Send to…');
-  await expect(page.getByTestId('brief-tabs')).toHaveCount(0);
+  await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByTestId('brief-tab')).toHaveCount(0);
   expect(await panelVisible()).toBe(true);
 });
 

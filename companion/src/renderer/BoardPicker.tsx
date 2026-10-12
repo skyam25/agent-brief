@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { BoardEntry, BoardHost } from '../shared/ipc';
 import { CheckIcon, ChevronIcon, PencilIcon, PlusIcon, TrashIcon } from './Icons';
-import { useEscape } from './WriteView';
+import { useEscape, usePointerOutside } from './hooks';
 
 type Mode = { kind: 'idle' } | { kind: 'new' } | { kind: 'rename' };
 
@@ -37,14 +37,7 @@ export function BoardPicker(props: {
     setMode({ kind: 'new' });
   }, [props.newRequest]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener('pointerdown', onDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
-  }, [open]);
+  usePointerOutside(ref, () => setOpen(false), { active: open });
 
   const submit = () => {
     const name = draft.trim();

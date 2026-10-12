@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Draft } from '../shared/ipc';
-import { DRAFT_SAVE_MS, DraftBook } from './drafts';
+import { DRAFT_SAVE_MS, DraftBook, onTab } from './drafts';
 
 function fakeHost(initial: Draft[] = []) {
   const disk = new Map(initial.map((d) => [d.id, d]));
@@ -55,6 +55,40 @@ describe('DraftBook', () => {
     expect(book.selectedId).toBe('from-main');
     expect(book.get(empty.id)).toBeUndefined();
     expect(book.create('', 'from-main').id).toBe('from-main');
+  });
+
+  it('files a new note under a session, and moves it between sessions', async () => {
+    const host = fakeHost();
+    const book = new DraftBook(host, () => t++);
+    const unfiled = book.create();
+    const filed = book.create('', undefined, 's1');
+    expect(filed.id).not.toBe(unfiled.id);
+    expect(filed.sessionId).toBe('s1');
+
+    book.edit(filed.id, 'For s1');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.disk.get(filed.id)?.sessionId).toBe('s1');
+
+    book.file(filed.id, 's2');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.disk.get(filed.id)?.sessionId).toBe('s2');
+
+    book.file(filed.id, undefined);
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.disk.get(filed.id)).not.toHaveProperty('sessionId');
+  });
+
+  it('keeps its own filing over disk while that filing is unsaved', async () => {
+    const host = fakeHost([saved('mine')]);
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.file('mine', 's2');
+    host.disk.set('mine', { ...host.disk.get('mine')!, sessionId: 's1' });
+
+    await book.load();
+    expect(book.get('mine')?.sessionId).toBe('s2');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.disk.get('mine')?.sessionId).toBe('s2');
   });
 
   it('deletes a saved note that was emptied and then left', async () => {
@@ -178,5 +212,78 @@ describe('DraftBook during a Send or a save', () => {
     const note = book.create('keep me');
     await book.flush();
     expect(host.disk.get(note.id)?.body).toBe('keep me');
+  });
+});
+
+describe('DraftBook pictures', () => {
+  const png = 'data:image/png;base64,AAAA';
+  const gif = 'data:image/gif;base64,BBBB';
+
+  it('keeps a pasted picture while the body references it, and saves it with the draft', async () => {
+    const host = fakeHost([saved('a')]);
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.attach('a', 'shot01', png);
+    book.edit('a', 'Look at this\n\n![login form](att:shot01)');
+    await book.flush();
+    expect(host.disk.get('a')?.attachments).toEqual({ shot01: png });
+  });
+
+  it('drops a picture once the body no longer references it, and removes the field when none remain', async () => {
+    const host = fakeHost([saved('a', { body: '![](att:shot01) ![](att:shot02)', attachments: { shot01: png, shot02: gif } })]);
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.edit('a', '![](att:shot02)');
+    expect(book.get('a')?.attachments).toEqual({ shot02: gif });
+    book.edit('a', 'words only');
+    expect(book.get('a')).not.toHaveProperty('attachments');
+    await book.flush();
+    expect(host.disk.get('a')).not.toHaveProperty('attachments');
+  });
+
+  it('brings a dropped picture back when an undo restores its reference', async () => {
+    const book = new DraftBook(fakeHost([saved('a')]), () => t++);
+    await book.load();
+    book.attach('a', 'shot01', png);
+    book.edit('a', '![](att:shot01)');
+    book.edit('a', '');
+    book.edit('a', '![](att:shot01)');
+    expect(book.get('a')?.attachments).toEqual({ shot01: png });
+  });
+
+  it('finds a picture pasted from another draft', async () => {
+    const book = new DraftBook(fakeHost([saved('a', { body: '![](att:shot01)', attachments: { shot01: png } }), saved('b')]), () => t++);
+    await book.load();
+    book.edit('b', 'Same as before ![](att:shot01)');
+    expect(book.get('b')?.attachments).toEqual({ shot01: png });
+  });
+
+  it('counts a draft holding only a picture as not empty', async () => {
+    const host = fakeHost();
+    const book = new DraftBook(host, () => t++);
+    const note = book.create();
+    book.attach(note.id, 'shot01', png);
+    book.edit(note.id, '![](att:shot01)');
+    book.create();
+    expect(book.get(note.id)?.attachments).toEqual({ shot01: png });
+    await book.flush();
+    expect(host.disk.has(note.id)).toBe(true);
+  });
+});
+
+describe('onTab', () => {
+  it('puts a filed note on its session tab, and unfiled or orphaned notes on Notes', async () => {
+    const tabs = ['s1'];
+    const unfiled = saved('u');
+    const filed = saved('f', { sessionId: 's1' });
+    const orphan = saved('o', { sessionId: 'gone' });
+    expect([unfiled, filed, orphan].map((d) => onTab(d, 's1', tabs))).toEqual([false, true, false]);
+    expect([unfiled, filed, orphan].map((d) => onTab(d, undefined, tabs))).toEqual([true, false, true]);
+
+    const book = new DraftBook(fakeHost([saved('e', { body: ' ', sessionId: 's1' }), filed, orphan]), () => t++);
+    await book.load();
+    expect(book.firstOnTab('s1', tabs)?.id).toBe('f');
+    expect(book.firstOnTab(undefined, tabs)?.id).toBe('o');
+    expect(book.firstOnTab('s2', tabs)).toBeUndefined();
   });
 });

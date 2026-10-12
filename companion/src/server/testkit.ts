@@ -76,11 +76,11 @@ export function tempDir(prefix = 'cs'): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-/** A server on a short temp socket with a controllable clock. */
-export function harness() {
+/** A server on a short temp socket with a controllable clock. `extra` adds or replaces backend methods. */
+export function harness<B extends Partial<BoardBackend>>(extra?: B) {
   const dir = tempDir();
   const socketPath = join(dir, 's.sock');
-  const backend = fakeBackend();
+  const backend = { ...fakeBackend(), ...extra } as ReturnType<typeof fakeBackend> & B;
   const clock = { t: 1_000_000 };
   const server = createCompanionServer({ socketPath, backend, now: () => clock.t });
   const call = (method: string, path: string, body?: unknown) =>

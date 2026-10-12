@@ -1,6 +1,6 @@
 # agent-brief
 
-The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
+The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. With `/track` it has Claude keep a list of items you answer in the panel. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
 
 ## How it works
 
@@ -18,7 +18,7 @@ Recordings never land in a project on their own, so a session open in another pr
 - **Chrome:** turn off Settings › Downloads › "Ask where to save each file before downloading". Otherwise every export opens a save dialog.
 - **Transcription:** install yap and ffmpeg (`brew install yap ffmpeg`). yap refuses WebM, so ffmpeg always runs first.
 - **Node:** Node 20 or newer must be on `PATH`, or set `nodePath`.
-- **Install the mod:** run `claude plugin marketplace add skyam25/agent-brief` once, then `claude plugin install agent-brief@agent-brief`. From a checkout, add the repository folder instead; the plugin is then read from it, so `/reload-plugins` picks up edits.
+- **Install the mod:** with the Agent Brief app, pick Install Claude Code Plugin… from its menu. Claude Code then reads the plugin from inside the app, so it updates with the app. Without the app, run `claude plugin marketplace add skyam25/agent-brief` once, then `claude plugin install agent-brief@agent-brief`. From a checkout, add the repository folder instead; the plugin is then read from it, so `/reload-plugins` picks up edits.
 - **Load it for one session:** run `claude --plugin-dir <checkout>/mod/agent-brief`.
 
 ### Optional: whisper.cpp
@@ -52,6 +52,7 @@ The mod links each session to the Agent Brief sketch panel over a Unix socket. I
 
 - At `session.start` the mod registers the session (`POST /sessions` with id, folder and title) once `/health` answers. It registers again every 60 s, and again whenever the app comes back after being down.
 - At `session.end` it sends `DELETE /sessions/<id>`.
+- `/track` sends `PATCH /sessions/<id>` with `{ trackItems }`. Each system prompt reads `GET /sessions/<id>` for `trackItems` and `itemsPath`.
 - A loop long-polls `GET /deliveries?session=<id>&wait=25`. While the app is down, the loop checks `/health` after 5 s, then 10 s, 20 s and 30 s, and keeps checking every 30 s.
 - A delivery is acknowledged after it lands. The mod remembers delivered ids, so a delivery the app lists twice (for example after a failed ack) is never filled or sent twice.
 
@@ -77,11 +78,47 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 - Text after `/write` starts the note.
 - `/write last` starts it with Claude's newest reply, to edit and send back.
+- The note is filed under this session, so it shows on the session's tab in the panel rather than in Notes.
 - The **¶ Write** button moves the prompt box's draft into the note and empties the box. Large pastes, which the box shows as `[Pasted text #1 +N lines]`, go in as the text they held. Pasted images stay behind as `[Image #N]`, because the plugin cannot read their bytes.
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
 The band above the prompt has a button for each mode, **✎ Sketch** and **¶ Write**.
+
+### Item tracking and `/track [on|off]`
+
+Item tracking is off for every session until you turn it on. While it is off, the mod adds nothing to Claude's prompt.
+
+- Turn it on with the **Track items** switch in the panel, or with `/track`. `/track on` and `/track off` set it, and a bare `/track` flips it.
+- `/track` never starts the app. When the app is down it replies `Agent Brief is not running. Start it, then run /track again.`
+- With tracking on, each system prompt gets a section that tells Claude to keep `<project>/.feedback/items/<session id>.md`. Claude writes the file only when the work has distinct items, such as several asks, a feedback list or numbered marks on a sketch.
+- The mod reads the state with one `GET /sessions/<id>` per prompt while the app is up. If the app stops answering, the mod keeps the last state it read.
+
+Claude writes the file in this format, and never edits a `You:` line:
+
+```markdown
+# Items · <short title>
+
+- [ ] #1 <title>
+      Claude: <what Claude proposes, a question, or two options>
+      You: <your decision>
+      Out: <a file Claude is writing for it, relative to the project>
+- [x] #2 <title>
+      Claude: done · <what changed>
+      Out: <path>
+```
+
+Claude puts questions on items instead of asking in the chat. It adds an `Out:` line for each file or screenshot it writes for an item as soon as the file exists, and the panel shows those as links. You answer them in the panel, and Send delivers your decisions as a prompt like this:
+
+```text
+Decisions on 2 items in .feedback/items/<id>.md:
+#2 Sidebar rows too tight: 44 / 12
+#3 Confirm copy: Pay $36
+```
+
+Every reply that changed an item ends with two lines, `Done: #…` and `Open: #…`, with `none` for an empty list.
+
+Item tracking needs Agent Brief 0.2.6 or newer, which serves `GET` and `PATCH /sessions/<id>`. On an older app, `/track` says to update, and the prompt stays unchanged.
 
 ### Skill
 

@@ -1,28 +1,21 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { draftTitle } from '../shared/drafts';
 import type { DraftBook } from './drafts';
 import { CloseIcon, LinkIcon, PlusIcon } from './Icons';
-import { useDrafts, useEscape } from './WriteView';
+import { useEscape, usePointerOutside, useStore } from './hooks';
 
 /**
  * Sketch mode's link to Write mode. With a draft linked to the board, a chip
  * names it and Send leads with its text. Without one, a menu pulls a draft in.
  */
 export function PullIn(props: { book: DraftBook; board: string; onOpen: (id: string) => void }) {
-  const book = useDrafts(props.book);
+  const book = useStore(props.book);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const linked = book.linkedTo(props.board);
   const close = useCallback(() => setOpen(false), []);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener('pointerdown', onDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
-  }, [open]);
+  usePointerOutside(ref, () => setOpen(false), { active: open });
 
   if (linked) {
     return (

@@ -12,6 +12,11 @@ const TERMINALS: Record<string, string> = {
   tmux: 'tmux',
 };
 
+const GHOSTTY_BUNDLE = 'com.mitchellh.ghostty';
+
+/** True for a session in Ghostty, including one under tmux there. */
+export const isGhostty = (host: SessionHost | undefined) => host?.bundleId === GHOSTTY_BUNDLE || host?.terminal === 'ghostty';
+
 /** Where the session runs, such as `herdr` or `Ghostty`. */
 export function hostLabel(host: SessionHost | undefined): string | undefined {
   if (host?.herdrPane) return 'herdr';

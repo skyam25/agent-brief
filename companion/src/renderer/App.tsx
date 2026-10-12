@@ -1,19 +1,23 @@
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { SessionsResponse } from '../protocol';
+import { draftImages } from '../shared/drafts';
 import { findSlots } from '../shared/slots';
-import type { CompanionApi, InitInfo, Launcher, Mode, Outgoing, SendResult, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
+import type { CompanionApi, Decision, Draft, InitInfo, Launcher, Mode, Outgoing, SendResult, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
 import { BoardPicker } from './BoardPicker';
 import { BriefTabs } from './BriefTabs';
 import { BoardController, parseScene, type LoadedScene } from './controller';
-import { DraftBook, type SentRevision } from './drafts';
-import { focusFirstSlot } from './SlotArea';
+import { DraftBook, onTab, type SentRevision } from './drafts';
+import { focusFirstSlot } from './editor/RichEditor';
 import { TemplateShelf } from './templates';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
 import { CloseIcon, GearIcon, HistoryIcon, NotesIcon } from './Icons';
+import { ItemsStore } from './items';
+import { ItemsView } from './ItemsView';
 import { PullIn } from './PullIn';
+import { ResumeRow } from './ResumeRow';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
@@ -26,6 +30,7 @@ interface Boot {
   scene: LoadedScene;
   book: DraftBook;
   shelf: TemplateShelf;
+  items: ItemsStore;
 }
 
 async function boot(host: CompanionApi): Promise<Boot> {
@@ -35,10 +40,12 @@ async function boot(host: CompanionApi): Promise<Boot> {
   const controller = new BoardController(host, { board: info.currentBoard, notes, scene: loaded });
   const book = new DraftBook(host);
   const shelf = new TemplateShelf(host);
+  const items = new ItemsStore(host);
   await Promise.all([book.load(), shelf.load()]);
-  // A launch in Write mode opens the draft at the top of the list.
-  if (info.mode === 'write' && book.drafts[0]) book.select(book.drafts[0].id);
-  return { info, controller, scene: loaded, book, shelf };
+  // A launch in Write mode opens on the Notes tab, at the top of its list.
+  const first = book.drafts.find((d) => !d.sessionId);
+  if (info.mode === 'write' && first) book.select(first.id);
+  return { info, controller, scene: loaded, book, shelf, items };
 }
 
 export function App({ host }: { host: CompanionApi }) {
@@ -56,11 +63,17 @@ function errorText(err: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
 
+/** The decisions an Items Send delivers, so success can clear them. */
+interface Decided {
+  sessionId: string;
+  decisions: Decision[];
+}
+
 const MIC_DENIED =
   'Microphone access is off. Turn it on in System Settings > Privacy & Security > Microphone, then try again.';
 
-/** Sketch or Write, at the left of the strip. */
-function ModeSwitch(props: { mode: Mode; onChange: (mode: Mode) => void }) {
+/** Sketch, Write or Items, at the left of the strip. Items needs a session tab. */
+function ModeSwitch(props: { mode: Mode; hasItems: boolean; onChange: (mode: Mode) => void }) {
   const tab = (mode: Mode, label: string, key: string) => (
     <button
       role="tab"
@@ -77,11 +90,12 @@ function ModeSwitch(props: { mode: Mode; onChange: (mode: Mode) => void }) {
     <div className="cluster modes" role="tablist" aria-label="Mode">
       {tab('sketch', 'Sketch', '⌘1')}
       {tab('write', 'Write', '⌘2')}
+      {props.hasItems && tab('items', 'Items', '⌘3')}
     </div>
   );
 }
 
-function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: CompanionApi }) {
+function Panel({ host, info, controller, scene, book, shelf, items }: Boot & { host: CompanionApi }) {
   const board = useSyncExternalStore(
     (fn) => controller.subscribe(fn),
     () => controller.board,
@@ -111,6 +125,8 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   const [focusRequest, setFocusRequest] = useState(0);
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  /** The tab on show: its session, or undefined for Notes, with every session tab's id. */
+  const tabScope = useRef<{ sessionId?: string; tabs: string[] }>({ tabs: [] });
   const popoverOpenRef = useRef(false);
   popoverOpenRef.current = settingsOpen || historyOpen || chooserOpen;
 
@@ -119,13 +135,16 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
     (next: Mode) => {
       setModeState(next);
       host.setMode(next);
-      if (next !== 'write') return;
-      // Write mode has no mic button, so a recording stops here and waits for the next sketch Send.
+      if (next === 'sketch') return;
+      // Only Sketch has a mic button, so a recording stops here and waits for the next sketch Send.
       if (controller.recorder.recording) void controller.recorder.stop();
-      if (!book.selected) {
-        const first = book.drafts.find((d) => d.body.trim() || d.board);
+      if (next !== 'write') return;
+      const { sessionId, tabs } = tabScope.current;
+      const open = book.selected;
+      if (!open || !onTab(open, sessionId, tabs)) {
+        const first = book.firstOnTab(sessionId, tabs);
         if (first) book.select(first.id);
-        else book.create();
+        else book.create('', undefined, sessionId);
       }
       setFocusRequest((n) => n + 1);
     },
@@ -137,6 +156,15 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
       changeMode('write');
     },
     [book, changeMode],
+  );
+  /** Opens a draft main named, filing it under `sessionId` when it has no session yet. */
+  const showDraft = useCallback(
+    async (id: string, sessionId?: string) => {
+      if (!book.get(id)) await book.load();
+      if (sessionId && book.get(id) && !book.get(id)!.sessionId) book.file(id, sessionId);
+      book.select(id);
+    },
+    [book],
   );
   const openBoard = useCallback(
     (name: string) => {
@@ -163,17 +191,13 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
       changeMode('sketch');
       setNewBoardRequest((n) => n + 1);
     });
-    host.onNewNote(({ text, id }) => {
-      book.create(text, id);
+    host.onNewNote(({ text, id, sessionId }) => {
+      // A note for no session comes with the Send target cleared, so the Notes tab shows.
+      if (!sessionId) setEndedActive(undefined);
+      book.create(text, id, sessionId);
       changeMode('write');
     });
-    host.onOpenDraft((id) => {
-      void (async () => {
-        if (!book.get(id)) await book.load();
-        book.select(id);
-        changeMode('write');
-      })();
-    });
+    host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode('write')));
     controller.panelVisible = info.panelVisible;
     host.onVisibility((visible) => {
       controller.panelVisible = visible;
@@ -186,19 +210,25 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
       // A shortcut field in Settings takes every key while it records.
       if (document.querySelector('.key-chip.recording')) return;
       if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'Tab' || /^[1-9]$/.test(e.key))) {
-        const { briefs: tabs, activeBrief: active, switchBrief: open } = tabKeys.current;
+        const { briefs: tabs, activeBrief: active, switchBrief: open, openNotes } = tabKeys.current;
         if (tabs.length === 0) return;
         e.preventDefault();
-        // With no tab active, ⌃Tab starts at the first and ⌃⇧Tab at the last.
-        const at = tabs.findIndex((b) => b.sessionId === active);
-        const from = at >= 0 ? at : e.shiftKey ? 0 : -1;
-        const next = e.key === 'Tab' ? tabs[(from + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length] : tabs[Number(e.key) - 1];
-        if (next && next.sessionId !== active) open(next.sessionId);
+        // Notes is the first tab, then each session's.
+        const order = [undefined, ...tabs.map((b) => b.sessionId)];
+        const at = order.indexOf(active);
+        const index = e.key === 'Tab' ? (at + (e.shiftKey ? -1 : 1) + order.length) % order.length : Number(e.key) - 1;
+        if (index >= order.length || index === at) return;
+        const next = order[index];
+        if (next) open(next);
+        else openNotes();
         return;
       }
-      if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === '1' || e.key === '2')) {
+      const byKey: Record<string, Mode> = { '1': 'sketch', '2': 'write', '3': 'items' };
+      if (e.metaKey && !e.shiftKey && !e.altKey && byKey[e.key]) {
         e.preventDefault();
-        changeMode(e.key === '1' ? 'sketch' : 'write');
+        // Items needs a session tab.
+        if (byKey[e.key] === 'items' && !tabKeys.current.activeBrief) return;
+        changeMode(byKey[e.key]!);
         return;
       }
       if (e.key !== 'Escape') return;
@@ -217,19 +247,24 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
         host.hidePanel();
         return;
       }
+      // Unsent decisions stay in memory while the app runs.
+      if (modeRef.current === 'items') {
+        host.hidePanel();
+        return;
+      }
       if (controller.api && shouldHideOnEscape(controller.api.getAppState(), document)) host.hidePanel();
     };
     window.addEventListener('keydown', onKey, { capture: true });
     return () => window.removeEventListener('keydown', onKey, { capture: true });
-  }, [host, controller, book, shelf, changeMode, info.panelVisible]);
+  }, [host, controller, book, shelf, changeMode, showDraft, info.panelVisible]);
 
   const onReady = useCallback(
     (api: ExcalidrawImperativeAPI) => {
       host.onRequest(async (req) => {
         // Draft saves never block the board's own flush before quitting.
         if (req.op === 'flush') await Promise.all([book.flush(), shelf.flush()]).catch(() => undefined);
-        // Only /sketch asks to show a board, so it also brings Sketch mode forward.
-        if (req.op === 'show') changeMode('sketch');
+        // /sketch shows a board, which brings Sketch mode forward. A tab switch picks its own mode.
+        if (req.op === 'show' && !(req.args as { fromSwitch?: boolean }).fromSwitch) changeMode('sketch');
         return controller.reply(req);
       });
       host.ready();
@@ -246,15 +281,38 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   const switchBrief = (sessionId: string) => {
     const brief = briefs.find((b) => b.sessionId === sessionId);
     setEndedActive(brief && !brief.isLive ? sessionId : undefined);
-    void host.switchBrief(sessionId).catch(report('open that brief'));
+    void host
+      .switchBrief(sessionId)
+      .then(async (opened) => {
+        if ('draftId' in opened) await showDraft(opened.draftId);
+        // Items stays open across a switch; otherwise the tab shows what it opened.
+        if (modeRef.current !== 'items') changeMode('draftId' in opened ? 'write' : 'sketch');
+      })
+      .catch(report('open that brief'));
+  };
+  /** The Notes tab: no Send target and no session. Items needs a session, so it falls back to Write. */
+  const openNotes = () => {
+    setEndedActive(undefined);
+    if (modeRef.current === 'items') changeMode('write');
+    if (target) void host.setTarget(undefined).catch(report('leave the session'));
   };
   const closeBrief = (sessionId: string) => {
     if (endedActive === sessionId) setEndedActive(undefined);
     void host.forgetBrief(sessionId).catch(report('close the tab'));
   };
   // ⌃1–⌃9 and ⌃Tab read these from the key handler, which is set up once.
-  const tabKeys = useRef({ briefs, activeBrief, switchBrief });
-  tabKeys.current = { briefs, activeBrief, switchBrief };
+  const tabKeys = useRef({ briefs, activeBrief, switchBrief, openNotes });
+  tabKeys.current = { briefs, activeBrief, switchBrief, openNotes };
+  tabScope.current = { sessionId: activeBrief, tabs: briefs.map((b) => b.sessionId) };
+  const active = briefs.find((b) => b.sessionId === activeBrief);
+
+  // A tab switch leaves the open draft when it belongs to another tab, and opens one that belongs here.
+  useEffect(() => {
+    const open = book.selected;
+    if (!open || onTab(open, activeBrief, tabScope.current.tabs)) return;
+    book.select(book.firstOnTab(activeBrief, tabScope.current.tabs)?.id);
+  }, [activeBrief, book]);
+
   const listBoards = useCallback(() => host.listBoards(), [host]);
 
   /** The text whose empty slots were already pointed out, so a second Send goes through. */
@@ -270,7 +328,14 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
    * What Send hands over. Sketch mode sends the board with any draft pulled in.
    * Write mode sends the open draft with the board it carries, if any.
    */
-  const outgoing = async (): Promise<{ payload: Outgoing; clearsBoard: boolean; sent?: SentRevision } | string> => {
+  const outgoing = async (): Promise<{ payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided } | string> => {
+    if (modeRef.current === 'items') {
+      const blocked = itemsBlocker();
+      if (blocked) return blocked;
+      const decided = { sessionId: activeBrief!, decisions: items.decisions(activeBrief!) };
+      const { draft } = await host.saveDecisions(decided.sessionId, decided.decisions);
+      return { payload: { text: draft }, clearsBoard: false, decided };
+    }
     if (modeRef.current === 'sketch') {
       const linked = book.linkedTo(controller.board);
       const unfilled = linked && checkSlots(linked.body);
@@ -278,7 +343,11 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
       await book.flush();
       const payload = await controller.payload();
       if (!linked) return { payload, clearsBoard: true };
-      return { payload: { ...payload, text: linked.body, draftId: linked.id }, clearsBoard: true, sent: { body: linked.body, board: linked.board } };
+      return {
+        payload: { ...payload, text: linked.body, draftId: linked.id, ...withImages(linked) },
+        clearsBoard: true,
+        sent: { body: linked.body, board: linked.board },
+      };
     }
     const draft = book.selected;
     if (!draft || (!draft.body.trim() && !draft.board)) return 'Write something first.';
@@ -289,9 +358,22 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
     }
     await book.flush();
     const sent = { body: draft.body, board: draft.board };
-    if (!draft.board) return { payload: { text: draft.body, draftId: draft.id }, clearsBoard: false, sent };
+    if (!draft.board) return { payload: { text: draft.body, draftId: draft.id, ...withImages(draft) }, clearsBoard: false, sent };
     if (draft.board !== controller.board) await controller.switchTo(draft.board);
-    return { payload: { ...(await controller.payload()), text: draft.body, draftId: draft.id }, clearsBoard: true, sent };
+    return { payload: { ...(await controller.payload()), text: draft.body, draftId: draft.id, ...withImages(draft) }, clearsBoard: true, sent };
+  };
+
+  /** The pictures a draft's body references, as a payload field. Absent when there are none. */
+  const withImages = (draft: Draft) => {
+    const images = draftImages(draft);
+    return images.length ? { images } : {};
+  };
+
+  /** Why Send in Items mode has nothing to send, if it has not. */
+  const itemsBlocker = (): string | undefined => {
+    if (!activeBrief) return "Open a session's items first.";
+    if (items.decisions(activeBrief).length === 0) return 'Decide something first.';
+    return undefined;
   };
 
   /** True from the press of Send until main answers, so a second press cannot send twice. */
@@ -314,6 +396,10 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
       if (result.ok) {
         if (out.clearsBoard) controller.clearBoard();
         if (out.payload.draftId && out.sent) book.consume(out.payload.draftId, out.sent);
+        if (out.decided) {
+          items.clear(out.decided.sessionId, out.decided.decisions);
+          void items.load(out.decided.sessionId).catch(() => undefined);
+        }
         host.hidePanel();
       }
     } catch (err) {
@@ -340,6 +426,11 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
     const draft = book.selected;
     if (open && modeRef.current === 'write' && (!draft || (!draft.body.trim() && !draft.board))) {
       notify('Write something first.');
+      return;
+    }
+    const blocked = open && modeRef.current === 'items' ? itemsBlocker() : undefined;
+    if (blocked) {
+      notify(blocked);
       return;
     }
     setChooserOpen(open);
@@ -390,7 +481,8 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
   return (
     <div className="panel">
       <header className="strip">
-        <ModeSwitch mode={mode} onChange={changeMode} />
+        {/* Items shows on session tabs, and stays while Items is open so a cleared target can pick a tab again. */}
+        <ModeSwitch mode={mode} hasItems={!!activeBrief || mode === 'items'} onChange={changeMode} />
         {mode === 'sketch' && (
           <>
             <BoardPicker
@@ -516,10 +608,24 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
         briefs={briefs}
         activeId={activeBrief}
         home={info.home}
+        onNotes={openNotes}
         onSwitch={switchBrief}
         onClose={closeBrief}
         onFocus={(id) => void host.focusSession(id)}
       />
+      {active && !active.isLive && (
+        <ResumeRow
+          key={active.sessionId}
+          brief={active}
+          loadOptions={() => host.launchOptions()}
+          onResume={(via) =>
+            void host
+              .resumeSession(active.sessionId, via)
+              .then((r) => notify(r.message, r.ok ? 'info' : 'error'))
+              .catch(report('resume the session'))
+          }
+        />
+      )}
       <PromptBanner prompt={prompt} onDismiss={() => setPrompt(undefined)} />
       <main className="body">
         <BoardCanvas controller={controller} scene={scene} theme={theme} onReady={onReady} />
@@ -529,8 +635,22 @@ function Panel({ host, info, controller, scene, book, shelf }: Boot & { host: Co
             shelf={shelf}
             listBoards={listBoards}
             focusRequest={focusRequest}
+            sessionId={activeBrief}
+            tabs={briefs}
             onSend={() => void send()}
             onOpenBoard={openBoard}
+            onFiled={(where) => notify(`Moved to ${where}.`)}
+            onFilingMenu={dismissToast}
+          />
+        )}
+        {mode === 'items' && (
+          <ItemsView
+            store={items}
+            brief={active}
+            home={info.home}
+            onTrack={(sessionId, on) => void host.setTracking(sessionId, on).catch(report('change item tracking'))}
+            onSend={() => void send()}
+            onOpenOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
           />
         )}
         {mode === 'sketch' && notesOpen && (

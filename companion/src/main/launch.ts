@@ -1,10 +1,9 @@
-/** Starts a new Claude Code session on a sketch, and brings an existing session's terminal forward. */
+/** Starts a new Claude Code session on a sketch, resumes an ended one, and brings a session's terminal forward. */
 
 import { execFile } from 'node:child_process';
 import type { SessionHost } from '../protocol';
 import type { Launcher } from '../shared/ipc';
-
-export const GHOSTTY_BUNDLE = 'com.mitchellh.ghostty';
+import { isGhostty } from '../shared/sessions';
 
 /** Runs a program and resolves with its stdout. */
 export type Exec = (file: string, args: string[]) => Promise<string>;
@@ -32,55 +31,93 @@ export function claudeCommand(promptPath: string): string {
   return `claude "$(cat ${shellQuote(promptPath)})"`;
 }
 
+/** Runs `command` after changing into `cwd`, as one line for any terminal. */
+const inFolder = (cwd: string, command: string) => `cd ${shellQuote(cwd)} && ${command}`;
+
 /** What Copy puts on the clipboard: a line to paste into any terminal. */
 export function startCommand(cwd: string, promptPath: string): string {
-  return `cd ${shellQuote(cwd)} && ${claudeCommand(promptPath)}`;
+  return inFolder(cwd, claudeCommand(promptPath));
 }
 
-export function ghosttyScript(cwd: string, promptPath: string): string {
+/** Brings an ended session back under its own id. */
+function claudeResume(sessionId: string): string {
+  return `claude --resume ${shellQuote(sessionId)}`;
+}
+
+/** The line an ended session's tab shows and Copy puts on the clipboard. */
+export function resumeCommand(cwd: string, sessionId: string): string {
+  return inFolder(cwd, claudeResume(sessionId));
+}
+
+/** Opens a Ghostty window in `cwd` that runs `command`. */
+export function ghosttyScript(cwd: string, command: string): string {
   return [
     'tell application "Ghostty"',
     '  set cfg to new surface configuration',
     `  set initial working directory of cfg to ${appleQuote(cwd)}`,
-    `  set initial input of cfg to ${appleQuote(`${claudeCommand(promptPath)}\n`)}`,
+    `  set initial input of cfg to ${appleQuote(`${command}\n`)}`,
     '  new window with configuration cfg',
     '  activate',
     'end tell',
   ].join('\n');
 }
 
-export function terminalScript(cwd: string, promptPath: string): string {
+/** Opens a Terminal window in `cwd` that runs `command`. */
+export function terminalScript(cwd: string, command: string): string {
   return [
     'tell application "Terminal"',
-    `  do script ${appleQuote(startCommand(cwd, promptPath))}`,
+    `  do script ${appleQuote(inFolder(cwd, command))}`,
     '  activate',
     'end tell',
   ].join('\n');
 }
 
-/** Opens a herdr tab in `cwd` and starts Claude Code in it. */
-export async function startInHerdr(run: Exec, herdr: string, cwd: string, promptPath: string): Promise<void> {
-  const created = JSON.parse(await run(herdr, ['tab', 'create', '--cwd', cwd, '--label', 'sketch', '--focus'])) as {
+/** Opens a herdr tab in `cwd` and runs `command` in it. */
+async function runInHerdr(run: Exec, herdr: string, cwd: string, command: string, label: string): Promise<void> {
+  const created = JSON.parse(await run(herdr, ['tab', 'create', '--cwd', cwd, '--label', label, '--focus'])) as {
     result?: { root_pane?: { pane_id?: string } };
   };
   const pane = created.result?.root_pane?.pane_id;
   if (!pane) throw new Error('herdr did not return the new pane');
-  await run(herdr, ['pane', 'run', pane, claudeCommand(promptPath)]);
+  await run(herdr, ['pane', 'run', pane, command]);
 }
 
-export async function startSession(
+/** Runs `command` in `cwd` in a new window or tab of the chosen terminal. */
+async function runInTerminal(
+  run: Exec,
+  via: Exclude<Launcher, 'copy'>,
+  cwd: string,
+  command: string,
+  opts: { herdr?: string; label: string },
+): Promise<void> {
+  if (via === 'ghostty') await run('osascript', ['-e', ghosttyScript(cwd, command)]);
+  else if (via === 'terminal') await run('osascript', ['-e', terminalScript(cwd, command)]);
+  else {
+    if (!opts.herdr) throw new Error('herdr is not installed');
+    await runInHerdr(run, opts.herdr, cwd, command, opts.label);
+  }
+}
+
+/** Starts Claude Code in `cwd` on the prompt file. */
+export function startSession(
   run: Exec,
   via: Exclude<Launcher, 'copy'>,
   cwd: string,
   promptPath: string,
   herdr?: string,
 ): Promise<void> {
-  if (via === 'ghostty') await run('osascript', ['-e', ghosttyScript(cwd, promptPath)]);
-  else if (via === 'terminal') await run('osascript', ['-e', terminalScript(cwd, promptPath)]);
-  else {
-    if (!herdr) throw new Error('herdr is not installed');
-    await startInHerdr(run, herdr, cwd, promptPath);
-  }
+  return runInTerminal(run, via, cwd, claudeCommand(promptPath), { herdr, label: 'sketch' });
+}
+
+/** Resumes an ended session in its folder. */
+export function resumeSession(
+  run: Exec,
+  via: Exclude<Launcher, 'copy'>,
+  cwd: string,
+  sessionId: string,
+  herdr?: string,
+): Promise<void> {
+  return runInTerminal(run, via, cwd, claudeResume(sessionId), { herdr, label: 'resume' });
 }
 
 /**
@@ -146,6 +183,3 @@ export async function focusSession(
   }
   return !!host.herdrPane;
 }
-
-export const isGhostty = (host: SessionHost | undefined) =>
-  host?.bundleId === GHOSTTY_BUNDLE || host?.terminal === 'ghostty';

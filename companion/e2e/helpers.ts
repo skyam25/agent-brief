@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
+import type { DeliveriesResponse } from '../src/protocol';
 
 export const ROOT = resolve(import.meta.dirname, '..');
 export const RESULTS = join(ROOT, 'test-results');
@@ -233,4 +234,71 @@ export function chromiumExecutable(): string | undefined {
     if (existsSync(exe)) return exe;
   }
   return undefined;
+}
+
+/** The selected draft's Markdown body, as the renderer holds it. */
+export function draftBody(page: Page): Promise<string> {
+  return page.evaluate(() => (window as any).__drafts.selected?.body ?? '');
+}
+
+/** The text the person has selected in the page. */
+export function selectedText(page: Page): Promise<string> {
+  return page.evaluate(() => window.getSelection()?.toString() ?? '');
+}
+
+/**
+ * Types into the draft editor, replacing what it held. Real keys, so
+ * Markdown input rules fire. A newline in `text` presses Enter.
+ */
+export async function typeDraft(page: Page, text: string): Promise<void> {
+  const body = page.getByTestId('draft-body');
+  await body.click();
+  await page.keyboard.press('Meta+A');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.type(text);
+}
+
+/** A new project folder named `name`, for a session to run in. */
+export function projectDir(name: string): string {
+  return join(mkdtempSync(join(tmpdir(), 'project-')), name);
+}
+
+/** Registers a session over the socket, as the plugin does. */
+export function registerSession(socketPath: string, sessionId: string, title: string, cwd = projectDir(title)) {
+  return sock(socketPath, 'POST', '/sessions', { sessionId, cwd, title });
+}
+
+/** Asks the app to open the panel, as /sketch and /write do. */
+export async function openPanelFor(socketPath: string, body: Record<string, unknown>) {
+  return (await sock(socketPath, 'POST', '/open', body)).body;
+}
+
+/** A session's deliveries waiting now. */
+export async function deliveriesFor(socketPath: string, sessionId: string) {
+  return (await sock<DeliveriesResponse>(socketPath, 'GET', `/deliveries?session=${sessionId}&wait=0`)).body.deliveries;
+}
+
+/** The drafts saved in `dataDir`. */
+export function draftsOnDisk(dataDir: string): any[] {
+  const dir = join(dataDir, 'drafts');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')));
+}
+
+/** The session tab whose title holds `title`. */
+export function briefTab(page: Page, title: string) {
+  return page.getByTestId('brief-tab').filter({ hasText: title });
+}
+
+/** Saves `<name>-light.png` and `<name>-dark.png` when UI_SHOTS names a folder. */
+export async function themeShots(ctx: Launched, name: string, clip?: { x: number; y: number; width: number; height: number }): Promise<void> {
+  const dir = process.env.UI_SHOTS;
+  if (!dir) return;
+  for (const theme of ['light', 'dark'] as const) {
+    await ctx.app.evaluate(({ nativeTheme }, t) => (nativeTheme.themeSource = t), theme);
+    await ctx.page.waitForTimeout(250);
+    await ctx.page.screenshot({ path: join(dir, `${name}-${theme}.png`), ...(clip ? { clip } : {}) });
+  }
 }

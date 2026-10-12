@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { draftTitle } from '../shared/drafts';
 import type { CompanionApi, HistoryEntry } from '../shared/ipc';
+import { usePointerOutside } from './hooks';
 
 type Item = HistoryEntry & { url?: string };
 
@@ -36,14 +37,7 @@ export function HistoryPopover(props: {
     };
   }, [props.host]);
 
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const anchor = ref.current?.parentElement;
-      if (anchor && !anchor.contains(e.target as Node)) props.onClose();
-    };
-    window.addEventListener('pointerdown', onDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
-  }, [props]);
+  usePointerOutside(ref, props.onClose, { parent: true });
 
   const copy = async (item: Item) => {
     await navigator.clipboard.writeText(item.draft);

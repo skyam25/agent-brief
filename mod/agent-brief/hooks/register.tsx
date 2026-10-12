@@ -15,15 +15,20 @@ import {
 } from './logic'
 import {
   FILL_RETRY_MS,
+  ITEMS_SECTION,
   LAUNCH_ATTEMPTS,
   LAUNCH_STEP_S,
   POLL_GAP_MS,
   REREGISTER_MS,
   SKETCH_OPENED,
+  TRACK_NOT_RUNNING,
+  TRACK_UNSUPPORTED,
+  TRACK_USAGE,
   WRITE_OPENED,
   deliveriesPath,
   expandPastes,
   fillRequest,
+  itemsInstructions,
   lastReply,
   launchFailureText,
   nextBackoff,
@@ -32,11 +37,16 @@ import {
   rememberPaste,
   hostOf,
   sessionInfo,
+  sessionPath,
   socketPathOf,
   summaryOf,
   toastFor,
+  trackReply,
+  trackTarget,
+  trackingOf,
 } from './companion-logic'
-import type { Delivery, OpenRequest } from './companion-protocol'
+import type { Tracking } from './companion-logic'
+import type { Delivery, OpenRequest, TrackingPatch } from './companion-protocol'
 
 type Config = {
   inboxDir: string
@@ -65,6 +75,8 @@ let isUp = false
 let backoff = 0
 let registeredId: string | undefined
 let socket: string | undefined
+/** The app's last answer on item tracking, kept for when it stops answering. */
+let tracking: (Tracking & { sessionId: string }) | undefined
 
 async function socketPath($: EngineInterface): Promise<string> {
   socket ??= socketPathOf(companionConfig.companionSocket, (await $.env.get('HOME')) ?? '')
@@ -222,8 +234,38 @@ async function endCompanion($: EngineInterface, sessionId: string, isFinal: bool
     isStopped = true
     refresh?.cancel()
   }
-  await call($, 'DELETE', `/sessions/${encodeURIComponent(sessionId)}`)
+  await call($, 'DELETE', sessionPath(sessionId))
   if (!isFinal) registeredId = undefined
+}
+
+/**
+ * Item tracking for this session. One GET while the app is up.
+ * Without an answer it falls back to the last one, so a fresh session with the app down tracks nothing.
+ */
+async function currentTracking($: EngineInterface): Promise<Tracking | undefined> {
+  const sessionId = await $.session.id()
+  const cached = tracking?.sessionId === sessionId ? tracking : undefined
+  if (!isUp) return cached
+  const reply = await call($, 'GET', sessionPath(sessionId))
+  if (reply === undefined) return cached
+  tracking = { sessionId, ...trackingOf(reply.ok ? reply.body : undefined) }
+  return tracking
+}
+
+/** Answers `/track [on|off]`. Never starts the app. */
+async function trackCommand($: EngineInterface, args: string): Promise<string> {
+  if (trackTarget(args, false) === undefined) return TRACK_USAGE
+  if (!(await isHealthy($))) return TRACK_NOT_RUNNING
+  isUp = true
+  await registerSession($)
+  const sessionId = await $.session.id()
+  const isOn = trackTarget(args, (await currentTracking($))?.trackItems ?? false)!
+  const body: TrackingPatch = { trackItems: isOn }
+  const reply = await call($, 'PATCH', sessionPath(sessionId), body)
+  if (reply === undefined) return TRACK_NOT_RUNNING
+  if (!reply.ok) return TRACK_UNSUPPORTED
+  tracking = { sessionId, ...trackingOf(reply.body) }
+  return trackReply(tracking, await $.session.cwd())
 }
 
 type OpenMode = 'sketch' | 'write'
@@ -483,6 +525,11 @@ export const register: Register = (on, options) => {
         description: 'Open a new Agent Brief note for this session: with text, or Claude\'s last reply',
         argumentHint: '[text | last]',
       })
+      await $.command.register({
+        name: 'track',
+        description: "Track this session's items in the Agent Brief panel",
+        argumentHint: '[on|off]',
+      })
       startCompanion($, companionSettings)
     } catch (err) {
       log($, `companion start failed: ${String(err)}`)
@@ -555,6 +602,21 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'sketch' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim() })).message }))
   on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
+  on('command.run', { command: 'track' }, async ($, e) => ({ text: await trackCommand($, e.args) }))
+
+  // With item tracking on, the system prompt tells Claude to keep the items file.
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    try {
+      const state = await currentTracking($)
+      if (state?.trackItems !== true || state.itemsPath === undefined) return composed
+      const section = { id: ITEMS_SECTION, scope: 'session' as const, text: itemsInstructions(state.itemsPath) }
+      return { sections: [...composed.sections, section] }
+    } catch (err) {
+      log($, `items section failed: ${String(err)}`)
+      return composed
+    }
+  })
 
   // Large pastes show as placeholders in the box; keep what each held so Write can carry it.
   on('prompt.edit', async ($, e, next) => {

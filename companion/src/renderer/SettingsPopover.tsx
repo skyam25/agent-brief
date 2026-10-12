@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { acceleratorFromPress, acceleratorLabel } from '../shared/accelerator';
 import type { Settings, UpdateStatus } from '../shared/ipc';
+import { usePointerOutside } from './hooks';
 
 /** What the update line says, or undefined when the version stands alone. */
 function updateText(u: UpdateStatus): string | undefined {
@@ -35,14 +36,7 @@ export function SettingsPopover(props: {
   const [saved, setSaved] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const anchor = ref.current?.parentElement;
-      if (anchor && !anchor.contains(e.target as Node)) props.onClose();
-    };
-    window.addEventListener('pointerdown', onDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onDown, { capture: true });
-  }, [props]);
+  usePointerOutside(ref, props.onClose, { parent: true });
 
   const change = async (patch: Partial<Settings>) => {
     setSaved(false);

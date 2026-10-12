@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import electronPath from 'electron';
-import { backend, interactiveCanvas, launch, openNotes, penStroke, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, testEnv } from './helpers';
+import { backend, interactiveCanvas, launch, openNotes, penStroke, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, testEnv, typeDraft } from './helpers';
 
 const visible = (app: Awaited<ReturnType<typeof launch>>['app']) =>
   app.evaluate(() => (globalThis as any).__companion.panel.isVisible());
@@ -153,6 +153,7 @@ test('settings change the hotkey live, report conflicts, and persist', async () 
     'separator',
     'Settings…',
     'Install Command Line Tool…',
+    'Install Claude Code Plugin…',
     'separator',
     'Quit Agent Brief',
   ]);
@@ -210,6 +211,23 @@ test('File > New Board opens the name field; the CLI installs into a temp home',
   await app.close();
 });
 
+test('the plugin installs through claude from the repo marketplace', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'claude-'));
+  const log = join(dir, 'calls.log');
+  const claude = join(dir, 'claude');
+  writeFileSync(claude, `#!/bin/sh\necho "$*" >> '${log}'\ncase "$*" in *--json) echo '[]' ;; esac\n`, { mode: 0o755 });
+
+  const { app } = await launch(tempDataDir(), { COMPANION_TEST_CLAUDE: claude });
+  const result = await app.evaluate(() => (globalThis as any).__companion.installPlugin());
+  expect(result).toEqual({ installed: true });
+  expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+    `plugin marketplace add ${resolve(ROOT, '..')}`,
+    'plugin list --json',
+    'plugin install agent-brief@agent-brief',
+  ]);
+  await app.close();
+});
+
 test('⌘N makes a new board in Sketch mode and a new note in Write mode', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
@@ -236,11 +254,11 @@ test('⌘N makes a new board in Sketch mode and a new note in Write mode', async
   await expect.poll(cmdN).toBe('New Note');
 
   // An empty note is reused, so the open one needs text first.
-  await page.getByTestId('draft-body').fill('first thought');
+  await typeDraft(page, 'first thought');
   await expect(page.getByTestId('draft-row')).toHaveCount(1);
   await pressCmdN();
   await expect(page.getByTestId('draft-row')).toHaveCount(2);
-  await expect(page.getByTestId('draft-body')).toHaveValue('');
+  await expect(page.getByTestId('draft-body')).toHaveText('');
   await app.close();
 });
 

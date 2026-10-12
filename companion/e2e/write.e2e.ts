@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DeliveriesResponse } from '../src/protocol';
-import { backend, launch, type Launched, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir } from './helpers';
+import { backend, draftBody, launch, type Launched, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir, typeDraft } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -32,7 +32,7 @@ const deliveries = async (session: string) =>
 
 async function writeNote(page: Page, text: string): Promise<void> {
   await page.getByTestId('draft-new').click();
-  await page.getByTestId('draft-body').fill(text);
+  await typeDraft(page, text);
 }
 
 test('Write mode keeps notes on disk and comes back in the same mode', async () => {
@@ -42,8 +42,9 @@ test('Write mode keeps notes on disk and comes back in the same mode', async () 
   await expect(page.getByTestId('draft-body')).toBeFocused();
   // A note stays off disk until it has words.
   expect(draftsOnDisk()).toHaveLength(0);
-  await page.getByTestId('draft-body').fill('Idea: queue prompts for later\nwith a second line');
-  await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['Idea: queue prompts for later\nwith a second line']);
+  await typeDraft(page, 'Idea: queue prompts for later\nwith a second line');
+  // Each line is a paragraph, so the Markdown has a blank line between them.
+  await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['Idea: queue prompts for later\n\nwith a second line']);
   await expect(page.getByTestId('draft-row').first()).toContainText('Idea: queue prompts for later');
   await page.screenshot({ path: join(RESULTS, 'write-mode.png') });
 
@@ -51,7 +52,8 @@ test('Write mode keeps notes on disk and comes back in the same mode', async () 
   ({ app, page } = ctx = await launch(dataDir));
   await showPanel(app, page);
   await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('draft-body')).toHaveValue('Idea: queue prompts for later\nwith a second line');
+  await expect(page.getByTestId('draft-body').locator('p')).toHaveText(['Idea: queue prompts for later', 'with a second line']);
+  expect(await draftBody(page)).toBe('Idea: queue prompts for later\n\nwith a second line');
 
   // ⌘1 goes back to the board.
   await page.keyboard.press('Meta+1');
@@ -97,14 +99,15 @@ test('Ready drafts queue in order and Send uses one up', async () => {
   await page.getByTestId('history-toggle').click();
   await expect(page.getByTestId('history-item').first()).toContainText('Third task');
   await page.getByTestId('history-open').first().click();
-  await expect(page.getByTestId('draft-body')).toHaveValue('Third task');
+  await expect(page.getByTestId('draft-body')).toHaveText('Third task');
+  await expect.poll(() => draftBody(page)).toBe('Third task');
 });
 
 test('Send in Write mode refuses an empty draft and never picks a session', async () => {
   const { page } = ctx;
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
   await page.getByTestId('mode-write').click();
-  await page.getByTestId('draft-body').fill('Something to send');
+  await typeDraft(page, 'Something to send');
   // Opened standalone, Send asks where to go first.
   await page.getByTestId('send').click();
   await expect(page.getByTestId('send-chooser')).toBeVisible();
@@ -123,7 +126,7 @@ test('a draft pulled into a sketch leads the prompt and goes with it', async () 
   const { app, page } = ctx;
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
   await page.getByTestId('mode-write').click();
-  await page.getByTestId('draft-body').fill('Build this checkout flow');
+  await typeDraft(page, 'Build this checkout flow');
   await page.keyboard.press('Meta+1');
 
   await backend(app, 'draw', 'current', { elements: [{ type: 'sticky', x: 0, y: 0, label: 'Pay' }] });
@@ -148,7 +151,7 @@ test('a draft that carries a board sends its sketch from Write mode', async () =
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
   await backend(app, 'draw', 'current', { elements: [{ type: 'sticky', x: 0, y: 0, label: 'Header' }] });
   await page.getByTestId('mode-write').click();
-  await page.getByTestId('draft-body').fill('Tighten this header');
+  await typeDraft(page, 'Tighten this header');
   await page.getByTestId('draft-board').selectOption('scratch');
   await expect(page.getByTestId('draft-row').first()).toContainText('scratch');
 
@@ -169,7 +172,7 @@ test('the capture shortcut opens a new note in Write mode', async () => {
   await app.evaluate(() => (globalThis as any).__companion.registrar.registered.get('Control+Alt+N')());
   expect(await panelVisible()).toBe(true);
   await expect(page.getByTestId('write')).toBeVisible();
-  await expect(page.getByTestId('draft-body')).toHaveValue('');
+  await expect(page.getByTestId('draft-body')).toHaveText('');
   await expect(page.getByTestId('draft-body')).toBeFocused();
   await page.keyboard.type('remember to check the iPad network');
   // Escape hides the panel; the note is already saved.
@@ -182,7 +185,7 @@ test('/sketch with no prompt leaves Write mode, and capture afterwards picks no 
   const { app, page } = ctx;
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
   await page.getByTestId('mode-write').click();
-  await page.getByTestId('draft-body').fill('a note');
+  await typeDraft(page, 'a note');
 
   await sock(socketPath, 'POST', '/open', { board: 'scratch', sessionId: 's1' });
   await expect(page.getByTestId('write')).toHaveCount(0);
@@ -200,7 +203,8 @@ test('/write can start the note with text from Claude Code', async () => {
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1', mode: 'write', text: 'Plan:\n1. Add the button' });
   await expect(page.getByTestId('write')).toBeVisible();
-  await expect(page.getByTestId('draft-body')).toHaveValue('Plan:\n1. Add the button');
+  await expect(page.getByTestId('draft-body').locator(':scope > p').first()).toHaveText('Plan:');
+  await expect(page.getByTestId('draft-body').locator('ol li')).toHaveText('Add the button');
   await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['Plan:\n1. Add the button']);
 });
 
@@ -213,7 +217,7 @@ test('/write opens a new note bound to the session, and Send delivers it there',
   await sock(socketPath, 'POST', '/open', { sessionId: 's1', mode: 'write', prompt: 'the release notes' });
   expect(await panelVisible()).toBe(true);
   await expect(page.getByTestId('write')).toBeVisible();
-  await expect(page.getByTestId('draft-body')).toHaveValue('');
+  await expect(page.getByTestId('draft-body')).toHaveText('');
   await expect(page.getByTestId('draft-body')).toBeFocused();
   expect((await sock(socketPath, 'GET', '/sessions')).body.targetSessionId).toBe('s1');
 

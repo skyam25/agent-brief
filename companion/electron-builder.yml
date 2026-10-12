@@ -23,6 +23,17 @@ extraResources:
   # The CLI's old name, kept for scripts that still call it.
   - from: bin/agent-brief
     to: bin/companion
+  # The Claude Code plugin, laid out as a marketplace. Claude Code reads it in
+  # place, so it updates with the app. The filter matches what a git clone holds.
+  - from: ../.claude-plugin
+    to: plugin/.claude-plugin
+  - from: ../mod/agent-brief
+    to: plugin/mod/agent-brief
+    filter:
+      - '**/*'
+      - '!tests/**'
+      - '!.claude-plugin/types/**'
+      - '!**/.DS_Store'
 electronDist: node_modules/electron/dist
 npmRebuild: false
 nodeGypRebuild: false

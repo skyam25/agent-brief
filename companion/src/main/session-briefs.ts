@@ -1,16 +1,21 @@
 /** Which board and note each Claude Code session last worked on, so /sketch and /write reopen them. */
 
-import { CURRENT_BOARD } from '../protocol';
+import { CURRENT_BOARD, type SessionHost, type SessionInfo } from '../protocol';
+import { folderName } from '../shared/sessions';
 
 export interface SessionBrief {
   /** The session's title, or its folder, as it last read. Kept for sessions that have ended. */
   title?: string;
   /** Where the session ran. */
   cwd?: string;
+  /** The terminal it ran in, kept for resuming it after it ends. */
+  host?: SessionHost;
   board?: string;
   draftId?: string;
   /** Which of the two it opened last, which a switch to the session reopens. */
   last?: 'board' | 'draft';
+  /** The user asked Claude to keep an items file at `<cwd>/.feedback/items/<sessionId>.md`. */
+  trackItems?: boolean;
   /** When the session last used it, in ms since the epoch. */
   at: number;
 }
@@ -37,6 +42,24 @@ export function remember(
   now: number,
 ): SessionBriefs {
   return prune({ ...briefs, [sessionId]: { ...briefs[sessionId], ...patch, at: now } }, now);
+}
+
+/** What a live session tells its brief: its title, folder and terminal. */
+export function liveFields(live: SessionInfo): Pick<SessionBrief, 'title' | 'cwd' | 'host'> {
+  return { title: live.title || folderName(live.cwd), cwd: live.cwd, ...(live.host ? { host: live.host } : {}) };
+}
+
+/** Updates the briefs of live sessions without moving them. Returns `briefs` itself when nothing changed. */
+export function refreshLive(briefs: SessionBriefs, live: SessionInfo[]): SessionBriefs {
+  let next = briefs;
+  for (const s of live) {
+    const b = briefs[s.sessionId];
+    if (!b) continue;
+    const fields = liveFields(s);
+    const changed = (Object.keys(fields) as (keyof typeof fields)[]).some((k) => JSON.stringify(b[k]) !== JSON.stringify(fields[k]));
+    if (changed) next = { ...next, [s.sessionId]: { ...b, ...fields } };
+  }
+  return next;
 }
 
 /** Follows a board rename, so the session still finds it. */

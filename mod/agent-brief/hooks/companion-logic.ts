@@ -16,6 +16,11 @@ export const LAUNCH_STEP_S = '0.25'
 export const SKETCH_OPENED = 'Agent Brief open — sketch, then press Send.'
 export const WRITE_OPENED = 'Agent Brief open — write, then press Send.'
 
+export const ITEMS_SECTION = 'agent-brief:items'
+export const TRACK_NOT_RUNNING = 'Agent Brief is not running. Start it, then run /track again.'
+export const TRACK_USAGE = 'Use /track, /track on or /track off.'
+export const TRACK_UNSUPPORTED = 'This Agent Brief cannot track items. Update to 0.2.6 or newer.'
+
 /** Empty setting means the app's default socket. */
 export function socketPathOf(setting: string, home: string): string {
   const custom = setting.trim()
@@ -88,6 +93,10 @@ export function summaryOf(messages: readonly { role: string; text: string }[]): 
   return undefined
 }
 
+export function sessionPath(sessionId: string): string {
+  return `/sessions/${encodeURIComponent(sessionId)}`
+}
+
 export function deliveriesPath(sessionId: string): string {
   return `/deliveries?session=${encodeURIComponent(sessionId)}&wait=${POLL_WAIT_S}`
 }
@@ -146,4 +155,65 @@ export function lastReply(messages: readonly { role: string; text: string }[]): 
     if (m.role === 'assistant' && m.text.trim() !== '') return m.text.trim()
   }
   return undefined
+}
+
+export type Tracking = { trackItems: boolean; itemsPath?: string }
+
+/** Tracking state from a `GET` or `PATCH /sessions/:id` body. Off when the body says nothing. */
+export function trackingOf(body: unknown): Tracking {
+  const info = (typeof body === 'object' && body !== null ? body : {}) as { trackItems?: unknown; itemsPath?: unknown }
+  return {
+    trackItems: info.trackItems === true,
+    ...(typeof info.itemsPath === 'string' && info.itemsPath !== '' ? { itemsPath: info.itemsPath } : {}),
+  }
+}
+
+/** The state `/track` asks for: `on`, `off`, or the opposite of now. Undefined for any other word. */
+export function trackTarget(args: string, current: boolean): boolean | undefined {
+  const word = args.trim().toLowerCase()
+  if (word === '') return !current
+  if (word === 'on') return true
+  if (word === 'off') return false
+  return undefined
+}
+
+/** What `/track` says, naming the app's items path relative to `cwd` when it is inside it. */
+export function trackReply(state: Tracking, cwd: string): string {
+  if (!state.trackItems) return 'Item tracking off.'
+  const path = state.itemsPath ?? ''
+  const shown = path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
+  return `Item tracking on. Claude keeps items in ${shown} and you answer them in the panel.`
+}
+
+/** The system prompt section that tells Claude to keep the items file. */
+export function itemsInstructions(itemsPath: string): string {
+  return `# Item tracking (Agent Brief)
+
+The user turned on item tracking for this session in Agent Brief. They review items in the panel, not in this chat.
+
+Keep the items file at ${itemsPath}. Create its folder if needed. Write it only when the work has distinct items: a brief with several asks, a feedback list, numbered marks on a sketch, a set of questions. For one plain request, do not create the file and do not mention it.
+
+Use exactly this format:
+
+\`\`\`markdown
+# Items · <short title>
+
+- [ ] #1 <title>
+      Claude: <what you propose, a question, or two options>
+      You: <the user's decision, written by them>
+      Out: <path of a file you are writing for it, relative to the project>
+- [x] #2 <title>
+      Claude: done · <what changed>
+      Out: <path>
+\`\`\`
+
+Rules:
+- Number items from 1 in the order they came up. Never renumber or delete an item. Add new ones at the end.
+- When something is unclear, put the question or the options on the item as a \`Claude:\` line instead of asking in your reply. The user answers in the panel. Their answers arrive as a message listing the items and their decisions. Act on them and update the file.
+- When you create or change a file or screenshot for an item, add an \`Out:\` line with its path relative to the project, one line per file, as soon as the file exists. The panel shows these as links while you work. Keep them when the item is done.
+- When you finish an item, change \`[ ]\` to \`[x]\` and add a \`Claude:\` line that says what changed.
+- Keep each line short. Details belong in the files you write, not here.
+- Never edit or remove a \`You:\` line.
+- End every reply that changed an item with two lines, \`Done: #…\` and \`Open: #…\`. Write \`none\` when a list is empty. Leave both lines out when no item changed.
+- You may keep the same items in your own todo list while you work. The file is the record the user sees.`
 }

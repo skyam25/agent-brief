@@ -25,6 +25,7 @@ macOS sketch, notes and voice panel that hands work to Claude Code. User-facing 
 - Send writes a bundle to `<session cwd>/.feedback/sketches/<id>/`. The plugin long-polls `GET /deliveries` and puts the prompt into the session.
 - Claude draws on and reads the board through the `agent-brief` CLI, not MCP tools.
 - The plugin works without the app running. Its socket calls fail silently.
+- The app ships the plugin and the CLI in its bundle (`Resources/plugin/`, `Resources/bin/`). Once registered, both update with the app. Never `claude plugin marketplace remove`, which deletes the plugin's options.
 
 ## Commands
 

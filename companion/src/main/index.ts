@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
-import { existsSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   app,
   clipboard,
@@ -20,14 +20,18 @@ import {
 import { autoUpdater } from 'electron-updater';
 import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protocol';
 import type { BoardBackend, DeliveryInput } from '../server/contract';
-import { buildDraft, freeId, writeBundle } from '../server/bundle';
-import { createCompanionServer, type CompanionServer } from '../server/index';
+import { buildDraft, freeId, rewriteImages, writeBundle } from '../server/bundle';
+import { createCompanionServer, itemsFile, type CompanionServer } from '../server/index';
 import {
   CH,
   isTextPayload,
   type BoardReply,
+  type Decision,
   type InitInfo,
+  type ItemsDocInfo,
   type Launcher,
+  type NewNote,
+  type OpenDraft,
   type LaunchOptions,
   type MicrophoneAccess,
   type Mode,
@@ -35,17 +39,30 @@ import {
   type SendPayload,
   type SessionBriefEntry,
   type Settings,
+  type SendResult,
+  type SwitchResult,
   type SettingsResult,
   type Theme,
 } from '../shared/ipc';
 import { createBoardBackend } from './backend';
 import { newDraftId } from '../shared/drafts';
-import { folderName } from '../shared/sessions';
-import { forgetBoard, remember, renameBoard as renameInBriefs, sketchBoard, type SessionBrief } from './session-briefs';
-import { DraftStore } from './drafts';
+import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
+import { folderName, isGhostty } from '../shared/sessions';
+import {
+  forgetBoard,
+  liveFields,
+  refreshLive,
+  remember,
+  renameBoard as renameInBriefs,
+  sketchBoard,
+  type SessionBrief,
+} from './session-briefs';
+import { deliveryImages, DraftStore } from './drafts';
+import { ItemsWatcher } from './items-watch';
 import { TemplateStore } from './templates';
 import { RendererBridge } from './bridge';
-import { cliLinkPath, installCli, type InstallResult } from './cli-install';
+import { cliLinkPath, installCli, isTranslocated, MOVE_APP_FIRST, repairCli, type InstallResult } from './cli-install';
+import { agentBriefMarketplace, describeSource, installPlugin, repairPlugin, type RunClaude } from './plugin-install';
 import { FakeRegistrar, Hotkey, type Registrar } from './hotkey';
 import { appMenuTemplate, trayMenuTemplate, type MenuActions } from './menus';
 import { composeDelivery, findTool } from '../voice/compose';
@@ -54,7 +71,8 @@ import {
   exec,
   focusSession,
   frontGhosttyTerminal,
-  isGhostty,
+  resumeCommand,
+  resumeSession,
   startCommand,
   startSession,
   type Exec,
@@ -91,7 +109,6 @@ const drafts = new DraftStore(dataDir);
 const templates = new TemplateStore(dataDir);
 let prompt: string | undefined;
 let sessions: SessionsResponse = { sessions: [] };
-let lastDelivery: DeliveryInput | undefined;
 
 const BACKGROUND: Record<Theme, string> = { light: '#ffffff', dark: '#121212' };
 const theme = (): Theme => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
@@ -136,19 +153,21 @@ async function composeFrom(p: SendPayload): Promise<{ input: DeliveryInput; warn
       },
     },
   });
-  return { input, warnings };
+  const images = deliveryImages(p.images);
+  return { input: images.length ? { ...input, images } : input, warnings };
 }
 
 /** A delivery from either mode. A written draft alone needs no voice work. */
 async function composeOutgoing(p: Outgoing): Promise<{ input: DeliveryInput; warnings: string[] }> {
   if (!isTextPayload(p)) return composeFrom(p);
-  return { input: { boardName: '', text: p.text, mode: state.state.deliveryMode }, warnings: [] };
+  const images = deliveryImages(p.images);
+  return { input: { boardName: '', text: p.text, ...(images.length ? { images } : {}), mode: state.state.deliveryMode }, warnings: [] };
 }
 
-/** History fields that depend on what went out. */
-const sent = (input: DeliveryInput) => ({
+/** History fields that depend on what went out. The text points at bundle `id`'s picture files. */
+const sent = (input: DeliveryInput, id: string) => ({
   ...(input.boardName ? { board: input.boardName } : {}),
-  ...(input.text ? { text: input.text } : {}),
+  ...(input.text ? { text: rewriteImages(input.text, id, input.images ?? []) } : {}),
   ...(input.notes ? { notes: input.notes } : {}),
 });
 
@@ -182,6 +201,26 @@ function rememberProjects(cwds: string[]): void {
 /** The CLI script: inside the app bundle when packaged, else the repo's build. */
 function cliSource(): string {
   return app.isPackaged ? join(process.resourcesPath, 'bin/agent-brief') : join(app.getAppPath(), 'bin/agent-brief');
+}
+
+/** The plugin marketplace: inside the app bundle when packaged, else the repo root. */
+function pluginSource(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'plugin') : resolve(app.getAppPath(), '..');
+}
+
+/** Runs the user's `claude`, or undefined when it is not installed. Test runs use COMPANION_TEST_CLAUDE. */
+async function claudeRunner(): Promise<RunClaude | undefined> {
+  const pathEnv = await loginShellPath();
+  const bin = testMode
+    ? process.env.COMPANION_TEST_CLAUDE
+    : findTool('claude', [join(homedir(), '.local/bin'), ...pathEnv.split(delimiter)]);
+  if (!bin) return undefined;
+  return (args) =>
+    new Promise((ok, fail) =>
+      execFile(bin, args, { env: { ...process.env, PATH: pathEnv }, timeout: 60_000 }, (err, stdout, stderr) =>
+        err ? fail(new Error(stderr.trim() || err.message)) : ok(stdout),
+      ),
+    );
 }
 
 /** PATH as the user's login shell sets it. GUI apps start with a much shorter one. */
@@ -250,7 +289,7 @@ async function start(): Promise<void> {
 
   // Each Claude Code session's latest board and note, so /sketch, /write and the tabs reopen them.
   const briefs = () => state.state.sessionBriefs ?? {};
-  const liveSession = (id: string) => server.sessions().sessions.find((x) => x.sessionId === id);
+  const liveSession = (id: string | undefined) => server.sessions().sessions.find((x) => x.sessionId === id);
   const briefEntries = (): SessionBriefEntry[] => {
     const { targetSessionId } = server.sessions();
     return Object.entries(briefs())
@@ -259,28 +298,35 @@ async function start(): Promise<void> {
         const live = liveSession(sessionId);
         const draft = b.draftId ? drafts.get(b.draftId) : undefined;
         const board = b.board && store.exists(b.board) ? b.board : undefined;
+        const { title, cwd, host } = { title: b.title ?? 'Ended session', cwd: b.cwd, host: b.host, ...(live ? liveFields(live) : {}) };
         return {
           sessionId,
-          title: live ? live.title || folderName(live.cwd) : (b.title ?? 'Ended session'),
-          ...((live?.cwd ?? b.cwd) ? { cwd: live?.cwd ?? b.cwd } : {}),
+          title,
+          ...(cwd ? { cwd } : {}),
+          ...(host ? { host } : {}),
+          ...(!live && cwd ? { resume: resumeCommand(cwd, sessionId) } : {}),
           ...(board ? { board } : {}),
           ...(draft ? { draftId: draft.id } : {}),
           ...(b.last ? { last: b.last } : {}),
+          ...(b.trackItems ? { trackItems: true } : {}),
           at: b.at,
           isLive: !!live,
           isTarget: targetSessionId === sessionId,
-          hasContent: (!!board && !store.isEmpty(board)) || !!draft?.body.trim(),
+          hasContent: (!!board && !store.isEmpty(board)) || !!draft?.body.trim() || !!draft?.attachments,
         };
       });
   };
-  const publishBriefs = () => send(CH.briefs, briefEntries());
+  const publishBriefs = () => {
+    send(CH.briefs, briefEntries());
+    syncItemsWatch();
+  };
   /**
    * Records what a session opened. Claude Code opening it moves its tab to the front;
    * a switch in the panel (`touch: false`) keeps the tab where it is.
    */
   const rememberBrief = (sessionId: string, patch: Partial<Omit<SessionBrief, 'at'>>, touch = true) => {
     const live = liveSession(sessionId);
-    const known = live ? { title: live.title || folderName(live.cwd), cwd: live.cwd } : {};
+    const known = live ? liveFields(live) : {};
     const at = touch ? Date.now() : (briefs()[sessionId]?.at ?? Date.now());
     state.update({ sessionBriefs: remember(briefs(), sessionId, { ...patch, ...known }, at) });
     publishBriefs();
@@ -303,25 +349,116 @@ async function start(): Promise<void> {
       isEmpty: (n) => store.isEmpty(n),
     }).board;
   };
-  /** Opens a note in Write mode: the session's last one when it still exists and no text came, else a new one. */
+  /**
+   * Opens a note in Write mode: the session's last one when it still exists and no text came, else a new one.
+   * A note opened for a session is filed under it.
+   */
   const openNote = (sessionId: string | undefined, text: string | undefined) => {
-    const kept = sessionId && !text ? briefs()[sessionId]?.draftId : undefined;
+    const keptId = sessionId && !text ? briefs()[sessionId]?.draftId : undefined;
+    const kept = keptId ? drafts.get(keptId) : undefined;
     panel.show();
-    if (kept && drafts.get(kept)) {
-      send(CH.openDraft, kept);
-      if (sessionId) rememberBrief(sessionId, { draftId: kept, last: 'draft' });
+    if (kept) {
+      const open: OpenDraft = { id: kept.id, ...(sessionId ? { sessionId } : {}) };
+      send(CH.openDraft, open);
+      if (sessionId) rememberBrief(sessionId, { draftId: kept.id, last: 'draft' });
       return;
     }
     const id = newDraftId();
-    send(CH.newNote, { text, id });
+    const note: NewNote = { text, id, ...(sessionId ? { sessionId } : {}) };
+    send(CH.newNote, note);
     if (sessionId) rememberBrief(sessionId, { draftId: id, last: 'draft' });
+  };
+
+  // Item tracking: the brief keeps the switch, and the app watches each live tracked session's file.
+  /** The session's folder, from the live session or the one its brief kept. */
+  const itemsCwdOf = (sessionId: string) => liveSession(sessionId)?.cwd ?? briefs()[sessionId]?.cwd;
+  const itemsPathOf = (sessionId: string) => {
+    const cwd = itemsCwdOf(sessionId);
+    return cwd ? itemsFile(cwd, sessionId) : undefined;
+  };
+  const itemsInfo = (sessionId: string): ItemsDocInfo | undefined => {
+    const path = itemsPathOf(sessionId);
+    if (!path) return undefined;
+    let text: string | undefined;
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      text = undefined;
+    }
+    return { sessionId, path, exists: text !== undefined, doc: parseItems(text ?? '') };
+  };
+  const itemsWatch = new ItemsWatcher((sessionId) => {
+    const info = itemsInfo(sessionId);
+    if (info) send(CH.items, info);
+  });
+  function syncItemsWatch(): void {
+    const want = new Map<string, string>();
+    for (const [id, b] of Object.entries(briefs())) {
+      // Only a live session's Claude writes the file. The panel reads an ended one's when it opens.
+      const path = b.trackItems && liveSession(id) ? itemsPathOf(id) : undefined;
+      if (path) want.set(id, path);
+    }
+    itemsWatch.sync(want);
+  }
+  /**
+   * Saves the switch without moving the session's tab. The sessions refresh that
+   * follows publishes the briefs, which starts or stops the watch.
+   */
+  const setTracking = (sessionId: string, on: boolean) => {
+    const at = briefs()[sessionId]?.at ?? Date.now();
+    state.update({ sessionBriefs: remember(briefs(), sessionId, { trackItems: on }, at) });
+  };
+  /** Appends the decisions to the items file and returns the prompt that reports them. */
+  const saveDecisions = (sessionId: string, raw: unknown): { draft: string } => {
+    const cwd = itemsCwdOf(sessionId);
+    if (!cwd) throw new Error(`Agent Brief does not know session ${sessionId}`);
+    const path = itemsFile(cwd, sessionId);
+    if (!existsSync(path)) throw new Error(`Claude has not written ${path} yet`);
+    const text = readFileSync(path, 'utf8');
+    const doc = parseItems(text);
+    const decisions = (Array.isArray(raw) ? raw : []).filter(
+      (d): d is Decision =>
+        typeof d?.n === 'number' && typeof d?.text === 'string' && d.text.trim() !== '' && doc.items.some((i) => i.n === d.n),
+    );
+    if (decisions.length === 0) throw new Error('No decision names an item in the file');
+    const next = withDecisions(text, decisions);
+    if (next !== text) writeFileSync(path, next);
+    return { draft: decisionsDraft(relative(cwd, path), decisions, doc) };
+  };
+
+  /** Files tests asked to open, in place of opening them. */
+  const openedOutputs: string[] = [];
+  /** Opens an item's output file. Only files inside the session's folder open, symlinks included. */
+  const openItemOutput = async (sessionId: string, path: unknown): Promise<void> => {
+    const cwd = itemsCwdOf(sessionId);
+    if (!cwd) throw new Error(`Agent Brief does not know session ${sessionId}`);
+    if (typeof path !== 'string' || path.trim() === '') throw new Error('No file named');
+    const target = resolve(cwd, path.trim());
+    const within = (root: string, p: string) => {
+      const rel = relative(root, p);
+      return rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
+    };
+    if (!within(cwd, target)) throw new Error(`${path} is outside the project`);
+    if (!existsSync(target)) throw new Error(`${path} does not exist yet`);
+    if (!within(realpathSync(cwd), realpathSync(target))) throw new Error(`${path} is outside the project`);
+    if (testMode) {
+      openedOutputs.push(target);
+      return;
+    }
+    const failed = await shell.openPath(target);
+    if (failed) throw new Error(failed);
   };
 
   const backend: BoardBackend = {
     ...baseBackend,
+    tracking(sessionId) {
+      const b = briefs()[sessionId];
+      return b ? { trackItems: !!b.trackItems } : undefined;
+    },
+    setTracking,
     async open(req) {
       // The user just typed /sketch, so the session's terminal is still in front.
-      const s = server.sessions().sessions.find((x) => x.sessionId === req.sessionId);
+      const s = liveSession(req.sessionId);
       if (s && isGhostty(s.host)) {
         const id = await frontGhosttyTerminal(run, s.cwd);
         if (id) ghosttyTerminals.set(s.sessionId, id);
@@ -358,6 +495,8 @@ async function start(): Promise<void> {
     sessions = s;
     send(CH.sessions, s);
     rememberProjects(s.sessions.map((x) => x.cwd));
+    const refreshed = refreshLive(briefs(), s.sessions);
+    if (refreshed !== briefs()) state.update({ sessionBriefs: refreshed });
     publishBriefs();
     for (const id of ghosttyTerminals.keys()) if (!s.sessions.some((x) => x.sessionId === id)) ghosttyTerminals.delete(id);
   });
@@ -367,6 +506,7 @@ async function start(): Promise<void> {
   } catch (err) {
     console.error(`[companion] socket server did not start: ${(err as Error).message}`);
   }
+  syncItemsWatch();
 
   /** Deletes the draft a successful Send used up. History keeps its text. The Send went out even if this fails. */
   function usedUp(payload: Outgoing): void {
@@ -397,7 +537,7 @@ async function start(): Promise<void> {
         target: sessionName(delivery.sessionId),
         dir: delivery.dir,
         draft: delivery.draft,
-        ...sent(input),
+        ...sent(input, delivery.id),
       },
       input,
     );
@@ -416,10 +556,9 @@ async function start(): Promise<void> {
     const draft = buildDraft(id, input);
     const promptPath = join(dir, 'prompt.md');
     await writeFile(promptPath, draft);
-    lastDelivery = input;
     rememberProjects([cwd]);
     const target = `new session (${LAUNCHER_NAMES[via]})`;
-    record({ id, sentAt, target, dir, draft, ...sent(input) }, input);
+    record({ id, sentAt, target, dir, draft, ...sent(input, id) }, input);
     for (const w of warnings) console.warn(`[companion] ${w}`);
     if (via === 'copy') {
       const command = startCommand(cwd, promptPath);
@@ -511,6 +650,64 @@ async function start(): Promise<void> {
     }
   };
 
+  const runInstallPlugin = async (opts: { confirm: boolean }): Promise<{ installed: boolean } | undefined> => {
+    const dir = pluginSource();
+    const fail = (message: string): undefined => {
+      if (!opts.confirm) throw new Error(message);
+      dialog.showErrorBox('Could not install the Claude Code plugin', message);
+      return undefined;
+    };
+    if (isTranslocated(dir)) return fail(MOVE_APP_FIRST);
+    const run = await claudeRunner();
+    if (!run) return fail('Agent Brief could not find the claude command. Install Claude Code, then try again.');
+    try {
+      if (opts.confirm) {
+        const current = await agentBriefMarketplace(run).catch(() => undefined);
+        const moves = current && current.path !== dir;
+        const { response } = await dialog.showMessageBox({
+          type: 'question',
+          buttons: ['Install', 'Cancel'],
+          defaultId: 0,
+          cancelId: 1,
+          message: 'Install the Agent Brief plugin for Claude Code?',
+          detail: [
+            'Claude Code will load the plugin from inside this app, so the plugin updates whenever the app does.',
+            moves ? `Claude Code loads it from ${describeSource(current)} now. Its settings carry over.` : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        });
+        if (response !== 0) return undefined;
+      }
+      const result = await installPlugin(run, dir);
+      if (opts.confirm) {
+        await dialog.showMessageBox({
+          type: 'info',
+          message: 'Installed the Agent Brief plugin',
+          detail: 'New Claude Code sessions load it. In a session that is already open, run /reload-plugins.',
+        });
+      }
+      return result;
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  };
+
+  /** A moved app leaves the CLI link and the plugin registration pointing at nothing. This points them here. */
+  const repairInstalls = async () => {
+    try {
+      if (repairCli({ source: cliSource(), home: homedir() })) console.log('[companion] re-pointed the agent-brief link');
+    } catch (err) {
+      console.warn(`[companion] could not repair the agent-brief link: ${(err as Error).message}`);
+    }
+    const run = await claudeRunner();
+    if (!run) return;
+    await repairPlugin(run, pluginSource()).then(
+      (moved) => moved && console.log('[companion] re-pointed the Claude Code plugin'),
+      (err: Error) => console.warn(`[companion] could not repair the Claude Code plugin: ${err.message}`),
+    );
+  };
+
   const actions = (): MenuActions => ({
     hotkey: state.state.hotkey,
     captureHotkey: state.state.captureHotkey,
@@ -527,6 +724,7 @@ async function start(): Promise<void> {
       send(CH.openSettings);
     },
     installCli: () => void runInstallCli({ confirm: true }),
+    installPlugin: () => void runInstallPlugin({ confirm: true }),
     update: updater.current(),
     checkForUpdates,
     installUpdate: () => void updater.install(),
@@ -548,6 +746,9 @@ async function start(): Promise<void> {
   }
   buildMenus();
   updater.schedule();
+  if (app.isPackaged && !testMode && !isTranslocated(process.resourcesPath)) {
+    setTimeout(() => void repairInstalls(), 15_000).unref();
+  }
 
   const applySettings = (patch: Partial<Settings>): SettingsResult => {
     const next: Partial<Settings> = {};
@@ -644,13 +845,9 @@ async function start(): Promise<void> {
     }
   });
   ipcMain.handle(CH.send, async (_e, payload: Outgoing) => {
-    if (!server.sessions().targetSessionId) {
-      lastDelivery = (await composeOutgoing(isTextPayload(payload) ? payload : { ...payload, segments: [] })).input;
-      return { ok: false, message: 'Choose a session to send to.' };
-    }
+    if (!server.sessions().targetSessionId) return { ok: false, message: 'Choose a session to send to.' };
     try {
       const { input, warnings } = await composeOutgoing(payload);
-      lastDelivery = input;
       const delivery = await deliver(input);
       usedUp(payload);
       for (const w of warnings) console.warn(`[companion] ${w}`);
@@ -694,7 +891,7 @@ async function start(): Promise<void> {
     briefTouched({ draftId: id });
   });
   ipcMain.handle(CH.listBriefs, () => briefEntries());
-  ipcMain.handle(CH.switchBrief, async (_e, sessionId: string) => {
+  ipcMain.handle(CH.switchBrief, async (_e, sessionId: string): Promise<SwitchResult> => {
     const b = briefs()[sessionId];
     if (!b) throw new Error('that session has no brief');
     // An ended session can no longer take a Send, so its brief opens with no target.
@@ -702,9 +899,14 @@ async function start(): Promise<void> {
     setPrompt(undefined);
     const draft = b.draftId && drafts.get(b.draftId) ? b.draftId : undefined;
     const board = b.board && store.exists(b.board) ? b.board : undefined;
-    if (draft && (b.last === 'draft' || !board)) send(CH.openDraft, draft);
-    else await bridge.request('show', { board: board ?? store.create(sessionBoard(sessionId)) });
+    if (draft && (b.last === 'draft' || !board)) {
+      publishBriefs();
+      return { draftId: draft };
+    }
+    const shown = board ?? store.create(sessionBoard(sessionId));
+    await bridge.request('show', { board: shown, fromSwitch: true });
     publishBriefs();
+    return { board: shown };
   });
   ipcMain.handle(CH.forgetBrief, (_e, sessionId: string) => {
     const { [sessionId]: _gone, ...rest } = briefs();
@@ -714,8 +916,16 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.listTemplates, () => templates.list());
   ipcMain.handle(CH.saveTemplate, (_e, template: unknown) => templates.save(template));
   ipcMain.handle(CH.deleteTemplate, (_e, id: string) => templates.remove(id));
+  ipcMain.handle(CH.setTracking, (_e, sessionId: string, on: boolean) => {
+    if (!liveSession(sessionId) && !briefs()[sessionId]) throw new Error(`Agent Brief does not know session ${sessionId}`);
+    setTracking(sessionId, !!on);
+    server.refreshSessions();
+  });
+  ipcMain.handle(CH.readItems, (_e, sessionId: string) => itemsInfo(sessionId));
+  ipcMain.handle(CH.saveDecisions, (_e, sessionId: string, decisions: unknown) => saveDecisions(sessionId, decisions));
+  ipcMain.handle(CH.openItemOutput, (_e, sessionId: string, path: unknown) => openItemOutput(sessionId, path));
   ipcMain.on(CH.setMode, (_e, mode: Mode) => {
-    if (mode !== 'sketch' && mode !== 'write') return;
+    if (mode !== 'sketch' && mode !== 'write' && mode !== 'items') return;
     state.update({ mode });
     buildMenus();
   });
@@ -738,8 +948,27 @@ async function start(): Promise<void> {
       return { ok: false, message: `Could not start Claude Code: ${(err as Error).message}` };
     }
   });
+  ipcMain.handle(CH.resumeSession, async (_e, sessionId: string, via: Launcher): Promise<SendResult> => {
+    if (liveSession(sessionId)) return { ok: false, message: 'That session is still running' };
+    const cwd = briefs()[sessionId]?.cwd;
+    if (!cwd) return { ok: false, message: 'Agent Brief does not know which folder that session ran in' };
+    if (!Object.hasOwn(LAUNCHER_NAMES, via)) return { ok: false, message: `Cannot resume through ${String(via)}` };
+    const command = resumeCommand(cwd, sessionId);
+    if (via === 'copy') {
+      if (testMode) testClipboard = command;
+      else clipboard.writeText(command);
+      return { ok: true, message: 'Copied the resume command' };
+    }
+    if (!existsSync(cwd)) return { ok: false, message: `No folder at ${cwd}` };
+    try {
+      await resumeSession(run, via, cwd, sessionId, herdrPath());
+      return { ok: true, message: `Resuming the session in ${LAUNCHER_NAMES[via]}` };
+    } catch (err) {
+      return { ok: false, message: `Could not resume the session: ${(err as Error).message}` };
+    }
+  });
   ipcMain.handle(CH.focusSession, async (_e, id: string) => {
-    const s = server.sessions().sessions.find((x) => x.sessionId === id);
+    const s = liveSession(id);
     if (!s) return;
     await focusSession(run, s, { herdr: herdrPath(), ghosttyTerminal: ghosttyTerminals.get(id) }).catch((err) =>
       console.warn(`[companion] could not focus the session: ${(err as Error).message}`),
@@ -764,7 +993,10 @@ async function start(): Promise<void> {
     e.preventDefault();
     void flushAll().finally(() => app.quit());
   });
-  app.on('will-quit', () => globalShortcut.unregisterAll());
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+    itemsWatch.close();
+  });
   app.on('activate', openStandalone);
   app.on('second-instance', openStandalone);
 
@@ -772,29 +1004,23 @@ async function start(): Promise<void> {
     Object.assign(globalThis, {
       __companion: {
         backend,
-        server,
-        socketPath,
         panel,
         store,
         state,
-        dataDir,
         hotkey,
-        captureKey,
         newNote,
         drafts,
-        templates,
         registrar,
         toggle: togglePanel,
         buildDelivery: async () => (await composeFrom(await bridge.request('payload', {}))).input,
-        lastDelivery: () => lastDelivery,
         applySettings,
         installCli: (home: string) => runInstallCli({ confirm: false, home }),
+        installPlugin: () => runInstallPlugin({ confirm: false }),
         trayMenu: () => trayMenuTemplate(actions()).map((i) => i.label ?? i.type),
         history,
         launches,
         clipboard: () => testClipboard,
-        ghosttyTerminals,
-        updater,
+        openedOutputs,
       },
     });
   }
