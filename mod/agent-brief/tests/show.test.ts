@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { SHOW_TOOL, fit, requestedOf, shownOf, sizeFor, thumbnailCrop, toolLine, viewBoxOf } from '../hooks/show-logic'
-import { COMPOSE, CWD, SESSION, command, textOf, worldOf } from './world'
+import { BAND, COMPOSE, CWD, SESSION, command, textOf, worldOf } from './world'
 import type { World } from './world'
 
 const SHOT = `${CWD}/shots/page.png`
@@ -47,8 +47,21 @@ function answerPictures(world: World & { hasRsvg: boolean }, size = '1440x900') 
   }
 }
 
-async function setup($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], files: Record<string, string> = { [SHOT]: 'png' }) {
+/**
+ * How the band's clear pixel answers: it drew, it drew its alt, or the band
+ * never drew. Pictures are known to draw by default.
+ */
+type Probe = 'drew' | 'alt' | 'none'
+
+async function setup(
+  $: Parameters<TestBody>[0],
+  on: Parameters<TestBody>[1],
+  files: Record<string, string> = { [SHOT]: 'png' },
+  { probe = 'drew', env = {} }: { probe?: Probe; env?: Record<string, string> } = {},
+) {
   const world = worldOf(on, files) as World & { hasRsvg: boolean }
+  world.env = env
+  on('ui.blit', () => (probe === 'alt' ? { value: { deny: 'the Image draws its alt here: the terminal draws no placeholder images' } } : { value: {} }))
   world.hasRsvg = true
   answerPictures(world)
   const clock = mock.clock(on)
@@ -65,6 +78,10 @@ async function setup($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], fi
     return { value: { isPlaced: true } }
   })
   await $.session.start(SESSION)
+  if (probe !== 'none') {
+    await $.ui.render(BAND)
+    await clock.advance(250)
+  }
   return { world, clock, box, opened }
 }
 
@@ -217,6 +234,38 @@ describe('show_image', () => {
     const withTool = await $.prompt.compose({ ...COMPOSE, tools: [SHOW_TOOL] })
     const section = withTool.sections.find(s => s.id === 'agent-brief:show')
     expect(section?.text).toContain('show it with show_image')
+  })
+})
+
+describe('knowing whether pictures draw', () => {
+  test('the band keeps drawing the clear pixel while no probe has answered', async ($, on) => {
+    await setup($, on, { [SHOT]: 'png' }, { probe: 'none' })
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('picture-probe')
+    await $.ui.render(BAND)
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('picture-probe')
+  })
+
+  test('the band leaves the pixel off once the probe has answered', async ($, on) => {
+    await setup($, on)
+    expect(JSON.stringify(await $.ui.render(BAND))).not.toContain('picture-probe')
+  })
+
+  test('before anything has drawn, a result tells Claude the user may not see it', async ($, on) => {
+    await setup($, on, { [SHOT]: 'png' }, { probe: 'none' })
+    const reply = await call($, { path: SHOT, title: 'Pricing page' })
+    expect(reply.result?.split('\n')[0]).toBe(
+      "Shown: Pricing page (1440×900). This terminal hasn't drawn a picture yet, so it may show a notice instead. Don't say the user can see it.",
+    )
+  })
+
+  test('in a Herdr pane the first call already says it was not shown, and the row draws a Herdr notice', async ($, on) => {
+    await setup($, on, { [SHOT]: 'png' }, { probe: 'alt', env: { HERDR_ENV: '1', TERM_PROGRAM: 'herdr' } })
+    const reply = await call($, { path: SHOT, title: 'Pricing page' })
+    expect(reply.result?.split('\n')[0]).toMatch(/^Not shown: Claude Code can't draw pictures inside a Herdr pane/)
+    const ui = await $.ui.mount(resultRow(reply.result))
+    expect(textOf(await ui.drawn())).toContain("Herdr can't show pictures")
+    expect(await ui.find({ type: 'Image' })).toBeUndefined()
+    await ui.unmount()
   })
 })
 

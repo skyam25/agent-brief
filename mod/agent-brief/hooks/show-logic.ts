@@ -260,10 +260,16 @@ export function noticeOf(err: unknown, path: string, home = ''): ShowNotice {
 }
 
 /** Why pictures can't draw here, once a draw has failed. */
-export type DrawCause = 'tmux' | 'terminal' | 'background'
+export type DrawCause = 'tmux' | 'herdr' | 'terminal' | 'background'
 
-export const causeOf = (isTmux: boolean, terminal: string): DrawCause =>
-  isTmux ? 'tmux' : /^(ghostty|kitty)$/.test(terminal) ? 'background' : 'terminal'
+export const causeOf = (isTmux: boolean, terminal: string, isHerdr = false): DrawCause =>
+  isHerdr ? 'herdr' : isTmux ? 'tmux' : /^(ghostty|kitty)$/.test(terminal) ? 'background' : 'terminal'
+
+/** A clear 1×1 PNG. The band draws it once to learn whether pictures draw here. */
+export const CLEAR_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
+
+/** Added to a result sent before anything has drawn, so Claude doesn't claim the user saw it. */
+export const UNCONFIRMED_NOTE = "This terminal hasn't drawn a picture yet, so it may show a notice instead. Don't say the user can see it."
 
 /** The terminal's name from TERM_PROGRAM and TERM: ghostty, kitty, or the program in lower case. */
 export function terminalOf(program: string, term: string): string {
@@ -285,6 +291,15 @@ export function cantDraw(cause: DrawCause, name: string, sessionId: string) {
       command: 'set -g allow-passthrough on',
       label: 'Copy setting',
       claude: `tmux is blocking pictures, so the user saw a notice instead of ${name}. They can add "set -g allow-passthrough on" to ~/.tmux.conf or open the chat outside tmux.`,
+    }
+  }
+  if (cause === 'herdr') {
+    return {
+      title: "Herdr can't show pictures",
+      text: `"${name}" is ready, but Claude Code can't draw pictures inside a Herdr pane. Open this chat in a plain Ghostty tab to see it:`,
+      command: `claude --resume${sessionId ? ` ${sessionId}` : ''}`,
+      label: 'Copy command',
+      claude: `Claude Code can't draw pictures inside a Herdr pane, so the user saw a notice instead of ${name}. They can resume the chat in a plain Ghostty tab to see it.`,
     }
   }
   if (cause === 'terminal') {

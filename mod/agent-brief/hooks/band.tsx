@@ -12,6 +12,8 @@ export type BandView = {
   mode: SessionMode
   fidelity: PrototypeFidelity | null
   picking: BandRow
+  /** Draws show.tsx's clear pixel at the row's end, until it learns whether pictures draw here. */
+  probe?: { key: string; png: string }
 }
 
 export type BandActions = {
@@ -25,8 +27,10 @@ export type BandActions = {
  * One row with Sketch, Stack, Write, Track and Mode buttons.
  * The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
  */
-export function bandTree({ Box, Button, Text }: ElementTable, view: BandView, act: BandActions) {
-  const { ingesting, isTracking, mode, fidelity, picking } = view
+export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
+  const { Box, Button, Text } = table
+  const { Image } = table as Partial<ElementTable<'terminal'>>
+  const { ingesting, isTracking, mode, fidelity, picking, probe } = view
   const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
 
   if (picking === 'mode') {
@@ -87,6 +91,7 @@ export function bandTree({ Box, Button, Text }: ElementTable, view: BandView, ac
         onPress={() => void act.pick('mode')}
       />
       {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}
+      {probe && Image && <Image key={probe.key} source={{ png: probe.png }} columns={1} rows={1} alt=" " />}
     </Box>
   )
 }

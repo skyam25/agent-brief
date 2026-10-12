@@ -65,8 +65,12 @@ import type { ModeChoice } from './modes'
 import { registerModeGuard } from './mode-guard'
 import { OUTPUTS_SECTION, outputsInstructions } from './outputs'
 import { registerOutputs } from './outputs-file'
-import { SHOW_COMMAND_SPEC, SHOW_TOOL_SPEC, boardOfKey, registerShow, showSection, startShow } from './show'
+import { PROBE_KEY, SHOW_COMMAND_SPEC, SHOW_TOOL_SPEC, boardOfKey, needsProbe, noteProbe, registerShow, showSection, startShow } from './show'
 import type { ShowEnvironment } from './show'
+import { CLEAR_PIXEL } from './show-logic'
+
+/** The band's picture probe is waiting for its answer. */
+let isBandProbing = false
 
 type Config = {
   inboxDir: string
@@ -573,6 +577,7 @@ async function showEnvironment($: EngineInterface, cwd: string, nodePath: string
     term,
     isTmux,
     isPassthroughOff,
+    isHerdr: (await $.env.get('HERDR_ENV').catch(missing)) === '1',
     nodePath,
   }
 }
@@ -738,6 +743,23 @@ export const register: Register = (on, options) => {
       mode: await read($, modeRef),
       fidelity: await read($, fidelityRef),
       picking: await read($, pickingRef),
+      ...(e.surface === 'terminal' && needsProbe() ? { probe: { key: PROBE_KEY, png: CLEAR_PIXEL } } : {}),
+    }
+    if (view.probe && !isBandProbing) {
+      // The pixel mounts with this frame, so its blit waits a beat.
+      isBandProbing = true
+      $.clock.after(250, async () => {
+        try {
+          const r = await $.ui.blit({ requestId: e.requestId, key: PROBE_KEY, source: { png: CLEAR_PIXEL } })
+          log($, `band picture probe: ${r.deny ?? 'drew'}`)
+          if (noteProbe(r.deny)) {
+            $.ui.invalidate('prompt.section')
+            $.ui.invalidate('ui.render')
+          }
+        } finally {
+          isBandProbing = false
+        }
+      })
     }
     const pick = (row: BandRow) => update($, pickingRef, () => row)
     return bandTree($.ui.resolve(e), view, {
