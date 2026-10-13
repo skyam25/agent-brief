@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   app,
   clipboard,
+  ClipboardItem,
   dialog,
   globalShortcut,
   ipcMain,
@@ -166,6 +167,8 @@ async function start(): Promise<void> {
   const terminals = new Terminals({ testMode, writeClipboard: (text) => clipboard.writeText(text) });
   // Each live session's mode. The mod sets it over PATCH /sessions/:id; the app only shows it.
   const modes = new SessionModes();
+  /** What a test run's Copy put on the clipboard, in place of the clipboard. */
+  let copiedRich: { html: string; text: string } | undefined;
   /** A board History restored. Switching to it is no session's choice, so it is not recorded. */
   let restoredBoard: string | undefined;
 
@@ -182,6 +185,13 @@ async function start(): Promise<void> {
     },
     mode: (sessionId) => modes.get(sessionId),
     setMode: (sessionId, patch) => modes.set(sessionId, patch),
+    // A note from `agent-brief note`. The panel stays as it is and lists the note.
+    addNote(req) {
+      const draft = drafts.addNote(req);
+      if (req.sessionId) briefs.remember(req.sessionId, {}, !briefs.get(req.sessionId));
+      send(CH.draftsChanged);
+      return { ok: true, draftId: draft.id };
+    },
     async open(req) {
       // The user just typed /sketch, so the session's terminal is still in front.
       const live = briefs.live(req.sessionId);
@@ -328,6 +338,11 @@ async function start(): Promise<void> {
     drafts.remove(id);
     briefs.touched({ draftId: id });
   });
+  ipcMain.handle(CH.copyRich, async (_e, clip: { html?: unknown; text?: unknown }) => {
+    const rich = { html: String(clip?.html ?? ''), text: String(clip?.text ?? '') };
+    if (testMode) copiedRich = rich;
+    else await clipboard.write([new ClipboardItem({ 'text/html': rich.html, 'text/plain': rich.text })]);
+  });
   ipcMain.handle(CH.listTemplates, () => templates.list());
   ipcMain.handle(CH.saveTemplate, (_e, template: unknown) => templates.save(template));
   ipcMain.handle(CH.deleteTemplate, (_e, id: string) => templates.remove(id));
@@ -461,6 +476,7 @@ async function start(): Promise<void> {
         history,
         launches: terminals.launches,
         clipboard: () => terminals.copied,
+        richClipboard: () => copiedRich,
         openedOutputs,
       },
     });

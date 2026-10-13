@@ -44,6 +44,16 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - The target clears when its session exits. The app never picks a session on its own.
 - Jumping back is exact for herdr panes and for the Ghostty terminal `/sketch` ran in. Other apps come forward as a whole.
 
+## Notes from Claude
+
+- `POST /notes` (`NoteRequest` in `src/protocol.ts`) saves a draft with `title` and Markdown `text`. It never shows or focuses the panel and never changes the Send target.
+- A `sessionId` must name a live session, else 404. The note is filed under it, and the session gets a tab if it had none. Without one, the note goes to Notes.
+- Main sends `drafts:changed`, and an open panel reloads its list. The open note and the mode stay.
+- `agent-brief note "<title>"` reads Markdown from stdin, `--text` or `--file`. It files under `--session`, else `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in its shells. A session from the environment the app does not know gets its note under Notes. When the app is not running it exits 3 and tells Claude to print the text.
+- The outputs prompt section tells Claude to use it for text the user will paste elsewhere.
+- A draft's `title` is one line, at most 200 characters. The list shows it over the body's first line, and the editor shows it above the text.
+- Copy in the note footer renders the Markdown with the editor's schema (`src/renderer/editor/rich-copy.ts`) and writes `text/html` and `text/plain` in one `clipboard.write`. Pictures go in as data URLs. Test runs record the write as `__companion.richClipboard()`.
+
 ## Items
 
 - `trackItems` lives on the session's brief in `state.json`. The mod reads it through `GET /sessions/:id` and adds the items instructions to Claude's prompt only while it is true. `PATCH /sessions/:id` flips it from `/track`.

@@ -227,8 +227,10 @@ export function declareResultText(record: OutputRecord): string {
   return `Declared "${title}" (${record.ref}, ${record.status ?? 'drafting'}). It shows in the Agent Brief panel.`
 }
 
-/** The system prompt section that tells Claude when to declare an output. */
-/** The system prompt section. `isCli` swaps the declare_output tool for `agent-brief output` in Bash. */
+/**
+ * The system prompt section: when to declare an output, and where text the user pastes elsewhere goes.
+ * `isCli` swaps the declare_output tool for `agent-brief output` in Bash.
+ */
 export function outputsInstructions(isCli = false): string {
   const declare = isCli
     ? 'run `agent-brief output "<title>" --path <file> --status drafting` with Bash for it (the declare_output tool is off here)'
@@ -245,5 +247,9 @@ Declare it with status \`drafting\` when you start the deliverable. Declare it a
 Declare one primary output per request, usually. Pick the one the user will read first.
 Never declare code, config, tests or files that serve the code.
 Never declare the items file or anything under .feedback.
-The panel already lists every document-type file you write as touched. Do not declare files to be thorough.`
+The panel already lists every document-type file you write as touched. Do not declare files to be thorough.
+
+When the user asks for text they will paste somewhere else, such as a message, an email or a post, write it to an Agent Brief note instead of printing it.
+Run \`agent-brief note "<title>"\` with Bash and the Markdown on stdin, in a quoted heredoc. Then say in one line that the note is in Agent Brief.
+If the command fails, print the text instead.`
 }

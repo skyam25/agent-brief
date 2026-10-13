@@ -37,10 +37,13 @@ Sketch, write, talk and paste screenshots on your Mac, then hand all of it to Cl
 - Notes hold headings, bullets, tables and pasted screenshots, and the screenshots go to Claude with the text.
 - Templates are markdown files with `{{slots}}`. Pick one with `/`, Tab between slots, and Send warns once about a slot left empty.
 - A note can carry a board, so its text leads the prompt and the sketch follows.
+- Copy puts a note on the clipboard as rich text, so bold, lists and links paste into Slack, Mail or Docs. Apps that take plain text get the Markdown.
+- Ask Claude for a message, an email or a post and it lands as a note under the session, titled, with no panel popping up. Edit it there and press Copy. Without the app, Claude prints the text as before.
 
 ## Hand it to Claude Code
 
-- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session. `/write`, or the Write button, opens a note for it instead. The button carries over what you typed in the prompt box, and `/write last` starts the note with Claude's last reply.
+- `/sketch` in a Claude Code session, or the Sketch button above its prompt, opens the board for that session. `/write`, or the Write button, opens a note for it instead. The button carries over what you typed in the prompt box. With the box empty, it takes Claude's last reply, as `/write last` does.
+- Under each finished reply of more than one line, Copy puts the reply on the clipboard and Open in Agent Brief starts a note with it.
 - Run `/sketch` or `/write` again and the board or note you left unsent comes back.
 - Send writes a bundle into the project and gives Claude a prompt that points at it.
 - The prompt goes in by itself, or waits in the prompt box if you prefer to add to it first.
@@ -96,6 +99,7 @@ A send from Items mode is text alone, such as `Decisions on 2 items in .feedback
 
 - Claude draws labelled shapes, sticky notes, arrows, frames and screenshots with the `agent-brief` command line tool. When it drives a browser for you, `agent-brief snap` posts each step as a numbered screenshot you can mark up and Send back.
 - Claude reads the board as text and exports PNGs of any region.
+- `agent-brief note "<title>"` saves Markdown from stdin as a note filed under the Claude Code session that runs it. The panel stays as it is.
 - Its changes appear live, and one undo removes a whole batch.
 
 ## Pictures in Herdr
@@ -131,7 +135,7 @@ A send from Items mode is text alone, such as `Decisions on 2 items in .feedback
 | Folder | Holds |
 |---|---|
 | [`companion/`](companion) | The macOS app and the `agent-brief` command line tool |
-| [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, `/write`, `/track`, their buttons, delivery and the feedback inbox |
+| [`mod/agent-brief/`](mod/agent-brief) | The Claude Code plugin: `/sketch`, `/write`, `/track`, their buttons, the Copy and Open in Agent Brief row under replies, delivery and the feedback inbox |
 
 Building the app, tests and packaging are in [companion/docs/DEVELOPMENT.md](companion/docs/DEVELOPMENT.md).
 

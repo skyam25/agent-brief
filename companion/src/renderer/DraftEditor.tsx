@@ -3,7 +3,8 @@ import type { BoardEntry, Draft } from '../shared/ipc';
 import type { DraftBook } from './drafts';
 import { FilingMenu, type FilingTab } from './FilingMenu';
 import { DeleteItem, MoreMenu } from './FooterMenu';
-import { CheckIcon, LinkIcon, PlusIcon } from './Icons';
+import { CheckIcon, CopyIcon, LinkIcon, PlusIcon } from './Icons';
+import { richCopy } from './editor/rich-copy';
 import { RichEditor, type RichEditorHandle } from './editor/RichEditor';
 import { newPictureId } from './editor/pictures';
 import type { TemplateShelf } from './templates';
@@ -50,8 +51,18 @@ export function DraftEditor(props: {
   focusRequest: number;
   onSend: () => void;
   onOpenBoard: (board: string) => void;
+  onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
 }) {
   const { book, draft } = props;
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const copy = async () => {
+    setCopied(await props.onCopy(richCopy(draft.body, draft.attachments)));
+  };
   const editor = useRef<RichEditorHandle>(null);
   const [boards, setBoards] = useState<string[]>([]);
   const [naming, setNaming] = useState(false);
@@ -87,6 +98,11 @@ export function DraftEditor(props: {
 
   return (
     <section className="editor">
+      {draft.title && (
+        <p className="draft-title" data-testid="draft-title">
+          {draft.title}
+        </p>
+      )}
       {draft.source && (
         <p className="draft-source muted" data-testid="draft-source">
           From {draft.source.path}. Send asks Claude to apply your changes to the file.
@@ -170,6 +186,16 @@ export function DraftEditor(props: {
             </>
           )}
         </MoreMenu>
+        <button
+          className="ghost small copy-note"
+          disabled={!draft.body.trim()}
+          title="Copy as rich text, for Slack, Mail or Docs. Plain-text apps get the Markdown."
+          onClick={() => void copy()}
+          data-testid="draft-copy"
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
         <button
           className={ready ? 'chip on' : 'chip'}
           aria-pressed={ready}

@@ -5,6 +5,7 @@ import type {
   DrawRequest,
   ElementUpdate,
   ModePatch,
+  NoteRequest,
   OpenRequest,
   PrototypeFidelity,
   SessionHost,
@@ -194,6 +195,21 @@ export function parseOpen(body: unknown): OpenRequest {
     text: openText(o),
     layout: openLayout(o),
   };
+}
+
+/** The longest note title, in characters. */
+const MAX_NOTE_TITLE = 200;
+
+export function parseNote(body: unknown): NoteRequest {
+  const o = object(body ?? {}, 'body');
+  const text = optString(o, 'text', 'body');
+  if (text === undefined || text.trim() === '') fail('body.text is required');
+  if (text.length > MAX_NOTE) fail(`body.text must be under ${MAX_NOTE} characters`);
+  const title = optString(o, 'title', 'body')?.trim();
+  if (title !== undefined && title.length > MAX_NOTE_TITLE) fail(`body.title must be under ${MAX_NOTE_TITLE} characters`);
+  if (title?.includes('\n')) fail('body.title must be one line');
+  const sessionId = optString(o, 'sessionId', 'body');
+  return { text, ...(title ? { title } : {}), ...(sessionId ? { sessionId } : {}) };
 }
 
 function openLayout(o: Obj): OpenRequest['layout'] {

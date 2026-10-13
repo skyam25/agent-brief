@@ -89,7 +89,9 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 - Text after `/write` starts the note.
 - `/write last` starts it with Claude's newest reply, to edit and send back.
 - The note is filed under this session, so it shows on the session's tab in the panel rather than in Notes.
-- The **¶ Write** button moves the prompt box's draft into the note and empties the box. Large pastes, which the box shows as `[Pasted text #1 +N lines]`, go in as the text they held. Pasted images stay behind as `[Image #N]`, because the plugin cannot read their bytes.
+- The **¶ Write** button moves the prompt box's draft into the note and empties the box. Large pastes, which the box shows as `[Pasted text #1 +N lines]`, go in as the text they held. Pasted images stay behind as `[Image #N]`, because the plugin cannot read their bytes. With the box empty, it takes Claude's last reply, as `/write last` does, and says `Nothing to write yet` before Claude has replied.
+- Under the last block of each finished reply of more than one line, a quiet row offers **Copy**, which puts the reply on the clipboard, and **Open in Agent Brief**, which starts a note with it.
+- For text you will paste elsewhere, such as a message, an email or a post, the outputs prompt section tells Claude to run `agent-brief note "<title>"` with the Markdown on stdin. The note lands under this session without opening the panel, and its Copy button puts it on the clipboard as rich text. If the command fails, Claude prints the text.
 
 Starting text needs Agent Brief 0.2.3 or newer.
 

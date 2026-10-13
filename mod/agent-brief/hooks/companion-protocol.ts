@@ -96,6 +96,22 @@ export interface OpenResponse {
   noteText?: boolean
 }
 
+// POST /notes files a note in Write mode without showing or focusing the panel.
+// With a live session it goes under that session's tab, else under Notes.
+export interface NoteRequest {
+  /** Markdown, as Write mode keeps it. */
+  text: string
+  /** The name the note list shows. Absent, the list shows the text's first line. */
+  title?: string
+  /** Files the note under this session. It must be live. */
+  sessionId?: string
+}
+
+export interface NoteResponse {
+  ok: true
+  draftId: string
+}
+
 // GET /deliveries?session=<id>&wait=<seconds>, POST /deliveries/:id/ack
 export interface Delivery {
   id: string

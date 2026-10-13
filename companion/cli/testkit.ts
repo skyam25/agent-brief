@@ -76,14 +76,14 @@ export function useFakeApp() {
     fs.rmSync(app.dir, { recursive: true, force: true });
   });
 
-  async function run(argv: string[], stdin = '') {
+  async function run(argv: string[], stdin = '', env: Record<string, string> = {}) {
     let stdout = '';
     let stderr = '';
     const code = await main(argv, {
       stdin: async () => stdin,
       stdout: (s) => (stdout += s),
       stderr: (s) => (stderr += s),
-      env: { COMPANION_SOCKET: app.socket },
+      env: { COMPANION_SOCKET: app.socket, ...env },
       cwd: app.dir,
       now: () => new Date('2026-10-10T15:30:00Z'),
     });

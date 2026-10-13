@@ -113,6 +113,8 @@ export interface Draft {
   id: string;
   body: string;
   status: DraftStatus;
+  /** The name the list shows, from `agent-brief note`. Absent, the list shows the body's first line. */
+  title?: string;
   /** A board whose sketch goes out with this draft. */
   board?: string;
   /** The Claude Code session this note is filed under. Absent for a note in the Notes tab. */
@@ -361,6 +363,10 @@ export interface CompanionApi extends BoardHost {
   onNewNote(fn: (note: NewNote) => void): void;
   /** Fires when /write reopens a session's note. */
   onOpenDraft(fn: (open: OpenDraft) => void): void;
+  /** Fires when main saved a draft the panel did not make, such as a note from `agent-brief note`. */
+  onDraftsChanged(fn: () => void): void;
+  /** Puts rich text and its plain form on the clipboard in one write. */
+  copyRich(clip: { html: string; text: string }): Promise<void>;
   /** Each tracked session's latest brief, newest first. */
   listBriefs(): Promise<SessionBriefEntry[]>;
   /** Fires when a brief, a session or the Send target changes. */
@@ -459,6 +465,8 @@ export const CH = {
   listDrafts: 'drafts:list',
   saveDraft: 'drafts:save',
   deleteDraft: 'drafts:delete',
+  draftsChanged: 'drafts:changed',
+  copyRich: 'clipboard:copy-rich',
   listTemplates: 'templates:list',
   saveTemplate: 'templates:save',
   deleteTemplate: 'templates:delete',

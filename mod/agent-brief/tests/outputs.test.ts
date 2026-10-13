@@ -218,13 +218,16 @@ describe('text', () => {
     )
   })
 
-  test('the instructions name the tool and the rules, in a dozen lines or so', () => {
+  test('the instructions name the tool, the rules and the note command, in under 20 lines', () => {
     const text = outputsInstructions()
     expect(text.startsWith('# Outputs (Agent Brief)')).toBe(true)
     expect(text).toContain('declare_output')
     expect(text).toContain('drafting')
     expect(text).toContain('ready')
     expect(text).toContain('.feedback')
-    expect(text.split('\n').length).toBeLessThanOrEqual(14)
+    expect(text).toContain('agent-brief note "<title>"')
+    expect(text).toContain('If the command fails, print the text instead.')
+    expect(outputsInstructions(true)).toContain('agent-brief note "<title>"')
+    expect(text.split('\n').length).toBeLessThanOrEqual(18)
   })
 })

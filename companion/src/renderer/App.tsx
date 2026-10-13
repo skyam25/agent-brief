@@ -257,6 +257,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       changeMode('write');
     });
     host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode('write')));
+    // A note from `agent-brief note` joins the list. The open note and the mode stay.
+    host.onDraftsChanged(() => void book.load());
     controller.panelVisible = info.panelVisible;
     host.onVisibility((visible) => {
       controller.panelVisible = visible;
@@ -445,6 +447,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
               onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
               review={reviewProps}
+              onCopy={(clip) => host.copyRich(clip).then(() => true, (err) => (report('copy the note')(err), false))}
             />
           )}
           {mode === 'items' && (

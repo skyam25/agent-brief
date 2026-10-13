@@ -1315,6 +1315,21 @@ button.recording {
   color: var(--fg);
 }
 
+/* The name `agent-brief note` gave the open draft, above the editor. */
+
+.draft-title {
+  margin: 0;
+  padding: 10px 24px 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.copy-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* The open draft's source file, above the editor. */
 
 .draft-source {

@@ -31,6 +31,7 @@ interface CompanionTestHooks {
   history: SendHistory;
   launches: Terminals['launches'];
   clipboard(): Terminals['copied'];
+  richClipboard(): { html: string; text: string } | undefined;
   openedOutputs: string[];
 }
 

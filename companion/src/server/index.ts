@@ -22,6 +22,7 @@ import {
   parseDelete,
   parseDraw,
   parseMaxEdge,
+  parseNote,
   parseOpen,
   parseRegion,
   parseSession,
@@ -321,6 +322,13 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       const res = await backend.open(body);
       for (const fn of openListeners) fn(body);
       return { json: { ...res, targetSessionId: target } };
+    }
+
+    if (root === 'notes' && parts.length === 1 && method === 'POST') {
+      const body = parseNote(await readJson(req));
+      if (!backend.addNote) throw new HttpError(503, 'unavailable', 'this app does not take notes');
+      if (body.sessionId !== undefined) liveSession(body.sessionId);
+      return { json: await backend.addNote(body) };
     }
 
     if (root === 'deliveries') {
