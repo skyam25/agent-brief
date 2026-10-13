@@ -108,8 +108,8 @@ export function DraftRow(props: {
 }) {
   const { draft: d, drag } = props;
   const body = plainSlots(d.body);
-  const title = d.review ? `Review of ${baseName(d.review.path)}` : draftTitle(body) || 'Empty note';
-  const preview = d.review ? commentCount(d.review.comments.length) : draftPreview(body);
+  const title = d.review ? `Review of ${baseName(d.review.path)}` : d.title || draftTitle(body) || 'Empty note';
+  const preview = d.review ? commentCount(d.review.comments.length) : d.title ? draftTitle(body) : draftPreview(body);
   const filed = filedTab(d, props.tabs);
   return (
     <li

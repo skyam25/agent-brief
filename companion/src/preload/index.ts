@@ -47,6 +47,8 @@ const api: CompanionApi = {
   switchBrief: (sessionId) => ipcRenderer.invoke(CH.switchBrief, sessionId),
   forgetBrief: (sessionId) => ipcRenderer.invoke(CH.forgetBrief, sessionId),
   listDrafts: () => ipcRenderer.invoke(CH.listDrafts),
+  onDraftsChanged: (fn) => ipcRenderer.on(CH.draftsChanged, () => fn()),
+  copyRich: (clip) => ipcRenderer.invoke(CH.copyRich, clip),
   saveDraft: (draft) => ipcRenderer.invoke(CH.saveDraft, draft),
   deleteDraft: (id) => ipcRenderer.invoke(CH.deleteDraft, id),
   listTemplates: () => ipcRenderer.invoke(CH.listTemplates),

@@ -134,6 +134,25 @@ export interface OpenResponse {
   noteText?: boolean;
 }
 
+// ── POST /notes ───────────────────────────────────────────────────────────
+// Files a note in Write mode without showing or focusing the panel. With a
+// live session it goes under that session's tab, else under Notes. The open
+// panel lists it at once and keeps the note it shows.
+
+export interface NoteRequest {
+  /** Markdown, as Write mode keeps it. */
+  text: string;
+  /** The name the note list shows. Absent, the list shows the text's first line. */
+  title?: string;
+  /** Files the note under this session. It must be live. */
+  sessionId?: string;
+}
+
+export interface NoteResponse {
+  ok: true;
+  draftId: string;
+}
+
 // ── Outputs file ──────────────────────────────────────────────────────────
 // `<cwd>/.feedback/outputs/<sessionId>.json`. The mod writes it; the app only
 // reads it. Claude declares a deliverable with the `declare_output` tool, and

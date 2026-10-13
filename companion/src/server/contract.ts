@@ -11,6 +11,8 @@ import type {
   BoardsResponse,
   ModePatch,
   MutateResponse,
+  NoteRequest,
+  NoteResponse,
   OpenRequest,
   OpenResponse,
   ReadResponse,
@@ -36,6 +38,8 @@ export interface BoardBackend {
   draw(board: string, req: DrawRequest): Promise<DrawResponse>;
   update(board: string, req: UpdateRequest): Promise<MutateResponse>;
   remove(board: string, req: DeleteRequest): Promise<MutateResponse>;
+  /** Saves a note for POST /notes without showing the panel. A `sessionId` here is live. */
+  addNote?(req: NoteRequest): NoteResponse | Promise<NoteResponse>;
   /** A session's item tracking. Undefined when the app keeps nothing for it. */
   tracking?(sessionId: string): { trackItems: boolean } | undefined;
   /** Turns item tracking on or off for a session. */

@@ -19,7 +19,7 @@ import type { TemplateShelf } from './templates';
 export { ago } from './DraftList';
 export type { FilingTab } from './FilingMenu';
 
-const matches = (d: Draft, query: string) => !query || d.body.toLowerCase().includes(query.toLowerCase());
+const matches = (d: Draft, query: string) => !query || `${d.title ?? ''}\n${d.body}`.toLowerCase().includes(query.toLowerCase());
 
 /** Write mode: Ready drafts, notes and templates on the left; the open one on the right. */
 export function WriteView(props: {
@@ -44,6 +44,8 @@ export function WriteView(props: {
   onDismissOutput: (sessionId: string, ref: string) => void;
   /** What the review pane needs, for a draft that reviews an HTML output. */
   review: { host: ReviewHost; voice: ReviewVoice; onError: (message: string) => void };
+  /** Puts a note on the clipboard as rich text and Markdown. False when that failed, which the panel has reported. */
+  onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
 }) {
   const book = useStore(props.book);
   const shelf = useStore(props.shelf);
@@ -236,6 +238,7 @@ export function WriteView(props: {
           focusRequest={props.focusRequest}
           onSend={props.onSend}
           onOpenBoard={props.onOpenBoard}
+          onCopy={props.onCopy}
         />
       ) : (
         <div className="editor empty-editor">

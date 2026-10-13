@@ -9,6 +9,8 @@ import {
   type DrawResponse,
   type Health,
   type MutateResponse,
+  type NoteRequest,
+  type NoteResponse,
   type OpenRequest,
   type OpenResponse,
   type ReadResponse,
@@ -40,6 +42,11 @@ export interface IO {
 export const NOT_RUNNING_MESSAGE =
   'Agent Brief is not running. Start it, or run /sketch in Claude Code.';
 
+export const NOTE_NOT_RUNNING_MESSAGE = 'Agent Brief is not running, so no note was made. Print the text instead.';
+
+/** Claude Code sets it in every shell it runs, so a note files under the session that wrote it. */
+export const SESSION_ID_ENV = 'CLAUDE_CODE_SESSION_ID';
+
 const EXIT = { ok: 0, server: 1, usage: 2, notRunning: 3 };
 
 class UsageError extends Error {}
@@ -51,7 +58,7 @@ interface Args {
 
 const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
-  'title', 'labels', 'url', 'path', 'status',
+  'title', 'labels', 'url', 'path', 'status', 'text',
 ]);
 const BOOL_FLAGS = new Set(['json', 'help']);
 
@@ -89,9 +96,11 @@ export async function main(argv: string[], io: IO): Promise<number> {
   const out = (s: string) => io.stdout(s.endsWith('\n') ? s : s + '\n');
   const err = (s: string) => io.stderr(s.endsWith('\n') ? s : s + '\n');
 
+  let command: string | undefined;
   try {
     const args = parseArgs(argv);
-    const [command, ...positional] = args.rest;
+    const [first, ...positional] = args.rest;
+    command = first;
 
     if (!command || command === 'help' || (command === '--help')) {
       const topic = positional[0];
@@ -110,7 +119,7 @@ export async function main(argv: string[], io: IO): Promise<number> {
     return EXIT.ok;
   } catch (e) {
     if (e instanceof NotRunningError) {
-      err(NOT_RUNNING_MESSAGE);
+      err(command === 'note' ? NOTE_NOT_RUNNING_MESSAGE : NOT_RUNNING_MESSAGE);
       return EXIT.notRunning;
     }
     if (e instanceof ApiError) {
@@ -249,6 +258,35 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const where = file !== undefined ? { path: path.resolve(cwd, file) } : { url: url! };
     ctx.out(bashRequestLine({ kind: 'output', input: { title, ...where, status } }));
     ctx.out('Agent Brief records this when its plugin runs in this Claude Code session. Without the plugin, nothing is recorded.');
+  },
+
+  async note(ctx) {
+    const title = ctx.positional.join(' ').trim();
+    const inline = str(ctx.args, 'text');
+    const file = str(ctx.args, 'file');
+    if (inline !== undefined && file !== undefined) throw new UsageError('note takes --text or --file, not both');
+    const cwd = ctx.io.cwd ?? process.cwd();
+    const text = inline ?? (file !== undefined ? await readFile(path.resolve(cwd, file), 'utf8') : await ctx.io.stdin());
+    if (text.trim() === '') throw new InputError(file ? `${file} is empty` : 'no text. Pipe Markdown in, or pass --text or --file');
+    const flag = str(ctx.args, 'session');
+    const fromEnv = flag === undefined ? ctx.io.env[SESSION_ID_ENV] || undefined : undefined;
+    const body: NoteRequest = { text, ...(title ? { title } : {}) };
+    const post = (sessionId?: string) =>
+      callJson<NoteResponse>(ctx.socket, 'POST', '/notes', { ...body, ...(sessionId ? { sessionId } : {}) });
+    let filed = flag ?? fromEnv;
+    let res: NoteResponse;
+    try {
+      res = await post(filed);
+    } catch (e) {
+      // A session from the environment the app has not met yet still gets its note, under Notes.
+      if (!(fromEnv && e instanceof ApiError && e.code === 'not_found')) throw e;
+      filed = undefined;
+      res = await post();
+    }
+    const where = filed ? "this session's tab" : 'Notes';
+    show(ctx, { ...res, ...(filed ? { sessionId: filed } : {}) }, () =>
+      `Saved "${title || 'Untitled note'}" to ${where} in Agent Brief, Write mode. The user can edit it there and press Copy.`,
+    );
   },
 
   async 'herdr-pictures'(ctx) {

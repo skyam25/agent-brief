@@ -15,6 +15,8 @@ export const LAUNCH_STEP_S = '0.25'
 
 export const SKETCH_OPENED = 'Agent Brief open — sketch, then press Send.'
 export const WRITE_OPENED = 'Agent Brief open — write, then press Send.'
+/** The Write button's toast when the box is empty and Claude has not replied. */
+export const NOTHING_TO_WRITE = 'Nothing to write yet'
 export const STACK_OPENED = 'Agent Brief open in Stack — drop or paste screenshots, talk, then press Send.'
 
 export const ITEMS_SECTION = 'agent-brief:items'
@@ -154,6 +156,34 @@ export function lastReply(messages: readonly { role: string; text: string }[]): 
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]!
     if (m.role === 'assistant' && m.text.trim() !== '') return m.text.trim()
+  }
+  return undefined
+}
+
+/** How many finished replies keep their row under the last block. */
+export const REPLIES_KEPT = 20
+
+/** `replies` with `answer` last, once, and at most `REPLIES_KEPT` of them. A blank answer changes nothing. */
+export function keepReply(replies: readonly string[], answer: string): string[] {
+  const text = answer.trim()
+  if (text === '') return [...replies]
+  return [...replies.filter(r => r !== text), text].slice(-REPLIES_KEPT)
+}
+
+const squash = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+/**
+ * The finished reply whose last block this is, or undefined. The transcript may hide part of a reply,
+ * so a block matches the reply it ends and holds most of. A one-line reply gets no row.
+ */
+export function replyEndingWith(replies: readonly string[], block: string): string | undefined {
+  const tail = squash(block)
+  if (tail === '') return undefined
+  for (let i = replies.length - 1; i >= 0; i--) {
+    const reply = replies[i]!
+    if (!reply.includes('\n')) continue
+    const whole = squash(reply)
+    if (whole.endsWith(tail) && tail.length * 2 >= whole.length) return reply
   }
   return undefined
 }

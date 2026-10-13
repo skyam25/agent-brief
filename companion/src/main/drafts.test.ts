@@ -63,6 +63,31 @@ describe('DraftStore', () => {
     expect(extra.source).toEqual({ path: 'x.md' });
   });
 
+  it('adds a note from outside the panel, filed and titled', () => {
+    const store = new DraftStore(temp());
+    const note = store.addNote({ text: 'Hi team,\n\nWe shipped.', title: 'Launch message', sessionId: 's1' }, 5000);
+    expect(store.get(note.id)).toEqual({
+      id: note.id,
+      body: 'Hi team,\n\nWe shipped.',
+      status: 'note',
+      title: 'Launch message',
+      sessionId: 's1',
+      rank: 0,
+      createdAt: 5000,
+      updatedAt: 5000,
+    });
+    const loose = store.addNote({ text: 'loose' });
+    expect(store.get(loose.id)).not.toHaveProperty('sessionId');
+    expect(store.get(loose.id)).not.toHaveProperty('title');
+  });
+
+  it('keeps a title on one line and drops an empty one', () => {
+    const store = new DraftStore(temp());
+    expect(store.save(draft('a', { title: '  Two\n lines ' })).title).toBe('Two lines');
+    expect(store.save(draft('b', { title: '   ' }))).not.toHaveProperty('title');
+    expect(store.save(draft('c', { title: 'x'.repeat(300) })).title).toHaveLength(200);
+  });
+
   it('skips a damaged file instead of failing the whole list', () => {
     const store = new DraftStore(temp());
     store.save(draft('a'));

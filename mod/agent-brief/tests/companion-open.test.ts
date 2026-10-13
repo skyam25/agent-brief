@@ -151,14 +151,30 @@ describe('the Sketch and Write buttons above the prompt', () => {
     expect(world.toasts).toEqual([])
   })
 
-  test('a Write press with an empty box opens an empty note', async ($, on) => {
+  test("a Write press with an empty box puts Claude's last reply in the note", async ($, on) => {
     const { app, world, clock, start } = await setupCompanion($, on)
+    on('session.messages', () => ({ value: [
+      { role: 'user', text: 'draft the post', toolUses: [] },
+      { role: 'assistant', text: 'We shipped **v2**.', toolUses: [] },
+    ] }))
     await start()
     await clock.settle()
     await $.ui.render(BAND)
     await $.ui.press({ plugin: 'agent-brief', key: 'write' })
-    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write', text: 'We shipped **v2**.' })
+    expect(app.fills, 'the empty box is left alone').toEqual([])
     expect(world.toasts).toEqual([])
+  })
+
+  test('a Write press with an empty box says so before Claude has replied', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    on('session.messages', () => ({ value: [] }))
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    expect(app.to('POST', '/open')).toEqual([])
+    expect(world.toasts).toEqual(['Nothing to write yet'])
   })
 
   test('a Write press moves the prompt box draft into the note and empties the box', async ($, on) => {

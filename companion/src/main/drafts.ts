@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from 'node:path';
 import { badRequest } from '../board/errors';
 import { ATTACHMENT_ID } from '../shared/attachments';
-import { sortDrafts } from '../shared/drafts';
+import { newDraftId, sortDrafts } from '../shared/drafts';
 import type { Draft, DraftImage } from '../shared/ipc';
 import type { DeliveryInput } from '../server/contract';
 import { cleanReview } from '../shared/review';
@@ -12,6 +12,8 @@ import { cleanReview } from '../shared/review';
 const ID = /^[\w-]{1,64}$/;
 /** The longest draft body, in characters. */
 export const MAX_DRAFT_BODY = 200_000;
+/** The longest draft title, in characters. */
+const MAX_TITLE = 200;
 const MAX_ATTACHMENTS = 40;
 const MAX_PICTURE = 6 * 1024 * 1024;
 const PICTURE = /^data:image\/(png|jpeg|webp|gif);base64,/;
@@ -43,10 +45,12 @@ export function cleanDraft(raw: unknown): Draft {
   const source = d.source && typeof d.source === 'object' && typeof d.source.path === 'string' && d.source.path.trim() ? { path: d.source.path } : undefined;
   const review = d.review === undefined ? undefined : cleanReview(d.review);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const title = typeof d.title === 'string' ? d.title.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE) : '';
   return {
     id: d.id,
     body: d.body,
     status: d.status,
+    ...(title ? { title } : {}),
     ...(d.board ? { board: d.board } : {}),
     ...(d.sessionId ? { sessionId: d.sessionId } : {}),
     ...(attachments ? { attachments } : {}),
@@ -116,6 +120,20 @@ export class DraftStore {
     writeFileSync(tmp, JSON.stringify(draft, null, 2));
     renameSync(tmp, path);
     return draft;
+  }
+
+  /** Saves a new note from outside the panel, filed under `sessionId` when one is given. */
+  addNote(note: { text: string; title?: string; sessionId?: string }, now = Date.now()): Draft {
+    return this.save({
+      id: newDraftId(now),
+      body: note.text,
+      status: 'note',
+      ...(note.title ? { title: note.title } : {}),
+      ...(note.sessionId ? { sessionId: note.sessionId } : {}),
+      rank: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 
   remove(id: string): void {

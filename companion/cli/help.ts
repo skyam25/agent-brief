@@ -76,6 +76,11 @@ export const DOCS: Record<string, Doc> = {
     about: "Lists a deliverable in the Agent Brief panel's Outputs. Needs the agent-brief plugin in the session that runs it.",
     example: 'agent-brief output "Pricing brief" --path docs/pricing.md --status ready',
   },
+  note: {
+    usage: 'agent-brief note [title] [--text <markdown> | --file <path>] [--session <id>] [--json]',
+    about: "Saves Markdown as a note in Agent Brief's Write mode without opening the panel. Reads stdin unless --text or --file is given. Files it under the Claude Code session that runs it, or --session, else under Notes. Exits 3 when the app is not running.",
+    example: `agent-brief note "Launch message" <<'EOF'\nHi team, **v2 is live**.\nEOF`,
+  },
   'herdr-pictures': {
     usage: 'agent-brief herdr-pictures [on|off|status]',
     about: 'Lets Claude Code draw pictures in Herdr panes. "on" adds a marked block to your zsh and bash startup files, and a fish conf.d file, that sets CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1 only when HERDR_ENV is set. "off" removes it. "status" shows each file and this shell.',
@@ -84,7 +89,7 @@ export const DOCS: Record<string, Doc> = {
 };
 
 /** Commands that use no board and print no JSON. */
-const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output']);
+const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output', 'note']);
 
 export function commandHelp(name: string): string {
   const d = DOCS[name];

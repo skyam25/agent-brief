@@ -20,8 +20,11 @@ import {
   ITEMS_SECTION,
   LAUNCH_ATTEMPTS,
   LAUNCH_STEP_S,
+  NOTHING_TO_WRITE,
   POLL_GAP_MS,
   REREGISTER_MS,
+  keepReply,
+  replyEndingWith,
   SKETCH_OPENED,
   STACK_OPENED,
   TRACK_NOT_RUNNING,
@@ -97,6 +100,7 @@ const MODE_STATE = { plugin: 'agent-brief', key: 'mode' } as const
 const modeRef = atom(MODE_STATE, 'default')
 const fidelityRef = atom({ plugin: 'agent-brief', key: 'fidelity' } as const, null)
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
+const repliesRef = atom({ plugin: 'agent-brief', key: 'replies' } as const, [])
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -417,10 +421,18 @@ async function writeCommand($: EngineInterface, args: string): Promise<string> {
   return (await openCompanion($, 'write', { text: reply })).message
 }
 
-/** The Write button moves the prompt box's draft, pastes included, into the new note. The box empties only once the note holds it. */
+/**
+ * The Write button moves the prompt box's draft, pastes included, into the new note. The box empties only once the note holds it.
+ * With the box empty, the note takes Claude's last reply.
+ */
 async function writeFromBox($: EngineInterface): Promise<string> {
   const box = await $.prompt.read()
   const text = expandPastes(box.text, pastes).trim()
+  if (text === '') {
+    const reply = lastReply(await $.session.messages().catch(() => []))
+    if (reply === undefined) return NOTHING_TO_WRITE
+    return (await openCompanion($, 'write', { text: reply })).message
+  }
   const opened = await openCompanion($, 'write', { text })
   if (opened.tookText) await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)
   return opened.message
@@ -766,6 +778,7 @@ export const register: Register = (on, options) => {
   })
 
   // A one-row band with Sketch, Stack, Write, Track and Mode buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write, /track or /mode does.
+  // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const view: BandView = {
@@ -808,6 +821,51 @@ export const register: Register = (on, options) => {
         $.ui.toast(await applyMode($, choice), { timeoutMs: 8000 })
       },
     })
+  })
+
+  // Each finished main-loop reply is kept, so its last block can carry the row below.
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    if (e.agentId === undefined && e.reason === 'answer') await update($, repliesRef, list => keepReply(list, e.answer)).catch(() => undefined)
+    return done
+  })
+
+  // Under the last block of a finished reply: Copy, and Open in Agent Brief as /write last does.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    const drawn = await next(e)
+    const props = e.props as { text: string; isSummary?: true }
+    if (props.isSummary) return drawn
+    const reply = replyEndingWith(await read($, repliesRef), props.text)
+    if (reply === undefined) return drawn
+    const { Box, Button, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {drawn}
+        <Box>
+          <Button
+            key="reply-copy"
+            plain
+            dimColor
+            label="Copy"
+            onPress={press =>
+              void $.ui.copy({ text: reply, surface: press.surface }).then(r => $.ui.toast(r.isCopied ? 'Reply copied' : 'Could not copy the reply'))
+            }
+          />
+          <Text dimColor> · </Text>
+          <Button
+            key="reply-open"
+            plain
+            dimColor
+            label="Open in Agent Brief"
+            onPress={() =>
+              void openCompanion($, 'write', { text: reply }).then(opened => {
+                if (opened.message !== WRITE_OPENED) $.ui.toast(opened.message, { timeoutMs: 8000 })
+              })
+            }
+          />
+        </Box>
+      </Box>
+    )
   })
 
   on('session.end', async ($, e, next) => {

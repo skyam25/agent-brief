@@ -39,6 +39,8 @@ declare module 'claude-code' {
       /** Which picker row the band shows in place of its buttons. */
       picking: 'none' | 'mode' | 'fidelity'
       shown: ShownState | null
+      /** Claude's latest finished replies, oldest first, so their last block can carry Copy and Open in Agent Brief. */
+      replies: string[]
     }
   }
 }
