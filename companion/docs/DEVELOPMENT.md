@@ -28,14 +28,14 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 | Data folder | `~/Library/Application Support/Agent Brief`, or `COMPANION_DATA_DIR` |
 | Socket | `~/Library/Application Support/AgentBrief/agent-brief.sock` (mode 0600), or `COMPANION_SOCKET` |
 | Deliveries | `<session cwd>/.feedback/sketches/<id>/` |
-| Items | `<session cwd>/.feedback/items/<session id>.md`, written by Claude, appended to by Send in Items mode |
+| Items | `<session cwd>/.feedback/items/<session id>.md`, written by Claude, appended to by Send in Review mode |
 | Outputs | `<session cwd>/.feedback/outputs/<session id>.json`, written by the mod, read by the app |
 
 ## Sending
 
 - `/sketch` in Claude Code opens the panel bound to that session, and Send reads "Send to <session>". The session's tab is active; clicking it again brings its terminal forward.
 - Main remembers each session's latest board and note in `state.json` (`sessionBriefs`, 30 days, at most 100). `/sketch` reopens the remembered board. The first time, it takes the current board if it is empty and no other session holds it, else it makes a board named after the session's title or folder (`Beta`, then `Beta 2`). `/write` without text reopens the session's note until it is sent. A board switch in the panel updates the record of the Send target's session; a History restore does not.
-- The session sidebar (`SessionSidebar.tsx`) starts with a fixed Notes tab, then one tab per record, newest first: running sessions, then ended ones in an Ended group that folds away. A filled dot marks a running session, a hollow one an ended session, and • unsent content. Each tab's second line shows its folder, cut to the last two folders when long. The folded group still shows the active ended session. Below 720px the sidebar opens as a drawer over the work. Notes is active when no session is the target; clicking it clears the target. Closing a session tab forgets the record and keeps the board and note. The sidebar's hidden state and the Ended group's fold persist in `localStorage`. ⌃1 is Notes, ⌃2 onward are sessions in sidebar order, ⌃Tab cycles; ⌘1, ⌘2 and ⌘3 stay on Sketch, Write and Items.
+- The session sidebar (`SessionSidebar.tsx`) starts with a fixed Notes tab, then one tab per record, newest first: running sessions, then ended ones in an Ended group that folds away. A filled dot marks a running session, a hollow one an ended session, and • unsent content. Each tab's second line shows its folder, cut to the last two folders when long. The folded group still shows the active ended session. Below 720px the sidebar opens as a drawer over the work. Notes is active when no session is the target; clicking it clears the target. Closing a session tab forgets the record and keeps the board and note. The sidebar's hidden state and the Ended group's fold persist in `localStorage`. ⌃1 is Notes, ⌃2 onward are sessions in sidebar order, ⌃Tab cycles; ⌘1, ⌘2 and ⌘3 stay on Sketch, Write and Review.
 - A draft carries `sessionId` when it is filed under a session. Write lists the active tab's drafts only; Notes lists the unfiled ones, plus drafts whose session tab was closed. `/write` files the note it opens, and File under… moves one between tabs.
 - An ended session's brief keeps its `cwd` and `host`. The tab shows `cd <cwd> && claude --resume <id>` with Copy and Open in Ghostty, Terminal or herdr (`resumeSession` in `launch.ts`). Resuming re-registers the same session id, so the tab goes live without a new record.
 - Opening the panel any other way (hotkey, tray, Dock) binds no session. The composer's target chip reads "Choose a session", and Send lists the running sessions or starts a new one in a project folder.
@@ -70,6 +70,7 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
   - An http(s) link opens in the browser. Other schemes are refused.
   - A Markdown file (`.md`, `.markdown`, `.mdx`, up to 4 MB) opens in Write as a note filed under the session, with `source: { path }`. A note the session already has on that file reopens instead.
   - An HTML file (`.html`, `.htm`) opens in the review pane as a draft with `review: { path, comments }`. A review the session already has on that file reopens instead.
+- Review mode (`ReviewMode.tsx`) lists a session's outputs and its review drafts on the left, with its items or the open review on the right. Write lists notes alone, so a draft with `review` always opens in Review mode. A saved `mode: "items"` in `state.json` loads as `review`.
   - Any other file opens in its default app.
   - Files get the same check as item outputs. They must exist inside the session's folder, symlinks resolved.
   - Tests record opened files and links in `openedOutputs`.

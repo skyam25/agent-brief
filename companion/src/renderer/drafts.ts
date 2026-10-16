@@ -89,9 +89,9 @@ export class DraftBook {
     return this.drafts.filter((d) => d.status === 'ready');
   }
 
-  /** The first draft with something in it on a tab. See `onTab`. */
+  /** The first note with something in it on a tab, for Write mode. See `onTab`. */
   firstOnTab(sessionId: string | undefined, tabs: readonly string[]): Draft | undefined {
-    return this.drafts.find((d) => !isEmpty(d) && onTab(d, sessionId, tabs));
+    return this.drafts.find((d) => !isEmpty(d) && !d.review && onTab(d, sessionId, tabs));
   }
 
   /** The draft that goes out with `board`'s sketch. */

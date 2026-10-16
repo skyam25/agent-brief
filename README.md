@@ -8,7 +8,7 @@ Sketch, write, talk and paste screenshots on your Mac, then hand all of it to Cl
 |---|---|---|
 | Sketch | ⌘1 | A whiteboard for strokes, screenshots and voice |
 | Write | ⌘2 | Notes and briefs, with templates and a Ready queue |
-| Items | ⌘3 | The active session's items, with your call on each one |
+| Review | ⌘3 | What Claude hands back to the active session: its outputs, your reviews of them, and its items |
 
 ## Notes and sessions
 
@@ -70,21 +70,21 @@ A timeline reads like this:
 [00:37–00:42] 🎙️ "The left panel needs to be wider." — nearest: image B, pasted 2s before
 ```
 
-A send from Items mode is text alone, such as `Decisions on 2 items in .feedback/items/<session>.md:` followed by one line per item.
+A send of item decisions from Review mode is text alone, such as `Decisions on 2 items in .feedback/items/<session>.md:` followed by one line per item.
 
 ## Track items
 
-- Flip **Track items** in Items mode, or run `/track` in the session. Nothing changes until you do.
+- Flip **Track items** in Review mode, or run `/track` in the session. Nothing changes until you do.
 - With it on, Claude keeps the work's items in `<project>/.feedback/items/<session>.md`. Each item carries Claude's note, a proposal, a question or two options, an `Out:` line for every file it writes, and a done line saying what changed. Claude writes the file only when the work has several parts.
-- Items mode shows that list. Open items that wait on you are marked. Type your call and press Send. The panel adds your answers to the file as `You:` lines and sends Claude a short message listing them.
+- Review mode shows that list beside the session's outputs. Open items that wait on you are marked. Type your call and press Send. The panel adds your answers to the file as `You:` lines and sends Claude a short message listing them.
 - Every `Out:` line is a link that opens the file, so you can see what Claude is working on and what it finished.
 - Claude ends a reply that touched items with `Done:` and `Open:` lines, so the chat and the panel agree.
 
 ## Review Claude's outputs
 
-- Write mode lists each session's deliverables above its notes. Claude declares the thing you asked for, such as a strategy doc, a brief or a page, with the `declare_output` tool, and the row shows Drafting until Claude marks it Ready. Files Claude only touched sit under **Touched**, folded away. `/outputs` in the session prints the same list.
-- Click a Markdown output and it opens as a note filed under the session. Edit it, then press Send. Claude gets your copy and a prompt to apply the changes to the file.
-- Click an HTML output and it opens live in the review pane. Scroll and click through it as usual. Press C, or the Comment button, then click any element to pin a comment to it, or drag across text to quote it. Turn on the mic to talk instead of type, and what you say goes to the selected pin. Send hands Claude a `review.md` with each pin's element, quote and picture.
+- Review mode lists each session's deliverables under **Outputs**, and Write keeps only your notes. Claude declares the thing you asked for, such as a strategy doc, a brief or a page, with the `declare_output` tool, and the row shows Drafting until Claude marks it Ready. Files Claude only touched sit under **Touched**, folded away. `/outputs` in the session prints the same list.
+- Click a Markdown output and it opens in Write as a note filed under the session. Edit it, then press Send. Claude gets your copy and a prompt to apply the changes to the file.
+- Click an HTML output and it opens live in the review pane. A review you leave unsent waits under **Reviews**. Scroll and click through it as usual. Press C, or the Comment button, then click any element to pin a comment to it, or drag across text to quote it. Turn on the mic to talk instead of type, and what you say goes to the selected pin. Send hands Claude a `review.md` with each pin's element, quote and picture.
 - Press E, or the Edit button, to change the page itself. Click to select an element, drag it to move it within or between containers, drag its corner to resize it, and double-click to retype its words. The inspector edits layout, size, spacing, type and fill, and adds text, rows, columns and buttons. Each change saves to the HTML file as you make it, ⌘Z undoes, and Send lists the edits in `review.md`. Edit mode changes markup written in the file. Anything a script draws stays as it is.
 - Other files open in their app, and an artifact or published page opens in the browser.
 - Hide hides a row until Claude writes or declares it again.

@@ -208,6 +208,8 @@ export class StateFile {
       saved = {};
     }
     this.state = { ...DEFAULT_STATE, ...saved };
+    // Review mode was called Items.
+    if ((this.state.mode as string) === 'items') this.state.mode = 'review';
   }
 
   update(patch: Partial<AppState>): void {

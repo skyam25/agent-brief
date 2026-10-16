@@ -104,7 +104,7 @@ export type Outgoing = SendPayload | TextPayload;
 export const isTextPayload = (p: Outgoing): p is TextPayload => !('png' in p);
 
 /** The panel shows the board, the drafts, or the active session's items. */
-export type Mode = 'sketch' | 'write' | 'items';
+export type Mode = 'sketch' | 'write' | 'review';
 
 /** Notes wait until you send them; Ready drafts form the queue. */
 export type DraftStatus = 'note' | 'ready';

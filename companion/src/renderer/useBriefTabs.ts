@@ -57,15 +57,15 @@ export function useBriefTabs({ host, book, sessions, modeRef, tabScope, changeMo
       .switchBrief(sessionId)
       .then(async (opened) => {
         if ('draftId' in opened) await showDraft(opened.draftId);
-        // Items stays open across a switch; otherwise the tab shows what it opened.
-        if (modeRef.current !== 'items') changeMode('draftId' in opened ? 'write' : 'sketch');
+        // Review stays open across a switch; otherwise the tab shows what it opened.
+        if (modeRef.current !== 'review') changeMode('draftId' in opened ? 'write' : 'sketch');
       })
       .catch(report('open that brief'));
   };
-  /** The Notes tab: no Send target and no session. Items needs a session, so it falls back to Write. */
+  /** The Notes tab: no Send target and no session. Review needs a session, so it falls back to Write. */
   const openNotes = () => {
     setEndedActive(undefined);
-    if (modeRef.current === 'items') changeMode('write');
+    if (modeRef.current === 'review') changeMode('write');
     if (target) void host.setTarget(undefined).catch(report('leave the session'));
   };
   const leaveEnded = useCallback(() => setEndedActive(undefined), []);
