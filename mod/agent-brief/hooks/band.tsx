@@ -1,8 +1,9 @@
 import type { ElementTable } from 'claude-code'
 
-import type { PrototypeFidelity, SessionMode } from '../types'
+import type { PrototypeFidelity, SessionMode, VoiceState } from '../types'
 import { FIDELITY_IDS, MODE_IDS, bandLabel, fidelityLabel, modeLabel } from './modes'
 import type { ModeChoice } from './modes'
+import { clockText } from './voice'
 
 export type BandRow = 'none' | 'mode' | 'fidelity'
 
@@ -12,6 +13,7 @@ export type BandView = {
   mode: SessionMode
   fidelity: PrototypeFidelity | null
   picking: BandRow
+  voice: VoiceState | null
   /** Draws show.tsx's clear pixel at the row's end, until it learns whether pictures draw here. */
   probe?: { key: string; png: string }
 }
@@ -19,18 +21,20 @@ export type BandView = {
 export type BandActions = {
   open: (target: 'sketch' | 'stack' | 'write') => Promise<void>
   track: () => Promise<void>
+  /** Starts dictation, or stops it while listening. */
+  talk: () => Promise<void>
   pick: (row: BandRow) => Promise<unknown>
   choose: (choice: ModeChoice) => Promise<void>
 }
 
 /**
- * One row with Sketch, Stack, Write, Track and Mode buttons.
+ * One row with Sketch, Stack, Write, Talk, Track and Mode buttons.
  * The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
  */
 export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
   const { Box, Button, Text } = table
   const { Image } = table as Partial<ElementTable<'terminal'>>
-  const { ingesting, isTracking, mode, fidelity, picking, probe } = view
+  const { ingesting, isTracking, mode, fidelity, picking, voice, probe } = view
   const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
 
   if (picking === 'mode') {
@@ -76,6 +80,14 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
       <Button key="write" label="¶ Write" hotkey="w" onPress={() => void act.open('write')} />
       <Text> </Text>
       <Button
+        key="talk"
+        label={voice === null ? '🎙 Talk' : '■ Stop'}
+        hotkey="v"
+        {...(voice !== null ? { variant: 'primary' as const } : {})}
+        onPress={() => void act.talk()}
+      />
+      <Text> </Text>
+      <Button
         key="track"
         label={isTracking ? '☑ Track' : '☐ Track'}
         hotkey="t"
@@ -90,6 +102,8 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
         {...(mode !== 'default' ? { variant: 'primary' as const } : {})}
         onPress={() => void act.pick('mode')}
       />
+      {voice?.phase === 'listening' && <Text dimColor>{` Listening ${clockText(voice.seconds)}`}</Text>}
+      {voice?.phase === 'finishing' && <Text dimColor> Transcribing…</Text>}
       {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}
       {probe && Image && <Image key={probe.key} source={{ png: probe.png }} columns={1} rows={1} alt=" " />}
     </Box>

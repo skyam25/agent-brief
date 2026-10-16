@@ -95,7 +95,19 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each panel mode, **✎ Sketch** and **¶ Write**, a **☐ Track** toggle that does what a bare `/track` does, and a **◇ Mode** button that picks the session mode.
+The band above the prompt has a button for each panel mode, **✎ Sketch** and **¶ Write**, a **🎙 Talk** button for dictation, a **☐ Track** toggle that does what a bare `/track` does, and a **◇ Mode** button that picks the session mode.
+
+### Dictation
+
+**🎙 Talk** puts what you say into the prompt box. It needs no app, only yap (`brew install yap`). Speech is transcribed on this Mac with Apple's on-device model.
+
+- Press ctrl+x then Tab to focus the band, then `v`. The button turns to **■ Stop** and a timer shows **Listening 0:07**.
+- Press `v` again to stop. The words are appended to the draft, after a blank line when the box already holds text. Edit them, then press Enter. Nothing is sent on its own.
+- yap prints its transcript only once it stops, so nothing shows while you talk.
+- Dictation stops itself after 5 minutes.
+- The first run asks for microphone access on behalf of your terminal app.
+- If the box refuses the text, as under a dialog, it goes on the clipboard instead.
+- yap hears the whole room, so other voices and video audio land in the transcript too.
 
 ### Item tracking and `/track [on|off]`
 
