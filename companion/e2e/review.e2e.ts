@@ -257,6 +257,26 @@ test('the page background takes no hover box and no pin', async () => {
   await expect(page.getByTestId('review-card')).toHaveCount(0);
 });
 
+test('the board still answers after a review loads its page', async () => {
+  const { page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  put(cwd, 'site/index.html', HTML);
+  put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs: [PAGE] }));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await showPanel(ctx.app, page);
+  await page.getByTestId('mode-review').click();
+  await expect(page.frameLocator('[data-testid="review-frame"]').locator('h1')).toHaveText('Acme analytics');
+  await page.getByTestId('review-reload').click();
+  await expect(page.frameLocator('[data-testid="review-frame"]').locator('h1')).toHaveText('Acme analytics');
+
+  // The page's loads happen in a frame. The panel itself never reloaded, so the board answers at once.
+  const started = Date.now();
+  const read = await sock(socketPath, 'GET', '/boards/current/elements');
+  expect(read.status).toBe(200);
+  expect(Date.now() - started).toBeLessThan(5000);
+});
+
 test('speech lands on the pin it was said after', async () => {
   const speech = join(ROOT, 'e2e/fixtures/speech.wav');
   test.skip(!existsSync(speech), 'speech fixture missing');

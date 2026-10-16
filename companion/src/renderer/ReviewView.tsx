@@ -270,7 +270,7 @@ export function ReviewView(props: {
   return (
     <div className="review" data-testid="review" data-escape-owner={commenting || isEditing ? '' : undefined}>
       <header className="review-bar">
-        <button className="ghost icon-button" title="Back to notes" aria-label="Back to notes" onClick={props.onClose} data-testid="review-close">
+        <button className="ghost icon-button" title="Back to the list" aria-label="Back to the list" onClick={props.onClose} data-testid="review-close">
           <BackIcon />
         </button>
         <span className="review-title" title={review.path}>
