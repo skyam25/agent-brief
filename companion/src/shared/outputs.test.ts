@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OutputRecord } from '../protocol';
-import { cleanOutput, isUrlRef, outputLabel, outputTouchedAt, parseOutputsFile, sortOutputs } from './outputs';
+import { cleanOutput, isUrlRef, outputLabel, outputTouchedAt, parseOutputsFile, reviewStart, sortOutputs } from './outputs';
 
 const rec = (over: Partial<OutputRecord>): OutputRecord => ({ ref: 'docs/a.md', kind: 'markdown', tier: 'detected', ...over });
 
@@ -143,5 +143,36 @@ describe('isUrlRef', () => {
     for (const ref of ['docs/a.md', 'file:///etc/hosts', 'javascript:alert(1)', 'ftp://x.dev', 'https:x']) {
       expect(isUrlRef(ref), ref).toBe(false);
     }
+  });
+});
+
+describe('reviewStart', () => {
+  const page = (ref: string, at: number, over: Partial<OutputRecord> = {}) =>
+    rec({ ref, kind: 'html', tier: 'declared', status: 'ready', declaredAt: at, ...over });
+
+  it('opens the newest review that holds something', () => {
+    const reviews = [
+      { id: 'old', updatedAt: 1, hasContent: true },
+      { id: 'blank', updatedAt: 9, hasContent: false },
+      { id: 'new', updatedAt: 5, hasContent: true },
+    ];
+    expect(reviewStart({ reviews, outputs: [page('a.html', 10)], itemWaits: false })).toEqual({ draftId: 'new' });
+  });
+
+  it('opens the newest Ready page when no review holds anything', () => {
+    const outputs = [
+      page('old.html', 1),
+      page('new.html', 5),
+      page('draft.html', 9, { status: 'drafting' }),
+      page('touched.html', 9, { tier: 'detected' }),
+      rec({ ref: 'plan.md', kind: 'markdown', tier: 'declared', status: 'ready', declaredAt: 9 }),
+    ];
+    expect(reviewStart({ reviews: [], outputs, itemWaits: false })).toEqual({ ref: 'new.html' });
+  });
+
+  it('opens nothing while an item waits on you, or when there is nothing to review', () => {
+    const reviews = [{ id: 'r', updatedAt: 1, hasContent: true }];
+    expect(reviewStart({ reviews, outputs: [page('a.html', 1)], itemWaits: true })).toBeUndefined();
+    expect(reviewStart({ reviews: [], outputs: [], itemWaits: false })).toBeUndefined();
   });
 });

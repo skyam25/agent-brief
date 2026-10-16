@@ -63,8 +63,8 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
+  // Review opens the session's newest Ready page by itself.
   await page.getByTestId('mode-review').click();
-  await page.getByTestId('output-row-0').click();
 
   // The page loads live, with its stylesheet, and comment mode starts on.
   const review = page.getByTestId('review');
@@ -125,14 +125,14 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await page.getByTestId('review-external').click();
   await expect.poll(opened).toContain(join(cwd, 'site', 'index.html'));
 
-  // Back shows the review under Reviews, and opening the output again finds it.
+  // Back stays on the list, which shows the review under Reviews.
   await page.getByTestId('review-close').click();
   await expect(page.getByTestId('reviews').getByTestId('draft-row').filter({ hasText: 'Review of index.html' })).toContainText('2 comments');
   // Write lists notes alone, so the review stays out of it.
   await page.getByTestId('mode-write').click();
   await expect(page.getByTestId('draft-row').filter({ hasText: 'Review of index.html' })).toHaveCount(0);
+  // Coming back to Review reopens the review that holds comments.
   await page.getByTestId('mode-review').click();
-  await page.getByTestId('output-row-0').click();
   await expect(page.getByTestId('review-card')).toHaveCount(2);
 
   // Send writes review.md with each pin, its selector and its picture.
@@ -164,7 +164,6 @@ test('a page Claude changed marks pins whose element is gone', async () => {
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
   await page.getByTestId('mode-review').click();
-  await page.getByTestId('output-row-0').click();
   const frame = page.frameLocator('[data-testid="review-frame"]');
   await frame.locator('a').click();
   await expect(page.getByTestId('review-card')).toHaveCount(1);
@@ -197,7 +196,6 @@ test('the hover box follows the page when it scrolls under a still pointer', asy
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(ctx.app, page);
   await page.getByTestId('mode-review').click();
-  await page.getByTestId('output-row-0').click();
   const frame = page.frameLocator('[data-testid="review-frame"]');
   await expect(frame.locator('#a')).toBeVisible();
 
@@ -217,6 +215,48 @@ test('the hover box follows the page when it scrolls under a still pointer', asy
   await expect.poll(hoverTop).toBe(await topOf('#b'));
 });
 
+test('the page background takes no hover box and no pin', async () => {
+  const { page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  put(
+    cwd,
+    'site/index.html',
+    '<!doctype html><body style="margin: 0"><div data-ab-ground style="position: fixed; inset: 0"><div id="card" style="margin: 40px; width: 200px; height: 100px; background: #eee">Card</div></div></body>',
+  );
+  put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs: [PAGE] }));
+
+  // The overlay's shadow root is closed. Opening it lets the test read the hover box.
+  await page.addInitScript(() => {
+    const attach = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (init) {
+      return attach.call(this, { ...init, mode: 'open' });
+    };
+  });
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await showPanel(ctx.app, page);
+  await page.getByTestId('mode-review').click();
+  const frame = page.frameLocator('[data-testid="review-frame"]');
+  await expect(frame.locator('#card')).toBeVisible();
+
+  const hoverShown = () =>
+    frame.locator('body').evaluate(() => {
+      const root = document.querySelector('agent-brief-overlay')!.shadowRoot!;
+      const hover = [...root.querySelectorAll<HTMLElement>('.box')].find((b) => !b.matches('.flash, .selected'))!;
+      return getComputedStyle(hover).display !== 'none';
+    });
+  const box = await page.locator('[data-testid="review-frame"]').boundingBox();
+  await page.mouse.move(box!.x + 100, box!.y + 80);
+  await expect.poll(hoverShown).toBe(true);
+
+  // Empty space is the ground: no box, and a click pins nothing.
+  await page.mouse.move(box!.x + 500, box!.y + 400);
+  await expect.poll(hoverShown).toBe(false);
+  await page.mouse.click(box!.x + 500, box!.y + 400);
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId('review-card')).toHaveCount(0);
+});
+
 test('speech lands on the pin it was said after', async () => {
   const speech = join(ROOT, 'e2e/fixtures/speech.wav');
   test.skip(!existsSync(speech), 'speech fixture missing');
@@ -234,7 +274,6 @@ test('speech lands on the pin it was said after', async () => {
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
   await page.getByTestId('mode-review').click();
-  await page.getByTestId('output-row-0').click();
   const frame = page.frameLocator('[data-testid="review-frame"]');
   await frame.locator('h2').click();
   await expect(page.getByTestId('review-card')).toHaveCount(1);

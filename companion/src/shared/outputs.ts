@@ -77,3 +77,21 @@ export function outputLabel(r: OutputRecord): string {
 }
 
 export const isUrlRef = (ref: string): boolean => /^https?:\/\//i.test(ref);
+
+/**
+ * What Review mode opens on: the newest review with comments or a note, else the
+ * newest Ready HTML output. Nothing while an item waits on you, so its question stays in view.
+ */
+export function reviewStart(opts: {
+  reviews: readonly { id: string; updatedAt: number; hasContent: boolean }[];
+  outputs: readonly OutputRecord[];
+  itemWaits: boolean;
+}): { draftId: string } | { ref: string } | undefined {
+  if (opts.itemWaits) return undefined;
+  const review = opts.reviews.filter((r) => r.hasContent).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  if (review) return { draftId: review.id };
+  const page = opts.outputs
+    .filter((r) => r.tier === 'declared' && r.kind === 'html' && r.status === 'ready')
+    .sort((a, b) => outputTouchedAt(b) - outputTouchedAt(a))[0];
+  return page ? { ref: page.ref } : undefined;
+}
