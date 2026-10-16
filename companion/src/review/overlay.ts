@@ -40,6 +40,8 @@ function start(): void {
   /** Outlines the element of the comment the pane has selected. */
   let selected: HTMLDivElement | undefined;
   let edit: EditMode | undefined;
+  /** Where the pointer last was over the page. A scroll or pan moves the page under it. */
+  let pointer: { x: number; y: number } | undefined;
   const markers = new Map<string, HTMLButtonElement>();
 
   /** The overlay's own elements sit in a closed shadow root, out of the page's CSS. */
@@ -198,14 +200,23 @@ function start(): void {
 
   // ── Pins ───────────────────────────────────────────────────────────────
 
+  /** Outlines the element under the pointer, or hides the box when there is none. */
+  function placeHover(): void {
+    if (!hover) return;
+    const el = commenting && pointer ? document.elementFromPoint(pointer.x, pointer.y) : null;
+    if (!el || ours(el) || el === document.documentElement) hover.style.display = 'none';
+    else place(hover, el.getBoundingClientRect());
+  }
+
   let queued = false;
-  /** Moves markers to their elements on the next frame. */
+  /** Moves markers to their elements, and the hover box to what is now under the pointer, on the next frame. */
   function layout(): void {
     edit?.layout();
     if (queued) return;
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
+      placeHover();
       for (const pin of pins) {
         const marker = markers.get(pin.id);
         const el = find(pin.selector);
@@ -310,13 +321,15 @@ function start(): void {
     document.addEventListener(
       'pointermove',
       (e) => {
-        if (!commenting || !hover) return;
-        const el = e.target instanceof Element && !ours(e.target) ? e.target : undefined;
-        if (!el || el === document.documentElement) hover.style.display = 'none';
-        else place(hover, el.getBoundingClientRect());
+        pointer = { x: e.clientX, y: e.clientY };
+        if (commenting) placeHover();
       },
       true,
     );
+    document.documentElement.addEventListener('pointerleave', () => {
+      pointer = undefined;
+      placeHover();
+    });
     // The page does not see presses in comment mode, but a drag still selects text.
     for (const type of ['pointerdown', 'mousedown', 'pointerup']) {
       document.addEventListener(
