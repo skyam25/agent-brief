@@ -120,7 +120,10 @@ async function start(): Promise<void> {
   });
   const send = (channel: string, ...args: unknown[]) => panel.win.webContents.send(channel, ...args);
   const bridge = new RendererBridge(() => panel.win.webContents);
-  panel.win.webContents.on('did-start-loading', () => bridge.reset());
+  // Only the panel's own page load resets the bridge. A review's page loads in a frame, and the panel stays ready.
+  panel.win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) bridge.reset();
+  });
 
   nativeTheme.on('updated', () => {
     panel.win.setBackgroundColor(BACKGROUND[theme()]);
