@@ -15,7 +15,7 @@ export const LAUNCHER_LABELS: Record<Launcher, string> = {
 const launchLabel = (l: Launcher) => (l === 'copy' ? LAUNCHER_LABELS.copy : `Start in ${LAUNCHER_LABELS[l]}`);
 
 /**
- * The composer's right end: the target chip, the mic, then Send. The chip
+ * The composer's right end: the mic, then the target chip and Send. The chip
  * names where Send goes and opens the chooser. Without a target, Send opens
  * the chooser too.
  */
@@ -29,13 +29,19 @@ export function SendTo(props: {
   onSendNew: (cwd: string, via: Launcher) => void;
   loadOptions: () => Promise<LaunchOptions>;
   chooseFolder: () => Promise<string | undefined>;
-  /** Sits between the chip and Send. */
+  /** Sits before the chip, set apart by a divider. */
   mic?: ReactNode;
 }) {
   const target = props.sessions.sessions.find((s) => s.sessionId === props.sessions.targetSessionId);
   const name = target && (target.title || folderName(target.cwd));
   return (
     <div className="anchor send-to">
+      {props.mic && (
+        <>
+          {props.mic}
+          <span className="divider" aria-hidden="true" />
+        </>
+      )}
       <button
         className="ghost send-target"
         title={target ? `${sessionTitle(target)}\n${target.cwd}${target.summary ? `\n${target.summary}` : ''}` : 'Choose a session to send to'}
@@ -48,7 +54,6 @@ export function SendTo(props: {
         <span className="name">{name ?? 'Choose a session'}</span>
         <ChevronIcon />
       </button>
-      {props.mic}
       <button
         className="primary send-named"
         title={target ? `Send to ${name}` : 'Choose a session to send to'}

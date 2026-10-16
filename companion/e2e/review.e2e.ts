@@ -195,7 +195,7 @@ test('speech lands on the pin it was said after', async () => {
   await expect(page.getByTestId('review-card')).toHaveCount(1);
 
   await page.getByTestId('mic').click();
-  await expect(page.getByTestId('mic')).toHaveText('00:00');
+  await expect(page.getByTestId('mic-clock')).toHaveText('00:00');
   await expect(page.getByTestId('review-voice-state')).toHaveText('Listening');
   await page.waitForTimeout(5000);
   await page.getByTestId('mic').click();

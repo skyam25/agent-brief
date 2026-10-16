@@ -84,6 +84,11 @@ export class ReviewVoice {
     return this.stream !== undefined;
   }
 
+  /** The open microphone, for a level meter. */
+  get input(): MediaStream | undefined {
+    return this.stream;
+  }
+
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);

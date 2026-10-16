@@ -12,7 +12,7 @@ import { HistoryPopover } from './HistoryPopover';
 import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, SidebarIcon } from './Icons';
 import { ItemsStore } from './items';
 import { ItemsView } from './ItemsView';
-import { Mic } from './Mic';
+import { Mic, VoiceStrip } from './Mic';
 import { OutputsStore } from './outputs';
 import { PullIn } from './PullIn';
 import { ResumeRow } from './ResumeRow';
@@ -125,7 +125,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   modeRef.current = mode;
   const tabScope = useRef<TabScope>({ tabs: [] });
 
-  const { reviewVoice, reviewing, recording, hasVoice, elapsedMs, toggleReviewVoice, toggleRecording } = useVoice({
+  const { reviewVoice, reviewing, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, toggleRecording, discardVoice } = useVoice({
     host,
     book,
     controller,
@@ -210,6 +210,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     switchBrief,
     openNotes,
     changeMode,
+    onTalk: onMicrophone,
     popoverOpen: settingsOpen || historyOpen || chooserOpen,
     closePopovers: () => {
       setSettingsOpen(false);
@@ -301,10 +302,10 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
         onMicrophone && (
           <Mic
             recording={recording}
-            elapsedMs={elapsedMs}
-            hasVoice={!reviewing && hasVoice}
+            hasVoice={hasVoice}
+            reviewing={reviewing}
             onMicrophone={onMicrophone}
-            micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
+            onDiscard={reviewing ? undefined : () => void discardVoice()}
           />
         )
       }
@@ -522,6 +523,17 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
         </main>
         {!inlineSend && (
           <footer className="composer" data-testid="composer">
+            {onMicrophone && (
+              <VoiceStrip
+                recording={recording}
+                reviewing={reviewing}
+                elapsedMs={elapsedMs}
+                voiceMs={voiceMs}
+                hasVoice={hasVoice}
+                input={input}
+                onDiscard={() => void discardVoice()}
+              />
+            )}
             {sendBar}
           </footer>
         )}

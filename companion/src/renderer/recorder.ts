@@ -23,6 +23,8 @@ export class Recorder {
   private listeners = new Set<() => void>();
   /** Epoch ms when the current recording began. */
   since?: number;
+  /** Audio kept in saved segments, across every recording since the last clear. */
+  recordedMs = 0;
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -31,6 +33,11 @@ export class Recorder {
 
   get recording(): boolean {
     return this.stream !== undefined;
+  }
+
+  /** The open microphone, for a level meter. */
+  get input(): MediaStream | undefined {
+    return this.stream;
   }
 
   subscribe(fn: () => void): () => void {
@@ -87,6 +94,7 @@ export class Recorder {
     if (this.current && this.current.state !== 'inactive') this.current.stop();
     this.current = undefined;
     for (const track of this.stream?.getTracks() ?? []) track.stop();
+    if (this.since !== undefined) this.recordedMs += this.now() - this.since;
     this.stream = undefined;
     this.since = undefined;
     await Promise.all(this.pending);
@@ -96,6 +104,13 @@ export class Recorder {
   /** Forgets saved segments, after they were sent. */
   clear(): void {
     this.segments.length = 0;
+    this.recordedMs = 0;
     this.emit();
+  }
+
+  /** Stops any recording and drops everything recorded. */
+  async discard(): Promise<void> {
+    await this.stop();
+    this.clear();
   }
 }

@@ -26,9 +26,16 @@ export interface PanelVoice {
   recording: boolean;
   /** Sketch voice is waiting for the next Send. */
   hasVoice: boolean;
+  /** The clock while recording. In Sketch it counts every take since the last Send. */
   elapsedMs: number;
+  /** Sketch voice waiting for the next Send, in ms. */
+  voiceMs: number;
+  /** The open microphone, while recording. */
+  input: MediaStream | undefined;
   toggleReviewVoice: () => Promise<void>;
   toggleRecording: () => Promise<void>;
+  /** Drops the sketch voice, recording or not. */
+  discardVoice: () => Promise<void>;
 }
 
 export function useVoice({ host, book, controller, mode, modeRef, notify }: VoiceDeps): PanelVoice {
@@ -63,6 +70,11 @@ export function useVoice({ host, book, controller, mode, modeRef, notify }: Voic
     (fn) => controller.recorder.subscribe(fn),
     () => controller.recorder.segments.length > 0,
   );
+  const voiceMs = useSyncExternalStore(
+    (fn) => controller.recorder.subscribe(fn),
+    () => controller.recorder.recordedMs,
+  );
+  const input = reviewing ? reviewVoice.input : controller.recorder.input;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!recording) return;
@@ -70,7 +82,8 @@ export function useVoice({ host, book, controller, mode, modeRef, notify }: Voic
     return () => clearInterval(timer);
   }, [recording]);
   const since = reviewing ? reviewVoice.since : controller.recorder.since;
-  const elapsedMs = recording && since !== undefined ? Math.max(0, now - since) : 0;
+  const earlier = reviewing ? 0 : voiceMs;
+  const elapsedMs = recording && since !== undefined ? earlier + Math.max(0, now - since) : 0;
 
   // In a review the mic talks to the pins: what you say goes to the selected comment.
   const toggleReviewVoice = async () => {
@@ -88,7 +101,6 @@ export function useVoice({ host, book, controller, mode, modeRef, notify }: Voic
     voiceDraft.current = draft.id;
     try {
       await reviewVoice.start(reviewVoice.target);
-      notify('Listening. What you say goes to the selected comment, and to each new pin.');
     } catch (err) {
       notify(`Could not start the microphone: ${(err as Error).message}`, 'error');
     }
@@ -98,7 +110,6 @@ export function useVoice({ host, book, controller, mode, modeRef, notify }: Voic
   const toggleRecording = async () => {
     if (controller.recorder.recording) {
       await controller.recorder.stop();
-      notify(`Recorded ${controller.recorder.segments.length} clip(s). Send includes them.`);
       return;
     }
     const access = await host.requestMicrophone();
@@ -110,15 +121,13 @@ export function useVoice({ host, book, controller, mode, modeRef, notify }: Voic
     if (modeRef.current !== 'sketch') return;
     try {
       await controller.recorder.start();
-      if (modeRef.current !== 'sketch') {
-        await controller.recorder.stop();
-        return;
-      }
-      notify('Recording. Talk while you sketch.');
+      if (modeRef.current !== 'sketch') await controller.recorder.stop();
     } catch (err) {
       notify(`Could not start the microphone: ${(err as Error).message}`, 'error');
     }
   };
 
-  return { reviewVoice, reviewing, recording, hasVoice, elapsedMs, toggleReviewVoice, toggleRecording };
+  const discardVoice = () => controller.recorder.discard();
+
+  return { reviewVoice, reviewing, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, toggleRecording, discardVoice };
 }

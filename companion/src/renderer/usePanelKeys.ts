@@ -1,4 +1,4 @@
-/** Panel shortcuts: ⌃Tab and ⌃1–9 switch tabs, ⌘1–3 switch modes, and Escape closes what is open, then hides. */
+/** Panel shortcuts: ⌃Tab and ⌃1–9 switch tabs, ⌘1–3 switch modes, ⌥T talks, and Escape closes what is open, then hides. */
 
 import { useEffect, useRef } from 'react';
 import type { Mode } from '../shared/ipc';
@@ -10,6 +10,8 @@ export interface PanelKeys {
   switchBrief: (sessionId: string) => void;
   openNotes: () => void;
   changeMode: (mode: Mode) => void;
+  /** Starts or stops the mic. Undefined where the mode has none. */
+  onTalk?: () => void;
   popoverOpen: boolean;
   closePopovers: () => void;
   /** Escape that nothing on the panel claimed. */
@@ -46,6 +48,12 @@ export function usePanelKeys(keys: PanelKeys): void {
         // Items needs a session tab.
         if (BY_KEY[e.key] === 'items' && !k.activeBrief) return;
         k.changeMode(BY_KEY[e.key]!);
+        return;
+      }
+      // By code, since ⌥T types † as a key.
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyT' && k.onTalk) {
+        e.preventDefault();
+        k.onTalk();
         return;
       }
       if (e.key !== 'Escape') return;
