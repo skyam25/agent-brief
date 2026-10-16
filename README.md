@@ -30,6 +30,7 @@ Sketch, write, talk and paste screenshots on your Mac, then hand all of it to Cl
 - The mic button records your voice alongside the sketch.
 - Speech and strokes share one clock, so "this one" points at what you drew while you said it.
 - Transcription runs on your Mac. Audio never leaves it.
+- In Claude Code, the **🎙 Talk** button above the prompt dictates straight into the prompt box, with no panel.
 
 ## Write
 

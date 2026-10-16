@@ -28,6 +28,9 @@ export type ShownState = {
   board?: string
 }
 
+/** Band dictation: yap is listening, or has been told to stop and is printing its transcript. */
+export type VoiceState = { phase: 'listening' | 'finishing'; seconds: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'agent-brief': {
@@ -41,6 +44,8 @@ declare module 'claude-code' {
       shown: ShownState | null
       /** Claude's latest finished replies, oldest first, so their last block can carry Copy and Open in Agent Brief. */
       replies: string[]
+      /** Dictation from the band's Talk button; null when it is off. */
+      voice: VoiceState | null
     }
   }
 }

@@ -81,6 +81,19 @@ import {
 } from './show'
 import type { ShowEnvironment } from './show'
 import { CLEAR_PIXEL } from './show-logic'
+import {
+  DICTATE_ARGV,
+  DICTATION_EMPTY,
+  DICTATION_FILLED,
+  DICTATION_MAX_MS,
+  DICTATION_NO_BOX,
+  YAP_MISSING,
+  YAP_MISSING_TEXT,
+  addSecond,
+  failureText,
+  listening,
+  splitDictation,
+} from './voice'
 
 /** The band's picture probe is waiting for its answer. */
 let isBandProbing = false
@@ -100,6 +113,7 @@ const modeRef = atom(MODE_STATE, 'default')
 const fidelityRef = atom({ plugin: 'agent-brief', key: 'fidelity' } as const, null)
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
 const repliesRef = atom({ plugin: 'agent-brief', key: 'replies' } as const, [])
+const voiceRef = atom({ plugin: 'agent-brief', key: 'voice' } as const, null)
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -436,6 +450,81 @@ async function writeFromBox($: EngineInterface): Promise<string> {
   return opened.message
 }
 
+/** The running yap: its pid once printed, and whether Stop came before the pid did. */
+let dictation: { pid?: string; isStopWanted: boolean } | undefined
+
+/** The band's Talk button: starts dictation, or stops it while listening. */
+async function toggleDictation($: EngineInterface): Promise<void> {
+  const voice = await read($, voiceRef)
+  if (voice === null && dictation === undefined) {
+    dictation = { isStopWanted: false }
+    await update($, voiceRef, () => listening())
+    // A timer, so the press returns while yap listens.
+    $.clock.after(0, () => void runDictation($))
+  } else if (voice?.phase === 'listening') {
+    await stopDictation($)
+  }
+}
+
+/** SIGINT makes yap print its transcript and exit. Before the pid arrives, the stop waits for it. */
+async function stopDictation($: EngineInterface): Promise<void> {
+  if (dictation === undefined) return
+  dictation.isStopWanted = true
+  await update($, voiceRef, voice => (voice === null ? null : { ...voice, phase: 'finishing' as const }))
+  if (dictation.pid !== undefined) {
+    await $.process.run(['kill', '-INT', dictation.pid]).catch(err => log($, `dictation stop failed: ${String(err)}`))
+  }
+}
+
+/** Runs yap until it stops, then puts what it heard in the prompt box. */
+async function runDictation($: EngineInterface): Promise<void> {
+  const ticking = $.clock.every(1000, () => void update($, voiceRef, addSecond).catch(() => undefined))
+  const cap = $.clock.after(DICTATION_MAX_MS, () => void stopDictation($))
+  let stdout = ''
+  let stderr = ''
+  try {
+    const child = $.process.spawn({ argv: DICTATE_ARGV })
+    for await (const { stream, text } of child) {
+      if (stream === 'stderr') {
+        stderr += text
+        continue
+      }
+      stdout += text
+      const { pid } = splitDictation(stdout)
+      if (dictation !== undefined && dictation.pid === undefined && pid !== undefined) {
+        dictation.pid = pid
+        if (dictation.isStopWanted) await stopDictation($)
+      }
+    }
+    const ended = await child.result
+    const { text } = splitDictation(stdout)
+    if (ended.code === YAP_MISSING) $.ui.toast(YAP_MISSING_TEXT, { timeoutMs: 8000 })
+    else if (text !== '') await fillDictation($, text)
+    else if (ended.code !== 0 && ended.signal === null && stderr.trim() !== '') $.ui.toast(failureText(stderr, ended.code), { timeoutMs: 8000 })
+    else $.ui.toast(DICTATION_EMPTY)
+  } catch (err) {
+    log($, `dictation failed: ${String(err)}`)
+    $.ui.toast(failureText(String(err), null), { timeoutMs: 8000 })
+  } finally {
+    ticking.cancel()
+    cap.cancel()
+    dictation = undefined
+    await update($, voiceRef, () => null).catch(() => undefined)
+  }
+}
+
+/** Appends to the draft as a delivery does. A box that refuses keeps the words on the clipboard. */
+async function fillDictation($: EngineInterface, text: string): Promise<void> {
+  const box = await $.prompt.read()
+  const filled = await $.prompt.fill(fillRequest(box.text, text))
+  if (filled.isFilled) {
+    $.ui.toast(DICTATION_FILLED)
+    return
+  }
+  await $.ui.copy({ text }).catch(() => undefined)
+  $.ui.toast(DICTATION_NO_BOX, { timeoutMs: 8000 })
+}
+
 // One ingest run at a time per module instance.
 let isIngesting = false
 
@@ -623,6 +712,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    // A reload ends yap with the old module, so a kept listening state is stale.
+    if (dictation === undefined) await update($, voiceRef, () => null).catch(() => undefined)
     try {
       const sessions = await load($)
       await update($, sessionsRef, () => sessions)
@@ -775,8 +866,9 @@ export const register: Register = (on, options) => {
     return { text: `Applying feedback: ${session.name}` }
   })
 
-  // A one-row band with Sketch, Stack, Write, Track and Mode buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write, /track or /mode does.
+  // A one-row band with Sketch, Stack, Write, Talk, Track and Mode buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write, /track or /mode does.
   // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
+  // Talk dictates into the prompt box until pressed again.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const view: BandView = {
@@ -785,6 +877,7 @@ export const register: Register = (on, options) => {
       mode: await read($, modeRef),
       fidelity: await read($, fidelityRef),
       picking: await read($, pickingRef),
+      voice: await read($, voiceRef),
       ...(e.surface === 'terminal' && needsProbe() ? { probe: { key: PROBE_KEY, png: CLEAR_PIXEL } } : {}),
     }
     if (view.probe && !isBandProbing) {
@@ -813,6 +906,7 @@ export const register: Register = (on, options) => {
         if (result !== SKETCH_OPENED && result !== STACK_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
       },
       track: () => trackCommand($, '').then(text => $.ui.toast(text, { timeoutMs: 8000 })),
+      talk: () => toggleDictation($),
       pick,
       choose: async choice => {
         await pick('none')
