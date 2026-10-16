@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, join, relative, resolve, sep } from 'node:path';
+import { annotate, versionOf } from './html-edit';
 
 export const REVIEW_SCHEME = 'agent-brief-review';
 /** The overlay script's path on every review origin. Project files cannot use it. */
@@ -90,9 +91,12 @@ export function resolveReviewPath(root: string, urlPath: string): string | undef
   }
 }
 
-/** Adds the overlay script as the page's first script, so it runs before the page's own. */
-export function injectOverlay(html: string, src = OVERLAY_PATH): string {
-  const tag = `<script src="${src}"></script>`;
+/**
+ * Adds the overlay script as the page's first script, so it runs before the page's own.
+ * `version` is the file's, so the overlay's edits name the copy they were made on.
+ */
+export function injectOverlay(html: string, src = OVERLAY_PATH, version?: string): string {
+  const tag = version ? `<script src="${src}" data-ab-version="${version}"></script>` : `<script src="${src}"></script>`;
   const head = /<head(\s[^>]*)?>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
   const doc = /<html(\s[^>]*)?>/i.exec(html);
@@ -123,7 +127,8 @@ export async function serveReview(roots: ReviewRoots, overlayFile: string, reque
     return notFound();
   }
   const type = contentType(file);
-  const body = type.startsWith('text/html') ? injectOverlay(data.toString('utf8')) : new Uint8Array(data);
+  const text = type.startsWith('text/html') ? data.toString('utf8') : undefined;
+  const body = text === undefined ? new Uint8Array(data) : injectOverlay(annotate(text), OVERLAY_PATH, versionOf(text));
   return new Response(body, { headers: { ...headers, 'content-type': type } });
 }
 

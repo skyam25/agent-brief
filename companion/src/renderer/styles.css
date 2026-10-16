@@ -2865,3 +2865,125 @@ button.stop-talk:hover {
   font-size: 11px;
   background: var(--bg);
 }
+
+/* Edit mode's inspector, in place of the comment cards */
+
+.inspector .section-head {
+  display: block;
+  margin: 10px 2px 4px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.inspector > * {
+  flex-shrink: 0;
+}
+
+.inspector > footer {
+  margin-top: auto;
+}
+
+.inspector-empty p {
+  margin: 4px 2px;
+}
+
+.inspector-help {
+  margin: 6px 2px;
+  padding-left: 16px;
+  line-height: 1.6;
+}
+
+.inspector-help kbd {
+  font: 11px -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 2px 2px;
+}
+
+.inspector-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.inspector-head button.small {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+
+.inspector-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.inspector-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.inspector-group > legend {
+  grid-column: 1 / -1;
+}
+
+.inspector-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.inspector-field :is(input, select) {
+  height: 26px;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.inspector-field input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.inspector-insert {
+  margin-bottom: 8px;
+}
+
+.inspector-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.inspector-buttons button.small {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}

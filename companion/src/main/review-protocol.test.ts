@@ -56,7 +56,10 @@ describe('serveReview', () => {
     const page = await serveReview(roots, overlay, new Request(url));
     expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
     expect(page.headers.get('cache-control')).toBe('no-store');
-    expect(await page.text()).toContain(`<head><script src="${OVERLAY_PATH}"></script><title>P</title>`);
+    // The overlay carries the file's version, and each body element its offset in the file.
+    const text = await page.text();
+    expect(text).toMatch(new RegExp(`<head><script src="${OVERLAY_PATH}" data-ab-version="[0-9a-f]{16}"></script><title>P</title>`));
+    expect(text).toMatch(/<h1 data-ab-at="\d+">/);
 
     const css = await serveReview(roots, overlay, new Request(url.replace('index.html', 'a%20b.css')));
     expect(await css.text()).toBe('h1{}');

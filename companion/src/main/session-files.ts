@@ -12,8 +12,10 @@ import { CH, type Decision, type ItemsDocInfo, type OutputsInfo } from '../share
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
 import { isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
+import { cleanEdit, type EditResult, type HistoryResult } from '../shared/review-edit';
 import type { Briefs } from './briefs';
 import { MAX_DRAFT_BODY, type DraftStore } from './drafts';
+import { applyEdit, EditError, editableOffsets, versionOf } from './html-edit';
 import { ItemsWatcher } from './items-watch';
 import { liveFields } from './session-briefs';
 
@@ -33,6 +35,15 @@ export interface SessionFilesDeps {
 }
 
 const MARKDOWN = new Set(['.md', '.markdown', '.mdx']);
+/** Undo steps kept per file. */
+const MAX_UNDO = 100;
+
+/** One edit's file text on both sides, for undo and redo. */
+interface Step {
+  before: string;
+  after: string;
+  summary: string;
+}
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 const readOrUndefined = (path: string): string | undefined => {
@@ -195,6 +206,77 @@ export class SessionFiles {
     const { cwd } = this.projectFile(sessionId, path);
     if (!isReviewable(String(path))) throw new Error(`${String(path)} is not an HTML file`);
     return this.deps.reviewUrlFor(cwd, String(path).trim());
+  }
+
+  /** Applies one review pane edit to an HTML file, unless the file changed since the page loaded. */
+  reviewEdit(sessionId: string, path: unknown, version: unknown, raw: unknown): EditResult {
+    const edit = cleanEdit(raw);
+    if (!edit) return { ok: false, error: 'That edit is not one the pane makes' };
+    const target = this.reviewTarget(sessionId, path);
+    const text = readFileSync(target, 'utf8');
+    if (versionOf(text) !== version) return { ok: false, error: 'The file changed since the page loaded. Reloading it.', stale: true };
+    try {
+      const applied = applyEdit(text, edit);
+      if (applied.html !== text) {
+        writeFileSync(target, applied.html);
+        const steps = this.steps(target);
+        steps.undo.push({ before: text, after: applied.html, summary: applied.summary });
+        if (steps.undo.length > MAX_UNDO) steps.undo.shift();
+        steps.redo.length = 0;
+      }
+      return {
+        ok: true,
+        version: versionOf(applied.html),
+        offsets: editableOffsets(applied.html),
+        ...(applied.at === undefined ? {} : { at: applied.at }),
+        summary: applied.summary,
+      };
+    } catch (err) {
+      if (err instanceof EditError) return { ok: false, error: err.message };
+      throw err;
+    }
+  }
+
+  /** Puts back the file as it was before the last pane edit. */
+  reviewUndo(sessionId: string, path: unknown): HistoryResult {
+    return this.step(sessionId, path, 'undo');
+  }
+
+  reviewRedo(sessionId: string, path: unknown): HistoryResult {
+    return this.step(sessionId, path, 'redo');
+  }
+
+  private readonly history = new Map<string, { undo: Step[]; redo: Step[] }>();
+
+  private steps(target: string) {
+    let steps = this.history.get(target);
+    if (!steps) this.history.set(target, (steps = { undo: [], redo: [] }));
+    return steps;
+  }
+
+  private step(sessionId: string, path: unknown, way: 'undo' | 'redo'): HistoryResult {
+    const target = this.reviewTarget(sessionId, path);
+    const steps = this.steps(target);
+    const step = steps[way].at(-1);
+    if (!step) return { ok: false, error: way === 'undo' ? 'Nothing to undo' : 'Nothing to redo' };
+    const text = readFileSync(target, 'utf8');
+    const [from, to] = way === 'undo' ? [step.after, step.before] : [step.before, step.after];
+    // A change made outside the pane since the edit, such as Claude's, is never written over.
+    if (text !== from) {
+      steps.undo.length = 0;
+      steps.redo.length = 0;
+      return { ok: false, error: 'The file changed outside the pane, so its edit history is gone' };
+    }
+    writeFileSync(target, to);
+    steps[way].pop();
+    steps[way === 'undo' ? 'redo' : 'undo'].push(step);
+    return { ok: true, summary: `${way === 'undo' ? 'Undid' : 'Redid'}: ${step.summary}` };
+  }
+
+  private reviewTarget(sessionId: string, path: unknown): string {
+    const { target } = this.projectFile(sessionId, path);
+    if (!isReviewable(String(path))) throw new Error(`${String(path)} is not an HTML file`);
+    return target;
   }
 
   /** Opens an HTML output in the review pane, reusing the review already open on that file. */

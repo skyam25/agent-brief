@@ -416,6 +416,9 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.dismissOutput, (_e, sessionId: string, ref: unknown) => files.dismissOutput(sessionId, ref));
   ipcMain.handle(CH.openOutputElsewhere, (_e, sessionId: string, ref: unknown) => files.openElsewhere(sessionId, ref));
   ipcMain.handle(CH.reviewUrl, (_e, sessionId: string, path: unknown) => files.reviewUrl(sessionId, path));
+  ipcMain.handle(CH.reviewEdit, (_e, sessionId: string, path: unknown, version: unknown, edit: unknown) => files.reviewEdit(sessionId, path, version, edit));
+  ipcMain.handle(CH.reviewUndo, (_e, sessionId: string, path: unknown) => files.reviewUndo(sessionId, path));
+  ipcMain.handle(CH.reviewRedo, (_e, sessionId: string, path: unknown) => files.reviewRedo(sessionId, path));
 
   // Send.
   ipcMain.handle(CH.send, (_e, payload: Outgoing) => sender.send(payload));

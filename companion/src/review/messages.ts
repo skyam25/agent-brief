@@ -1,6 +1,7 @@
 /** Messages between the review pane and the overlay script inside the page it shows. */
 
 import type { ReviewAnchor, ReviewRect } from '../shared/review';
+import type { EditResult, InsertKind, ReviewEdit, SelectedElement, StyleSet } from '../shared/review-edit';
 
 /** Tags every message both ways, so other postMessage traffic is ignored. */
 export const REVIEW_SOURCE = 'agent-brief-review';
@@ -17,7 +18,8 @@ export interface PagePin {
 
 /** From the page to the pane. */
 export type FromPage =
-  | { type: 'ready'; path: string; title: string }
+  /** `version` is the file's as served. `editable` is true when the page has elements edit mode can change. */
+  | { type: 'ready'; path: string; title: string; version?: string; editable?: boolean }
   /** A new pin. `view` is the box to crop, in the frame's viewport pixels. */
   | { type: 'pin'; anchor: ReviewAnchor; view: ReviewRect }
   /** The user clicked a marker. */
@@ -27,14 +29,28 @@ export type FromPage =
   /** An http or https link the user clicked. */
   | { type: 'link'; href: string }
   /** A pane shortcut pressed while the page had focus. */
-  | { type: 'key'; key: 'c' | 'Escape' };
+  | { type: 'key'; key: 'c' | 'e' | 'Escape' | 'undo' | 'redo' }
+  /** One edit to save. The page waits for `edited` before it sends the next. */
+  | { type: 'edit'; version: string; edit: ReviewEdit }
+  /** What edit mode has selected, or null. */
+  | { type: 'selected'; element: SelectedElement | null }
+  /** The page's elements no longer match the file, so the pane should reload it. */
+  | { type: 'reload' };
 
 /** From the pane to the page. */
 export type ToPage =
   | { type: 'commenting'; on: boolean }
   | { type: 'pins'; pins: PagePin[] }
   /** Scrolls a pin's element into view and flashes it. */
-  | { type: 'show'; id: string };
+  | { type: 'show'; id: string }
+  | { type: 'editing'; on: boolean }
+  /** Main's answer to the page's last `edit`. */
+  | { type: 'edited'; result: EditResult }
+  /** Inspector changes to the selected element. */
+  | { type: 'style'; set: StyleSet }
+  | { type: 'text'; text: string }
+  | { type: 'act'; act: 'parent' | 'duplicate' | 'remove' | 'deselect' }
+  | { type: 'insert'; what: InsertKind };
 
 export type Tagged<T> = T & { source: typeof REVIEW_SOURCE };
 
