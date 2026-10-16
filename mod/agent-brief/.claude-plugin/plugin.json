@@ -1,6 +1,6 @@
 {
   "name": "agent-brief",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "description": "Watches ~/Downloads/feedback-inbox for sessions exported by the companion Chrome extension, transcribes them locally with yap, writes .feedback/<session>/ into the project, and hands the report to Claude. Also links the session to the Agent Brief sketch panel.",
   "author": {
     "name": "skyam25"
