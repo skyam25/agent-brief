@@ -102,7 +102,7 @@ The band above the prompt has a button for each panel mode, **✎ Sketch** and *
 **🎙 Talk** puts what you say into the prompt box. It needs no app, only yap (`brew install yap`). Speech is transcribed on this Mac with Apple's on-device model.
 
 - Press ctrl+x then Tab to focus the band, then `v`. The button turns to **■ Stop** and a timer shows **Listening 0:07**.
-- Press `v` again to stop. The words are appended to the draft, after a blank line when the box already holds text. Edit them, then press Enter. Nothing is sent on its own.
+- Press `v` again to stop. The words go in at the cursor, with a space where they meet a word, as typing would. Edit them, then press Enter. Nothing is sent on its own.
 - yap prints its transcript only once it stops, so nothing shows while you talk.
 - Dictation stops itself after 5 minutes.
 - The first run asks for microphone access on behalf of your terminal app.

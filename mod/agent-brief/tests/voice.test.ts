@@ -10,6 +10,7 @@ import {
   YAP_MISSING_TEXT,
   addSecond,
   clockText,
+  dictationFill,
   splitDictation,
 } from '../hooks/voice'
 import { setupCompanion } from './companion-world'
@@ -54,6 +55,21 @@ function fakeYap(on: On, world: World, clock: MockClock, { heard = SAID, code = 
 const bandText = async ($: Parameters<TestBody>[0]) => JSON.stringify(await $.ui.render(BAND))
 
 describe('voice helpers', () => {
+  test('dictationFill puts the words in at the cursor, spaced as typing would', () => {
+    const fill = (text: string, cursor: number) => dictationFill({ text, cursor }, 'hello there').text
+    expect(fill('', 0)).toBe('hello there')
+    expect(fill('Say', 3)).toBe(' hello there')
+    expect(fill('Say ', 4)).toBe('hello there')
+    expect(fill('Say and go', 3)).toBe(' hello there')
+    expect(fill('Saygo', 3)).toBe(' hello there ')
+    expect(fill('Say. Then', 4)).toBe(' hello there')
+    expect(fill('Say, now', 3)).toBe(' hello there')
+    expect(fill('Line one\n', 9)).toBe('hello there')
+    expect(fill('go', 0)).toBe('hello there ')
+    expect(fill('Say', 99)).toBe(' hello there')
+    expect(dictationFill({ text: '', cursor: 0 }, 'x').mode).toBe('insert')
+  })
+
   test('splitDictation takes the pid line, then the transcript with its whitespace collapsed', () => {
     expect(splitDictation('')).toEqual({ text: '' })
     expect(splitDictation('42')).toEqual({ text: '' })
@@ -92,15 +108,15 @@ describe('the Talk button', () => {
     await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
     await clock.settle()
     expect(yap.killed).toEqual([`-INT ${PID}`])
-    expect(app.fills).toEqual([{ text: SAID, mode: 'append' }])
+    expect(app.fills).toEqual([{ text: SAID, mode: 'insert' }])
     expect(world.toasts).toEqual([])
     expect(await bandText($)).toContain('"label":"🎙 Talk"')
   })
 
-  test('appends after a blank line when the box already holds a draft', async ($, on) => {
+  test('goes in at the cursor, spaced like typing, when the box already holds a draft', async ($, on) => {
     const { app, world, clock, start } = await setupCompanion($, on)
     fakeYap(on, world, clock)
-    app.box.text = 'Two things:'
+    app.box = { text: 'Two things: and done.', cursor: 'Two things:'.length }
     await start()
     await clock.settle()
     await $.ui.render(BAND)
@@ -108,7 +124,7 @@ describe('the Talk button', () => {
     await clock.settle()
     await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
     await clock.settle()
-    expect(app.box.text).toBe(`Two things:\n\n${SAID}`)
+    expect(app.box.text).toBe(`Two things: ${SAID} and done.`)
   })
 
   test('stops by itself after five minutes and still fills the box', async ($, on) => {
@@ -121,7 +137,7 @@ describe('the Talk button', () => {
     await clock.advance(DICTATION_MAX_MS)
     await clock.settle()
     expect(yap.killed).toEqual([`-INT ${PID}`])
-    expect(app.fills).toEqual([{ text: SAID, mode: 'append' }])
+    expect(app.fills).toEqual([{ text: SAID, mode: 'insert' }])
   })
 
   test('says so when yap heard nothing, and leaves the box alone', async ($, on) => {

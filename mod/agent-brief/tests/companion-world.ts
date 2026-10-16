@@ -157,8 +157,14 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
   on('prompt.fill', ($, e) => {
     if (fake.isBoxBlocked) return { isFilled: false, refusal: 'dialog' as const }
     fake.fills.push({ text: e.text, mode: e.mode })
-    fake.box.text = e.mode === 'replace' ? e.text : fake.box.text + e.text
-    fake.box.cursor = fake.box.text.length
+    const { text, cursor } = fake.box
+    if (e.mode === 'insert') {
+      fake.box.text = text.slice(0, cursor) + e.text + text.slice(cursor)
+      fake.box.cursor = cursor + e.text.length
+    } else {
+      fake.box.text = e.mode === 'replace' ? e.text : text + e.text
+      fake.box.cursor = fake.box.text.length
+    }
     return { isFilled: true }
   })
   on('session.id', () => ({ value: SESSION_ID }))

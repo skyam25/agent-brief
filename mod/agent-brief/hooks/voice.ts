@@ -23,6 +23,19 @@ export const DICTATE_ARGV = [
   'PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; command -v yap >/dev/null || exit 127; echo "$$"; exec yap dictate --txt',
 ] as const
 
+/**
+ * Puts dictation in at the cursor, as typing would: a space before it when a word ends there,
+ * and a space after it when a word starts there.
+ */
+export function dictationFill(box: { text: string; cursor: number }, said: string): { text: string; mode: 'insert' } {
+  const at = Math.max(0, Math.min(box.cursor, box.text.length))
+  const before = box.text.slice(0, at)
+  const after = box.text.slice(at)
+  const lead = before !== '' && !/\s$/.test(before) ? ' ' : ''
+  const trail = /^[^\s.,;:!?)\]}]/.test(after) ? ' ' : ''
+  return { text: `${lead}${said}${trail}`, mode: 'insert' }
+}
+
 export const DICTATION_EMPTY = 'Dictation heard nothing'
 export const DICTATION_NO_BOX = 'Could not fill the prompt box, so the dictation is on the clipboard'
 export const YAP_MISSING_TEXT = 'Voice needs yap, which transcribes on device: brew install yap'
