@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onboarding Setup</title>
+<style>
+  /*
+   * Canvas shell. Each <section class="artboard"> places itself from data-x, data-y, data-w and data-h.
+   * Everything inside an artboard is static markup, so Agent Brief's edit mode can change it in the file.
+   * Scripts only add behavior: pan and zoom, frame moves in edit mode, and the live artboard's states.
+   */
+
+  :root {
+    --ground: #0d0d10;
+    --dot: #23232a;
+    --strip: #8b8b95;
+    --chrome: #1c1c21;
+    --chrome-line: #2e2e36;
+    --chrome-fg: #e3e3e8;
+    --edit: #2f7cf6;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ground); color: var(--chrome-fg); font: 13px -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif; }
+  #viewport { position: fixed; inset: 0; background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 24px 24px; touch-action: none; }
+  #viewport.panning { cursor: grabbing; }
+  #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .canvas-title { position: absolute; margin: 0; font-size: 56px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+  .canvas-sub { position: absolute; margin: 0; font-size: 18px; color: var(--strip); white-space: nowrap; }
+  .artboard { position: absolute; }
+  .artboard > .name { position: absolute; left: 0; bottom: 100%; padding-bottom: 8px; display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--strip); white-space: nowrap; cursor: zoom-in; user-select: none; }
+  .artboard > .name .live { padding: 1px 6px; border-radius: 4px; background: #2b3a66; color: #b8c8ff; font-size: 11px; font-weight: 600; }
+  .artboard > .frame { width: 100%; height: 100%; overflow: hidden; border-radius: 4px; box-shadow: 0 0 0 1px #2a2a31, 0 12px 40px rgb(0 0 0 / 0.45); }
+  .artboard > .frame-resize { display: none; position: absolute; right: -7px; bottom: -7px; width: 12px; height: 12px; border: 2px solid var(--edit); border-radius: 3px; background: #fff; cursor: nwse-resize; }
+  html[data-agent-brief-editing] .artboard > .name { cursor: move; }
+  html[data-agent-brief-editing] .artboard > .frame-resize { display: block; }
+  #zoom { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--chrome); box-shadow: 0 0 0 1px var(--chrome-line); }
+  #zoom button { height: 30px; min-width: 30px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--chrome-fg); font: inherit; cursor: pointer; }
+  #zoom button:hover { background: #2c2c34; }
+  #zoom output { display: flex; align-items: center; justify-content: center; min-width: 52px; font-variant-numeric: tabular-nums; color: var(--strip); }
+
+  /* Agent Brief panel, dark theme tokens from companion/src/renderer/styles.css */
+
+  .ab { --bg: #121212; --fg: #e3e3e8; --muted: #8b8b95; --line: #2e2e36; --raised: #232329; --hover: #363541; --selected: #403e6a; --accent: #a8a5ff; --accent-fg: #121212; --error: #ff8787; --ok: #69db7c; --warn: #ffd43b; background: var(--bg); color: var(--fg); font-size: 13px; }
+  .ab [hidden] { display: none !important; }
+  .ab button { font: inherit; cursor: pointer; }
+  .ab svg { flex: none; display: block; }
+  .ab code { font: 12px ui-monospace, 'SF Mono', Menlo, monospace; }
+  .seg { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--raised); }
+  .seg span { padding: 6px 12px; border-radius: 8px; color: #c7c7cf; }
+  .seg span.on { background: var(--selected); color: var(--fg); font-weight: 600; }
+  .footer { height: 56px; box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; gap: 8px; }
+  .left { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+  .btn { height: 30px; box-sizing: border-box; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--fg); font-weight: 500; white-space: nowrap; }
+  .btn:hover { background: var(--hover); }
+  .btn kbd { margin-left: 2px; font: 11px -apple-system, BlinkMacSystemFont, sans-serif; color: var(--muted); }
+  .btn.ghost { border-color: transparent; background: transparent; color: #c7c7cf; }
+  .btn.ghost:hover { background: #2c2c34; }
+  .btn.primary { min-width: 80px; border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+  .btn.primary[disabled] { opacity: 0.4; cursor: default; }
+  .btn.small { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; }
+  .divider { flex: none; width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
+  .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .dot.hollow { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .chev { color: var(--muted); }
+  .muted { color: var(--muted); }
+  .section { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted); }
+  .label { display: block; margin-bottom: 6px; color: var(--muted); }
+
+  /* Panel chrome shared by the mock panels */
+
+  .side { flex: 0 0 200px; box-sizing: border-box; padding: 14px 10px; background: #18181c; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+  .side .entry { padding: 6px 8px; border-radius: 8px; }
+  .side .entry.on { background: var(--selected); }
+  .head { height: 52px; box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+  .empty-board { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; color: #4a4a54; font: 18px 'Chalkboard SE', 'Comic Sans MS', cursive; }
+
+  /* The setup sheet */
+
+  .scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.55); display: flex; align-items: center; justify-content: center; }
+  .scrim[hidden] { display: none; }
+  .sheet { width: 560px; box-sizing: border-box; padding: 24px 24px 18px; border-radius: 14px; background: #1b1b20; box-shadow: 0 12px 32px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.06); display: flex; flex-direction: column; gap: 14px; }
+  .sheet h2 { margin: 0; font-size: 18px; font-weight: 650; }
+  .sheet .intro { margin: -6px 0 2px; color: #b4b4bd; line-height: 1.45; }
+  .step { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+  .step.done { border-color: rgb(105 219 124 / 0.35); }
+  .step-top { display: flex; gap: 12px; align-items: flex-start; }
+  .step-icon { flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--raised); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+  .step.done .step-icon { background: rgb(105 219 124 / 0.14); color: var(--ok); }
+  .step-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .step-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .step-desc { color: #a9a9b3; line-height: 1.45; }
+  .tag { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .tag.req { background: rgb(168 165 255 / 0.16); color: var(--accent); }
+  .tag.opt { background: var(--raised); color: var(--muted); }
+  .checks { margin: 0 0 0 44px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .checks li { display: flex; align-items: center; gap: 8px; color: #c7c7cf; }
+  .checks li .sub { color: var(--muted); }
+  .tick { flex: none; width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .tick.ok { background: var(--ok); color: #121212; }
+  .tick.wait { box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .tick.spin { border: 1.5px solid var(--line); border-top-color: var(--accent); box-sizing: border-box; animation: spin 0.8s linear infinite; }
+  .tick.warn { background: var(--warn); color: #121212; font-size: 11px; font-weight: 800; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .cmd { margin-left: 44px; display: flex; align-items: center; gap: 6px; }
+  .cmd code { flex: 1 1 auto; height: 30px; box-sizing: border-box; padding: 0 10px; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: #0e0e11; color: #d6d6de; }
+  .status { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--ok); font-weight: 600; }
+  .sheet-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+  .sheet-foot .muted { flex: 1 1 auto; font-size: 12px; }
+
+  /* Static state rows and point-of-need mocks */
+
+  .state { display: flex; flex-direction: column; gap: 6px; }
+  .pop { box-sizing: border-box; border-radius: 12px; background: #232329; box-shadow: 0 12px 32px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.04); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .pop .row { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+  .pop .row .label { margin: 0; flex: 1 1 auto; }
+  .notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 10px; background: rgb(168 165 255 / 0.08); border: 1px solid rgb(168 165 255 / 0.25); }
+  .notice.voice { background: rgb(255 212 59 / 0.07); border-color: rgb(255 212 59 / 0.25); }
+  .callout { position: absolute; max-width: 300px; padding: 10px 12px; border-radius: 10px; background: #26262d; color: #c7c7cf; line-height: 1.45; box-shadow: 0 0 0 1px #34343c; }
+  .callout b { color: var(--fg); }
+
+  /* Flow diagram */
+
+  .lane { display: flex; align-items: center; gap: 10px; }
+  .node { box-sizing: border-box; min-width: 150px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); line-height: 1.35; text-align: center; }
+  .node.bad { border-color: rgb(255 135 135 / 0.5); color: var(--error); }
+  .node.good { border-color: rgb(105 219 124 / 0.45); }
+  .node.key { border-color: var(--accent); background: rgb(168 165 255 / 0.1); }
+  .node small { display: block; color: var(--muted); font-size: 11px; }
+  .arrow { flex: none; color: var(--muted); font-size: 18px; }
+  table.deps { width: 100%; border-collapse: collapse; }
+  table.deps th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); padding: 0 10px 8px 0; }
+  table.deps td { padding: 9px 10px 9px 0; border-top: 1px solid var(--line); vertical-align: top; line-height: 1.4; }
+  @media (prefers-reduced-motion: reduce) { .tick.spin { animation: none; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0Z"/><path d="M12 17v5"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+</svg>
+
+<div id="viewport" data-ab-ground>
+  <div id="world">
+    <h1 class="canvas-title" style="left: 0; top: -190px">First-run setup</h1>
+    <p class="canvas-sub" style="left: 2px; top: -110px">One required step connects Claude Code. Voice is optional. Nothing nags after the first launch.</p>
+
+    <!-- 1 · Live setup sheet -->
+
+    <section class="artboard" data-title="Setup sheet · try it" data-x="0" data-y="0" data-w="1100" data-h="720" data-live>
+      <div class="frame ab" id="live" style="position: relative; display: flex">
+        <aside class="side">
+          <div class="entry on">Notes</div>
+          <div class="section" style="padding: 8px 8px 0">SESSIONS</div>
+          <div class="entry muted" data-sessions-empty>None yet</div>
+          <div class="entry" data-session hidden style="display: flex; gap: 8px; align-items: flex-start">
+            <span class="dot" style="margin-top: 5px"></span>
+            <div style="display: flex; flex-direction: column; gap: 2px"><b>agent-brief</b><span style="font-size: 11px; color: #b9b8d6">~/Projects/agent-brief</span></div>
+          </div>
+        </aside>
+        <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column">
+          <header class="head">
+            <div class="seg"><span class="on">Sketch</span><span>Write</span><span>Items</span></div>
+            <div class="seg"><span>scratch</span></div>
+            <div style="flex: 1"></div>
+            <button class="btn ghost" data-act="reopen" title="Settings" style="padding: 0 8px"><svg width="16" height="16"><use href="#i-gear"/></svg></button>
+          </header>
+          <main class="empty-board">Sketch here</main>
+          <footer class="footer" style="border-top: 1px solid var(--line)">
+            <div class="left"><span class="muted" data-closed-hint hidden>Setup stays in Settings. Click the gear to see it again.</span></div>
+            <span class="btn"><span class="dot hollow" data-target-dot></span><span data-target>Pick a session</span><svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="btn primary">Send</span>
+          </footer>
+        </div>
+
+        <div class="scrim" data-sheet>
+          <div class="sheet" role="dialog" aria-label="Set up Agent Brief">
+            <h2>Set up Agent Brief</h2>
+            <p class="intro">Agent Brief hands your sketches and notes to Claude Code. Connect it once, and every new session can use it.</p>
+
+            <div class="step" data-step="claude">
+              <div class="step-top">
+                <span class="step-icon"><svg width="18" height="18"><use href="#i-plug"/></svg></span>
+                <div class="step-text">
+                  <span class="step-title">Connect Claude Code <span class="tag req">Required</span></span>
+                  <span class="step-desc">Adds the Agent Brief plugin to Claude Code, and the <code>agent-brief</code> command Claude uses to draw on your board.</span>
+                </div>
+                <button class="btn primary" data-act="connect" data-claude="idle">Connect</button>
+                <span class="status" data-claude="done" hidden><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>Connected</span>
+              </div>
+              <ul class="checks" data-claude="busy done" hidden>
+                <li data-check="plugin"><span class="tick spin"></span>Plugin registered in Claude Code</li>
+                <li data-check="cli"><span class="tick wait"></span>agent-brief command linked</li>
+                <li data-check="session"><span class="tick wait"></span><span data-session-line>First session</span><span class="sub" data-session-sub>Start claude in any project to finish</span></li>
+              </ul>
+            </div>
+
+            <div class="step" data-step="voice">
+              <div class="step-top">
+                <span class="step-icon"><svg width="18" height="18"><use href="#i-mic"/></svg></span>
+                <div class="step-text">
+                  <span class="step-title">Voice <span class="tag opt">Optional</span></span>
+                  <span class="step-desc">Talk while you sketch. Transcription runs on your Mac with yap and ffmpeg.</span>
+                </div>
+                <span class="status" data-voice="done" hidden><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>Ready</span>
+              </div>
+              <div class="cmd" data-voice="idle">
+                <code>brew install yap ffmpeg</code>
+                <button class="btn" data-act="copy"><svg width="14" height="14"><use href="#i-copy"/></svg><span data-copy-label>Copy</span></button>
+                <button class="btn ghost" data-act="check-voice">Check again</button>
+              </div>
+            </div>
+
+            <div class="sheet-foot">
+              <span class="muted">Steps check themselves off when Agent Brief finds the install.</span>
+              <button class="btn ghost" data-act="later">Set up later</button>
+              <button class="btn primary" data-act="done" disabled>Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 · Every state of the two steps -->
+
+    <section class="artboard" data-title="Step states" data-x="1180" data-y="0" data-w="760" data-h="1120">
+      <div class="frame ab" style="box-sizing: border-box; padding: 26px 30px; display: flex; flex-direction: column; gap: 14px">
+        <div class="section">CONNECT CLAUDE CODE</div>
+
+        <div class="state">
+          <span class="label">Not connected. The first thing the sheet asks for.</span>
+          <div class="step">
+            <div class="step-top">
+              <span class="step-icon"><svg width="18" height="18"><use href="#i-plug"/></svg></span>
+              <div class="step-text"><span class="step-title">Connect Claude Code <span class="tag req">Required</span></span><span class="step-desc">Adds the plugin and the agent-brief command.</span></div>
+              <span class="btn primary">Connect</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="state">
+          <span class="label">Claude Code is missing. Connect can't run, so the step points to the install.</span>
+          <div class="step">
+            <div class="step-top">
+              <span class="step-icon"><svg width="18" height="18"><use href="#i-plug"/></svg></span>
+              <div class="step-text"><span class="step-title">Connect Claude Code <span class="tag req">Required</span></span><span class="step-desc">Agent Brief can't find the claude command. Install Claude Code, then check again.</span></div>
+              <span class="btn">Install guide</span>
+              <span class="btn ghost">Check again</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="state">
+          <span class="label">Linked, but ~/.local/bin is not on PATH. Goes away if the plugin hands Claude the command's full path.</span>
+          <div class="step">
+            <div class="step-top">
+              <span class="step-icon"><svg width="18" height="18"><use href="#i-plug"/></svg></span>
+              <div class="step-text"><span class="step-title">Connect Claude Code <span class="tag req">Required</span></span></div>
+            </div>
+            <ul class="checks">
+              <li><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>Plugin registered in Claude Code</li>
+              <li><span class="tick warn">!</span>agent-brief command linked, but your shell can't find it</li>
+            </ul>
+            <div class="cmd"><code>export PATH="$HOME/.local/bin:$PATH"</code><span class="btn"><svg width="14" height="14"><use href="#i-copy"/></svg>Copy</span></div>
+            <span class="muted" style="margin-left: 44px">Add the line to ~/.zshrc, then open a new terminal.</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <span class="label">Installed, waiting for proof. The first session that registers checks the last line.</span>
+          <div class="step">
+            <div class="step-top">
+              <span class="step-icon"><svg width="18" height="18"><use href="#i-plug"/></svg></span>
+              <div class="step-text"><span class="step-title">Connect Claude Code <span class="tag req">Required</span></span></div>
+            </div>
+            <ul class="checks">
+              <li><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>Plugin registered in Claude Code</li>
+              <li><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>agent-brief command linked</li>
+              <li><span class="tick spin"></span>First session<span class="muted">Start claude in any project to finish</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="state">
+          <span class="label">Connected.</span>
+          <div class="step done">
+            <div class="step-top">
+              <span class="step-icon"><svg width="18" height="18"><use href="#i-plug"/></svg></span>
+              <div class="step-text"><span class="step-title">Connect Claude Code</span><span class="step-desc">First session: agent-brief</span></div>
+              <span class="status"><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>Connected</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section" style="margin-top: 8px">VOICE</div>
+
+        <div class="state">
+          <span class="label">Missing. The command to copy, and a manual re-check.</span>
+          <div class="step">
+            <div class="step-top">
+              <span class="step-icon"><svg width="18" height="18"><use href="#i-mic"/></svg></span>
+              <div class="step-text"><span class="step-title">Voice <span class="tag opt">Optional</span></span><span class="step-desc">Talk while you sketch. Transcription runs on your Mac.</span></div>
+            </div>
+            <div class="cmd"><code>brew install yap ffmpeg</code><span class="btn"><svg width="14" height="14"><use href="#i-copy"/></svg>Copy</span><span class="btn ghost">Check again</span></div>
+          </div>
+        </div>
+
+        <div class="state">
+          <span class="label">Ready.</span>
+          <div class="step done">
+            <div class="step-top">
+              <span class="step-icon"><svg width="18" height="18"><use href="#i-mic"/></svg></span>
+              <div class="step-text"><span class="step-title">Voice</span><span class="step-desc">yap and ffmpeg found</span></div>
+              <span class="status"><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>Ready</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · Point of need -->
+
+    <section class="artboard" data-title="After 'Set up later' · prompts only where you hit the gap" data-x="0" data-y="820" data-w="1100" data-h="620">
+      <div class="frame ab" style="position: relative; box-sizing: border-box; padding: 26px 30px">
+        <div class="section">SEND, WITH CLAUDE CODE NOT CONNECTED</div>
+        <div class="pop" style="position: absolute; left: 30px; top: 56px; width: 360px">
+          <span class="muted">Send to</span>
+          <div class="notice">
+            <span class="step-icon" style="width: 28px; height: 28px"><svg width="16" height="16"><use href="#i-plug"/></svg></span>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <b>Claude Code isn't connected</b>
+              <span class="muted" style="line-height: 1.45">Connect it once, and your sessions show up here.</span>
+              <span><span class="btn primary">Connect Claude Code</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="callout" style="left: 30px; top: 270px; width: 336px"><b>Replaces the empty session list.</b> Today the list is just empty and gives no reason why.</div>
+
+        <div class="section" style="position: absolute; left: 430px; top: 26px">TALK, WITH YAP OR FFMPEG MISSING</div>
+        <div style="position: absolute; left: 430px; top: 56px; width: 640px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden">
+          <div class="notice voice" style="border-radius: 0; border-width: 0 0 1px">
+            <span class="step-icon" style="width: 28px; height: 28px; color: var(--warn)"><svg width="16" height="16"><use href="#i-mic"/></svg></span>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 8px">
+              <b>Voice needs yap and ffmpeg</b>
+              <div class="cmd" style="margin: 0"><code>brew install yap ffmpeg</code><span class="btn"><svg width="14" height="14"><use href="#i-copy"/></svg>Copy</span><span class="btn ghost">Check again</span></div>
+            </div>
+          </div>
+          <footer class="footer">
+            <div class="left"></div>
+            <span class="btn"><svg width="15" height="15"><use href="#i-mic"/></svg>Talk<kbd>⌥T</kbd></span>
+            <span class="divider"></span>
+            <span class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="btn primary">Send</span>
+          </footer>
+        </div>
+        <div class="callout" style="left: 430px; top: 250px; width: 616px"><b>Shows on the Talk press, before recording starts.</b> Today you record first, and the error only appears when transcription fails.</div>
+
+        <div class="section" style="position: absolute; left: 430px; top: 340px">SETTINGS · SETUP ROWS</div>
+        <div class="pop" style="position: absolute; left: 430px; top: 370px; width: 360px">
+          <div class="row"><span class="label">Claude Code</span><span class="status"><span class="tick ok"><svg width="10" height="10"><use href="#i-check"/></svg></span>Connected</span></div>
+          <div class="row"><span class="label">Voice</span><span class="muted">Not installed</span><span class="btn small">Set up…</span></div>
+          <div style="height: 1px; background: var(--line)"></div>
+          <div class="row"><span class="label">Show or hide</span><span class="btn small">⌥Space</span></div>
+          <div class="row"><span class="label">After Send</span><span class="btn small">Send it to Claude at once<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span></div>
+        </div>
+        <div class="callout" style="left: 820px; top: 370px; width: 240px"><b>The one place setup lives after the first launch.</b> No sidebar progress bar and no badge.</div>
+      </div>
+    </section>
+
+    <!-- 4 · Flow and dependencies -->
+
+    <section class="artboard" data-title="Flow · today vs proposed" data-x="1180" data-y="1200" data-w="760" data-h="620">
+      <div class="frame ab" style="box-sizing: border-box; padding: 26px 30px; display: flex; flex-direction: column; gap: 16px">
+        <div class="section">TODAY</div>
+        <div class="lane">
+          <div class="node">Install app</div><span class="arrow">→</span>
+          <div class="node">Empty panel<small>no prompt</small></div><span class="arrow">→</span>
+          <div class="node bad">Send finds no sessions<small>setup is hidden in the menu</small></div>
+        </div>
+
+        <div class="section" style="margin-top: 6px; color: var(--accent)">PROPOSED</div>
+        <div class="lane">
+          <div class="node">First launch</div><span class="arrow">→</span>
+          <div class="node key">Setup sheet<small>shown once</small></div><span class="arrow">→</span>
+          <div class="node">Connect<small>plugin + agent-brief</small></div><span class="arrow">→</span>
+          <div class="node good">First session<small>registers = done</small></div>
+        </div>
+        <div class="lane" style="padding-left: 180px">
+          <span class="arrow">↳</span>
+          <div class="node">Set up later</div><span class="arrow">→</span>
+          <div class="node">Prompt at Send, Talk<small>or the Settings row</small></div>
+        </div>
+
+        <div class="section" style="margin-top: 10px">WHAT EACH PIECE DOES</div>
+        <table class="deps">
+          <tr><th>PIECE</th><th>USED BY</th><th>NEEDED FOR</th><th>SETUP</th></tr>
+          <tr><td><b>Plugin</b></td><td>You, in Claude Code</td><td>/sketch, /write, session list, Send delivery</td><td><span class="tag req">Required</span></td></tr>
+          <tr><td><b>agent-brief</b> command</td><td>Claude, through Bash</td><td>Drawing on the board, notes, snaps</td><td>Folded into Connect</td></tr>
+          <tr><td><b>yap + ffmpeg</b></td><td>The app, 🎙 Talk</td><td>Voice to text, on your Mac</td><td><span class="tag opt">Optional</span></td></tr>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="zoom" aria-label="Zoom" data-ab-pass>
+  <button id="z-out" title="Zoom out" aria-label="Zoom out">−</button>
+  <output id="z-level">100%</output>
+  <button id="z-in" title="Zoom in" aria-label="Zoom in">+</button>
+  <button id="z-fit" title="Fit everything (⇧1)">Fit</button>
+</div>
+
+<script>
+  // The live artboard walks the setup sheet through its states. Connect checks each line in turn, then a session arrives.
+
+  const live = document.getElementById('live');
+  const $ = (sel) => live.querySelector(sel);
+  const setup = { claude: 'idle', voice: 'idle', open: true };
+  const timers = [];
+  const later = (ms, fn) => timers.push(setTimeout(fn, ms));
+
+  const OK = '<svg width="10" height="10"><use href="#i-check"/></svg>';
+  const tick = (name, kind) => {
+    const t = $(`[data-check="${name}"] .tick`);
+    t.className = `tick ${kind}`;
+    t.innerHTML = kind === 'ok' ? OK : '';
+  };
+
+  const show = () => {
+    for (const el of live.querySelectorAll('[data-claude]')) el.hidden = !el.dataset.claude.split(' ').includes(setup.claude);
+    for (const el of live.querySelectorAll('[data-voice]')) el.hidden = el.dataset.voice !== setup.voice;
+    $('[data-step="claude"]').classList.toggle('done', setup.claude === 'done');
+    $('[data-step="voice"]').classList.toggle('done', setup.voice === 'done');
+    $('[data-act="done"]').disabled = setup.claude !== 'done';
+    $('[data-sheet]').hidden = !setup.open;
+    $('[data-closed-hint]').hidden = setup.open;
+    const connected = setup.claude === 'done';
+    $('[data-session]').hidden = !connected;
+    $('[data-sessions-empty]').hidden = connected;
+    $('[data-target]').textContent = connected ? 'agent-brief' : 'Pick a session';
+    $('[data-target-dot]').className = connected ? 'dot' : 'dot hollow';
+  };
+
+  const reset = () => {
+    timers.splice(0).forEach(clearTimeout);
+    Object.assign(setup, { claude: 'idle', voice: 'idle', open: true });
+    tick('plugin', 'spin');
+    tick('cli', 'wait');
+    tick('session', 'wait');
+    $('[data-session-line]').textContent = 'First session';
+    $('[data-session-sub]').textContent = 'Start claude in any project to finish';
+  };
+
+  const acts = {
+    connect: () => {
+      setup.claude = 'busy';
+      later(700, () => { tick('plugin', 'ok'); tick('cli', 'spin'); });
+      later(1300, () => { tick('cli', 'ok'); tick('session', 'spin'); });
+      later(3600, () => {
+        tick('session', 'ok');
+        $('[data-session-line]').textContent = 'First session: agent-brief';
+        $('[data-session-sub]').textContent = '';
+        setup.claude = 'done';
+        show();
+      });
+    },
+    copy: () => {
+      $('[data-copy-label]').textContent = 'Copied';
+      later(1500, () => ($('[data-copy-label]').textContent = 'Copy'));
+    },
+    'check-voice': () => (setup.voice = 'done'),
+    later: () => (setup.open = false),
+    done: () => (setup.open = false),
+    reopen: () => (setup.open = true),
+  };
+  live.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (!act || !acts[act]) return;
+    acts[act]();
+    show();
+  });
+  live.addEventListener('dblclick', (e) => {
+    if (e.target.closest('.head')) {
+      reset();
+      show();
+    }
+  });
+  reset();
+  show();
+
+  // Pan and zoom. Wheel pans, ⌘ or ⌃ wheel and pinch zoom at the pointer, dragging the ground pans.
+
+  const viewport = document.getElementById('viewport');
+  const world = document.getElementById('world');
+  const level = document.getElementById('z-level');
+  const view = { x: 0, y: 0, z: 1 };
+  const boards = [...document.querySelectorAll('.artboard')];
+  const isEditing = () => document.documentElement.hasAttribute('data-agent-brief-editing');
+  const VIEW_KEY = `canvas-view:${location.pathname}`;
+
+  const place = (b) => {
+    const { x, y, w, h } = b.dataset;
+    Object.assign(b.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+  };
+
+  /** Tells Agent Brief's edit mode to save attributes a frame move changed. */
+  const saveAttrs = (target, set) => document.dispatchEvent(new CustomEvent('agent-brief:edit', { detail: { target, set } }));
+
+  /** Drags with the pointer captured on `el`, calling `move` with the change in canvas pixels. */
+  function dragOn(el, start, move, end) {
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      const from = { x: e.clientX, y: e.clientY, ...start() };
+      let moved = false;
+      const onMove = (m) => {
+        const dx = (m.clientX - from.x) / view.z;
+        const dy = (m.clientY - from.y) / view.z;
+        if (Math.hypot(dx, dy) * view.z > 3) moved = true;
+        if (moved) move(from, dx, dy);
+      };
+      const onUp = () => {
+        el.removeEventListener('pointermove', onMove);
+        el.removeEventListener('pointerup', onUp);
+        end(moved);
+      };
+      el.addEventListener('pointermove', onMove);
+      el.addEventListener('pointerup', onUp);
+    });
+  }
+
+  const snap = (v) => Math.round(v / 10) * 10;
+
+  for (const b of boards) {
+    place(b);
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.setAttribute('data-ab-pass', '');
+    name.innerHTML = `<span></span>${b.hasAttribute('data-live') ? '<span class="live">Interactive</span>' : ''}`;
+    name.firstChild.textContent = b.dataset.title;
+    name.title = 'Click to zoom to this artboard. In edit mode, drag to move it.';
+    b.prepend(name);
+    dragOn(
+      name,
+      () => ({ x0: +b.dataset.x, y0: +b.dataset.y }),
+      (from, dx, dy) => {
+        if (!isEditing()) return;
+        b.dataset.x = snap(from.x0 + dx);
+        b.dataset.y = snap(from.y0 + dy);
+        place(b);
+      },
+      (moved) => {
+        if (!moved) fit([b]);
+        else if (isEditing()) saveAttrs(b, { 'data-x': b.dataset.x, 'data-y': b.dataset.y });
+      },
+    );
+    const grip = document.createElement('div');
+    grip.className = 'frame-resize';
+    grip.setAttribute('data-ab-pass', '');
+    grip.title = 'Drag to resize the artboard';
+    b.append(grip);
+    dragOn(
+      grip,
+      () => ({ w0: +b.dataset.w, h0: +b.dataset.h }),
+      (from, dx, dy) => {
+        b.dataset.w = Math.max(80, snap(from.w0 + dx));
+        b.dataset.h = Math.max(60, snap(from.h0 + dy));
+        place(b);
+      },
+      (moved) => moved && saveAttrs(b, { 'data-w': b.dataset.w, 'data-h': b.dataset.h }),
+    );
+  }
+
+  const apply = () => {
+    world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+    viewport.style.backgroundPosition = `${view.x}px ${view.y}px`;
+    viewport.style.backgroundSize = `${24 * view.z}px ${24 * view.z}px`;
+    level.textContent = `${Math.round(view.z * 100)}%`;
+    try {
+      sessionStorage.setItem(VIEW_KEY, JSON.stringify(view));
+    } catch {}
+
+    // The review pane's pins and edit boxes follow scroll events, so a pan or zoom sends one.
+    dispatchEvent(new Event('scroll'));
+  };
+  const zoomAt = (z, px, py) => {
+    const next = Math.min(4, Math.max(0.1, z));
+    view.x = px - ((px - view.x) * next) / view.z;
+    view.y = py - ((py - view.y) * next) / view.z;
+    view.z = next;
+    apply();
+  };
+  function fit(targets = boards) {
+    const box = targets.reduce((a, b) => {
+      const x = +b.dataset.x, y = +b.dataset.y - 40, r = x + +b.dataset.w, d = +b.dataset.y + +b.dataset.h;
+      return { x: Math.min(a.x, x), y: Math.min(a.y, y), r: Math.max(a.r, r), d: Math.max(a.d, d) };
+    }, { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity });
+    if (targets === boards) box.y -= 160;
+    const pad = 48;
+    view.z = Math.min(2, (innerWidth - pad * 2) / (box.r - box.x), (innerHeight - pad * 2) / (box.d - box.y));
+    view.x = (innerWidth - (box.r - box.x) * view.z) / 2 - box.x * view.z;
+    view.y = (innerHeight - (box.d - box.y) * view.z) / 2 - box.y * view.z;
+    apply();
+  }
+
+  viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) zoomAt(view.z * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+    else {
+      view.x -= e.deltaX;
+      view.y -= e.deltaY;
+      apply();
+    }
+  }, { passive: false });
+
+  let pan;
+  viewport.addEventListener('pointerdown', (e) => {
+    if (e.target !== viewport) return;
+    pan = { x: e.clientX - view.x, y: e.clientY - view.y };
+    viewport.classList.add('panning');
+    viewport.setPointerCapture(e.pointerId);
+  });
+  viewport.addEventListener('pointermove', (e) => {
+    if (!pan) return;
+    view.x = e.clientX - pan.x;
+    view.y = e.clientY - pan.y;
+    apply();
+  });
+  viewport.addEventListener('pointerup', () => {
+    pan = undefined;
+    viewport.classList.remove('panning');
+  });
+
+  const center = () => [innerWidth / 2, innerHeight / 2];
+  document.getElementById('z-in').onclick = () => zoomAt(view.z * 1.25, ...center());
+  document.getElementById('z-out').onclick = () => zoomAt(view.z / 1.25, ...center());
+  document.getElementById('z-fit').onclick = () => fit();
+  addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLElement && e.target.isContentEditable) return;
+    if (e.shiftKey && e.code === 'Digit1') fit();
+    if (e.shiftKey && e.code === 'Digit0') zoomAt(1, ...center());
+  });
+  addEventListener('resize', () => fit());
+
+  // A reload after an edit keeps the view where it was.
+  let saved;
+  try {
+    saved = JSON.parse(sessionStorage.getItem(VIEW_KEY) ?? 'null');
+  } catch {}
+  if (saved && Number.isFinite(saved.z)) {
+    Object.assign(view, saved);
+    apply();
+  } else fit();
+</script>
+</body>
+</html>
