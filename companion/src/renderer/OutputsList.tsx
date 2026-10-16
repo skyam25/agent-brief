@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import type { OutputKind, OutputRecord } from '../protocol';
 import { outputLabel, outputTouchedAt } from '../shared/outputs';
+import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { ago, SectionHeader } from './DraftList';
 import { CloseIcon } from './Icons';
 import { useStore } from './hooks';
@@ -28,6 +29,7 @@ export function OutputsList(props: { store: OutputsStore; sessionId: string; onO
   const { store, sessionId } = props;
   useStore(store);
   const [touchedOpen, setTouchedOpen] = useState<Record<string, boolean>>({});
+  const [menu, setMenu] = useState<MenuPoint & { ref: string }>();
 
   // A failed read keeps the last copy.
   useEffect(() => {
@@ -40,7 +42,17 @@ export function OutputsList(props: { store: OutputsStore; sessionId: string; onO
   const touched = all.filter((r) => r.tier === 'detected');
   const open = !!touchedOpen[sessionId];
   const row = (r: OutputRecord) => (
-    <OutputRow key={r.ref} record={r} index={all.indexOf(r)} onOpen={() => props.onOpen(r.ref)} onDismiss={() => props.onDismiss(r.ref)} />
+    <OutputRow
+      key={r.ref}
+      record={r}
+      index={all.indexOf(r)}
+      onOpen={() => props.onOpen(r.ref)}
+      onDismiss={() => props.onDismiss(r.ref)}
+      onMenu={(e) => {
+        e.preventDefault();
+        setMenu({ ref: r.ref, x: e.clientX, y: e.clientY });
+      }}
+    />
   );
 
   return (
@@ -63,11 +75,38 @@ export function OutputsList(props: { store: OutputsStore; sessionId: string; onO
           {open && <ul>{touched.map(row)}</ul>}
         </>
       )}
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} label="Output" testId="output-menu" onClose={() => setMenu(undefined)}>
+          <button
+            className="ghost"
+            role="menuitem"
+            onClick={() => {
+              setMenu(undefined);
+              props.onOpen(menu.ref);
+            }}
+            data-testid="output-menu-open"
+          >
+            Open
+          </button>
+          <button
+            className="ghost"
+            role="menuitem"
+            title="Hide until Claude writes it again"
+            onClick={() => {
+              setMenu(undefined);
+              props.onDismiss(menu.ref);
+            }}
+            data-testid="output-menu-hide"
+          >
+            <CloseIcon /> Hide from list
+          </button>
+        </ContextMenu>
+      )}
     </section>
   );
 }
 
-function OutputRow(props: { record: OutputRecord; index: number; onOpen: () => void; onDismiss: () => void }) {
+function OutputRow(props: { record: OutputRecord; index: number; onOpen: () => void; onDismiss: () => void; onMenu: (e: MouseEvent) => void }) {
   const { record: r, index } = props;
   const label = outputLabel(r);
   const declared = r.tier === 'declared';
@@ -75,7 +114,7 @@ function OutputRow(props: { record: OutputRecord; index: number; onOpen: () => v
   const at = outputTouchedAt(r);
   return (
     <li className="output-item">
-      <button className="ghost draft-row output-row" onClick={props.onOpen} title={r.ref} data-testid={`output-row-${index}`} data-ref={r.ref}>
+      <button className="ghost draft-row output-row" onClick={props.onOpen} onContextMenu={props.onMenu} title={r.ref} data-testid={`output-row-${index}`} data-ref={r.ref}>
         <span className="lines">
           <span className="title-line">
             <span className="title">{label}</span>

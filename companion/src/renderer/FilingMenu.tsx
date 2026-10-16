@@ -33,7 +33,7 @@ export function FilingMenu(props: { draft: Draft; tabs: FilingTab[]; onFile: (se
       className="filing-menu"
       trigger={(open, toggle) => (
         <button
-          className={filed ? 'chip filing filed' : 'chip filing'}
+          className={filed ? 'chip filing filed' : 'chip filing unset'}
           aria-haspopup="menu"
           aria-pressed={open}
           title={filed ? `Filed under ${filed.title}. Click to file it elsewhere.` : 'On the Notes tab. Click to file it under a session.'}
@@ -43,7 +43,7 @@ export function FilingMenu(props: { draft: Draft; tabs: FilingTab[]; onFile: (se
           }}
           data-testid="draft-filing"
         >
-          <span className="label-text">{filed?.title ?? 'Unfiled'}</span>
+          <span className="label-text">{filed?.title ?? 'File under'}</span>
           <ChevronIcon />
         </button>
       )}

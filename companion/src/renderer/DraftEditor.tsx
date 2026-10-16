@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { BoardEntry, Draft } from '../shared/ipc';
 import type { DraftBook } from './drafts';
 import { FilingMenu, type FilingTab } from './FilingMenu';
@@ -52,6 +52,8 @@ export function DraftEditor(props: {
   onSend: () => void;
   onOpenBoard: (board: string) => void;
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
+  /** The target chip and Send, last in the footer. */
+  sendBar?: ReactNode;
 }) {
   const { book, draft } = props;
   const [copied, setCopied] = useState(false);
@@ -97,7 +99,7 @@ export function DraftEditor(props: {
   const boardOptions = draft.board && !boards.includes(draft.board) ? [draft.board, ...boards] : boards;
 
   return (
-    <section className="editor">
+    <section className={draft.title ? 'editor' : 'editor untitled'}>
       {draft.title && (
         <p className="draft-title" data-testid="draft-title">
           {draft.title}
@@ -121,7 +123,7 @@ export function DraftEditor(props: {
         templates={props.shelf.templates}
       />
       <footer>
-        <label className="board-pick" title="A board whose sketch goes out with this draft">
+        <label className={draft.board ? 'board-pick' : 'board-pick unset'} title="A board whose sketch goes out with this draft">
           <LinkIcon />
           <select
             aria-label="Board"
@@ -129,7 +131,7 @@ export function DraftEditor(props: {
             onChange={(e) => book.link(draft.id, e.target.value || undefined)}
             data-testid="draft-board"
           >
-            <option value="">No board</option>
+            <option value="">Board</option>
             {boardOptions.map((b) => (
               <option key={b} value={b}>
                 {b}
@@ -188,16 +190,17 @@ export function DraftEditor(props: {
         </MoreMenu>
         <button
           className="ghost small copy-note"
+          aria-label={copied ? 'Copied' : 'Copy'}
           disabled={!draft.body.trim()}
           title="Copy as rich text, for Slack, Mail or Docs. Plain-text apps get the Markdown."
           onClick={() => void copy()}
           data-testid="draft-copy"
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
-          {copied ? 'Copied' : 'Copy'}
+          <span className="label">{copied ? 'Copied' : 'Copy'}</span>
         </button>
         <button
-          className={ready ? 'chip on' : 'chip'}
+          className={ready ? 'ghost small ready-toggle on' : 'ghost small ready-toggle'}
           aria-pressed={ready}
           title={ready ? 'Back to notes (⌘⇧↩)' : 'Queue it for sending (⌘⇧↩)'}
           onClick={() => book.setReady(draft.id, !ready)}
@@ -207,6 +210,7 @@ export function DraftEditor(props: {
           Ready
           <kbd>⌘⇧↩</kbd>
         </button>
+        {props.sendBar}
       </footer>
     </section>
   );

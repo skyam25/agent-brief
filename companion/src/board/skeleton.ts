@@ -7,7 +7,7 @@
 import type { Skeleton } from '../protocol';
 import { badRequest } from './errors';
 import { center, edgePoint, route, type Box, type End, type Point, type Shaped } from './geometry';
-import { STICKY_COLOR, STICKY_TEXT, swatch } from './palette';
+import { STICKY_COLOR, TEXT_COLOR, TEXT_FONT, swatch } from './palette';
 
 /** An Excalidraw element skeleton, kept loose so this module stays free of Excalidraw imports. */
 export type ExSkeleton = Record<string, unknown> & { type: string; id: string };
@@ -153,7 +153,7 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
           ...(sticky ? { roundness: { type: 3 } } : {}),
         };
         if (s.label) {
-          skel.label = { text: s.label, strokeColor: sticky ? STICKY_TEXT : colors.stroke };
+          skel.label = { text: s.label, strokeColor: TEXT_COLOR, fontFamily: TEXT_FONT };
         }
         plan.shapes.push({ id, skel, frameId, sticky });
         break;
@@ -161,7 +161,8 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
       case 'text': {
         const text = s.label ?? '';
         const [x, y] = hasPoint(s) ? [s.x!, s.y!] : place(estimateTextWidth(text));
-        const skel: ExSkeleton = { type: 'text', id, x, y, text, strokeColor: swatch(s.color).stroke };
+        const strokeColor = s.color ? swatch(s.color).stroke : TEXT_COLOR;
+        const skel: ExSkeleton = { type: 'text', id, x, y, text, strokeColor, fontFamily: TEXT_FONT };
         plan.shapes.push({ id, skel, frameId, sticky: false });
         break;
       }
@@ -210,7 +211,7 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
           const origin: Point = hasPoint(s) ? [s.x!, s.y!] : place(delta[0]);
           [a, b] = [{ point: origin }, { point: add(origin, delta) }];
         }
-        if (s.label && s.type === 'arrow') skel.label = { text: s.label, strokeColor: skel.strokeColor };
+        if (s.label && s.type === 'arrow') skel.label = { text: s.label, strokeColor: TEXT_COLOR, fontFamily: TEXT_FONT };
         plan.linear.push({ id, type: s.type, skel, start: a, end: b, frameId });
         break;
       }

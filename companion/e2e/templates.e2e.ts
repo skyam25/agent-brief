@@ -56,6 +56,22 @@ test('typing / inserts a template and Tab walks its slots', async () => {
   await expect.poll(() => draftBody(page)).toMatch(/\n\/pla$/);
 });
 
+test('right-clicking a template row uses or deletes it', async () => {
+  const { page } = ctx;
+  await page.getByTestId('templates-toggle').click();
+  const row = (title: string) => page.getByTestId('template-row').filter({ hasText: title });
+
+  await row('Plan first').click({ button: 'right' });
+  await page.getByTestId('row-menu-use').click();
+  await expect.poll(() => selectedText(page)).toBe('{{goal}}');
+
+  await row('Bug report').click({ button: 'right' });
+  await page.getByTestId('row-menu-delete').click();
+  await page.getByTestId('row-menu-delete').click();
+  await expect(row('Bug report')).toHaveCount(0);
+  await expect.poll(templateFiles).toEqual(['feature.md', 'plan-first.md']);
+});
+
 test('Send points out empty slots once, then sends as is', async () => {
   const { page } = ctx;
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));

@@ -8,7 +8,7 @@ import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { DeleteRequest, DrawRequest, DrawResponse, MutateResponse, ReadResponse, UpdateRequest } from '../protocol';
 import type { Region } from '../server/contract';
 import { ARROW_GAP, boxOf, pad, union, type Box, type Shaped } from '../board/geometry';
-import { STICKY_TEXT, swatch } from '../board/palette';
+import { TEXT_COLOR, TEXT_FONT, swatch } from '../board/palette';
 import { endOf, linearGeometry, planDraw, type EndRef, type ExSkeleton, type PlannedFile } from '../board/skeleton';
 import { metaOf, readScene, type SceneElement } from '../board/summary';
 
@@ -177,8 +177,8 @@ function layoutLabel(container: Draft, text: string, textEl: El | undefined) {
     ...(container.points ? { points: container.points } : {}),
     label: {
       text,
-      strokeColor: t?.strokeColor ?? container.strokeColor,
-      ...(t ? { fontSize: t.fontSize, fontFamily: t.fontFamily } : {}),
+      strokeColor: t?.strokeColor ?? TEXT_COLOR,
+      ...(t ? { fontSize: t.fontSize, fontFamily: t.fontFamily } : { fontFamily: TEXT_FONT }),
     },
   };
   const [c, label] = convert([skel], true);
@@ -254,11 +254,10 @@ export function updateElements(
         const laid = layoutLabel(container, text, textEl);
         if (!container.points && laid.containerHeight > container.height) set(u.id, { height: laid.containerHeight });
         if (textEl) {
-          set(textEl.id, { ...laid.text, ...(u.color && metaOf(el as SceneElement).kind !== 'sticky' ? { strokeColor: swatch(u.color).stroke } : {}) });
+          set(textEl.id, laid.text);
         } else {
           const id = randomId();
-          const isSticky = metaOf(el as SceneElement).kind === 'sticky';
-          const [fresh] = convert([{ type: 'text', id, x: laid.text.x, y: laid.text.y, text }]);
+          const [fresh] = convert([{ type: 'text', id, x: laid.text.x, y: laid.text.y, text, fontFamily: TEXT_FONT }]);
           created.push({
             ...fresh,
             ...laid.text,
@@ -266,7 +265,7 @@ export function updateElements(
             frameId: container.frameId ?? null,
             textAlign: 'center',
             verticalAlign: 'middle',
-            strokeColor: isSticky ? STICKY_TEXT : container.strokeColor,
+            strokeColor: TEXT_COLOR,
             customData: { by: 'claude', batchId, createdAt: Date.now() },
             index: null,
           });

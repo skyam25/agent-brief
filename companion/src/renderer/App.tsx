@@ -286,6 +286,33 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   const reviewError = useCallback((message: string) => notify(message, 'error'), [notify]);
   const [reviewProps] = useState(() => ({ host, voice: reviewVoice, onError: reviewError }));
 
+  const sendBar = (
+    <SendTo
+      sessions={sessions}
+      home={info.home}
+      open={chooserOpen}
+      onOpenChange={openChooser}
+      onSend={() => void send()}
+      onSendTo={(id) => void sendTo(id)}
+      onSendNew={(cwd, via) => void sendNew(cwd, via)}
+      loadOptions={() => host.launchOptions()}
+      chooseFolder={() => host.chooseFolder()}
+      mic={
+        onMicrophone && (
+          <Mic
+            recording={recording}
+            elapsedMs={elapsedMs}
+            hasVoice={!reviewing && hasVoice}
+            onMicrophone={onMicrophone}
+            micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
+          />
+        )
+      }
+    />
+  );
+  /** A Write draft carries its own Send in its footer. Reviews keep the composer for the mic. */
+  const inlineSend = mode === 'write' && !reviewing;
+
   return (
     <div className="panel">
       <SessionSidebar
@@ -443,6 +470,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               onOpenBoard={openBoard}
               onFiled={(where) => notify(`Moved to ${where}.`)}
               onFilingMenu={dismissToast}
+              sendBar={sendBar}
               outputs={outputs}
               onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
               onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
@@ -492,30 +520,11 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
             }}
           />
         </main>
-        <footer className="composer" data-testid="composer">
-          <SendTo
-            sessions={sessions}
-            home={info.home}
-            open={chooserOpen}
-            onOpenChange={openChooser}
-            onSend={() => void send()}
-            onSendTo={(id) => void sendTo(id)}
-            onSendNew={(cwd, via) => void sendNew(cwd, via)}
-            loadOptions={() => host.launchOptions()}
-            chooseFolder={() => host.chooseFolder()}
-            mic={
-              onMicrophone && (
-                <Mic
-                  recording={recording}
-                  elapsedMs={elapsedMs}
-                  hasVoice={!reviewing && hasVoice}
-                  onMicrophone={onMicrophone}
-                  micLabel={reviewing ? 'Talk through the page. Each pin gets what you say after it.' : undefined}
-                />
-              )
-            }
-          />
-        </footer>
+        {!inlineSend && (
+          <footer className="composer" data-testid="composer">
+            {sendBar}
+          </footer>
+        )}
       </div>
     </div>
   );
