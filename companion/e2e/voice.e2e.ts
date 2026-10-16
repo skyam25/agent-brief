@@ -21,7 +21,7 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   await sock(socketPath, 'POST', '/sessions', { sessionId: 'v1', cwd, title: 'Pricing' });
 
   await page.getByTestId('mic').click();
-  await expect(page.getByTestId('mic')).toHaveText('00:00');
+  await expect(page.getByTestId('mic-clock')).toHaveText('00:00');
 
   const cdp = await page.context().newCDPSession(page);
   await pickPen(page);
@@ -30,7 +30,7 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   await page.waitForTimeout(1500);
   await penStroke(cdp, { x: box.x + 320, y: box.y + 450 }, { x: box.x + 600, y: box.y + 520 }, 0.9);
   await page.waitForTimeout(2500);
-  await expect(page.getByTestId('mic')).toHaveText(/^00:0[3-6]$/);
+  await expect(page.getByTestId('mic-clock')).toHaveText(/^00:0[3-6]$/);
 
   await sendToSession(page, 'Pricing');
   await expect(page.getByTestId('send-status')).toHaveText(/^Sent to Pricing$/, { timeout: 60_000 });
@@ -59,5 +59,41 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   const draft = polled.body.deliveries[0].draft;
   expect(draft).toMatch(/Said while drawing: ".*pricing table/i);
   expect(draft).toContain(`Timeline: .feedback/sketches/${id}/timeline.md`);
+  await app.close();
+});
+
+test('Talk records into a take that Send carries and Discard drops', async () => {
+  test.skip(!existsSync(SPEECH), 'speech fixture missing');
+  const { app, page } = await launch(tempDataDir(), { COMPANION_TEST_AUDIO: SPEECH });
+  await showPanel(app, page);
+  const mic = page.getByTestId('mic');
+  await expect(mic).toContainText('Talk');
+
+  await page.keyboard.press('Alt+KeyT');
+  await expect(mic).toHaveText('Stop');
+  await expect(page.getByTestId('voice-strip')).toContainText('Listening');
+  await expect(page.getByTestId('level-meter').locator('span')).toHaveCount(28);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: join(RESULTS, 'voice-recording.png') });
+
+  await mic.click();
+  await expect(page.getByTestId('voice-take')).toHaveText(/^00:0[1-2] recorded$/);
+  await expect(mic).toContainText('Talk more');
+  await page.screenshot({ path: join(RESULTS, 'voice-take.png') });
+
+  // Talking more adds to the same take, and Discard while recording drops all of it.
+  await mic.click();
+  await expect(page.getByTestId('mic-clock')).toHaveText(/^00:0[1-2]$/);
+  await page.getByTestId('voice-discard').click();
+  await expect(page.getByTestId('voice-take')).toHaveCount(0);
+  await expect(mic).toContainText('Talk');
+  expect(await page.evaluate(() => window.__board.recorder.segments.length)).toBe(0);
+
+  await page.keyboard.press('Alt+KeyT');
+  await page.waitForTimeout(1200);
+  await page.keyboard.press('Alt+KeyT');
+  await page.getByTestId('voice-take-discard').click();
+  await expect(page.getByTestId('voice-take')).toHaveCount(0);
+  await page.screenshot({ path: join(RESULTS, 'voice-idle.png') });
   await app.close();
 });

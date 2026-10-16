@@ -270,29 +270,106 @@ button.link {
   flex: none;
 }
 
-/* The mic */
+/* The mic: Talk in the composer, the recording strip to its left */
 
-button.mic {
-  position: relative;
+button.talk {
+  background: var(--raised);
+  font-weight: 500;
 }
 
-button.mic .badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 2px var(--bg);
+button.talk:hover {
+  background: var(--hover);
 }
 
-button.recording {
-  border-color: transparent;
+button.talk kbd {
+  margin-left: 2px;
+  font: 11px -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--muted);
+}
+
+button.stop-talk {
+  border-color: var(--error);
+  background: transparent;
+  color: var(--error);
+  font-weight: 600;
+}
+
+button.stop-talk:hover {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+}
+
+.stop-square {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.voice-strip {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.voice-strip .hint {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rec-clock {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--error) 14%, transparent);
   color: var(--error);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.level-meter {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+}
+
+.level-meter > span {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--error);
+  opacity: 0.8;
+}
+
+.voice-take {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-take > .icon {
+  color: var(--accent);
+}
+
+.voice-take button.icon-button.small {
+  width: 20px;
+  height: 20px;
 }
 
 .rec-dot {
@@ -411,6 +488,8 @@ button.recording {
 .composer {
   flex: none;
   display: flex;
+  align-items: center;
+  gap: 8px;
   justify-content: flex-end;
   padding: 8px 12px;
   border-top: 1px solid var(--line);
@@ -421,6 +500,14 @@ button.recording {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.send-to .divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--line);
 }
 
 .send-to .send-target {
