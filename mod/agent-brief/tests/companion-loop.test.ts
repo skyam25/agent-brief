@@ -36,6 +36,26 @@ describe('registration', () => {
     expect(app.to('POST', '/sessions')).toHaveLength(3)
   })
 
+  test('registers with the folder the session started in after a cd', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    await start()
+    await clock.settle()
+    world.cwd = `${CWD}/companion`
+    await clock.advance(60_000)
+    expect(app.to('POST', '/sessions').at(-1)!.body).toMatchObject({ cwd: CWD, title: 'work' })
+  })
+
+  test('a resume keeps the loop running for the session that took its place', async ($, on) => {
+    const { app, clock, start } = await setupCompanion($, on)
+    await start()
+    await clock.settle()
+
+    await $.session.end({ reason: 'resume', sessionId: SESSION_ID, resume: { id: SESSION_ID } })
+    const before = app.to('POST', '/sessions').length
+    await clock.advance(60_000)
+    expect(app.to('POST', '/sessions').length).toBeGreaterThan(before)
+  })
+
   test('session.end deletes the session and stops the loop', async ($, on) => {
     const { app, clock, start } = await setupCompanion($, on)
     await start()

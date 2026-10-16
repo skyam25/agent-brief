@@ -5,6 +5,8 @@ export const BACKOFF_MIN_MS = 5_000
 export const BACKOFF_MAX_MS = 30_000
 export const REREGISTER_MS = 60_000
 export const POLL_WAIT_S = 25
+/** No loop step for this long means the loop stopped. A live one waits at most a long poll or one backoff. */
+export const LOOP_STALE_MS = 120_000
 /** Gap between polls, so a server that answers at once cannot spin the loop. */
 export const POLL_GAP_MS = 250
 /** Wait before trying a fill again after the box refused it. */
@@ -245,4 +247,9 @@ Rules:
 - Never edit or remove a \`You:\` line.
 - End every reply that changed an item with two lines, \`Done: #…\` and \`Open: #…\`. Write \`none\` when a list is empty. Leave both lines out when no item changed.
 - You may keep the same items in your own todo list while you work. The file is the record the user sees.`
+}
+
+/** What a finished turn does for the app: start or restart a stopped loop, and refresh a lapsed registration. */
+export function upkeep(now: number, steppedAt: number, registeredAt: number): { isLoopStale: boolean; isLapsed: boolean } {
+  return { isLoopStale: now - steppedAt > LOOP_STALE_MS, isLapsed: now - registeredAt > REREGISTER_MS }
 }

@@ -52,6 +52,8 @@ export const ingestLine = (name: string) =>
   })
 
 export type World = {
+  /** The shell's folder. A test sets it to stand for a cd. */
+  cwd: string
   files: Map<string, string>
   runs: Run[]
   toasts: string[]
@@ -71,6 +73,7 @@ export type World = {
 /** Seats an in-memory file system, host and engine beneath the plugin. */
 export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cwd = CWD): World {
   const world: World = {
+    cwd,
     files: new Map(Object.entries(files)),
     runs: [],
     toasts: [],
@@ -133,7 +136,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
     return { value: { ...world.answer(e.argv), isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : world.env[e.name] }))
-  on('session.cwd', () => ({ value: cwd }))
+  on('session.cwd', () => ({ value: world.cwd }))
   on('ui.toast', ($, e) => {
     world.toasts.push(e.text)
     return { value: undefined }

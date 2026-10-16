@@ -17,6 +17,7 @@ import {
   trackReply,
   trackTarget,
   trackingOf,
+  upkeep,
 } from '../hooks/companion-logic'
 
 describe('socketPathOf', () => {
@@ -167,5 +168,21 @@ describe('item tracking', () => {
     )
     expect(trackReply({ trackItems: true, itemsPath: '/elsewhere/s1.md' }, '/w')).toContain('items in /elsewhere/s1.md and')
     expect(trackReply({ trackItems: false }, '/w')).toBe('Item tracking off.')
+  })
+})
+
+describe('upkeep', () => {
+  test('a loop with no step for two minutes counts as stopped', () => {
+    expect(upkeep(200_000, 199_000, 199_000)).toEqual({ isLoopStale: false, isLapsed: false })
+    expect(upkeep(200_000, 79_000, 199_000).isLoopStale).toBe(true)
+  })
+
+  test('a registration older than the refresh gap has lapsed', () => {
+    expect(upkeep(200_000, 199_000, 139_000).isLapsed).toBe(true)
+  })
+
+  test('a loop that never stepped counts from clock zero', () => {
+    expect(upkeep(5_000, 0, 0).isLoopStale).toBe(false)
+    expect(upkeep(130_000, 0, 0).isLoopStale).toBe(true)
   })
 })
