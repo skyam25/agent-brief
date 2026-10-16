@@ -1,9 +1,8 @@
-import { useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { draftPreview, draftTitle } from '../shared/drafts';
 import type { Draft } from '../shared/ipc';
 import { baseName, commentCount } from '../shared/review';
 import { plainSlots } from '../shared/slots';
-import { filedTab, type FilingTab } from './FilingMenu';
 import { GripIcon, LinkIcon } from './Icons';
 
 /** `5m`, `3h`, or a date, for the list. */
@@ -18,12 +17,13 @@ export function ago(ms: number, now = Date.now()): string {
 /** Ready drafts in send order. Drag the grip, or press ⌥↑ and ⌥↓, to reorder. */
 export function ReadyQueue(props: {
   drafts: Draft[];
-  tabs: FilingTab[];
   selectedId?: string;
   reorder: boolean;
   onOpen: (id: string) => void;
   /** Moves a draft to `index` among these drafts, counted without it. */
   onMove: (id: string, index: number) => void;
+  /** A right-click on a row. */
+  onMenu?: (id: string, e: MouseEvent) => void;
 }) {
   const [dragging, setDragging] = useState<string>();
   const [dropAt, setDropAt] = useState<number>();
@@ -43,18 +43,18 @@ export function ReadyQueue(props: {
     props.onMove(d.id, e.key === 'ArrowUp' ? i - 1 : i + 1);
   };
 
+  if (props.drafts.length === 0) return null;
   return (
     <section>
       <SectionHeader title="Ready" count={props.drafts.length} />
-      {props.drafts.length === 0 && <p className="muted empty">Mark a draft Ready (⌘⇧↩) to queue it for sending.</p>}
       <ul data-testid="ready-list" onDragLeave={() => setDropAt(undefined)}>
         {props.drafts.map((d, i) => (
           <DraftRow
             key={d.id}
             draft={d}
-            tabs={props.tabs}
             selected={d.id === props.selectedId}
             onSelect={() => props.onOpen(d.id)}
+            onMenu={props.onMenu && ((e) => props.onMenu!(d.id, e))}
             onKeyDown={props.reorder ? (e) => nudge(e, d, i) : undefined}
             drag={
               props.reorder
@@ -93,9 +93,9 @@ export function ReadyQueue(props: {
 
 export function DraftRow(props: {
   draft: Draft;
-  tabs: FilingTab[];
   selected: boolean;
   onSelect: () => void;
+  onMenu?: (e: MouseEvent) => void;
   onKeyDown?: (e: KeyboardEvent) => void;
   drag?: {
     dragging: boolean;
@@ -110,7 +110,6 @@ export function DraftRow(props: {
   const body = plainSlots(d.body);
   const title = d.review ? `Review of ${baseName(d.review.path)}` : d.title || draftTitle(body) || 'Empty note';
   const preview = d.review ? commentCount(d.review.comments.length) : d.title ? draftTitle(body) : draftPreview(body);
-  const filed = filedTab(d, props.tabs);
   return (
     <li
       className={drag?.dropBefore ? 'drop-before' : undefined}
@@ -125,6 +124,7 @@ export function DraftRow(props: {
         className="ghost draft-row"
         aria-current={props.selected}
         onClick={props.onSelect}
+        onContextMenu={props.onMenu}
         onKeyDown={props.onKeyDown}
         title={drag ? 'Drag, or press ⌥↑ and ⌥↓, to reorder' : undefined}
         data-testid="draft-row"
@@ -140,9 +140,6 @@ export function DraftRow(props: {
             <span className="muted when">{ago(d.updatedAt)}</span>
           </span>
           <span className="muted preview">
-            <span className={filed ? 'filing-tag filed' : 'filing-tag'} data-testid="draft-row-filing">
-              {filed?.title ?? 'Unfiled'}
-            </span>
             {d.board && (
               <span className="board-tag" title={`Goes with the board ${d.board}`}>
                 <LinkIcon /> {d.board}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Skeleton } from '../protocol';
 import type { Shaped } from './geometry';
-import { PALETTE } from './palette';
+import { PALETTE, TEXT_COLOR, TEXT_FONT } from './palette';
 import { endOf, linearGeometry, planDraw, type PlanContext } from './skeleton';
 
 function ctx(existing: Record<string, Shaped> = {}, sceneBounds = { x: 0, y: 0, width: 0, height: 0 }): PlanContext {
@@ -70,18 +70,22 @@ describe('planDraw', () => {
     });
   });
 
-  it('maps named colours to palette strokes and defaults to violet', () => {
+  it('draws shapes in violet and text in a neutral sans font', () => {
     const { shapes, linear } = planDraw(
       [
-        { type: 'diamond', x: 0, y: 0, color: 'green' },
+        { type: 'diamond', x: 0, y: 0, color: 'green', label: 'go' },
         { type: 'text', x: 0, y: 0, label: 'hi' },
+        { type: 'text', x: 0, y: 0, label: 'warn', color: 'red' },
+        { type: 'rectangle', x: 0, y: 0 },
         { type: 'line', x: 0, y: 0, points: [[0, 0], [50, 20]] },
       ],
       ctx(),
     );
-    expect(shapes[0].skel.strokeColor).toBe(PALETTE.green.stroke);
-    expect(shapes[1].skel).toMatchObject({ type: 'text', text: 'hi', strokeColor: PALETTE.violet.stroke });
-    expect(linear[0].skel).toMatchObject({ x: 0, y: 0, points: [[0, 0], [50, 20]] });
+    expect(shapes[0].skel).toMatchObject({ strokeColor: PALETTE.green.stroke, label: { strokeColor: TEXT_COLOR, fontFamily: TEXT_FONT } });
+    expect(shapes[1].skel).toMatchObject({ type: 'text', text: 'hi', strokeColor: TEXT_COLOR, fontFamily: TEXT_FONT });
+    expect(shapes[2].skel).toMatchObject({ strokeColor: PALETTE.red.stroke, fontFamily: TEXT_FONT });
+    expect(shapes[3].skel.strokeColor).toBe(PALETTE.violet.stroke);
+    expect(linear[0].skel).toMatchObject({ x: 0, y: 0, points: [[0, 0], [50, 20]], strokeColor: PALETTE.violet.stroke });
   });
 
   it('places elements without a position to the right of the board', () => {

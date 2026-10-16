@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { draftTitle } from '../shared/drafts';
 import type { BoardEntry, Draft, Template } from '../shared/ipc';
 import { plainSlots } from '../shared/slots';
+import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { DraftEditor } from './DraftEditor';
 import { DraftRow, ReadyQueue, SectionHeader } from './DraftList';
 import { onTab, type DraftBook } from './drafts';
 import { focusFirstSlot } from './editor/RichEditor';
+import { DeleteItem } from './FooterMenu';
 import { filedTab, type FilingTab } from './FilingMenu';
-import { ChevronIcon, PlusIcon } from './Icons';
+import { CheckIcon, ChevronIcon, PlusIcon } from './Icons';
 import { useEscape, usePointerOutside, useStore } from './hooks';
 import { OutputsList } from './OutputsList';
 import type { OutputsStore } from './outputs';
@@ -18,6 +20,9 @@ import type { TemplateShelf } from './templates';
 
 export { ago } from './DraftList';
 export type { FilingTab } from './FilingMenu';
+
+/** The row a right-click opened a menu on. */
+type RowMenu = MenuPoint & { kind: 'draft' | 'template'; id: string };
 
 const matches = (d: Draft, query: string) => !query || `${d.title ?? ''}\n${d.body}`.toLowerCase().includes(query.toLowerCase());
 
@@ -46,6 +51,8 @@ export function WriteView(props: {
   review: { host: ReviewHost; voice: ReviewVoice; onError: (message: string) => void };
   /** Puts a note on the clipboard as rich text and Markdown. False when that failed, which the panel has reported. */
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
+  /** The target chip and Send, shown at the right end of the open draft's footer. */
+  sendBar?: ReactNode;
 }) {
   const book = useStore(props.book);
   const shelf = useStore(props.shelf);
@@ -53,6 +60,7 @@ export function WriteView(props: {
   const [templateId, setTemplateId] = useState<string>();
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [newMenu, setNewMenu] = useState(false);
+  const [rowMenu, setRowMenu] = useState<RowMenu>();
   const selected = book.selected;
   const template = shelf.get(templateId);
 
@@ -81,6 +89,14 @@ export function WriteView(props: {
     setNewMenu(false);
     const created = await shelf.create('New template', '');
     openTemplate(created.id);
+  };
+  const openRowMenu = (kind: RowMenu['kind'], id: string, e: MouseEvent) => {
+    e.preventDefault();
+    setRowMenu({ kind, id, x: e.clientX, y: e.clientY });
+  };
+  const deleteTemplate = (id: string) => {
+    shelf.remove(id);
+    if (templateId === id) setTemplateId(undefined);
   };
   const tabIds = props.tabs.map((t) => t.sessionId);
   const here = (d: Draft) => onTab(d, props.sessionId, tabIds);
@@ -117,8 +133,8 @@ export function WriteView(props: {
         <div className="list-head">
           <input
             type="search"
-            placeholder="Search drafts"
-            aria-label="Search drafts"
+            placeholder="Search notes"
+            aria-label="Search notes"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             data-testid="draft-search"
@@ -161,13 +177,24 @@ export function WriteView(props: {
               onDismiss={(ref) => props.onDismissOutput(props.sessionId!, ref)}
             />
           )}
-          <ReadyQueue drafts={ready} tabs={props.tabs} selectedId={selected?.id} reorder={!query} onOpen={openDraft} onMove={moveShown} />
+          <ReadyQueue
+            drafts={ready} selectedId={selected?.id} reorder={!query}
+            onOpen={openDraft}
+            onMove={moveShown}
+            onMenu={(id, e) => openRowMenu('draft', id, e)}
+          />
           <section>
             <SectionHeader title="Notes" count={notes.length} />
             {notes.length === 0 && <p className="muted empty">{query ? 'No notes match.' : 'Notes you jot down wait here until you send them.'}</p>}
             <ul>
               {notes.map((d) => (
-                <DraftRow key={d.id} draft={d} tabs={props.tabs} selected={d.id === selected?.id} onSelect={() => openDraft(d.id)} />
+                <DraftRow
+                  key={d.id}
+                  draft={d}
+                  selected={d.id === selected?.id}
+                  onSelect={() => openDraft(d.id)}
+                  onMenu={(e) => openRowMenu('draft', d.id, e)}
+                />
               ))}
             </ul>
           </section>
@@ -187,6 +214,7 @@ export function WriteView(props: {
                       className="ghost draft-row"
                       aria-current={t.id === templateId}
                       onClick={() => openTemplate(t.id)}
+                      onContextMenu={(e) => openRowMenu('template', t.id, e)}
                       data-testid="template-row"
                     >
                       <span className="lines">
@@ -206,6 +234,16 @@ export function WriteView(props: {
           </section>
         </div>
       </nav>
+      {rowMenu && (
+        <RowMenuPanel
+          menu={rowMenu}
+          book={props.book}
+          shelf={props.shelf}
+          onUse={useTemplate}
+          onDeleteTemplate={deleteTemplate}
+          onClose={() => setRowMenu(undefined)}
+        />
+      )}
       {reviewing ? (
         <ReviewView
           key={selected.id}
@@ -239,6 +277,7 @@ export function WriteView(props: {
           onSend={props.onSend}
           onOpenBoard={props.onOpenBoard}
           onCopy={props.onCopy}
+          sendBar={props.sendBar}
         />
       ) : (
         <div className="editor empty-editor">
@@ -246,6 +285,53 @@ export function WriteView(props: {
         </div>
       )}
     </div>
+  );
+}
+
+/** The right-click menu on a draft or template row. Delete asks once more. */
+function RowMenuPanel(props: {
+  menu: RowMenu;
+  book: DraftBook;
+  shelf: TemplateShelf;
+  onUse: (t: Template) => void;
+  onDeleteTemplate: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { menu, book, shelf, onClose } = props;
+  const run = (fn: () => void) => () => {
+    fn();
+    onClose();
+  };
+
+  if (menu.kind === 'template') {
+    const t = shelf.get(menu.id);
+    if (!t) return null;
+    return (
+      <ContextMenu x={menu.x} y={menu.y} label={`Template ${t.title}`} testId="row-menu" onClose={onClose}>
+        <button className="ghost" role="menuitem" onClick={run(() => props.onUse(t))} data-testid="row-menu-use">
+          <PlusIcon /> Use template
+        </button>
+        <hr />
+        <DeleteItem what="template" testId="row-menu-delete" onDelete={run(() => props.onDeleteTemplate(t.id))} />
+      </ContextMenu>
+    );
+  }
+
+  const d = book.get(menu.id);
+  if (!d) return null;
+  const ready = d.status === 'ready';
+  return (
+    <ContextMenu x={menu.x} y={menu.y} label="Note" testId="row-menu" onClose={onClose}>
+      {!d.review && (
+        <>
+          <button className="ghost" role="menuitem" onClick={run(() => book.setReady(d.id, !ready))} data-testid="row-menu-ready">
+            <CheckIcon /> {ready ? 'Back to notes' : 'Mark Ready'}
+          </button>
+          <hr />
+        </>
+      )}
+      <DeleteItem what={d.review ? 'review' : 'note'} testId="row-menu-delete" onDelete={run(() => book.remove(d.id))} />
+    </ContextMenu>
   );
 }
 

@@ -47,6 +47,8 @@ test('the Notes tab is first and always there, and has no Items', async () => {
   await expect(notesTab(page)).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('mode-items')).toHaveCount(0);
+  // Write shows Send in the open note's footer.
+  await page.getByTestId('draft-new').click();
   await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
   await expect.poll(target).toBeUndefined();
 });
@@ -56,7 +58,7 @@ test('a note stays on the tab it was written on', async () => {
   await register('s1', 'Alpha');
   await page.getByTestId('mode-write').click();
   await typeDraft(page, 'loose idea');
-  await expect(page.getByTestId('draft-filing')).toHaveText('Unfiled');
+  await expect(page.getByTestId('draft-filing')).toHaveText('File under');
   await expect.poll(() => filedAs('loose idea')).toBeNull();
 
   // /write files its note under the session and opens that session's tab.
@@ -101,7 +103,7 @@ test('File under moves a note between Notes and a session tab', async () => {
   await briefTab(page, 'Alpha').getByRole('tab').click();
   await page.getByTestId('mode-write').click();
   await expect(rows(page)).toHaveText([/move me/]);
-  await expect(rows(page).getByTestId('draft-row-filing')).toHaveText('Alpha');
+  await expect(page.getByTestId('draft-filing')).toHaveText('Alpha');
   await expect(page.getByTestId('draft-body')).toHaveText('move me');
 
   await page.getByTestId('draft-filing').click();

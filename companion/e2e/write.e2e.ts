@@ -99,6 +99,36 @@ test('Ready drafts queue in order and Send uses one up', async () => {
   await expect.poll(() => draftBody(page)).toBe('Third task');
 });
 
+test('right-clicking a draft row marks it Ready or deletes it', async () => {
+  const { page } = ctx;
+  await page.getByTestId('mode-write').click();
+  await writeNote(page, 'Keep this one');
+  await writeNote(page, 'Throw this away');
+  await expect.poll(() => draftsOnDisk().length).toBe(2);
+  const row = (text: string) => page.getByTestId('draft-row').filter({ hasText: text });
+
+  await row('Keep this one').click({ button: 'right' });
+  await expect(page.getByTestId('row-menu')).toBeVisible();
+  await page.getByTestId('row-menu-ready').click();
+  await expect(page.getByTestId('row-menu')).toHaveCount(0);
+  await expect(page.getByTestId('ready-list').getByTestId('draft-row')).toHaveText([/Keep this one/]);
+
+  // Delete asks once more before it deletes.
+  await row('Throw this away').click({ button: 'right' });
+  await page.getByTestId('row-menu-delete').click();
+  await expect(page.getByTestId('row-menu-delete')).toHaveText('Click again to delete');
+  await page.screenshot({ path: join(RESULTS, 'write-row-menu.png') });
+  await page.getByTestId('row-menu-delete').click();
+  await expect(row('Throw this away')).toHaveCount(0);
+  await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['Keep this one']);
+
+  // Escape closes the menu and leaves the panel up.
+  await row('Keep this one').click({ button: 'right' });
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('row-menu')).toHaveCount(0);
+  expect(await panelVisible()).toBe(true);
+});
+
 test('Send in Write mode refuses an empty draft and never picks a session', async () => {
   const { page } = ctx;
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });

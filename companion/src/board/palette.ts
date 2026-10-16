@@ -23,8 +23,11 @@ export const CLAUDE_COLOR: ColorName = 'violet';
 
 export const STICKY_COLOR: ColorName = 'yellow';
 
-/** Dark label text on sticky notes stays readable on every fill. */
-export const STICKY_TEXT = PALETTE.black.stroke;
+/** Claude's text and labels are near-black, which the dark theme flips to near-white. */
+export const TEXT_COLOR = PALETTE.black.stroke;
+
+/** Excalidraw's Nunito, the sans font its picker calls Normal. */
+export const TEXT_FONT = 6;
 
 export function isColorName(value: unknown): value is ColorName {
   return typeof value === 'string' && Object.hasOwn(PALETTE, value);
