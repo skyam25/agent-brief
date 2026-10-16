@@ -1,4 +1,4 @@
-/** Items mode: the active session's items file, with a decision field on each open item. */
+/** Review mode's items pane: the active session's items file, with a decision field on each open item. */
 
 import { useEffect } from 'react';
 import type { SessionBriefEntry } from '../shared/ipc';

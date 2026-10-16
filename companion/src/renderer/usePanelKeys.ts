@@ -18,7 +18,7 @@ export interface PanelKeys {
   onEscape: () => void;
 }
 
-const BY_KEY: Record<string, Mode> = { '1': 'sketch', '2': 'write', '3': 'items' };
+const BY_KEY: Record<string, Mode> = { '1': 'sketch', '2': 'write', '3': 'review' };
 
 /** Listens once. `keys` is read at each press, so it may change every render. */
 export function usePanelKeys(keys: PanelKeys): void {
@@ -45,8 +45,8 @@ export function usePanelKeys(keys: PanelKeys): void {
       }
       if (e.metaKey && !e.shiftKey && !e.altKey && BY_KEY[e.key]) {
         e.preventDefault();
-        // Items needs a session tab.
-        if (BY_KEY[e.key] === 'items' && !k.activeBrief) return;
+        // Review needs a session tab.
+        if (BY_KEY[e.key] === 'review' && !k.activeBrief) return;
         k.changeMode(BY_KEY[e.key]!);
         return;
       }

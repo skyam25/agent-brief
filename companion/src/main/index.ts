@@ -277,7 +277,7 @@ async function start(): Promise<void> {
   ipcMain.on(CH.reply, (_e, reply: BoardReply) => bridge.handleReply(reply));
   ipcMain.on(CH.hide, () => panel.hide());
   ipcMain.on(CH.setMode, (_e, mode: Mode) => {
-    if (mode !== 'sketch' && mode !== 'write' && mode !== 'items') return;
+    if (mode !== 'sketch' && mode !== 'write' && mode !== 'review') return;
     state.update({ mode });
     controls.buildMenus();
   });

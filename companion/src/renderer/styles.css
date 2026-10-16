@@ -2340,6 +2340,17 @@ button.stop-talk:hover {
   border-top: 1px solid var(--line);
 }
 
+/* Review mode shares Write's list and pane. Its items fill the pane beside the list. */
+.review-side {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.review-side .items {
+  border-top: 0;
+}
+
 .items-head {
   display: flex;
   align-items: center;

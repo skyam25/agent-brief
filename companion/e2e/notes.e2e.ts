@@ -27,11 +27,11 @@ const filedAs = (body: string) => draftsOnDisk(dataDir).find((d) => d.body === b
 const notesTab = (page: Page) => page.getByTestId('notes-tab');
 const rows = (page: Page) => page.getByTestId('draft-row');
 
-test('the Notes tab is first and always there, and has no Items', async () => {
+test('the Notes tab is first and always there, and has no Review', async () => {
   const { page } = ctx;
   await expect(notesTab(page)).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('brief-tab')).toHaveCount(0);
-  await expect(page.getByTestId('mode-items')).toHaveCount(0);
+  await expect(page.getByTestId('mode-review')).toHaveCount(0);
 
   await register('s1', 'Alpha');
   await openFor({ sessionId: 's1' });
@@ -39,14 +39,14 @@ test('the Notes tab is first and always there, and has no Items', async () => {
   await expect(page.getByTestId('brief-tabs').locator('.tab').first()).toHaveAttribute('data-testid', 'notes-tab');
   await expect(notesTab(page).locator('.dot')).toHaveCount(0);
   await expect(notesTab(page).getByTestId('brief-close')).toHaveCount(0);
-  await expect(page.getByTestId('mode-items')).toBeVisible();
+  await expect(page.getByTestId('mode-review')).toBeVisible();
 
-  // Notes clears the Send target, and Items falls back to Write.
-  await page.getByTestId('mode-items').click();
+  // Notes clears the Send target, and Review falls back to Write.
+  await page.getByTestId('mode-review').click();
   await notesTab(page).getByRole('tab').click();
   await expect(notesTab(page)).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('mode-items')).toHaveCount(0);
+  await expect(page.getByTestId('mode-review')).toHaveCount(0);
   // Write shows Send in the open note's footer.
   await page.getByTestId('draft-new').click();
   await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');

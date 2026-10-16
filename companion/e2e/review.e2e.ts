@@ -63,7 +63,7 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
-  await page.getByTestId('mode-write').click();
+  await page.getByTestId('mode-review').click();
   await page.getByTestId('output-row-0').click();
 
   // The page loads live, with its stylesheet, and comment mode starts on.
@@ -125,9 +125,13 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await page.getByTestId('review-external').click();
   await expect.poll(opened).toContain(join(cwd, 'site', 'index.html'));
 
-  // Back shows the review in the list, and opening the output again finds it.
+  // Back shows the review under Reviews, and opening the output again finds it.
   await page.getByTestId('review-close').click();
-  await expect(page.getByTestId('draft-row').filter({ hasText: 'Review of index.html' })).toContainText('2 comments');
+  await expect(page.getByTestId('reviews').getByTestId('draft-row').filter({ hasText: 'Review of index.html' })).toContainText('2 comments');
+  // Write lists notes alone, so the review stays out of it.
+  await page.getByTestId('mode-write').click();
+  await expect(page.getByTestId('draft-row').filter({ hasText: 'Review of index.html' })).toHaveCount(0);
+  await page.getByTestId('mode-review').click();
   await page.getByTestId('output-row-0').click();
   await expect(page.getByTestId('review-card')).toHaveCount(2);
 
@@ -159,7 +163,7 @@ test('a page Claude changed marks pins whose element is gone', async () => {
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
-  await page.getByTestId('mode-write').click();
+  await page.getByTestId('mode-review').click();
   await page.getByTestId('output-row-0').click();
   const frame = page.frameLocator('[data-testid="review-frame"]');
   await frame.locator('a').click();
@@ -192,7 +196,7 @@ test('the hover box follows the page when it scrolls under a still pointer', asy
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(ctx.app, page);
-  await page.getByTestId('mode-write').click();
+  await page.getByTestId('mode-review').click();
   await page.getByTestId('output-row-0').click();
   const frame = page.frameLocator('[data-testid="review-frame"]');
   await expect(frame.locator('#a')).toBeVisible();
@@ -229,7 +233,7 @@ test('speech lands on the pin it was said after', async () => {
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
-  await page.getByTestId('mode-write').click();
+  await page.getByTestId('mode-review').click();
   await page.getByTestId('output-row-0').click();
   const frame = page.frameLocator('[data-testid="review-frame"]');
   await frame.locator('h2').click();

@@ -52,6 +52,12 @@ describe('StateFile', () => {
     expect(again.state).toMatchObject({ width: 900, height: 760, currentBoard: 'b', hotkey: 'Control+Alt+S', deliveryMode: 'submit', openAtLogin: false });
     expect(JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')).width).toBe(900);
   });
+
+  it('reads a saved Items mode as Review', () => {
+    const dir = temp();
+    writeFileSync(join(dir, 'state.json'), '{"mode":"items"}');
+    expect(new StateFile(dir).state.mode).toBe('review');
+  });
 });
 
 describe('migrateData', () => {

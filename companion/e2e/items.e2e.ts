@@ -30,13 +30,13 @@ const ITEMS = `# Items · checkout review
       Claude: 44px rows with 12px gaps, or 40px with 8px to fit six rows?
 `;
 
-test('Items mode tracks a session, shows its file, and sends decisions into it', async () => {
+test('Review mode tracks a session, shows its file, and sends decisions into it', async () => {
   const { app, page } = ctx;
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Checkout' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
-  await page.getByTestId('mode-items').click();
+  await page.getByTestId('mode-review').click();
 
   // Tracking starts off; the switch turns it on for the session.
   const toggle = page.getByTestId('track-toggle');
@@ -73,10 +73,10 @@ test('Items mode tracks a session, shows its file, and sends decisions into it',
     .toBe(true);
   expect(readFileSync(itemsPath, 'utf8')).toBe(`${ITEMS}      You: 44 / 12\n`);
 
-  // Shown again from the hotkey, the panel has no target until the tab is picked. Items mode stays.
+  // Shown again from the hotkey, the panel has no target until the tab is picked. Review mode stays.
   await showPanel(app, page);
   await page.getByTestId('brief-tab').filter({ hasText: 'Checkout' }).getByRole('tab').click();
-  await expect(page.getByTestId('mode-items')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('mode-review')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('decision-2')).toHaveValue('');
   await expect(page.getByTestId('item-2').locator('.item-line.you')).toHaveText('You44 / 12');
 
@@ -97,7 +97,7 @@ const WITH_OUTPUTS = `# Items · checkout review
       Out: mocks/checkout-v2.png
 `;
 
-test("Items mode links each item's Out files and opens them inside the project only", async () => {
+test("Review mode links each item's Out files and opens them inside the project only", async () => {
   const { app, page } = ctx;
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));
   for (const file of ['src/Checkout.tsx', 'mocks/checkout-v2.png']) {
@@ -107,7 +107,7 @@ test("Items mode links each item's Out files and opens them inside the project o
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Checkout' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
-  await page.getByTestId('mode-items').click();
+  await page.getByTestId('mode-review').click();
   await page.getByTestId('track-toggle').click();
   await expect.poll(async () => (await session('s1')).trackItems).toBe(true);
   const itemsPath = (await session('s1')).itemsPath!;
@@ -151,22 +151,22 @@ test("Items mode links each item's Out files and opens them inside the project o
   await expect(page.getByTestId('output-2-0')).toBeVisible();
 });
 
-test('Items needs a session tab, and says how to get one when the session goes', async () => {
+test('Review needs a session tab, and says how to get one when the session goes', async () => {
   const { app, page } = ctx;
   await showPanel(app, page);
-  // The Notes tab has no Items, so ⌘3 does nothing there.
+  // The Notes tab has no Review, so ⌘3 does nothing there.
   await page.keyboard.press('Meta+3');
-  await expect(page.getByTestId('mode-items')).toHaveCount(0);
+  await expect(page.getByTestId('mode-review')).toHaveCount(0);
   await expect(page.getByTestId('mode-sketch')).toHaveAttribute('aria-selected', 'true');
 
-  // Shown again from the hotkey, the panel has no target. Items stays open and says how to get one.
+  // Shown again from the hotkey, the panel has no target. Review stays open and says how to get one.
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: mkdtempSync(join(tmpdir(), 'project-')), title: 'Checkout' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
-  await page.getByTestId('mode-items').click();
+  await page.getByTestId('mode-review').click();
   await app.evaluate(() => globalThis.__companion.toggle());
   await showPanel(app, page);
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
-  await expect(page.getByTestId('mode-items')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('mode-review')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('items-no-session')).toHaveText(
     'Open the panel from a Claude Code session (/sketch or /write) to track its items.',
   );

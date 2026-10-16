@@ -53,7 +53,7 @@ function put(cwd: string, path: string, text: string): void {
 const writeOutputs = (cwd: string, outputs: OutputRecord[]) =>
   put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs }, null, 2));
 
-test('Write mode lists a session\'s outputs, opens them, and sends an edited copy back', async () => {
+test('Review mode lists a session\'s outputs, opens them, and sends an edited copy back', async () => {
   const { app, page } = ctx;
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));
   put(cwd, 'docs/pricing.md', '# Pricing strategy\n\nThree tiers, billed yearly.\n');
@@ -61,8 +61,8 @@ test('Write mode lists a session\'s outputs, opens them, and sends an edited cop
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Pricing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
-  await page.getByTestId('mode-write').click();
-  await expect(page.getByTestId('write')).toBeVisible();
+  await page.getByTestId('mode-review').click();
+  await expect(page.getByTestId('review-mode')).toBeVisible();
   // A session with no outputs shows no section at all.
   await expect(page.getByTestId('outputs')).toHaveCount(0);
 
@@ -88,8 +88,11 @@ test('Write mode lists a session\'s outputs, opens them, and sends an edited cop
   await expect(page.getByTestId('output-status-0')).toHaveText('Ready');
   await page.screenshot({ path: join(RESULTS, 'outputs-list.png') });
 
-  // A markdown output opens as a note that names its source file.
+  // A markdown output opens in Write mode as a note that names its source file.
   await declared.click();
+  await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
+  // Write holds your notes alone.
+  await expect(page.getByTestId('outputs')).toHaveCount(0);
   await expect(page.getByTestId('draft-body').locator('h1')).toHaveText('Pricing strategy');
   await expect(page.getByTestId('draft-source')).toHaveText(
     'From docs/pricing.md. Send asks Claude to apply your changes to the file.',
@@ -106,10 +109,10 @@ test('Write mode lists a session\'s outputs, opens them, and sends an edited cop
   // An HTML output opens in the review pane, which can still hand it to the browser.
   await showPanel(app, page);
   await page.getByTestId('brief-tab').filter({ hasText: 'Pricing' }).getByRole('tab').click();
-  // The tab switch can land Sketch after a first check, so retry until Write holds.
+  // The tab switch can land Sketch after a first check, so retry until Review holds.
   const touched = page.getByTestId('outputs-touched-toggle');
   await expect(async () => {
-    if ((await page.getByTestId('mode-write').getAttribute('aria-selected')) !== 'true') await page.getByTestId('mode-write').click();
+    if ((await page.getByTestId('mode-review').getAttribute('aria-selected')) !== 'true') await page.getByTestId('mode-review').click();
     await expect(touched).toBeVisible({ timeout: 1000 });
   }).toPass();
   if ((await touched.getAttribute('aria-expanded')) !== 'true') await touched.click();

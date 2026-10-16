@@ -11,10 +11,6 @@ import { DeleteItem } from './FooterMenu';
 import { filedTab, type FilingTab } from './FilingMenu';
 import { CheckIcon, ChevronIcon, PlusIcon } from './Icons';
 import { useEscape, usePointerOutside, useStore } from './hooks';
-import { OutputsList } from './OutputsList';
-import type { OutputsStore } from './outputs';
-import { ReviewView, type ReviewDraft, type ReviewHost } from './ReviewView';
-import type { ReviewVoice } from './review-voice';
 import { TemplateEditor } from './TemplateEditor';
 import type { TemplateShelf } from './templates';
 
@@ -43,12 +39,6 @@ export function WriteView(props: {
   onFiled?: (where: string) => void;
   /** The filing menu opened. A toast would cover it, so App clears one. */
   onFilingMenu?: () => void;
-  outputs: OutputsStore;
-  onOpenOutput: (sessionId: string, ref: string) => void;
-  /** Hides an output until Claude writes it again. */
-  onDismissOutput: (sessionId: string, ref: string) => void;
-  /** What the review pane needs, for a draft that reviews an HTML output. */
-  review: { host: ReviewHost; voice: ReviewVoice; onError: (message: string) => void };
   /** Puts a note on the clipboard as rich text and Markdown. False when that failed, which the panel has reported. */
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
   /** The target chip and Send, shown at the right end of the open draft's footer. */
@@ -61,7 +51,8 @@ export function WriteView(props: {
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [newMenu, setNewMenu] = useState(false);
   const [rowMenu, setRowMenu] = useState<RowMenu>();
-  const selected = book.selected;
+  // Reviews open in Review mode.
+  const selected = book.selected?.review ? undefined : book.selected;
   const template = shelf.get(templateId);
 
   // Opening a draft from anywhere, such as the capture shortcut, closes the template.
@@ -102,7 +93,7 @@ export function WriteView(props: {
   const here = (d: Draft) => onTab(d, props.sessionId, tabIds);
   const ready = book.ready.filter((d) => here(d) && matches(d, query));
   const notes = book.drafts.filter(
-    (d) => d.status === 'note' && here(d) && matches(d, query) && (d.body.trim() || d.board || d.id === selected?.id),
+    (d) => d.status === 'note' && !d.review && here(d) && matches(d, query) && (d.body.trim() || d.board || d.id === selected?.id),
   );
 
   /** Moves a Ready draft to `index` among the ones shown, counted without it, keeping other tabs' order. */
@@ -124,12 +115,9 @@ export function WriteView(props: {
     props.onFiled?.(sessionId ? (filedTab(moved, props.tabs)?.title ?? 'that session') : 'Notes');
   };
 
-  // A review takes the whole view, for the page's sake. The list stays mounted, so it comes back as it was.
-  const reviewing = !!selected?.review && !template;
-
   return (
-    <div className={reviewing ? 'write reviewing' : 'write'} data-testid="write">
-      <nav className="draft-list" aria-label="Drafts" hidden={reviewing}>
+    <div className="write" data-testid="write">
+      <nav className="draft-list" aria-label="Drafts">
         <div className="list-head">
           <input
             type="search"
@@ -169,14 +157,6 @@ export function WriteView(props: {
           </div>
         </div>
         <div className="sections">
-          {props.sessionId && (
-            <OutputsList
-              store={props.outputs}
-              sessionId={props.sessionId}
-              onOpen={(ref) => props.onOpenOutput(props.sessionId!, ref)}
-              onDismiss={(ref) => props.onDismissOutput(props.sessionId!, ref)}
-            />
-          )}
           <ReadyQueue
             drafts={ready} selectedId={selected?.id} reorder={!query}
             onOpen={openDraft}
@@ -244,18 +224,7 @@ export function WriteView(props: {
           onClose={() => setRowMenu(undefined)}
         />
       )}
-      {reviewing ? (
-        <ReviewView
-          key={selected.id}
-          host={props.review.host}
-          book={props.book}
-          draft={selected as ReviewDraft}
-          voice={props.review.voice}
-          onClose={() => book.select(undefined)}
-          onSend={props.onSend}
-          onError={props.review.onError}
-        />
-      ) : template ? (
+      {template ? (
         <TemplateEditor
           key={template.id}
           shelf={shelf}
@@ -322,15 +291,11 @@ function RowMenuPanel(props: {
   const ready = d.status === 'ready';
   return (
     <ContextMenu x={menu.x} y={menu.y} label="Note" testId="row-menu" onClose={onClose}>
-      {!d.review && (
-        <>
-          <button className="ghost" role="menuitem" onClick={run(() => book.setReady(d.id, !ready))} data-testid="row-menu-ready">
-            <CheckIcon /> {ready ? 'Back to notes' : 'Mark Ready'}
-          </button>
-          <hr />
-        </>
-      )}
-      <DeleteItem what={d.review ? 'review' : 'note'} testId="row-menu-delete" onDelete={run(() => book.remove(d.id))} />
+      <button className="ghost" role="menuitem" onClick={run(() => book.setReady(d.id, !ready))} data-testid="row-menu-ready">
+        <CheckIcon /> {ready ? 'Back to notes' : 'Mark Ready'}
+      </button>
+      <hr />
+      <DeleteItem what="note" testId="row-menu-delete" onDelete={run(() => book.remove(d.id))} />
     </ContextMenu>
   );
 }

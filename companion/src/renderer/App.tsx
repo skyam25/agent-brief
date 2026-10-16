@@ -11,11 +11,11 @@ import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
 import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, SidebarIcon } from './Icons';
 import { ItemsStore } from './items';
-import { ItemsView } from './ItemsView';
 import { Mic, VoiceStrip } from './Mic';
 import { OutputsStore } from './outputs';
 import { PullIn } from './PullIn';
 import { ResumeRow } from './ResumeRow';
+import { ReviewMode } from './ReviewMode';
 import { SessionSidebar, sidebarOrder, useSidebar } from './SessionSidebar';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
@@ -68,8 +68,8 @@ function errorText(err: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
 
-/** Sketch, Write or Items, at the left of the strip. Items needs a session tab. */
-function ModeSwitch(props: { mode: Mode; hasItems: boolean; onChange: (mode: Mode) => void }) {
+/** Sketch, Write or Review, at the left of the strip. Review needs a session tab. */
+function ModeSwitch(props: { mode: Mode; hasReview: boolean; onChange: (mode: Mode) => void }) {
   const tab = (mode: Mode, label: string, key: string) => (
     <button
       role="tab"
@@ -86,7 +86,7 @@ function ModeSwitch(props: { mode: Mode; hasItems: boolean; onChange: (mode: Mod
     <div className="cluster modes" role="tablist" aria-label="Mode">
       {tab('sketch', 'Sketch', '⌘1')}
       {tab('write', 'Write', '⌘2')}
-      {props.hasItems && tab('items', 'Items', '⌘3')}
+      {props.hasReview && tab('review', 'Review', '⌘3')}
     </div>
   );
 }
@@ -134,7 +134,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     notify,
   });
 
-  /** Write mode has no mic except while reviewing a page. */
+  /** Sketch has a mic, and Review mode has one while a review is open. */
   const onMicrophone = mode === 'sketch' ? () => void toggleRecording() : reviewing ? () => void toggleReviewVoice() : undefined;
 
   /** Switches modes. Write opens the first draft, or a new note when there is none. */
@@ -142,14 +142,14 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     (next: Mode) => {
       setModeState(next);
       host.setMode(next);
-      if (next !== 'write') void reviewVoice.stop();
+      if (next !== 'review') void reviewVoice.stop();
       if (next === 'sketch') return;
       // Only Sketch has a mic button, so a recording stops here and waits for the next sketch Send.
       if (controller.recorder.recording) void controller.recorder.stop();
       if (next !== 'write') return;
       const { sessionId, tabs } = tabScope.current;
       const open = book.selected;
-      if (!open || !onTab(open, sessionId, tabs)) {
+      if (!open || open.review || !onTab(open, sessionId, tabs)) {
         const first = book.firstOnTab(sessionId, tabs);
         if (first) book.select(first.id);
         else book.create('', undefined, sessionId);
@@ -158,10 +158,11 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     },
     [host, book, controller, reviewVoice],
   );
+  /** Opens a draft in its mode: a review in Review, a note in Write. */
   const openDraft = useCallback(
     (id: string) => {
       book.select(id);
-      changeMode('write');
+      changeMode(book.get(id)?.review ? 'review' : 'write');
     },
     [book, changeMode],
   );
@@ -224,8 +225,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
         host.hidePanel();
         return;
       }
-      // Unsent decisions stay in memory while the app runs.
-      if (modeRef.current === 'items') {
+      // Unsent decisions stay in memory while the app runs, and reviews save as you go.
+      if (modeRef.current === 'review') {
         host.hidePanel();
         return;
       }
@@ -255,9 +256,9 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       const kept = review && book.drafts.find((d) => d.sessionId === sessionId && d.review?.path === review.path);
       if (kept) book.select(kept.id);
       else book.create(text, id, sessionId, source, review);
-      changeMode('write');
+      changeMode(review ? 'review' : 'write');
     });
-    host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode('write')));
+    host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode(book.get(id)?.review ? 'review' : 'write')));
     // A note from `agent-brief note` joins the list. The open note and the mode stay.
     host.onDraftsChanged(() => void book.load());
     controller.panelVisible = info.panelVisible;
@@ -311,8 +312,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       }
     />
   );
-  /** A Write draft carries its own Send in its footer. Reviews keep the composer for the mic. */
-  const inlineSend = mode === 'write' && !reviewing;
+  /** A Write draft carries its own Send in its footer. Review mode keeps the composer, with the mic while a review is open. */
+  const inlineSend = mode === 'write';
 
   return (
     <div className="panel">
@@ -338,8 +339,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
           >
             <SidebarIcon />
           </button>
-          {/* Items shows on session tabs, and stays while Items is open so a cleared target can pick a tab again. */}
-          <ModeSwitch mode={mode} hasItems={!!activeBrief || mode === 'items'} onChange={changeMode} />
+          {/* Review shows on session tabs, and stays while Review is open so a cleared target can pick a tab again. */}
+          <ModeSwitch mode={mode} hasReview={!!activeBrief || mode === 'review'} onChange={changeMode} />
           {mode === 'sketch' && (
             <>
               <BoardPicker
@@ -472,21 +473,22 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               onFiled={(where) => notify(`Moved to ${where}.`)}
               onFilingMenu={dismissToast}
               sendBar={sendBar}
-              outputs={outputs}
-              onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
-              onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
-              review={reviewProps}
               onCopy={(clip) => host.copyRich(clip).then(() => true, (err) => (report('copy the note')(err), false))}
             />
           )}
-          {mode === 'items' && (
-            <ItemsView
-              store={items}
+          {mode === 'review' && (
+            <ReviewMode
+              book={book}
+              items={items}
+              outputs={outputs}
               brief={active}
               home={info.home}
+              review={reviewProps}
+              onOpenOutput={(sessionId, ref) => void host.openOutput(sessionId, ref).catch(report('open that output'))}
+              onDismissOutput={(sessionId, ref) => void host.dismissOutput(sessionId, ref).catch(report('hide that output'))}
               onTrack={(sessionId, on) => void host.setTracking(sessionId, on).catch(report('change item tracking'))}
+              onOpenItemOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
               onSend={() => void send()}
-              onOpenOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
             />
           )}
           {mode === 'sketch' && notesOpen && (

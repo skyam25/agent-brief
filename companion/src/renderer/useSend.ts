@@ -25,7 +25,7 @@ export interface SendDeps {
   items: ItemsStore;
   reviewVoice: ReviewVoice;
   modeRef: RefObject<Mode>;
-  /** The session tab on show, which Items mode sends decisions for. */
+  /** The session tab on show, which Review mode sends decisions for. */
   activeBrief: string | undefined;
   notify: (text: string, kind?: ToastKind) => void;
   setChooserOpen: (open: boolean) => void;
@@ -57,7 +57,7 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
     return `${count === 1 ? '1 empty slot' : `${count} empty slots`}. Send again to send anyway.`;
   };
 
-  /** Why Send in Items mode has nothing to send, if it has not. */
+  /** Why Send in Review mode has no decisions to send, if it has not. */
   const itemsBlocker = (): string | undefined => {
     if (!activeBrief) return "Open a session's items first.";
     if (items.decisions(activeBrief).length === 0) return 'Decide something first.';
@@ -67,9 +67,20 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
   /**
    * What Send hands over. Sketch mode sends the board with any draft pulled in.
    * Write mode sends the open draft with the board it carries, if any.
+   * Review mode sends the open review, or the decisions on the session's items.
    */
   const outgoing = async (): Promise<{ payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided } | string> => {
-    if (modeRef.current === 'items') {
+    if (modeRef.current === 'review') {
+      const open = book.selected;
+      if (open?.review) {
+        if (!hasReviewContent(open.review, open.body)) return 'Pin a comment first.';
+        // Words still turning into text land before the Send reads the draft.
+        await reviewVoice.stop();
+        await book.flush();
+        const d = book.get(open.id) ?? open;
+        const review = { ...d.review!, ...(d.body.trim() ? { body: d.body } : {}) };
+        return { payload: { text: d.body, draftId: d.id, review, ...fromDraft(d) }, clearsBoard: false, sent: { body: d.body } };
+      }
       const blocked = itemsBlocker();
       if (blocked) return blocked;
       const decided = { sessionId: activeBrief!, decisions: items.decisions(activeBrief!) };
@@ -89,16 +100,7 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
         sent: { body: linked.body, board: linked.board },
       };
     }
-    const draft = book.selected;
-    if (draft?.review) {
-      if (!hasReviewContent(draft.review, draft.body)) return 'Pin a comment first.';
-      // Words still turning into text land before the Send reads the draft.
-      await reviewVoice.stop();
-      await book.flush();
-      const d = book.get(draft.id) ?? draft;
-      const review = { ...d.review!, ...(d.body.trim() ? { body: d.body } : {}) };
-      return { payload: { text: d.body, draftId: d.id, review, ...fromDraft(d) }, clearsBoard: false, sent: { body: d.body } };
-    }
+    const draft = book.selected?.review ? undefined : book.selected;
     if (!draft || (!draft.body.trim() && !draft.board)) return 'Write something first.';
     const unfilled = checkSlots(draft.body);
     if (unfilled) {
@@ -157,21 +159,23 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
   const sendNew = (cwd: string, via: Launcher) => deliver((p) => host.sendNew(p, { cwd, via }));
   /** An empty note says so before any session is picked. */
   const openChooser = (open: boolean) => {
-    const draft = book.selected;
-    if (open && modeRef.current === 'write' && draft?.review && !hasReviewContent(draft.review, draft.body)) {
-      notify('Pin a comment first.');
-      return;
-    }
-    if (open && modeRef.current === 'write' && !draft?.review && (!draft || (!draft.body.trim() && !draft.board))) {
-      notify('Write something first.');
-      return;
-    }
-    const blocked = open && modeRef.current === 'items' ? itemsBlocker() : undefined;
+    const blocked = open ? chooserBlocker() : undefined;
     if (blocked) {
       notify(blocked);
       return;
     }
     setChooserOpen(open);
+  };
+  /** Why the session picker has nothing to send yet, if it has not. */
+  const chooserBlocker = (): string | undefined => {
+    const draft = book.selected;
+    if (modeRef.current === 'review') {
+      if (!draft?.review) return itemsBlocker();
+      return hasReviewContent(draft.review, draft.body) ? undefined : 'Pin a comment first.';
+    }
+    if (modeRef.current !== 'write') return undefined;
+    const note = draft?.review ? undefined : draft;
+    return !note || (!note.body.trim() && !note.board) ? 'Write something first.' : undefined;
   };
 
   return { send, sendTo, sendNew, openChooser };

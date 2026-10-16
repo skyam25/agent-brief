@@ -21,7 +21,7 @@ export interface VoiceDeps {
 
 export interface PanelVoice {
   reviewVoice: ReviewVoice;
-  /** A review is open in Write mode, so the mic talks to its pins. */
+  /** A review is open in Review mode, so the mic talks to its pins. */
   reviewing: boolean;
   recording: boolean;
   /** Sketch voice is waiting for the next Send. */
@@ -56,7 +56,7 @@ export function useVoice({ host, book, controller, mode, modeRef, notify }: Voic
   const reviewing = useSyncExternalStore(
     (fn) => book.subscribe(fn),
     () => !!book.selected?.review,
-  ) && mode === 'write';
+  ) && mode === 'review';
   const reviewRecording = useSyncExternalStore(
     (fn) => reviewVoice.subscribe(fn),
     () => reviewVoice.recording,
@@ -97,7 +97,7 @@ export function useVoice({ host, book, controller, mode, modeRef, notify }: Voic
       return;
     }
     const draft = book.selected;
-    if (!draft?.review || modeRef.current !== 'write') return;
+    if (!draft?.review || modeRef.current !== 'review') return;
     voiceDraft.current = draft.id;
     try {
       await reviewVoice.start(reviewVoice.target);
