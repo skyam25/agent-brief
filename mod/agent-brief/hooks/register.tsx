@@ -23,6 +23,7 @@ import {
   POLL_GAP_MS,
   REREGISTER_MS,
   keepReply,
+  upkeep,
   replyEndingWith,
   SKETCH_OPENED,
   STACK_OPENED,
@@ -114,6 +115,7 @@ const fidelityRef = atom({ plugin: 'agent-brief', key: 'fidelity' } as const, nu
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
 const repliesRef = atom({ plugin: 'agent-brief', key: 'replies' } as const, [])
 const voiceRef = atom({ plugin: 'agent-brief', key: 'voice' } as const, null)
+const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -134,6 +136,9 @@ let refresh: { cancel: () => void } | undefined
 let isUp = false
 let backoff = 0
 let registeredId: string | undefined
+/** Clock ms of the last accepted registration and of the last loop step. */
+let registeredAt = 0
+let steppedAt = 0
 let socket: string | undefined
 /** The app's last answer on item tracking, kept for when it stops answering. */
 let tracking: (Tracking & { sessionId: string }) | undefined
@@ -175,13 +180,19 @@ async function sessionExtras($: EngineInterface) {
   return { host: hostOf(env), summary: summaryOf(Array.isArray(messages) ? messages : []) }
 }
 
+/** The folder the session started in, which a cd in the shell does not move. */
+async function homeCwd($: EngineInterface): Promise<string> {
+  return (await read($, homeRef)) ?? (await $.session.cwd())
+}
+
 async function registerSession($: EngineInterface): Promise<boolean> {
   const sessionId = await $.session.id()
   const isNew = registeredId !== sessionId
-  const info = sessionInfo(sessionId, await $.session.cwd(), await sessionExtras($))
+  const info = sessionInfo(sessionId, await homeCwd($), await sessionExtras($))
   const reply = await call($, 'POST', '/sessions', info)
   if (!reply?.ok) return false
   registeredId = sessionId
+  registeredAt = await $.clock.now()
   if (isNew && (await read($, modeRef)) !== 'default') await mirrorMode($)
   return true
 }
@@ -218,6 +229,7 @@ async function deliver($: EngineInterface, d: Delivery): Promise<boolean> {
 
 /** Runs one step of the loop and returns how long to wait before the next. */
 async function step($: EngineInterface): Promise<number> {
+  steppedAt = await $.clock.now()
   if (!isUp) {
     if (!(await isHealthy($))) {
       backoff = nextBackoff(backoff)
@@ -291,6 +303,18 @@ function startCompanion($: EngineInterface, settings: CompanionConfig): void {
   schedule($, 0)
 }
 
+/** Runs after each main-loop turn, so a loop that never started or stopped cannot leave the session unregistered. */
+async function keepRegistered($: EngineInterface, settings: CompanionConfig): Promise<void> {
+  if (isStopped) return
+  const { isLoopStale, isLapsed } = upkeep(await $.clock.now(), steppedAt, registeredAt)
+  if (isLoopStale) {
+    log($, 'companion loop was idle; starting it again')
+    startCompanion($, settings)
+    return
+  }
+  if (isLapsed && isUp) await registerSession($)
+}
+
 /** Ends the loop and removes the session from the app. */
 async function endCompanion($: EngineInterface, sessionId: string, isFinal: boolean): Promise<void> {
   if (isFinal) {
@@ -334,7 +358,7 @@ async function trackCommand($: EngineInterface, args: string): Promise<string> {
   const reply = await call($, 'PATCH', sessionPath(sessionId), body)
   if (reply === undefined) return TRACK_NOT_RUNNING
   if (!reply.ok) return TRACK_UNSUPPORTED
-  return trackReply(await setTracking($, sessionId, reply.body), await $.session.cwd())
+  return trackReply(await setTracking($, sessionId, reply.body), await homeCwd($))
 }
 
 /** Tells the app this session's mode. Best effort, and only while the app is up. */
@@ -367,7 +391,7 @@ async function modeCommand($: EngineInterface, args: string): Promise<string> {
 /** The first folder file found from the cwd up to the home dir. A missing file is normal. */
 async function folderMode($: EngineInterface): Promise<ModeChoice | undefined> {
   const home = (await $.env.get('HOME')) ?? ''
-  for (const path of modeFilePaths(await $.session.cwd(), home)) {
+  for (const path of modeFilePaths(await homeCwd($), home)) {
     const text = await $.fs.read(path).catch(() => undefined)
     if (typeof text === 'string') return parseModeFile(text)
   }
@@ -534,7 +558,7 @@ function log($: EngineInterface, text: string): void {
 
 async function save($: EngineInterface, sessions: FeedbackInboxSession[]): Promise<void> {
   await update($, sessionsRef, () => sessions)
-  await $.store.set(`sessions:${await $.session.cwd()}`, sessions)
+  await $.store.set(`sessions:${await homeCwd($)}`, sessions)
 }
 
 async function inboxDir($: EngineInterface, config: Config): Promise<string> {
@@ -544,7 +568,7 @@ async function inboxDir($: EngineInterface, config: Config): Promise<string> {
 
 /** Store entries whose report still exists, plus `.feedback/*` folders not yet known. */
 async function load($: EngineInterface): Promise<FeedbackInboxSession[]> {
-  const cwd = await $.session.cwd()
+  const cwd = await homeCwd($)
   const stored = await $.store.get(`sessions:${cwd}`)
   let sessions: FeedbackInboxSession[] = []
   for (const s of Array.isArray(stored) ? (stored as FeedbackInboxSession[]) : []) {
@@ -617,7 +641,7 @@ async function ingestOne($: EngineInterface, config: Config, inbox: string, file
       `${$.plugin.root}/bin/ingest.mjs`,
       claimed,
       '--project',
-      await $.session.cwd(),
+      await homeCwd($),
       '--transcriber',
       config.transcriber,
       ...(config.whisperModel ? ['--whisper-model', config.whisperModel] : []),
@@ -712,6 +736,11 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    // A reload fires this again from wherever the shell has moved, so only the first one sets home.
+    if ((await read($, homeRef)) === null) {
+      const cwd = await $.session.cwd()
+      await update($, homeRef, () => cwd).catch(() => undefined)
+    }
     // A reload ends yap with the old module, so a kept listening state is stale.
     if (dictation === undefined) await update($, voiceRef, () => null).catch(() => undefined)
     try {
@@ -774,6 +803,11 @@ export const register: Register = (on, options) => {
         description: "Set this session's mode: default, product, prototype <fidelity>, orchestrate.",
         argumentHint: '[default | product | prototype <fidelity> | orchestrate]',
       })
+    } catch (err) {
+      log($, `command registration failed: ${String(err)}`)
+    }
+    // Apart from the commands, so a refused command never leaves the session unregistered.
+    try {
       startCompanion($, companionSettings)
     } catch (err) {
       log($, `companion start failed: ${String(err)}`)
@@ -919,6 +953,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined && e.reason === 'answer') await update($, repliesRef, list => keepReply(list, e.answer)).catch(() => undefined)
+    if (e.agentId === undefined) await keepRegistered($, companionSettings).catch(() => undefined)
     return done
   })
 
@@ -961,7 +996,8 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
-    await endCompanion($, e.sessionId, e.reason !== 'clear').catch(() => undefined)
+    // After a clear or a resume the process goes on under another id, so the loop keeps running.
+    await endCompanion($, e.sessionId, e.reason !== 'clear' && e.reason !== 'resume').catch(() => undefined)
     return next(e)
   })
 

@@ -46,6 +46,8 @@ declare module 'claude-code' {
       replies: string[]
       /** Dictation from the band's Talk button; null when it is off. */
       voice: VoiceState | null
+      /** The folder the session started in. The shell's folder moves with each cd; this one stays. */
+      home: string | null
     }
   }
 }

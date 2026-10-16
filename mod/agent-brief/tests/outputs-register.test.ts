@@ -62,6 +62,15 @@ describe('declare_output', () => {
     expect(world.toasts).toEqual([])
   })
 
+  test('a cd after start keeps the outputs file in the folder the session started in', async ($, on) => {
+    const { world, start } = setup($, on)
+    await start()
+    world.cwd = `${CWD}/companion`
+    await declare($, { title: 'Launch page', url: 'https://claude.ai/artifact/abc' })
+    expect(outputsOf(world)?.outputs[0]).toMatchObject({ ref: 'https://claude.ai/artifact/abc' })
+    expect([...world.files.keys()].some(k => k.startsWith(`${CWD}/companion/`))).toBe(false)
+  })
+
   test('declares a URL as an artifact', async ($, on) => {
     const { world, start } = setup($, on)
     await start()

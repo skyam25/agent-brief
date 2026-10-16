@@ -1,3 +1,4 @@
+import { atom, read } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import { bashRequestOf, outputsFile } from './companion-protocol'
@@ -18,10 +19,18 @@ import {
   upsertWrite,
 } from './outputs'
 
+/** Set by register.tsx at session start. */
+const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
+
+/** The folder the session started in, where the app looks for its outputs. A cd in the shell does not move it. */
+async function homeCwd($: EngineInterface): Promise<string> {
+  return (await read($, homeRef)) ?? (await $.session.cwd())
+}
+
 /** This session's outputs file, or an empty one when it is missing or unreadable. */
 async function readOutputs($: EngineInterface): Promise<{ path: string; file: OutputsFile }> {
   const sessionId = await $.session.id()
-  const path = outputsFile(await $.session.cwd(), sessionId)
+  const path = outputsFile(await homeCwd($), sessionId)
   const text = await $.fs.read(path).catch(() => undefined)
   const file = (typeof text === 'string' ? parseOutputsFile(text) : undefined) ?? emptyOutputsFile(sessionId)
   return { path, file }
@@ -43,7 +52,7 @@ function changeOutputs($: EngineInterface, change: (file: OutputsFile) => Output
 
 /** Answers `declare_output`. Never toasts. */
 async function declareOutput($: EngineInterface, input: unknown): Promise<string> {
-  const request = parseDeclare(input, await $.session.cwd())
+  const request = parseDeclare(input, await homeCwd($))
   if (request === undefined) return DECLARE_USAGE
   const at = await $.clock.now()
   const file = await changeOutputs($, f => upsertDeclared(f, { ...request, at }))
@@ -79,7 +88,7 @@ export function registerOutputs(on: On): void {
   // It runs inside the mode guard, so a denied edit never reaches it. A failure here never blocks the tool.
   on('tool.call', { tool: ['Edit', 'Write', 'NotebookEdit'] }, async ($, e, next) => {
     const path = e.tool === 'NotebookEdit' ? e.notebook_path : e.file_path
-    const cwd = await $.session.cwd().catch(() => undefined)
+    const cwd = await homeCwd($).catch(() => undefined)
     const isDocument = cwd !== undefined && typeof path === 'string' && isDocumentPath(cwd, path)
     const before = isDocument ? await $.fs.stat(path).catch(() => undefined) : undefined
     const result = await next(e)
