@@ -121,7 +121,8 @@ test('Review mode lists a session\'s outputs, opens them, and sends an edited co
   await expect(page.frameLocator('[data-testid="review-frame"]').locator('h1')).toHaveText('Pricing');
   await page.getByTestId('review-external').click();
   await expect.poll(opened).toContain(join(cwd, 'site', 'index.html'));
-  await page.getByTestId('review-close').click();
+  // The page takes this narrow panel. The toggle brings the list back beside it.
+  await page.getByTestId('review-list-toggle').click();
 
   // Hide drops a row until Claude touches it again.
   await page.getByTestId('output-row-0').hover();

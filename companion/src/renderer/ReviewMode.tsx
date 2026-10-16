@@ -1,6 +1,6 @@
 /**
  * Review mode: what Claude hands back for the active session. The list holds its
- * outputs and the reviews in progress. The pane holds its items, or the open review.
+ * outputs, the reviews in progress and its items. The pane beside it shows the one picked.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -20,6 +20,9 @@ import type { OutputsStore } from './outputs';
 import { ReviewView, type ReviewDraft, type ReviewHost } from './ReviewView';
 import type { ReviewVoice } from './review-voice';
 
+/** Room for the list (260), a page worth reading and its comments, side by side. */
+const ROOM_FOR_LIST = 1180;
+
 export function ReviewMode(props: {
   book: DraftBook;
   items: ItemsStore;
@@ -37,74 +40,125 @@ export function ReviewMode(props: {
   onSend: () => void;
 }) {
   const book = useStore(props.book);
+  const items = useStore(props.items);
+  const outputs = useStore(props.outputs);
   const [menu, setMenu] = useState<MenuPoint & { id: string }>();
+  /** The list toggle's choice. Until there is one, the list shows when the view is wide enough. */
+  const [listWanted, setListWanted] = useState<boolean>();
+  const root = useRef<HTMLDivElement>(null);
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const watch = new ResizeObserver(([entry]) => setWide(entry!.contentRect.width >= ROOM_FOR_LIST));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+  /** The items were picked, so the pane shows them rather than a page. */
+  const [itemsPicked, setItemsPicked] = useState(false);
   const sessionId = props.brief?.sessionId;
+  const tracking = !!props.brief?.trackItems;
   const held = (d: Draft) => !!d.review && hasReviewContent(d.review, d.body);
   const open = book.selected?.review && book.selected.sessionId === sessionId ? book.selected : undefined;
-  // A review shows here once it holds a comment, a note or an edit, or while it is open.
-  const reviews = book.drafts.filter((d) => d.review && d.sessionId === sessionId && (held(d) || d.id === open?.id));
+  // Only the review pane can hide the list, so the list always shows beside the items.
+  const listOpen = !open || (listWanted ?? wide);
+  // A review shows here once it holds a comment, a note or an edit. Until then its output row marks it.
+  const reviews = book.drafts.filter((d) => d.review && d.sessionId === sessionId && held(d));
+  const list = sessionId ? items.doc(sessionId)?.doc.items : undefined;
+  const openItems = list?.filter((i) => !i.done).length ?? 0;
+  const waiting = list?.filter(awaitsUser).length ?? 0;
 
-  // Review opens on the work, once per visit to a session, so Back stays on the list.
-  // It runs when the session changes and reads the rest as it stands then.
-  const started = useRef<string | undefined>(undefined);
+  useEffect(() => setItemsPicked(false), [sessionId]);
+
+  // With nothing picked, the pane opens on the work: the newest review, else the newest Ready page.
+  // It waits for the session's lists, and tries each choice once, so a page that fails to open leaves the items in view.
+  const outputsInfo = sessionId ? outputs.info(sessionId) : undefined;
+  const itemsInfo = sessionId ? items.doc(sessionId) : undefined;
+  const tried = useRef(new Set<string>());
   useEffect(() => {
-    if (!sessionId || started.current === sessionId) return;
-    if (open) {
-      started.current = sessionId;
+    if (!sessionId || open || itemsPicked) return;
+    if (!outputsInfo) {
+      void props.outputs.load(sessionId).catch(() => undefined);
       return;
     }
-    let cancelled = false;
-    const tracking = !!props.brief?.trackItems;
-    void Promise.all([props.outputs.load(sessionId), tracking ? props.items.load(sessionId) : undefined])
-      .catch(() => undefined)
-      .then(() => {
-        if (cancelled) return;
-        started.current = sessionId;
-        if (props.book.selected?.review) return;
-        const start = reviewStart({
-          reviews: props.book.drafts
-            .filter((d) => d.review && d.sessionId === sessionId)
-            .map((d) => ({ id: d.id, updatedAt: d.updatedAt, hasContent: held(d) })),
-          outputs: props.outputs.info(sessionId)?.outputs ?? [],
-          itemWaits: tracking && (props.items.doc(sessionId)?.doc.items ?? []).some(awaitsUser),
-        });
-        if (start && 'draftId' in start) props.book.select(start.draftId);
-        else if (start) props.onOpenOutput(sessionId, start.ref);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
+    if (tracking && !itemsInfo) {
+      void props.items.load(sessionId).catch(() => undefined);
+      return;
+    }
+    const start = reviewStart({
+      reviews: props.book.drafts
+        .filter((d) => d.review && d.sessionId === sessionId)
+        .map((d) => ({ id: d.id, updatedAt: d.updatedAt, hasContent: held(d) })),
+      outputs: outputsInfo.outputs,
+      itemWaits: tracking && (itemsInfo?.doc.items ?? []).some(awaitsUser),
+    });
+    if (!start) return;
+    const key = `${sessionId}:${'draftId' in start ? start.draftId : start.ref}`;
+    if (tried.current.has(key)) return;
+    tried.current.add(key);
+    if ('draftId' in start) props.book.select(start.draftId);
+    else props.onOpenOutput(sessionId, start.ref);
+  }, [sessionId, open?.id, itemsPicked, tracking, outputsInfo, itemsInfo]);
 
-  // A review takes the whole view, for the page's sake. The list stays mounted, so it comes back as it was.
+  const pickItems = () => {
+    setItemsPicked(true);
+    if (open) book.select(undefined);
+  };
+  const openOutput = (ref: string) => {
+    setItemsPicked(false);
+    if (sessionId) props.onOpenOutput(sessionId, ref);
+  };
+
   return (
-    <div className={open ? 'write review-mode reviewing' : 'write review-mode'} data-testid="review-mode">
-      <nav className="draft-list" aria-label="Outputs and reviews" hidden={!!open}>
+    <div className="write review-mode" ref={root} data-testid="review-mode">
+      <nav className="draft-list" aria-label="Outputs, reviews and items" hidden={!listOpen}>
         <div className="sections">
           {sessionId && (
             <OutputsList
               store={props.outputs}
               sessionId={sessionId}
-              onOpen={(ref) => props.onOpenOutput(sessionId, ref)}
+              selectedRef={open?.review?.path}
+              onOpen={openOutput}
               onDismiss={(ref) => props.onDismissOutput(sessionId, ref)}
             />
           )}
-          <section data-testid="reviews">
-            <SectionHeader title="Reviews" count={reviews.length} />
-            {reviews.length === 0 && <p className="muted empty">Open an HTML output to review it. Your comments wait here until you send them.</p>}
+          {reviews.length > 0 && (
+            <section data-testid="reviews">
+              <SectionHeader title="Reviews" count={reviews.length} />
+              <ul>
+                {reviews.map((d) => (
+                  <DraftRow
+                    key={d.id}
+                    draft={d}
+                    selected={d.id === open?.id}
+                    onSelect={() => {
+                      setItemsPicked(false);
+                      book.select(d.id);
+                    }}
+                    onMenu={(e) => {
+                      e.preventDefault();
+                      setMenu({ id: d.id, x: e.clientX, y: e.clientY });
+                    }}
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
+          <section>
+            <SectionHeader title="Items" count={tracking ? openItems : 0} />
             <ul>
-              {reviews.map((d) => (
-                <DraftRow
-                  key={d.id}
-                  draft={d}
-                  selected={false}
-                  onSelect={() => book.select(d.id)}
-                  onMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({ id: d.id, x: e.clientX, y: e.clientY });
-                  }}
-                />
-              ))}
+              <li>
+                <button className="ghost draft-row" aria-current={!open} onClick={pickItems} data-testid="items-row">
+                  <span className="lines">
+                    <span className="title-line">
+                      <span className="title">{tracking ? `${openItems} open` : 'Not tracked'}</span>
+                    </span>
+                    <span className="muted preview">
+                      {tracking ? (waiting > 0 ? `${waiting} waiting on you` : 'Nothing waits on you') : 'Turn on to have Claude list its questions'}
+                    </span>
+                  </span>
+                </button>
+              </li>
             </ul>
           </section>
         </div>
@@ -128,7 +182,8 @@ export function ReviewMode(props: {
           book={props.book}
           draft={open as ReviewDraft}
           voice={props.review.voice}
-          onClose={() => book.select(undefined)}
+          listOpen={listOpen}
+          onToggleList={() => setListWanted(!listOpen)}
           onSend={props.onSend}
           onError={props.review.onError}
         />
