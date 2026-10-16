@@ -2,7 +2,7 @@
 
 import { keptImages, newDraftId, sortDrafts } from '../shared/drafts';
 import type { CompanionApi, Draft, DraftSource } from '../shared/ipc';
-import type { DraftReview, ReviewComment } from '../shared/review';
+import { MAX_EDITS, type DraftReview, type ReviewComment } from '../shared/review';
 
 export const DRAFT_SAVE_MS = 400;
 /** How long a failed save waits before it tries again. */
@@ -156,6 +156,13 @@ export class DraftBook {
     const review = { ...draft.review, comments: [...draft.review.comments, comment] };
     const attachments = { ...draft.attachments, ...(picture && comment.picture ? { [comment.picture]: picture } : {}) };
     this.patch(id, { review, attachments });
+  }
+
+  /** Notes an edit the pane saved to the file, for the review.md a Send writes. */
+  addEdit(id: string, summary: string): void {
+    const draft = this.get(id);
+    if (!draft?.review) return;
+    this.patch(id, { review: { ...draft.review, edits: [...(draft.review.edits ?? []), summary].slice(-MAX_EDITS) } });
   }
 
   /** Changes a pin's words. */

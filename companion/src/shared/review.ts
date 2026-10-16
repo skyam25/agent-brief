@@ -43,6 +43,8 @@ export interface DraftReview {
   /** The HTML file under review, relative to the session's project. */
   path: string;
   comments: ReviewComment[];
+  /** Edits made in the pane's edit mode, already saved in the file, as one line each. */
+  edits?: string[];
 }
 
 /** A review as a Send hands it over. `body` is the overall note. */
@@ -51,6 +53,7 @@ export interface ReviewPayload extends DraftReview {
 }
 
 export const MAX_COMMENTS = 100;
+export const MAX_EDITS = 200;
 const COMMENT_ID = /^[\w-]{1,40}$/;
 const HTML = /\.html?$/i;
 
@@ -107,7 +110,10 @@ export function cleanReview(raw: unknown): DraftReview | undefined {
       createdAt: num(c.createdAt),
     });
   }
-  return { path, comments };
+  const edits = Array.isArray(raw.edits)
+    ? raw.edits.filter((e): e is string => typeof e === 'string' && !!e.trim()).slice(-MAX_EDITS).map((e) => e.slice(0, 300))
+    : [];
+  return { path, comments, ...(edits.length ? { edits } : {}) };
 }
 
 /** The attachment ids a review's comments use, in order. */
@@ -125,6 +131,12 @@ export function anchorLabel(a: ReviewAnchor, max = 60): string {
 
 /** `3 comments`, `1 comment`. */
 export const commentCount = (n: number) => `${n} comment${n === 1 ? '' : 's'}`;
+
+/** `3 edits`, `1 edit`. */
+export const editCount = (n: number) => `${n} edit${n === 1 ? '' : 's'}`;
+
+/** True when a review holds something to send: a comment, an edit or an overall note. */
+export const hasReviewContent = (review: DraftReview, body: string) => review.comments.length > 0 || (review.edits?.length ?? 0) > 0 || !!body.trim();
 
 /** A file name from a project path. */
 export const baseName = (path: string) => path.split('/').filter(Boolean).at(-1) ?? path;
@@ -155,12 +167,22 @@ export function reviewMarkdown(review: ReviewPayload, picturePath: (id: string) 
     const picture = c.picture && picturePath(c.picture);
     if (picture) lines.push(`- Picture: ${picture}`);
   });
+  const edits = review.edits ?? [];
+  if (edits.length) {
+    lines.push('', '## Edited in the pane', '', `These edits are already saved in ${review.path}, in this order.`, '');
+    for (const e of edits) lines.push(`- ${oneLine(e)}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
 /** The prompt line after the `@review.md` line. */
 export function reviewAsk(review: ReviewPayload): string {
   const n = review.comments.length;
+  const e = review.edits?.length ?? 0;
+  if (e && !n && !review.body?.trim()) {
+    return `Review of ${review.path} from Agent Brief: ${editCount(e)} made in the pane, already saved in the file. Check them and tidy the markup where it needs it, then say what changed.`;
+  }
   const what = n ? `${commentCount(n)} pinned to the page` : 'an overall note';
-  return `Review of ${review.path} from Agent Brief, ${what}. Make the changes in ${review.path}, then say what changed.`;
+  const saved = e ? `, plus ${editCount(e)} already saved in the file` : '';
+  return `Review of ${review.path} from Agent Brief, ${what}${saved}. Make the changes in ${review.path}, then say what changed.`;
 }

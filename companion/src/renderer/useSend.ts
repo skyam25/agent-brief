@@ -2,6 +2,7 @@
 
 import { useRef, type RefObject } from 'react';
 import { draftImages } from '../shared/drafts';
+import { hasReviewContent } from '../shared/review';
 import type { CompanionApi, Decision, Draft, Launcher, Mode, Outgoing, SendResult } from '../shared/ipc';
 import { findSlots } from '../shared/slots';
 import type { BoardController } from './controller';
@@ -90,7 +91,7 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
     }
     const draft = book.selected;
     if (draft?.review) {
-      if (!draft.review.comments.length && !draft.body.trim()) return 'Pin a comment first.';
+      if (!hasReviewContent(draft.review, draft.body)) return 'Pin a comment first.';
       // Words still turning into text land before the Send reads the draft.
       await reviewVoice.stop();
       await book.flush();
@@ -157,7 +158,7 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
   /** An empty note says so before any session is picked. */
   const openChooser = (open: boolean) => {
     const draft = book.selected;
-    if (open && modeRef.current === 'write' && draft?.review && !draft.review.comments.length && !draft.body.trim()) {
+    if (open && modeRef.current === 'write' && draft?.review && !hasReviewContent(draft.review, draft.body)) {
       notify('Pin a comment first.');
       return;
     }

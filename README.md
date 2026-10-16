@@ -27,7 +27,7 @@ Sketch, write, talk and paste screenshots on your Mac, then hand all of it to Cl
 
 ## Talk while you draw
 
-- The mic button records your voice alongside the sketch.
+- **Talk** (⌥T) records your voice alongside the sketch. While it records, the footer shows a clock, a live level meter, Discard and Stop. A chip then shows the take Send will carry, and its ✕ drops it.
 - Speech and strokes share one clock, so "this one" points at what you drew while you said it.
 - Transcription runs on your Mac. Audio never leaves it.
 - In Claude Code, the **🎙 Talk** button above the prompt dictates straight into the prompt box, with no panel.
@@ -85,6 +85,7 @@ A send from Items mode is text alone, such as `Decisions on 2 items in .feedback
 - Write mode lists each session's deliverables above its notes. Claude declares the thing you asked for, such as a strategy doc, a brief or a page, with the `declare_output` tool, and the row shows Drafting until Claude marks it Ready. Files Claude only touched sit under **Touched**, folded away. `/outputs` in the session prints the same list.
 - Click a Markdown output and it opens as a note filed under the session. Edit it, then press Send. Claude gets your copy and a prompt to apply the changes to the file.
 - Click an HTML output and it opens live in the review pane. Scroll and click through it as usual. Press C, or the Comment button, then click any element to pin a comment to it, or drag across text to quote it. Turn on the mic to talk instead of type, and what you say goes to the selected pin. Send hands Claude a `review.md` with each pin's element, quote and picture.
+- Press E, or the Edit button, to change the page itself. Click to select an element, drag it to move it within or between containers, drag its corner to resize it, and double-click to retype its words. The inspector edits layout, size, spacing, type and fill, and adds text, rows, columns and buttons. Each change saves to the HTML file as you make it, ⌘Z undoes, and Send lists the edits in `review.md`. Edit mode changes markup written in the file. Anything a script draws stays as it is.
 - Other files open in their app, and an artifact or published page opens in the browser.
 - Hide hides a row until Claude writes or declares it again.
 - The mod keeps the list in `<project>/.feedback/outputs/<session>.json`. The app only reads it.

@@ -1,6 +1,7 @@
 /** IPC between the main process and the panel renderer. */
 
 import type { DraftReview, ReviewPayload, ReviewRect } from './review';
+import type { EditResult, HistoryResult, ReviewEdit } from './review-edit';
 import type {
   BoardLayout,
   SessionHost,
@@ -412,6 +413,10 @@ export interface CompanionApi extends BoardHost {
   openOutputElsewhere(sessionId: string, ref: string): Promise<void>;
   /** The address the review pane loads a session's HTML file from. */
   reviewUrl(sessionId: string, path: string): Promise<string>;
+  /** Applies a review pane edit to the HTML file. `version` is the file's as the page loaded it. */
+  reviewEdit(sessionId: string, path: string, version: string, edit: ReviewEdit): Promise<EditResult>;
+  reviewUndo(sessionId: string, path: string): Promise<HistoryResult>;
+  reviewRedo(sessionId: string, path: string): Promise<HistoryResult>;
   /** A JPEG data URL of part of the panel, in window pixels. Undefined when nothing was captured. */
   capturePanel(rect: ReviewRect): Promise<string | undefined>;
   /** Transcribes one voice clip with ffmpeg and yap. */
@@ -482,6 +487,9 @@ export const CH = {
   dismissOutput: 'outputs:dismiss',
   openOutputElsewhere: 'outputs:open-elsewhere',
   reviewUrl: 'review:url',
+  reviewEdit: 'review:edit',
+  reviewUndo: 'review:undo',
+  reviewRedo: 'review:redo',
   capturePanel: 'review:capture',
   transcribeClip: 'review:transcribe',
   openLink: 'review:open-link',

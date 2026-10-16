@@ -2,11 +2,17 @@
  * Runs inside the HTML page the review pane shows. In comment mode it outlines the
  * element under the pointer and turns a click or a text selection into a pin.
  * It draws numbered markers for the pane's pins and forwards a few keys and links.
+ * Edit mode, in edit-mode.ts, changes the page's elements and saves each change to the file.
  * It speaks to the pane only through postMessage.
  */
 
+import { AT_ATTR } from '../shared/review-edit';
 import type { ReviewAnchor, ReviewRect } from '../shared/review';
+import { createEditMode, type EditMode } from './edit-mode';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from './messages';
+
+/** The file's version, which the server puts on this script's tag. Read now, while this script runs. */
+const VERSION = (document.currentScript as HTMLScriptElement | null)?.dataset.abVersion;
 
 const MARKER = 22;
 const ACCENT = '#6965db';
@@ -33,6 +39,7 @@ function start(): void {
   let flash: HTMLDivElement | undefined;
   /** Outlines the element of the comment the pane has selected. */
   let selected: HTMLDivElement | undefined;
+  let edit: EditMode | undefined;
   const markers = new Map<string, HTMLButtonElement>();
 
   /** The overlay's own elements sit in a closed shadow root, out of the page's CSS. */
@@ -61,6 +68,7 @@ function start(): void {
     selected.className = 'box selected';
     root.append(style, selected, hover, flash, layer);
     document.documentElement.append(host);
+    edit = createEditMode({ post, root, host: () => host, version: VERSION });
   }
 
   const place = (el: HTMLElement, r: DOMRect | ReviewRect, pad = 0) => {
@@ -193,6 +201,7 @@ function start(): void {
   let queued = false;
   /** Moves markers to their elements on the next frame. */
   function layout(): void {
+    edit?.layout();
     if (queued) return;
     queued = true;
     requestAnimationFrame(() => {
@@ -279,6 +288,15 @@ function start(): void {
       selectionPinned = false;
     }
     if (m.type === 'show') show(m.id);
+    if (m.type === 'editing') {
+      if (m.on) setCommenting(false);
+      edit?.setEditing(m.on);
+    }
+    if (m.type === 'edited') edit?.onEdited(m.result);
+    if (m.type === 'style') edit?.style(m.set);
+    if (m.type === 'text') edit?.text(m.text);
+    if (m.type === 'act') edit?.act(m.act);
+    if (m.type === 'insert') edit?.insert(m.what);
   });
 
   const editable = (t: EventTarget | null) =>
@@ -354,6 +372,9 @@ function start(): void {
         } else if ((e.key === 'c' || e.key === 'C') && !editable(e.target)) {
           e.preventDefault();
           post({ type: 'key', key: 'c' });
+        } else if ((e.key === 'e' || e.key === 'E') && !editable(e.target)) {
+          e.preventDefault();
+          post({ type: 'key', key: 'e' });
         }
       },
       true,
@@ -368,7 +389,12 @@ function start(): void {
     mount();
     listen();
     drawPins(pins);
-    post({ type: 'ready', path: decodeURIComponent(location.pathname).replace(/^\/+/, ''), title: document.title });
+    post({
+      type: 'ready',
+      path: decodeURIComponent(location.pathname).replace(/^\/+/, ''),
+      title: document.title,
+      ...(VERSION ? { version: VERSION, editable: !!document.querySelector(`[${AT_ATTR}]`) } : {}),
+    });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once: true });
   else ready();

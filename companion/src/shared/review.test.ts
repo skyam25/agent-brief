@@ -72,3 +72,24 @@ describe('review text', () => {
     );
   });
 });
+
+describe('pane edits', () => {
+  it('keeps edit lines and drops blanks', () => {
+    expect(cleanReview({ path: 'a.html', comments: [], edits: ['Moved li', '', 3, 'Set color: red on h1'] })?.edits).toEqual(['Moved li', 'Set color: red on h1']);
+    expect(cleanReview({ path: 'a.html', comments: [] })).not.toHaveProperty('edits');
+  });
+
+  it('lists edits in review.md as already saved', () => {
+    const md = reviewMarkdown({ path: 'a.html', comments: [], edits: ['Moved li “Team”', 'Removed p'] }, () => undefined);
+    expect(md).toContain('## Edited in the pane\n\nThese edits are already saved in a.html, in this order.\n\n- Moved li “Team”\n- Removed p');
+  });
+
+  it('asks Claude to check edits alone, or adds them to comments', () => {
+    expect(reviewAsk({ path: 'a.html', comments: [], edits: ['x', 'y'] })).toBe(
+      'Review of a.html from Agent Brief: 2 edits made in the pane, already saved in the file. Check them and tidy the markup where it needs it, then say what changed.',
+    );
+    expect(reviewAsk({ path: 'a.html', comments: [], body: 'Darker.', edits: ['x'] })).toBe(
+      'Review of a.html from Agent Brief, an overall note, plus 1 edit already saved in the file. Make the changes in a.html, then say what changed.',
+    );
+  });
+});

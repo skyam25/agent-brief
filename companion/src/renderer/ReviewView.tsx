@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { CompanionApi, Draft } from '../shared/ipc';
 import { anchorLabel, baseName, commentCount, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
+import type { ReviewEdit, SelectedElement } from '../shared/review-edit';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from '../review/messages';
 import type { DraftBook } from './drafts';
 import { newPictureId } from './editor/pictures';
 import { useStore } from './hooks';
-import { BackIcon, CommentIcon, ExternalIcon, ReloadIcon, TrashIcon } from './Icons';
+import { BackIcon, CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, TrashIcon } from './Icons';
+import { Inspector } from './Inspector';
 import { OVERALL, type ReviewVoice } from './review-voice';
 
-export type ReviewHost = Pick<CompanionApi, 'reviewUrl' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
+export type ReviewHost = Pick<CompanionApi, 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
 
 export type ReviewDraft = Draft & { review: DraftReview };
 
@@ -35,7 +37,8 @@ function cropRect(frame: DOMRect, view: ReviewRect): ReviewRect {
 /**
  * Reviews a session's HTML file: the live page on the left, its pinned comments
  * on the right. Comment mode turns a click or a text selection into a pin, and
- * the mic sends what you say to the selected pin.
+ * the mic sends what you say to the selected pin. Edit mode changes the page's
+ * elements in place and saves each change to the file, with the inspector on the right.
  */
 export function ReviewView(props: {
   host: ReviewHost;
@@ -55,15 +58,34 @@ export function ReviewView(props: {
   const [loaded, setLoaded] = useState(false);
   const [silent, setSilent] = useState(false);
   const [reloads, setReloads] = useState(0);
-  const [commenting, setCommenting] = useState(review.comments.length === 0);
+  const [commenting, setCommentingState] = useState(review.comments.length === 0);
+  const [editing, setEditingState] = useState(false);
+  const [pageEditable, setPageEditable] = useState(false);
+  const [selected, setSelected] = useState<SelectedElement | null>(null);
+  // Comment and edit mode never run together.
+  const setCommenting = useCallback((next: boolean | ((on: boolean) => boolean)) => {
+    setCommentingState((on) => {
+      const value = typeof next === 'function' ? next(on) : next;
+      if (value) setEditingState(false);
+      return value;
+    });
+  }, []);
+  const setEditing = useCallback((next: boolean | ((on: boolean) => boolean)) => {
+    setEditingState((on) => {
+      const value = typeof next === 'function' ? next(on) : next;
+      if (value) setCommentingState(false);
+      if (!value) setSelected(null);
+      return value;
+    });
+  }, []);
   const [activeId, setActiveId] = useState<string>();
   const [missing, setMissing] = useState<string[]>([]);
   const [pagePath, setPagePath] = useState<string>();
   const onPage = pagePath === undefined || pagePath === review.path;
 
   // The latest values, for the message handler.
-  const live = useRef({ draftId: draft.id, commenting, onPage });
-  live.current = { draftId: draft.id, commenting, onPage };
+  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage });
+  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage };
 
   useEffect(() => {
     if (!draft.sessionId) {
@@ -98,6 +120,44 @@ export function ReviewView(props: {
     [props.voice],
   );
 
+  const reload = useCallback(() => {
+    setLoaded(false);
+    setPagePath(undefined);
+    setSelected(null);
+    setReloads((n) => n + 1);
+  }, []);
+
+  /** Saves one page edit and hands main's answer back to the page. A refused edit reloads the page. */
+  const saveEdit = useCallback(
+    async (version: string, edit: ReviewEdit) => {
+      const { sessionId, path, draftId } = live.current;
+      if (!sessionId) return;
+      const result = await host.reviewEdit(sessionId, path, version, edit).catch((err: Error) => ({ ok: false as const, error: err.message }));
+      post({ type: 'edited', result });
+      if (result.ok) book.addEdit(draftId, result.summary);
+      else {
+        props.onError(result.error);
+        reload();
+      }
+    },
+    [host, book, post, reload, props.onError],
+  );
+
+  const history = useCallback(
+    async (way: 'undo' | 'redo') => {
+      const { sessionId, path, draftId } = live.current;
+      if (!sessionId) return;
+      const result = await (way === 'undo' ? host.reviewUndo(sessionId, path) : host.reviewRedo(sessionId, path)).catch((err: Error) => ({ ok: false as const, error: err.message }));
+      if (!result.ok) {
+        props.onError(result.error);
+        return;
+      }
+      book.addEdit(draftId, result.summary);
+      reload();
+    },
+    [host, book, reload, props.onError],
+  );
+
   const addPin = useCallback(
     async (anchor: ReviewAnchor, view: ReviewRect) => {
       const box = frame.current?.getBoundingClientRect();
@@ -120,31 +180,51 @@ export function ReviewView(props: {
         setLoaded(true);
         setSilent(false);
         setPagePath(m.path);
+        setPageEditable(!!m.editable);
       }
+      if (m.type === 'edit') void saveEdit(m.version, m.edit);
+      if (m.type === 'selected') setSelected(m.element);
+      if (m.type === 'reload') reload();
+      if (m.type === 'key' && m.key === 'e') setEditing((on) => !on);
+      if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
       if (m.type === 'pin' && live.current.onPage) void addPin(m.anchor, m.view);
       if (m.type === 'open-pin') select(m.id, true);
       if (m.type === 'missing') setMissing(m.ids);
       if (m.type === 'link') void host.openLink(m.href).catch(() => props.onError('Could not open that link.'));
       if (m.type === 'key' && m.key === 'c') setCommenting((on) => !on);
-      if (m.type === 'key' && m.key === 'Escape') setCommenting(false);
+      if (m.type === 'key' && m.key === 'Escape') {
+        setCommenting(false);
+        setEditing(false);
+      }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [addPin, select, host, props.onError]);
+  }, [addPin, select, host, props.onError, saveEdit, reload, history, setCommenting, setEditing]);
 
-  // C toggles comment mode and Escape leaves it, unless a field has the keys.
+  // C toggles comment mode, E edit mode, and Escape leaves either, unless a field has the keys.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || editable(e.target)) return;
+      if (editable(e.target)) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && live.current.editing) {
+        e.preventDefault();
+        void history(e.shiftKey ? 'redo' : 'undo');
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'c' || e.key === 'C') {
         e.preventDefault();
         setCommenting((on) => !on);
       }
+      if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault();
+        setEditing((on) => !on);
+      }
       if (e.key === 'Escape' && live.current.commenting) setCommenting(false);
+      if (e.key === 'Escape' && live.current.editing) setEditing(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [history, setCommenting, setEditing]);
 
   const pins: PagePin[] = onPage
     ? review.comments.map((c, i) => ({ id: c.id, n: i + 1, selector: c.anchor.selector, fx: c.anchor.fx, fy: c.anchor.fy, active: c.id === activeId }))
@@ -156,12 +236,10 @@ export function ReviewView(props: {
   useEffect(() => {
     if (loaded) post({ type: 'commenting', on: commenting && onPage });
   }, [loaded, commenting, onPage, post]);
-
-  const reload = () => {
-    setLoaded(false);
-    setPagePath(undefined);
-    setReloads((n) => n + 1);
-  };
+  const isEditing = editing && onPage && pageEditable;
+  useEffect(() => {
+    if (loaded) post({ type: 'editing', on: isEditing });
+  }, [loaded, isEditing, post]);
   const settled = useRef({ reloads, loaded });
   settled.current = { reloads, loaded };
   /** A page whose overlay never says hello blocks added scripts. */
@@ -190,7 +268,7 @@ export function ReviewView(props: {
   const count = review.comments.length;
 
   return (
-    <div className="review" data-testid="review" data-escape-owner={commenting ? '' : undefined}>
+    <div className="review" data-testid="review" data-escape-owner={commenting || isEditing ? '' : undefined}>
       <header className="review-bar">
         <button className="ghost icon-button" title="Back to notes" aria-label="Back to notes" onClick={props.onClose} data-testid="review-close">
           <BackIcon />
@@ -209,6 +287,16 @@ export function ReviewView(props: {
         >
           <CommentIcon /> Comment <kbd>C</kbd>
         </button>
+        <button
+          className={isEditing ? 'chip on' : 'chip'}
+          aria-pressed={isEditing}
+          disabled={!onPage || silent || !pageEditable}
+          title={!pageEditable && loaded ? 'This page has no markup edit mode can change' : isEditing ? 'Stop editing (Esc)' : 'Select, move, resize and retype elements; each change saves to the file (E)'}
+          onClick={() => setEditing((on) => !on)}
+          data-testid="review-edit"
+        >
+          <PencilIcon /> Edit <kbd>E</kbd>
+        </button>
         <button className="ghost icon-button" title="Reload the page" aria-label="Reload the page" onClick={reload} data-testid="review-reload">
           <ReloadIcon />
         </button>
@@ -216,7 +304,7 @@ export function ReviewView(props: {
           <ExternalIcon />
         </button>
       </header>
-      <div className={commenting && onPage ? 'review-page commenting' : 'review-page'}>
+      <div className={commenting && onPage ? 'review-page commenting' : isEditing ? 'review-page editing' : 'review-page'}>
         {src && (
           <iframe
             key={src}
@@ -250,52 +338,68 @@ export function ReviewView(props: {
             Click to pin · drag across text to quote · <kbd>Esc</kbd> to browse
           </div>
         )}
-      </div>
-      <aside className="review-notes" aria-label="Comments">
-        <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
-          <span className="section-head">Overall</span>
-          <textarea
-            placeholder="Anything about the page as a whole"
-            value={draft.body}
-            onChange={(e) => book.edit(draft.id, e.target.value)}
-            onFocus={() => select(undefined)}
-            onKeyDown={sendKeys}
-            data-testid="review-overall"
-          />
-          <VoiceState voice={voice} target={OVERALL} />
-        </label>
-        <h3 className="section-head">
-          Comments{count > 0 && <span className="count">{count}</span>}
-        </h3>
-        {count === 0 ? (
-          <p className="muted review-empty" data-testid="review-empty">
-            Click anything on the page to pin a comment, or turn on the mic and talk as you go.
-          </p>
-        ) : (
-          <ol className="review-cards">
-            {review.comments.map((c, i) => (
-              <CommentCard
-                key={c.id}
-                comment={c}
-                n={i + 1}
-                active={c.id === activeId}
-                missing={missing.includes(c.id)}
-                voice={voice}
-                onSelect={() => {
-                  select(c.id);
-                  post({ type: 'show', id: c.id });
-                }}
-                onEdit={(text) => book.editComment(draft.id, c.id, text)}
-                onRemove={() => remove(c.id)}
-                onKeyDown={sendKeys}
-              />
-            ))}
-          </ol>
+        {isEditing && loaded && !selected && (
+          <div className="review-hint" data-testid="review-edit-hint">
+            Click to select · drag to move · double-click to retype · <kbd>Esc</kbd> to browse
+          </div>
         )}
-        <footer className="muted review-foot">
-          {count > 0 ? `${commentCount(count)} · ⌘↩ sends with pictures` : 'Send hands Claude each comment with a picture of its element.'}
-        </footer>
-      </aside>
+      </div>
+      {isEditing ? (
+        <Inspector
+          selected={selected}
+          edits={review.edits?.length ?? 0}
+          onStyle={(set) => post({ type: 'style', set })}
+          onText={(text) => post({ type: 'text', text })}
+          onAct={(act) => post({ type: 'act', act })}
+          onInsert={(what) => post({ type: 'insert', what })}
+        />
+      ) : (
+        <aside className="review-notes" aria-label="Comments">
+          <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
+            <span className="section-head">Overall</span>
+            <textarea
+              placeholder="Anything about the page as a whole"
+              value={draft.body}
+              onChange={(e) => book.edit(draft.id, e.target.value)}
+              onFocus={() => select(undefined)}
+              onKeyDown={sendKeys}
+              data-testid="review-overall"
+            />
+            <VoiceState voice={voice} target={OVERALL} />
+          </label>
+          <h3 className="section-head">
+            Comments{count > 0 && <span className="count">{count}</span>}
+          </h3>
+          {count === 0 ? (
+            <p className="muted review-empty" data-testid="review-empty">
+              Click anything on the page to pin a comment, or turn on the mic and talk as you go.
+            </p>
+          ) : (
+            <ol className="review-cards">
+              {review.comments.map((c, i) => (
+                <CommentCard
+                  key={c.id}
+                  comment={c}
+                  n={i + 1}
+                  active={c.id === activeId}
+                  missing={missing.includes(c.id)}
+                  voice={voice}
+                  onSelect={() => {
+                    select(c.id);
+                    post({ type: 'show', id: c.id });
+                  }}
+                  onEdit={(text) => book.editComment(draft.id, c.id, text)}
+                  onRemove={() => remove(c.id)}
+                  onKeyDown={sendKeys}
+                />
+              ))}
+            </ol>
+          )}
+          <footer className="muted review-foot">
+            {count > 0 ? `${commentCount(count)} · ⌘↩ sends with pictures` : 'Send hands Claude each comment with a picture of its element.'}
+          </footer>
+        </aside>
+      )}
     </div>
   );
 }
