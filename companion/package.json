@@ -1,6 +1,6 @@
 {
   "name": "agent-brief-app",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "private": true,
   "description": "Floating sketch, notes and voice panel that hands work to Claude Code.",
   "author": "skyam25",
