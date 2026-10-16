@@ -3,8 +3,11 @@
  * outputs and the reviews in progress. The pane holds its items, or the open review.
  */
 
-import { useState } from 'react';
-import type { SessionBriefEntry } from '../shared/ipc';
+import { useEffect, useRef, useState } from 'react';
+import type { Draft, SessionBriefEntry } from '../shared/ipc';
+import { awaitsUser } from '../shared/items';
+import { reviewStart } from '../shared/outputs';
+import { hasReviewContent } from '../shared/review';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { DraftRow, SectionHeader } from './DraftList';
 import type { DraftBook } from './drafts';
@@ -36,8 +39,42 @@ export function ReviewMode(props: {
   const book = useStore(props.book);
   const [menu, setMenu] = useState<MenuPoint & { id: string }>();
   const sessionId = props.brief?.sessionId;
-  const reviews = book.drafts.filter((d) => d.review && d.sessionId === sessionId);
+  const held = (d: Draft) => !!d.review && hasReviewContent(d.review, d.body);
   const open = book.selected?.review && book.selected.sessionId === sessionId ? book.selected : undefined;
+  // A review shows here once it holds a comment, a note or an edit, or while it is open.
+  const reviews = book.drafts.filter((d) => d.review && d.sessionId === sessionId && (held(d) || d.id === open?.id));
+
+  // Review opens on the work, once per visit to a session, so Back stays on the list.
+  // It runs when the session changes and reads the rest as it stands then.
+  const started = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!sessionId || started.current === sessionId) return;
+    if (open) {
+      started.current = sessionId;
+      return;
+    }
+    let cancelled = false;
+    const tracking = !!props.brief?.trackItems;
+    void Promise.all([props.outputs.load(sessionId), tracking ? props.items.load(sessionId) : undefined])
+      .catch(() => undefined)
+      .then(() => {
+        if (cancelled) return;
+        started.current = sessionId;
+        if (props.book.selected?.review) return;
+        const start = reviewStart({
+          reviews: props.book.drafts
+            .filter((d) => d.review && d.sessionId === sessionId)
+            .map((d) => ({ id: d.id, updatedAt: d.updatedAt, hasContent: held(d) })),
+          outputs: props.outputs.info(sessionId)?.outputs ?? [],
+          itemWaits: tracking && (props.items.doc(sessionId)?.doc.items ?? []).some(awaitsUser),
+        });
+        if (start && 'draftId' in start) props.book.select(start.draftId);
+        else if (start) props.onOpenOutput(sessionId, start.ref);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   // A review takes the whole view, for the page's sake. The list stays mounted, so it comes back as it was.
   return (

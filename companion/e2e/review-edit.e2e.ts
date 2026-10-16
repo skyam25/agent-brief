@@ -59,8 +59,8 @@ async function openReview(page: Page, app: Launched['app'], cwd: string): Promis
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(app, page);
+  // Review opens the session's newest Ready page by itself.
   await page.getByTestId('mode-review').click();
-  await page.getByTestId('output-row-0').click();
   const frame = page.frameLocator('[data-testid="review-frame"]');
   await expect(frame.locator('h1')).toHaveText('Acme analytics');
   return frame;

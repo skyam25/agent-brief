@@ -6,7 +6,7 @@
  * It speaks to the pane only through postMessage.
  */
 
-import { AT_ATTR } from '../shared/review-edit';
+import { AT_ATTR, GROUND_ATTR, PASS_ATTR } from '../shared/review-edit';
 import type { ReviewAnchor, ReviewRect } from '../shared/review';
 import { createEditMode, type EditMode } from './edit-mode';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from './messages';
@@ -200,11 +200,22 @@ function start(): void {
 
   // ── Pins ───────────────────────────────────────────────────────────────
 
+  /**
+   * The element a comment on `target` pins to, or undefined for the page's background:
+   * the root, the body, a ground the page marks as empty space, or the page's own controls.
+   */
+  function commentable(target: EventTarget | null): Element | undefined {
+    if (!(target instanceof Element) || ours(target)) return undefined;
+    if (target === document.documentElement || target === document.body) return undefined;
+    if (target.hasAttribute(GROUND_ATTR) || target.closest(`[${PASS_ATTR}]`)) return undefined;
+    return target;
+  }
+
   /** Outlines the element under the pointer, or hides the box when there is none. */
   function placeHover(): void {
     if (!hover) return;
-    const el = commenting && pointer ? document.elementFromPoint(pointer.x, pointer.y) : null;
-    if (!el || ours(el) || el === document.documentElement) hover.style.display = 'none';
+    const el = commenting && pointer ? commentable(document.elementFromPoint(pointer.x, pointer.y)) : undefined;
+    if (!el) hover.style.display = 'none';
     else place(hover, el.getBoundingClientRect());
   }
 
@@ -363,7 +374,8 @@ function start(): void {
             swallowClick = false;
             return;
           }
-          if (e.target instanceof Element && e.target !== document.documentElement) pinElement(e.target, e.clientX, e.clientY);
+          const el = commentable(e.target);
+          if (el) pinElement(el, e.clientX, e.clientY);
           return;
         }
         const link = e.target instanceof Element ? e.target.closest('a[href]') : null;
