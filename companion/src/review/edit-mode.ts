@@ -40,6 +40,8 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
   let version = deps.version;
   let sel: Element | undefined;
   let hovered: Element | undefined;
+  /** Where the pointer last was over the page. A scroll or pan moves the page under it. */
+  let pointer: { x: number; y: number } | undefined;
   let typing: { el: Element; before: string } | undefined;
   let press: { el: Element; x: number; y: number } | undefined;
   let drag: { el: Element; drop?: Drop } | undefined;
@@ -159,6 +161,7 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
 
   function layout(): void {
     if (!editing) return;
+    if (pointer && !drag && !sizing) hovered = editableOf(document.elementFromPoint(pointer.x, pointer.y));
     if (hovered && hovered !== sel && !drag && hovered.isConnected) put(hoverBox, hovered.getBoundingClientRect());
     else hide(hoverBox);
     if (!sel || !sel.isConnected) {
@@ -380,9 +383,14 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     },
     true,
   );
+  document.documentElement.addEventListener('pointerleave', () => {
+    pointer = hovered = undefined;
+    layout();
+  });
   addEventListener(
     'pointermove',
     (e) => {
+      pointer = { x: e.clientX, y: e.clientY };
       if (!editing) return;
       if (sizing) return;
       if (!drag) {

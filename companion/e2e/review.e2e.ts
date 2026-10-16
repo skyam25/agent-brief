@@ -172,6 +172,47 @@ test('a page Claude changed marks pins whose element is gone', async () => {
   await expect(page.getByTestId('review-missing')).toHaveCount(1);
 });
 
+test('the hover box follows the page when it scrolls under a still pointer', async () => {
+  const { page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  put(
+    cwd,
+    'site/index.html',
+    '<!doctype html><body style="margin: 0"><div id="a" style="height: 900px; background: #eee">A</div><div id="b" style="height: 900px; background: #ccc">B</div></body>',
+  );
+  put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs: [PAGE] }));
+
+  // The overlay's shadow root is closed. Opening it lets the test read the hover box.
+  await page.addInitScript(() => {
+    const attach = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (init) {
+      return attach.call(this, { ...init, mode: 'open' });
+    };
+  });
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await showPanel(ctx.app, page);
+  await page.getByTestId('mode-write').click();
+  await page.getByTestId('output-row-0').click();
+  const frame = page.frameLocator('[data-testid="review-frame"]');
+  await expect(frame.locator('#a')).toBeVisible();
+
+  const box = await page.locator('[data-testid="review-frame"]').boundingBox();
+  await page.mouse.move(box!.x + 100, box!.y + 100);
+  const hoverTop = () =>
+    frame.locator('body').evaluate(() => {
+      const root = document.querySelector('agent-brief-overlay')!.shadowRoot!;
+      const hover = [...root.querySelectorAll<HTMLElement>('.box')].find((b) => !b.matches('.flash, .selected'))!;
+      return Math.round(hover.getBoundingClientRect().top);
+    });
+  const topOf = (sel: string) => frame.locator(sel).evaluate((el) => Math.round(el.getBoundingClientRect().top));
+  await expect.poll(hoverTop).toBe(await topOf('#a'));
+
+  // The page scrolls B under the pointer without a pointer move.
+  await frame.locator('body').evaluate(() => scrollTo(0, 850));
+  await expect.poll(hoverTop).toBe(await topOf('#b'));
+});
+
 test('speech lands on the pin it was said after', async () => {
   const speech = join(ROOT, 'e2e/fixtures/speech.wav');
   test.skip(!existsSync(speech), 'speech fixture missing');
