@@ -91,9 +91,11 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   // Dragging across text quotes it.
   const lede = frame.locator('p.lede');
   const box = (await lede.boundingBox())!;
-  await page.mouse.move(box.x + 4, box.y + box.height / 2);
+  // Along the first line, since the paragraph may wrap.
+  const line = box.y + 8;
+  await page.mouse.move(box.x + 4, line);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.4, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.move(box.x + box.width * 0.4, line, { steps: 6 });
   await page.mouse.up();
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(1).locator('.review-anchor')).toHaveText('p');
@@ -125,9 +127,21 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await page.getByTestId('review-external').click();
   await expect.poll(opened).toContain(join(cwd, 'site', 'index.html'));
 
-  // Back stays on the list, which shows the review under Reviews.
-  await page.getByTestId('review-close').click();
+  // A narrow panel gives the page the room. The toggle brings the list beside it, marking the open
+  // output and listing the review under Reviews, and hides it again.
+  await expect(page.getByTestId('output-row-0')).toBeHidden();
+  await page.getByTestId('review-list-toggle').click();
+  await expect(page.getByTestId('output-row-0')).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('reviews').getByTestId('draft-row').filter({ hasText: 'Review of index.html' })).toContainText('2 comments');
+  await page.getByTestId('review-list-toggle').click();
+  await expect(page.getByTestId('output-row-0')).toBeHidden();
+  await page.getByTestId('review-list-toggle').click();
+  // Items shows in the pane, and the page comes back from its row.
+  await page.getByTestId('items-row').click();
+  await expect(page.getByTestId('items')).toBeVisible();
+  await expect(page.getByTestId('review')).toHaveCount(0);
+  await page.getByTestId('output-row-0').click();
+  await expect(page.getByTestId('review-card')).toHaveCount(2);
   // Write lists notes alone, so the review stays out of it.
   await page.getByTestId('mode-write').click();
   await expect(page.getByTestId('draft-row').filter({ hasText: 'Review of index.html' })).toHaveCount(0);
@@ -250,9 +264,10 @@ test('the page background takes no hover box and no pin', async () => {
   await expect.poll(hoverShown).toBe(true);
 
   // Empty space is the ground: no box, and a click pins nothing.
-  await page.mouse.move(box!.x + 500, box!.y + 400);
+  const ground = { x: box!.x + box!.width - 30, y: box!.y + box!.height / 2 };
+  await page.mouse.move(ground.x, ground.y);
   await expect.poll(hoverShown).toBe(false);
-  await page.mouse.click(box!.x + 500, box!.y + 400);
+  await page.mouse.click(ground.x, ground.y);
   await page.waitForTimeout(300);
   await expect(page.getByTestId('review-card')).toHaveCount(0);
 });

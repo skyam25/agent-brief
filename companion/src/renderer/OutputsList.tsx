@@ -25,7 +25,14 @@ const fileName = (ref: string) => ref.split('/').filter(Boolean).at(-1) ?? ref;
  * The session's outputs: declared ones with their status, then the files Claude
  * only touched, folded under a toggle. Renders nothing when there are none.
  */
-export function OutputsList(props: { store: OutputsStore; sessionId: string; onOpen: (ref: string) => void; onDismiss: (ref: string) => void }) {
+export function OutputsList(props: {
+  store: OutputsStore;
+  sessionId: string;
+  /** The output open beside the list, marked as current. */
+  selectedRef?: string;
+  onOpen: (ref: string) => void;
+  onDismiss: (ref: string) => void;
+}) {
   const { store, sessionId } = props;
   useStore(store);
   const [touchedOpen, setTouchedOpen] = useState<Record<string, boolean>>({});
@@ -46,6 +53,7 @@ export function OutputsList(props: { store: OutputsStore; sessionId: string; onO
       key={r.ref}
       record={r}
       index={all.indexOf(r)}
+      selected={r.ref === props.selectedRef}
       onOpen={() => props.onOpen(r.ref)}
       onDismiss={() => props.onDismiss(r.ref)}
       onMenu={(e) => {
@@ -106,7 +114,7 @@ export function OutputsList(props: { store: OutputsStore; sessionId: string; onO
   );
 }
 
-function OutputRow(props: { record: OutputRecord; index: number; onOpen: () => void; onDismiss: () => void; onMenu: (e: MouseEvent) => void }) {
+function OutputRow(props: { record: OutputRecord; index: number; selected: boolean; onOpen: () => void; onDismiss: () => void; onMenu: (e: MouseEvent) => void }) {
   const { record: r, index } = props;
   const label = outputLabel(r);
   const declared = r.tier === 'declared';
@@ -114,7 +122,7 @@ function OutputRow(props: { record: OutputRecord; index: number; onOpen: () => v
   const at = outputTouchedAt(r);
   return (
     <li className="output-item">
-      <button className="ghost draft-row output-row" onClick={props.onOpen} onContextMenu={props.onMenu} title={r.ref} data-testid={`output-row-${index}`} data-ref={r.ref}>
+      <button className="ghost draft-row output-row" aria-current={props.selected} onClick={props.onOpen} onContextMenu={props.onMenu} title={r.ref} data-testid={`output-row-${index}`} data-ref={r.ref}>
         <span className="lines">
           <span className="title-line">
             <span className="title">{label}</span>

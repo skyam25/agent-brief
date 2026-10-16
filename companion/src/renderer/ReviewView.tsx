@@ -6,7 +6,7 @@ import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } fro
 import type { DraftBook } from './drafts';
 import { newPictureId } from './editor/pictures';
 import { useStore } from './hooks';
-import { BackIcon, CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, TrashIcon } from './Icons';
+import { CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIcon } from './Icons';
 import { Inspector } from './Inspector';
 import { OVERALL, type ReviewVoice } from './review-voice';
 
@@ -45,7 +45,9 @@ export function ReviewView(props: {
   book: DraftBook;
   draft: ReviewDraft;
   voice: ReviewVoice;
-  onClose: () => void;
+  /** Whether the list beside the pane shows. The pane's first button hides or shows it. */
+  listOpen: boolean;
+  onToggleList: () => void;
   onSend: () => void;
   onError: (message: string) => void;
 }) {
@@ -270,8 +272,15 @@ export function ReviewView(props: {
   return (
     <div className="review" data-testid="review" data-escape-owner={commenting || isEditing ? '' : undefined}>
       <header className="review-bar">
-        <button className="ghost icon-button" title="Back to the list" aria-label="Back to the list" onClick={props.onClose} data-testid="review-close">
-          <BackIcon />
+        <button
+          className="ghost icon-button"
+          title={props.listOpen ? 'Hide the list' : 'Show the list'}
+          aria-label={props.listOpen ? 'Hide the list' : 'Show the list'}
+          aria-pressed={props.listOpen}
+          onClick={props.onToggleList}
+          data-testid="review-list-toggle"
+        >
+          <SidebarIcon />
         </button>
         <span className="review-title" title={review.path}>
           Review <span className="muted">· {baseName(review.path)}</span>

@@ -173,8 +173,3 @@ export const ExternalIcon = () => (
   </Icon>
 );
 
-export const BackIcon = () => (
-  <Icon>
-    <path d="m15 18-6-6 6-6" />
-  </Icon>
-);
