@@ -86,6 +86,7 @@ Notes on types.
 - Use `frame` to group a region. Give it a `label` as its title and size it to hold its children.
 - Bind arrows by id so they follow the shapes when the user moves them. Use free points only for callouts.
 - Colours are names, not hex values.
+- Shapes, arrows and lines draw in violet unless you give a `color`. Text and labels draw in a neutral sans font, which the dark theme shows as near-white. A `color` on a `text` element tints it.
 
 ### Example
 

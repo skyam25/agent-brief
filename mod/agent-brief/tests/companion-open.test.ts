@@ -166,15 +166,15 @@ describe('the Sketch and Write buttons above the prompt', () => {
     expect(world.toasts).toEqual([])
   })
 
-  test('a Write press with an empty box says so before Claude has replied', async ($, on) => {
+  test('a Write press with an empty box opens an empty note before Claude has replied', async ($, on) => {
     const { app, world, clock, start } = await setupCompanion($, on)
     on('session.messages', () => ({ value: [] }))
     await start()
     await clock.settle()
     await $.ui.render(BAND)
     await $.ui.press({ plugin: 'agent-brief', key: 'write' })
-    expect(app.to('POST', '/open')).toEqual([])
-    expect(world.toasts).toEqual(['Nothing to write yet'])
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write' })
+    expect(world.toasts).toEqual([])
   })
 
   test('a Write press moves the prompt box draft into the note and empties the box', async ($, on) => {

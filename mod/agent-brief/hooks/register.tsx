@@ -20,7 +20,6 @@ import {
   ITEMS_SECTION,
   LAUNCH_ATTEMPTS,
   LAUNCH_STEP_S,
-  NOTHING_TO_WRITE,
   POLL_GAP_MS,
   REREGISTER_MS,
   keepReply,
@@ -423,15 +422,14 @@ async function writeCommand($: EngineInterface, args: string): Promise<string> {
 
 /**
  * The Write button moves the prompt box's draft, pastes included, into the new note. The box empties only once the note holds it.
- * With the box empty, the note takes Claude's last reply.
+ * With the box empty, the note takes Claude's last reply, or starts empty before Claude has replied.
  */
 async function writeFromBox($: EngineInterface): Promise<string> {
   const box = await $.prompt.read()
   const text = expandPastes(box.text, pastes).trim()
   if (text === '') {
     const reply = lastReply(await $.session.messages().catch(() => []))
-    if (reply === undefined) return NOTHING_TO_WRITE
-    return (await openCompanion($, 'write', { text: reply })).message
+    return (await openCompanion($, 'write', { text: reply ?? '' })).message
   }
   const opened = await openCompanion($, 'write', { text })
   if (opened.tookText) await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)

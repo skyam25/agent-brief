@@ -15,8 +15,6 @@ export const LAUNCH_STEP_S = '0.25'
 
 export const SKETCH_OPENED = 'Agent Brief open — sketch, then press Send.'
 export const WRITE_OPENED = 'Agent Brief open — write, then press Send.'
-/** The Write button's toast when the box is empty and Claude has not replied. */
-export const NOTHING_TO_WRITE = 'Nothing to write yet'
 export const STACK_OPENED = 'Agent Brief open in Stack — drop or paste screenshots, talk, then press Send.'
 
 export const ITEMS_SECTION = 'agent-brief:items'
