@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Talk Button Placement</title>
+<style>
+  /*
+   * Canvas shell. Each <section class="artboard"> places itself from data-x, data-y, data-w and data-h.
+   * Everything inside an artboard is static markup, so Agent Brief's edit mode can change it in the file.
+   * Scripts only add behavior: pan and zoom, frame moves in edit mode, and the live artboard's states.
+   */
+
+  :root {
+    --ground: #0d0d10;
+    --dot: #23232a;
+    --strip: #8b8b95;
+    --chrome: #1c1c21;
+    --chrome-line: #2e2e36;
+    --chrome-fg: #e3e3e8;
+    --edit: #2f7cf6;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ground); color: var(--chrome-fg); font: 13px -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif; }
+  #viewport { position: fixed; inset: 0; background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 24px 24px; touch-action: none; }
+  #viewport.panning { cursor: grabbing; }
+  #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .canvas-title { position: absolute; margin: 0; font-size: 56px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+  .artboard { position: absolute; }
+  .artboard > .name { position: absolute; left: 0; bottom: 100%; padding-bottom: 8px; display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--strip); white-space: nowrap; cursor: zoom-in; user-select: none; }
+  .artboard > .name .live { padding: 1px 6px; border-radius: 4px; background: #2b3a66; color: #b8c8ff; font-size: 11px; font-weight: 600; }
+  .artboard > .frame { width: 100%; height: 100%; overflow: hidden; border-radius: 4px; box-shadow: 0 0 0 1px #2a2a31, 0 12px 40px rgb(0 0 0 / 0.45); }
+  .artboard > .frame-resize { display: none; position: absolute; right: -7px; bottom: -7px; width: 12px; height: 12px; border: 2px solid var(--edit); border-radius: 3px; background: #fff; cursor: nwse-resize; }
+  html[data-agent-brief-editing] .artboard > .name { cursor: move; }
+  html[data-agent-brief-editing] .artboard > .frame-resize { display: block; }
+  #zoom { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--chrome); box-shadow: 0 0 0 1px var(--chrome-line); }
+  #zoom button { height: 30px; min-width: 30px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--chrome-fg); font: inherit; cursor: pointer; }
+  #zoom button:hover { background: #2c2c34; }
+  #zoom output { display: flex; align-items: center; justify-content: center; min-width: 52px; font-variant-numeric: tabular-nums; color: var(--strip); }
+
+  /* Agent Brief panel, dark theme tokens from companion/src/renderer/styles.css */
+
+  .ab { --bg: #121212; --fg: #e3e3e8; --muted: #8b8b95; --line: #2e2e36; --raised: #232329; --selected: #403e6a; --accent: #a8a5ff; --accent-fg: #121212; --error: #ff8787; background: var(--bg); color: var(--fg); font-size: 13px; }
+  .ab button { font: inherit; cursor: pointer; }
+  .ab svg { flex: none; display: block; }
+  .seg { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--raised); }
+  .seg span { padding: 6px 12px; border-radius: 8px; color: #c7c7cf; }
+  .seg span.on { background: var(--selected); color: var(--fg); font-weight: 600; }
+  .footer { height: 56px; box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; gap: 8px; }
+  .footer[hidden] { display: none; }
+  .left { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+  .btn { height: 30px; box-sizing: border-box; padding: 0 12px 0 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--fg); font-weight: 500; white-space: nowrap; }
+  .btn.talk { border-color: var(--line); background: var(--raised); }
+  .btn kbd { margin-left: 2px; font: 11px -apple-system, BlinkMacSystemFont, sans-serif; color: var(--muted); }
+  .btn.stop { border-color: var(--error); color: var(--error); font-weight: 600; }
+  .btn.ghost { color: #c7c7cf; padding: 0 10px; }
+  .btn.primary { min-width: 80px; justify-content: center; border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+  .square { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+  .divider { flex: none; width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
+  .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .chev { color: var(--muted); }
+  .rec-clock { flex: none; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; background: rgb(255 135 135 / 0.14); color: var(--error); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .meter { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 24px; }
+  .meter i { width: 3px; height: 3px; border-radius: 2px; background: var(--error); opacity: 0.8; }
+  .hint { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .take { flex: none; height: 24px; box-sizing: border-box; padding: 0 2px 0 8px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); font-variant-numeric: tabular-nums; }
+  .take .mic { color: var(--accent); }
+  .take button { width: 20px; height: 20px; padding: 0; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+  .take button:hover, .btn.ghost:hover { background: #2c2c34; }
+  .sketch-box { border: 2px solid #c7c7cf; border-radius: 10px; display: flex; align-items: center; justify-content: center; font: 18px 'Chalkboard SE', 'Comic Sans MS', cursive; }
+  .label { display: block; margin-bottom: 6px; color: var(--muted); }
+  .row { border: 1px solid var(--line); border-radius: 10px; }
+  .section { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted); }
+  .today-mic { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; outline: 2px dashed var(--error); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+
+<div id="viewport" data-ab-ground>
+  <div id="world">
+    <h1 class="canvas-title" style="left: 0; top: -150px">Talk button placement</h1>
+
+    <section class="artboard" data-title="Proposed · try it" data-x="0" data-y="0" data-w="1100" data-h="680" data-live>
+      <div class="frame ab" style="display: flex">
+        <aside style="flex: 0 0 200px; box-sizing: border-box; padding: 14px 10px; background: #18181c; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px">
+          <div style="padding: 4px 8px 10px; color: var(--muted)">Notes</div>
+          <div class="section" style="padding: 0 8px">RUNNING</div>
+          <div style="display: flex; gap: 8px; align-items: flex-start; padding: 8px; border-radius: 8px; background: var(--selected)">
+            <span class="dot" style="margin-top: 5px"></span>
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <b>agent-brief</b>
+              <span style="font-size: 11px; color: #b9b8d6">~/Projects/agent-brief</span>
+            </div>
+          </div>
+        </aside>
+        <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column">
+          <header style="height: 52px; box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line)">
+            <div class="seg"><span class="on">Sketch</span><span>Write</span><span>Items</span></div>
+            <div class="seg"><span>talk-button</span></div>
+            <div class="seg"><span class="on">Canvas</span><span>Stack</span></div>
+          </header>
+          <main style="flex: 1 1 auto; display: flex; align-items: center; justify-content: center">
+            <div class="sketch-box" style="width: 180px; height: 110px">Login</div>
+            <div style="width: 110px; height: 2px; background: #c7c7cf"></div>
+            <div style="width: 0; height: 0; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 12px solid #c7c7cf"></div>
+            <div class="sketch-box" style="width: 220px; height: 150px">Dashboard</div>
+          </main>
+          <div id="live" style="border-top: 1px solid var(--line)">
+            <footer class="footer" data-state="idle">
+              <div class="left"><span class="hint" data-sent hidden>Sent to agent-brief</span></div>
+              <button class="btn talk" data-act="talk"><svg width="15" height="15"><use href="#i-mic"/></svg>Talk<kbd>⌥T</kbd></button>
+              <span class="divider"></span>
+              <button class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></button>
+              <button class="btn primary" data-act="send">Send</button>
+            </footer>
+            <footer class="footer" data-state="rec" hidden>
+              <div class="left">
+                <span class="rec-clock"><span class="rec-dot"></span><span data-clock>00:00</span></span>
+                <span class="meter" data-meter><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                <span class="hint">Listening. Keep sketching.</span>
+              </div>
+              <button class="btn ghost" data-act="discard"><svg width="14" height="14"><use href="#i-x"/></svg>Discard</button>
+              <button class="btn stop" data-act="stop"><span class="square"></span>Stop</button>
+              <span class="divider"></span>
+              <button class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></button>
+              <button class="btn primary" data-act="send">Send</button>
+            </footer>
+            <footer class="footer" data-state="take" hidden>
+              <div class="left">
+                <span class="take"><svg class="mic" width="14" height="14"><use href="#i-mic"/></svg><span data-take>00:00</span> recorded<button data-act="discard" aria-label="Discard what you recorded"><svg width="12" height="12"><use href="#i-x"/></svg></button></span>
+              </div>
+              <button class="btn talk" data-act="talk"><svg width="15" height="15"><use href="#i-mic"/></svg>Talk more<kbd>⌥T</kbd></button>
+              <span class="divider"></span>
+              <button class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></button>
+              <button class="btn primary" data-act="send">Send</button>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="artboard" data-title="Footer states · today vs proposed" data-x="1180" data-y="0" data-w="1100" data-h="680">
+      <div class="frame ab" style="box-sizing: border-box; padding: 26px 32px; display: flex; flex-direction: column; gap: 14px">
+        <div class="section">TODAY</div>
+        <div>
+          <span class="label">Idle. The mic sits between the session and Send.</span>
+          <div class="row footer" style="justify-content: flex-end; gap: 6px">
+            <span class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="today-mic"><svg width="16" height="16"><use href="#i-mic"/></svg></span>
+            <span class="btn primary">Send</span>
+          </div>
+        </div>
+        <div>
+          <span class="label">Recording. A small timer in the corner, with no level meter and no way to discard.</span>
+          <div class="row footer" style="justify-content: flex-end; gap: 6px">
+            <span class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="rec-clock" style="height: 30px"><span class="rec-dot"></span>00:07</span>
+            <span class="btn primary">Send</span>
+          </div>
+        </div>
+        <div class="section" style="margin-top: 8px; color: var(--accent)">PROPOSED · SHIPPED IN THE APP</div>
+        <div>
+          <span class="label">Idle. A labeled Talk button comes first, and a divider keeps the session and Send together.</span>
+          <div class="row footer">
+            <div class="left"></div>
+            <span class="btn talk"><svg width="15" height="15"><use href="#i-mic"/></svg>Talk<kbd>⌥T</kbd></span>
+            <span class="divider"></span>
+            <span class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="btn primary">Send</span>
+          </div>
+        </div>
+        <div>
+          <span class="label">Recording. The left side shows the clock, the live level and a hint. Discard and Stop replace Talk.</span>
+          <div class="row footer">
+            <div class="left">
+              <span class="rec-clock"><span class="rec-dot"></span>00:07</span>
+              <span class="meter"><i style="height: 5px"></i><i style="height: 9px"></i><i style="height: 16px"></i><i style="height: 20px"></i><i style="height: 13px"></i><i style="height: 7px"></i><i style="height: 11px"></i><i style="height: 19px"></i><i style="height: 22px"></i><i style="height: 17px"></i><i style="height: 9px"></i><i style="height: 5px"></i><i style="height: 8px"></i><i style="height: 15px"></i><i style="height: 20px"></i><i style="height: 11px"></i><i style="height: 6px"></i><i style="height: 4px"></i><i style="height: 10px"></i><i style="height: 16px"></i><i style="height: 21px"></i><i style="height: 18px"></i><i style="height: 12px"></i><i style="height: 7px"></i><i style="height: 5px"></i><i style="height: 9px"></i><i style="height: 14px"></i><i style="height: 8px"></i></span>
+              <span class="hint">Listening. Keep sketching.</span>
+            </div>
+            <span class="btn ghost"><svg width="14" height="14"><use href="#i-x"/></svg>Discard</span>
+            <span class="btn stop"><span class="square"></span>Stop</span>
+            <span class="divider"></span>
+            <span class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="btn primary">Send</span>
+          </div>
+        </div>
+        <div>
+          <span class="label">Take recorded. The chip shows what Send carries and drops it. Talk becomes Talk more.</span>
+          <div class="row footer">
+            <div class="left">
+              <span class="take"><svg class="mic" width="14" height="14"><use href="#i-mic"/></svg>00:12 recorded<span class="btn" style="width: 20px; height: 20px; padding: 0; justify-content: center"><svg width="12" height="12"><use href="#i-x"/></svg></span></span>
+            </div>
+            <span class="btn talk"><svg width="15" height="15"><use href="#i-mic"/></svg>Talk more<kbd>⌥T</kbd></span>
+            <span class="divider"></span>
+            <span class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="btn primary">Send</span>
+          </div>
+        </div>
+        <div>
+          <span class="label">Review mode. Same slot, with a label that says what talking does there.</span>
+          <div class="row footer">
+            <div class="left"></div>
+            <span class="btn talk"><svg width="15" height="15"><use href="#i-mic"/></svg>Talk through page<kbd>⌥T</kbd></span>
+            <span class="divider"></span>
+            <span class="btn"><span class="dot"></span>agent-brief<svg class="chev" width="12" height="12"><use href="#i-chev"/></svg></span>
+            <span class="btn primary">Send</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="zoom" aria-label="Zoom" data-ab-pass>
+  <button id="z-out" title="Zoom out" aria-label="Zoom out">−</button>
+  <output id="z-level">100%</output>
+  <button id="z-in" title="Zoom in" aria-label="Zoom in">+</button>
+  <button id="z-fit" title="Fit everything (⇧1)">Fit</button>
+</div>
+
+<script>
+  // The live artboard switches between its three footers. Only the clock and the meter change their words or sizes.
+
+  const live = document.getElementById('live');
+  const footers = Object.fromEntries([...live.querySelectorAll('[data-state]')].map((f) => [f.dataset.state, f]));
+  const clockOf = (ms) => {
+    const s = Math.floor(ms / 1000);
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+  const bars = [...live.querySelectorAll('[data-meter] i')];
+  const voice = { state: 'idle', since: 0, kept: 0 };
+  const show = () => {
+    for (const [name, f] of Object.entries(footers)) f.hidden = name !== voice.state;
+    live.querySelector('[data-take]').textContent = clockOf(voice.kept);
+  };
+  const acts = {
+    talk: () => Object.assign(voice, { state: 'rec', since: Date.now() }),
+    stop: () => Object.assign(voice, { state: 'take', kept: voice.kept + Date.now() - voice.since }),
+    discard: () => Object.assign(voice, { state: 'idle', kept: 0 }),
+    send: () => {
+      Object.assign(voice, { state: 'idle', kept: 0 });
+      const sent = live.querySelector('[data-sent]');
+      sent.hidden = false;
+      setTimeout(() => (sent.hidden = true), 2000);
+    },
+  };
+  live.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (!act || !acts[act]) return;
+    acts[act]();
+    show();
+  });
+  setInterval(() => {
+    if (voice.state !== 'rec') return;
+    live.querySelector('[data-clock]').textContent = clockOf(voice.kept + Date.now() - voice.since);
+    for (let i = 0; i < bars.length - 1; i++) bars[i].style.height = bars[i + 1].style.height || '3px';
+    bars.at(-1).style.height = `${Math.round(3 + Math.random() * 20)}px`;
+  }, 90);
+  show();
+
+  // Pan and zoom. Wheel pans, ⌘ or ⌃ wheel and pinch zoom at the pointer, dragging the ground pans.
+
+  const viewport = document.getElementById('viewport');
+  const world = document.getElementById('world');
+  const level = document.getElementById('z-level');
+  const view = { x: 0, y: 0, z: 1 };
+  const boards = [...document.querySelectorAll('.artboard')];
+  const isEditing = () => document.documentElement.hasAttribute('data-agent-brief-editing');
+  const VIEW_KEY = `canvas-view:${location.pathname}`;
+
+  const place = (b) => {
+    const { x, y, w, h } = b.dataset;
+    Object.assign(b.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+  };
+
+  /** Tells Agent Brief's edit mode to save attributes a frame move changed. */
+  const saveAttrs = (target, set) => document.dispatchEvent(new CustomEvent('agent-brief:edit', { detail: { target, set } }));
+
+  /** Drags with the pointer captured on `el`, calling `move` with the change in canvas pixels. */
+  function dragOn(el, start, move, end) {
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      const from = { x: e.clientX, y: e.clientY, ...start() };
+      let moved = false;
+      const onMove = (m) => {
+        const dx = (m.clientX - from.x) / view.z;
+        const dy = (m.clientY - from.y) / view.z;
+        if (Math.hypot(dx, dy) * view.z > 3) moved = true;
+        if (moved) move(from, dx, dy);
+      };
+      const onUp = () => {
+        el.removeEventListener('pointermove', onMove);
+        el.removeEventListener('pointerup', onUp);
+        end(moved);
+      };
+      el.addEventListener('pointermove', onMove);
+      el.addEventListener('pointerup', onUp);
+    });
+  }
+
+  const snap = (v) => Math.round(v / 10) * 10;
+
+  for (const b of boards) {
+    place(b);
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.setAttribute('data-ab-pass', '');
+    name.innerHTML = `<span></span>${b.hasAttribute('data-live') ? '<span class="live">Interactive</span>' : ''}`;
+    name.firstChild.textContent = b.dataset.title;
+    name.title = 'Click to zoom to this artboard. In edit mode, drag to move it.';
+    b.prepend(name);
+    dragOn(
+      name,
+      () => ({ x0: +b.dataset.x, y0: +b.dataset.y }),
+      (from, dx, dy) => {
+        if (!isEditing()) return;
+        b.dataset.x = snap(from.x0 + dx);
+        b.dataset.y = snap(from.y0 + dy);
+        place(b);
+      },
+      (moved) => {
+        if (!moved) fit([b]);
+        else if (isEditing()) saveAttrs(b, { 'data-x': b.dataset.x, 'data-y': b.dataset.y });
+      },
+    );
+    const grip = document.createElement('div');
+    grip.className = 'frame-resize';
+    grip.setAttribute('data-ab-pass', '');
+    grip.title = 'Drag to resize the artboard';
+    b.append(grip);
+    dragOn(
+      grip,
+      () => ({ w0: +b.dataset.w, h0: +b.dataset.h }),
+      (from, dx, dy) => {
+        b.dataset.w = Math.max(80, snap(from.w0 + dx));
+        b.dataset.h = Math.max(60, snap(from.h0 + dy));
+        place(b);
+      },
+      (moved) => moved && saveAttrs(b, { 'data-w': b.dataset.w, 'data-h': b.dataset.h }),
+    );
+  }
+
+  const apply = () => {
+    world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+    viewport.style.backgroundPosition = `${view.x}px ${view.y}px`;
+    viewport.style.backgroundSize = `${24 * view.z}px ${24 * view.z}px`;
+    level.textContent = `${Math.round(view.z * 100)}%`;
+    try {
+      sessionStorage.setItem(VIEW_KEY, JSON.stringify(view));
+    } catch {}
+
+    // The review pane's pins and edit boxes follow scroll events, so a pan or zoom sends one.
+    dispatchEvent(new Event('scroll'));
+  };
+  const zoomAt = (z, px, py) => {
+    const next = Math.min(4, Math.max(0.1, z));
+    view.x = px - ((px - view.x) * next) / view.z;
+    view.y = py - ((py - view.y) * next) / view.z;
+    view.z = next;
+    apply();
+  };
+  function fit(targets = boards) {
+    const box = targets.reduce((a, b) => {
+      const x = +b.dataset.x, y = +b.dataset.y - 40, r = x + +b.dataset.w, d = +b.dataset.y + +b.dataset.h;
+      return { x: Math.min(a.x, x), y: Math.min(a.y, y), r: Math.max(a.r, r), d: Math.max(a.d, d) };
+    }, { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity });
+    if (targets === boards) box.y -= 120;
+    const pad = 48;
+    view.z = Math.min(2, (innerWidth - pad * 2) / (box.r - box.x), (innerHeight - pad * 2) / (box.d - box.y));
+    view.x = (innerWidth - (box.r - box.x) * view.z) / 2 - box.x * view.z;
+    view.y = (innerHeight - (box.d - box.y) * view.z) / 2 - box.y * view.z;
+    apply();
+  }
+
+  viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) zoomAt(view.z * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+    else {
+      view.x -= e.deltaX;
+      view.y -= e.deltaY;
+      apply();
+    }
+  }, { passive: false });
+
+  let pan;
+  viewport.addEventListener('pointerdown', (e) => {
+    if (e.target !== viewport) return;
+    pan = { x: e.clientX - view.x, y: e.clientY - view.y };
+    viewport.classList.add('panning');
+    viewport.setPointerCapture(e.pointerId);
+  });
+  viewport.addEventListener('pointermove', (e) => {
+    if (!pan) return;
+    view.x = e.clientX - pan.x;
+    view.y = e.clientY - pan.y;
+    apply();
+  });
+  viewport.addEventListener('pointerup', () => {
+    pan = undefined;
+    viewport.classList.remove('panning');
+  });
+
+  const center = () => [innerWidth / 2, innerHeight / 2];
+  document.getElementById('z-in').onclick = () => zoomAt(view.z * 1.25, ...center());
+  document.getElementById('z-out').onclick = () => zoomAt(view.z / 1.25, ...center());
+  document.getElementById('z-fit').onclick = () => fit();
+  addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLElement && e.target.isContentEditable) return;
+    if (e.shiftKey && e.code === 'Digit1') fit();
+    if (e.shiftKey && e.code === 'Digit0') zoomAt(1, ...center());
+  });
+  addEventListener('resize', () => fit());
+
+  // A reload after an edit keeps the view where it was.
+  let saved;
+  try {
+    saved = JSON.parse(sessionStorage.getItem(VIEW_KEY) ?? 'null');
+  } catch {}
+  if (saved && Number.isFinite(saved.z)) {
+    Object.assign(view, saved);
+    apply();
+  } else fit();
+</script>
+</body>
+</html>
