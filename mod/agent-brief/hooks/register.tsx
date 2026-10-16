@@ -85,7 +85,6 @@ import { CLEAR_PIXEL } from './show-logic'
 import {
   DICTATE_ARGV,
   DICTATION_EMPTY,
-  DICTATION_FILLED,
   DICTATION_MAX_MS,
   DICTATION_NO_BOX,
   YAP_MISSING,
@@ -546,14 +545,11 @@ async function runDictation($: EngineInterface): Promise<void> {
   }
 }
 
-/** Appends to the draft as a delivery does. A box that refuses keeps the words on the clipboard. */
+/** Appends to the draft as a delivery does. The words in the box say it worked; a box that refuses keeps them on the clipboard. */
 async function fillDictation($: EngineInterface, text: string): Promise<void> {
   const box = await $.prompt.read()
   const filled = await $.prompt.fill(fillRequest(box.text, text))
-  if (filled.isFilled) {
-    $.ui.toast(DICTATION_FILLED)
-    return
-  }
+  if (filled.isFilled) return
   await $.ui.copy({ text }).catch(() => undefined)
   $.ui.toast(DICTATION_NO_BOX, { timeoutMs: 8000 })
 }

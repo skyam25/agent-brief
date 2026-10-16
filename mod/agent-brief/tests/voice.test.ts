@@ -5,7 +5,6 @@ import type { MockClock, TestBody } from 'claude-code/testing'
 import {
   DICTATE_ARGV,
   DICTATION_EMPTY,
-  DICTATION_FILLED,
   DICTATION_MAX_MS,
   DICTATION_NO_BOX,
   YAP_MISSING_TEXT,
@@ -94,7 +93,7 @@ describe('the Talk button', () => {
     await clock.settle()
     expect(yap.killed).toEqual([`-INT ${PID}`])
     expect(app.fills).toEqual([{ text: SAID, mode: 'append' }])
-    expect(world.toasts).toEqual([DICTATION_FILLED])
+    expect(world.toasts).toEqual([])
     expect(await bandText($)).toContain('"label":"🎙 Talk"')
   })
 

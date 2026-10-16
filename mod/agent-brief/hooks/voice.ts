@@ -23,7 +23,6 @@ export const DICTATE_ARGV = [
   'PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; command -v yap >/dev/null || exit 127; echo "$$"; exec yap dictate --txt',
 ] as const
 
-export const DICTATION_FILLED = 'Dictation is in the prompt box — edit it, then press Enter'
 export const DICTATION_EMPTY = 'Dictation heard nothing'
 export const DICTATION_NO_BOX = 'Could not fill the prompt box, so the dictation is on the clipboard'
 export const YAP_MISSING_TEXT = 'Voice needs yap, which transcribes on device: brew install yap'
