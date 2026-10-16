@@ -19,11 +19,21 @@ import {
   upsertWrite,
 } from './outputs'
 
-/** Set by register.tsx at session start. */
+/** Set by register.tsx at session start, for engines without `session.root`. */
 const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
 
-/** The folder the session started in, where the app looks for its outputs. A cd in the shell does not move it. */
+/**
+ * The session's project folder, where the app registers it and looks for its outputs.
+ * A cd in the shell does not move it. Engines without `session.root` use the folder kept at start.
+ * As homeCwd in register.tsx.
+ */
 async function homeCwd($: EngineInterface): Promise<string> {
+  try {
+    const root = await $.session.root()
+    if (root) return root
+  } catch {
+    // An older engine has no session.root.
+  }
   return (await read($, homeRef)) ?? (await $.session.cwd())
 }
 

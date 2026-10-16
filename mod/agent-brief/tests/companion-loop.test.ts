@@ -45,6 +45,14 @@ describe('registration', () => {
     expect(app.to('POST', '/sessions').at(-1)!.body).toMatchObject({ cwd: CWD, title: 'work' })
   })
 
+  test('registers with the project root when the session starts after a cd', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    world.cwd = `${CWD}/design`
+    await start()
+    await clock.settle()
+    expect(app.to('POST', '/sessions').at(-1)!.body).toMatchObject({ cwd: CWD, title: 'work' })
+  })
+
   test('a resume keeps the loop running for the session that took its place', async ($, on) => {
     const { app, clock, start } = await setupCompanion($, on)
     await start()

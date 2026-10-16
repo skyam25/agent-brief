@@ -71,6 +71,24 @@ describe('declare_output', () => {
     expect([...world.files.keys()].some(k => k.startsWith(`${CWD}/companion/`))).toBe(false)
   })
 
+  test('a session that starts after a cd keeps its outputs file at the project root', async ($, on) => {
+    const { world, start } = setup($, on)
+    world.cwd = `${CWD}/design`
+    await start()
+    await declare($, { title: 'Setup canvas', path: 'design/onboarding.html' })
+    expect(outputsOf(world)?.outputs[0]).toMatchObject({ ref: 'design/onboarding.html' })
+    expect([...world.files.keys()].some(k => k.startsWith(`${CWD}/design/`))).toBe(false)
+  })
+
+  test('an engine without session.root keeps the folder the session started in', async ($, on) => {
+    const { world, start } = setup($, on)
+    world.root = undefined
+    await start()
+    world.cwd = `${CWD}/companion`
+    await declare($, { title: 'Launch page', url: 'https://claude.ai/artifact/abc' })
+    expect(outputsOf(world)?.outputs[0]).toMatchObject({ ref: 'https://claude.ai/artifact/abc' })
+  })
+
   test('declares a URL as an artifact', async ($, on) => {
     const { world, start } = setup($, on)
     await start()

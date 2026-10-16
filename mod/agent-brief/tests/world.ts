@@ -54,6 +54,8 @@ export const ingestLine = (name: string) =>
 export type World = {
   /** The shell's folder. A test sets it to stand for a cd. */
   cwd: string
+  /** The session's project root, which a cd does not move. Undefined stands for an engine without `session.root`. */
+  root: string | undefined
   files: Map<string, string>
   runs: Run[]
   toasts: string[]
@@ -74,6 +76,7 @@ export type World = {
 export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cwd = CWD): World {
   const world: World = {
     cwd,
+    root: cwd,
     files: new Map(Object.entries(files)),
     runs: [],
     toasts: [],
@@ -137,6 +140,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
   })
   on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : world.env[e.name] }))
   on('session.cwd', () => ({ value: world.cwd }))
+  on('session.root', () => (world.root === undefined ? { deny: 'no session.root on this engine' } : { value: world.root }))
   on('ui.toast', ($, e) => {
     world.toasts.push(e.text)
     return { value: undefined }
