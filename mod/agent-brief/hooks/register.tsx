@@ -180,8 +180,17 @@ async function sessionExtras($: EngineInterface) {
   return { host: hostOf(env), summary: summaryOf(Array.isArray(messages) ? messages : []) }
 }
 
-/** The folder the session started in, which a cd in the shell does not move. */
+/**
+ * The session's project folder, which a cd in the shell does not move.
+ * Engines without `session.root` use the folder kept at start. As homeCwd in outputs-file.ts.
+ */
 async function homeCwd($: EngineInterface): Promise<string> {
+  try {
+    const root = await $.session.root()
+    if (root) return root
+  } catch {
+    // An older engine has no session.root.
+  }
   return (await read($, homeRef)) ?? (await $.session.cwd())
 }
 
@@ -738,7 +747,7 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     // A reload fires this again from wherever the shell has moved, so only the first one sets home.
     if ((await read($, homeRef)) === null) {
-      const cwd = await $.session.cwd()
+      const cwd = await homeCwd($)
       await update($, homeRef, () => cwd).catch(() => undefined)
     }
     // A reload ends yap with the old module, so a kept listening state is stale.
