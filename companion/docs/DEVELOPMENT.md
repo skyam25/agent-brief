@@ -131,6 +131,8 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - `COMPANION_TEST_VISIBLE=1` shows the window for debugging.
 - `COMPANION_TEST_MIC=denied` fakes a refused microphone.
 - `COMPANION_TEST_AUDIO=<file.wav>` makes Chromium's fake microphone play that file.
+- Test mode also turns off Chromium's GPU shader disk cache, which kept each test profile at several MB.
+- Each Vitest and Playwright run sets `TMPDIR` to its own folder, `abunit-<pid>` or `abe2e-<pid>` in the system temp folder. The run deletes it at the end. The next run sweeps folders left by runs that crashed or were killed. `KEEP_TEST_TMP=1` keeps the folder for inspection.
 - In off-screen mode, CDP pen input stops creating strokes after the panel has been hidden and shown again. This comes from the test window (`showInactive`, not focusable), not from the app, so tests that hide the panel change the scene directly afterwards.
 
 ## Packaging
