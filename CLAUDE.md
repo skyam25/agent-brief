@@ -53,6 +53,8 @@ Plugin, from `mod/agent-brief/`:
 - `mod/agent-brief/hooks/companion-protocol.ts` is a copy of `companion/src/protocol.ts`. Change both together.
 - E2E runs only with `COMPANION_TEST=1`, which keeps windows off screen. No visible pop-ups during tests.
 - Verify UI headlessly through Playwright `_electron`, not the browser extension.
+- Verify mod UI in a real session, not only in `claude plugin test`: `claude --plugin-dir mod/agent-brief` by hand, or a tmux check like `tests/live/brief-pane.mjs` at 110 to 130 columns. The installed plugin is the app's bundled copy, so a checkout change needs `--plugin-dir`.
+- In a mod press handler, `$.ui.open` comes first with no `await` before it. After an await the engine treats the open as unasked and the pane waits for 144 columns.
 - The app never guesses a send target. A standalone open makes the user pick a session.
 - No ambient nags. Hand-offs are explicit, one step, user-triggered.
 - Bump `companion/package.json` `version` for app releases and `mod/agent-brief/.claude-plugin/plugin.json` `version` for plugin changes.
