@@ -64,6 +64,9 @@ protocol.registerSchemesAsPrivileged([{ scheme: REVIEW_SCHEME, privileges: { sta
 const offscreen = testMode && process.env.COMPANION_TEST_VISIBLE !== '1';
 if (offscreen && process.platform === 'darwin') app.setActivationPolicy('accessory');
 
+// Each test gets a fresh profile, so a GPU shader cache only costs disk.
+if (testMode) app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
 // Tests feed a WAV file to Chromium as the microphone, with no permission prompt.
 if (testMode && process.env.COMPANION_TEST_AUDIO) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
