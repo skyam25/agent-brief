@@ -2,12 +2,23 @@ import { describe, expect, it } from 'vitest';
 import type { Skeleton } from '../protocol';
 import type { Shaped } from './geometry';
 import { PALETTE, TEXT_COLOR, TEXT_FONT } from './palette';
-import { endOf, linearGeometry, planDraw, type PlanContext } from './skeleton';
+import { endOf, labelAlign, linearGeometry, planDraw, type PlanContext } from './skeleton';
 
 function ctx(existing: Record<string, Shaped> = {}, sceneBounds = { x: 0, y: 0, width: 0, height: 0 }): PlanContext {
   let n = 0;
   return { existing: new Map(Object.entries(existing)), sceneBounds, newId: () => `gen${++n}` };
 }
+
+describe('labelAlign', () => {
+  it('lines up a list left and the rest center, unless the caller says', () => {
+    expect(labelAlign('Login')).toBe('center');
+    expect(labelAlign('Title\n- one\n- two')).toBe('left');
+    expect(labelAlign('Title\n• one')).toBe('left');
+    expect(labelAlign('a - b')).toBe('center');
+    expect(labelAlign('Title\n- one', 'center')).toBe('center');
+    expect(labelAlign('Login', 'left')).toBe('left');
+  });
+});
 
 describe('planDraw', () => {
   it('plans an image with its file, inside a frame', () => {

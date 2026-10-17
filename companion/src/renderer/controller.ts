@@ -6,6 +6,7 @@ import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from '@excalidraw
 import type { BoardLayout } from '../protocol';
 import type { BoardHost, BoardReply, BoardRequest, SendPayload } from '../shared/ipc';
 import { boxOf, union, type Shaped } from '../board/geometry';
+import { TEXT_FONT_NAME } from '../board/palette';
 import { isStackFrame, layoutOfScene, planIsEmpty, stackNames, withLayout, type StackElement } from '../board/stack';
 import type { StrokeEvent } from '../voice/types';
 import { buildTimeline } from '../voice/timeline';
@@ -48,7 +49,7 @@ export function parseScene(json: string | null): LoadedScene {
  * are created, so measuring before the font arrives gives wrong sizes.
  */
 async function loadFonts(text: string): Promise<void> {
-  await Promise.all(['Excalifont', 'Xiaolai'].map((f) => document.fonts.load(`20px ${f}`, text).catch(() => [])));
+  await Promise.all([TEXT_FONT_NAME, 'Excalifont', 'Xiaolai'].map((f) => document.fonts.load(`20px ${f}`, text).catch(() => [])));
 }
 
 /** A board to work on: the visible one, or one loaded from disk. */

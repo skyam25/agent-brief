@@ -18,6 +18,10 @@ type Draft = Record<string, any> & { id: string; type: string; x: number; y: num
 
 const FRAME_PADDING = 30;
 
+/** Room between a box's edge and its label, on every side. Excalidraw keeps 5 at the sides itself. */
+const LABEL_PADDING = 16;
+const EXCALIDRAW_LABEL_PADDING = 5;
+
 /** Line an arrow must show on each side of its label. */
 const LABEL_CLEARANCE = 20;
 
@@ -64,6 +68,15 @@ export function drawElements(
   });
 
   const shapes = convert(plan.shapes.map((s) => s.skel));
+  // A box keeps LABEL_PADDING around its label, and grows to hold it.
+  const plannedHeight = new Map(plan.shapes.map((s) => [s.id, s.skel.height as number]));
+  for (const t of shapes) {
+    const c = t.containerId ? shapes.find((d) => d.id === t.containerId) : undefined;
+    if (t.type !== 'text' || !c) continue;
+    const laid = layoutLabel(c, t.originalText, t as unknown as El, plannedHeight.get(c.id));
+    c.height = laid.containerHeight;
+    Object.assign(t, laid.text);
+  }
   const geometry = new Map<string, Shaped>();
   for (const e of liveEls) geometry.set(e.id, e as unknown as Shaped);
   for (const e of shapes) geometry.set(e.id, e as Shaped);
@@ -83,9 +96,21 @@ export function drawElements(
     Object.assign(frame.skel, box);
     geometry.set(frameId, { type: 'frame', ...box });
   };
+  // A placed frame grows to hold children that outgrew it, as a box does for its label.
+  const grown = new Set<string>();
+  const growFrame = (frameId: string, box: Box): Box => {
+    const kids = shapes.filter((d) => frameOf.get(d.id) === frameId);
+    if (kids.length === 0) return box;
+    const next = union([box, pad(union(kids.map((k) => boxOf(k as Shaped))), FRAME_PADDING)]);
+    if (next.x === box.x && next.y === box.y && next.width === box.width && next.height === box.height) return box;
+    grown.add(frameId);
+    return next;
+  };
   for (const f of plan.frames) {
-    if (f.placed) geometry.set(f.id, { type: 'frame', ...(f.skel as unknown as Box) });
-    else fitFrame(f.id, shapes);
+    if (f.placed) {
+      Object.assign(f.skel, growFrame(f.id, f.skel as unknown as Box));
+      geometry.set(f.id, { type: 'frame', ...(f.skel as unknown as Box) });
+    } else fitFrame(f.id, shapes);
   }
 
   const lookup = (id: string) => geometry.get(id);
@@ -135,9 +160,33 @@ export function drawElements(
     }
   }
 
+  // Frames already on the board grow too.
+  for (const frameId of new Set(frameOf.values())) {
+    const frame = liveById.get(frameId);
+    if (!frame || frame.type !== 'frame') continue;
+    const current = replaced.get(frameId) ?? frame;
+    const box = growFrame(frameId, current as unknown as Box);
+    if (grown.has(frameId)) replaced.set(frameId, newElementWith(current, box));
+  }
+
   const next = [...elements.map((e) => replaced.get(e.id) ?? e), ...(drafts as unknown as El[])];
-  const warnings = hiddenArrows(linear);
+  const warnings = [...hiddenArrows(linear), ...grownFrames(grown, next)];
   return { next, response: { ids: plan.ids, batchId, ...(warnings.length ? { warnings } : {}) }, files: plan.files };
+}
+
+/** Frames that grew to hold their contents, and anything they now overlap. */
+function grownFrames(grown: Set<string>, elements: readonly El[]): string[] {
+  const frames = live(elements).filter((e) => e.type === 'frame');
+  const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  return [...grown].map((id) => {
+    const frame = frames.find((f) => f.id === id)!;
+    const box = boxOf(frame as unknown as Shaped);
+    const hit = frames.filter((f) => f.id !== id && overlaps(box, boxOf(f as unknown as Shaped))).map((f) => f.id);
+    const size = `${Math.round(box.width)}×${Math.round(box.height)}`;
+    return hit.length === 0
+      ? `frame ${id} grew to ${size} to hold its contents.`
+      : `frame ${id} grew to ${size} to hold its contents and now overlaps ${hit.join(', ')}. Move ${hit.length === 1 ? 'it' : 'them'} with update.`;
+  });
 }
 
 /** Arrows whose label covers the line, which happens when the shapes they join sit too close. */
@@ -164,28 +213,46 @@ function hiddenArrows(linear: Draft[]): string[] {
 
 const CONTAINERS = new Set(['rectangle', 'ellipse', 'diamond', 'arrow']);
 
-/** Measures and places `text` inside `container` the way Excalidraw lays out labels. */
-function layoutLabel(container: Draft, text: string, textEl: El | undefined) {
+/**
+ * Measures and places `text` inside `container` the way Excalidraw lays out labels.
+ * In a box, the label wraps LABEL_PADDING in from each side, and the box is at least
+ * `minHeight` and tall enough to keep that room above and below.
+ */
+function layoutLabel(container: Draft, text: string, textEl: El | undefined, minHeight = container.height) {
   const t = textEl as Draft | undefined;
+  const boxed = container.type === 'rectangle' && !container.points && container.width > 4 * LABEL_PADDING;
+  const inset = boxed ? LABEL_PADDING - EXCALIDRAW_LABEL_PADDING : 0;
   const skel: ExSkeleton = {
     type: container.type,
     id: 'measure',
-    x: container.x,
+    x: container.x + inset,
     y: container.y,
-    width: container.width,
+    width: container.width - 2 * inset,
     height: container.height,
     ...(container.points ? { points: container.points } : {}),
     label: {
       text,
       strokeColor: t?.strokeColor ?? TEXT_COLOR,
       ...(t ? { fontSize: t.fontSize, fontFamily: t.fontFamily } : { fontFamily: TEXT_FONT }),
+      ...(t?.textAlign ? { textAlign: t.textAlign } : {}),
     },
   };
   const [c, label] = convert([skel], true);
   const { x, y, width, height, fontSize, fontFamily, lineHeight } = label;
+  const containerHeight = boxed ? Math.max(minHeight, height + 2 * LABEL_PADDING) : (c.height as number);
   return {
-    containerHeight: c.height as number,
-    text: { x, y, width, height, fontSize, fontFamily, lineHeight, text: label.text, originalText: text },
+    containerHeight,
+    text: {
+      x,
+      y: boxed ? container.y + (containerHeight - height) / 2 : y,
+      width,
+      height,
+      fontSize,
+      fontFamily,
+      lineHeight,
+      text: label.text,
+      originalText: text,
+    },
   };
 }
 

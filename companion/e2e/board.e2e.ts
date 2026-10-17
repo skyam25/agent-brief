@@ -348,6 +348,52 @@ test('draw warns when an arrow label hides the arrow', async () => {
   expect(drawn.warnings![0]).toMatch(/^arrow near is \d+ px long, so its label "POST \/login with password" hides it/);
 });
 
+test('a label keeps its padding, the box grows to hold it, and its frame grows too', async () => {
+  const { app } = ctx;
+  const note = 'AUGUST (Ahmed, first time)\nConfig entries named and bolded inconsistently (Erin)\nNot written in complete human sentences (Leia)';
+  const list = 'SEPTEMBER (Aaron)\n- Looking much better this round (Erin)\n- One item had no description (Felipe)';
+  const drawn = await backend(app, 'draw', 'current', {
+    elements: [
+      { id: 'f', type: 'frame', x: 0, y: 0, width: 700, height: 160, label: 'Reviewers' },
+      { id: 'a', type: 'sticky', x: 40, y: 40, width: 300, height: 80, label: note, frameId: 'f' },
+      { id: 'b', type: 'sticky', x: 360, y: 40, width: 300, height: 80, label: list, frameId: 'f' },
+      { id: 'g', type: 'frame', x: 0, y: 200, width: 700, height: 100, label: 'Next' },
+    ],
+  });
+  const scene = await live();
+  const el = (id: string) => scene.find((e) => e.id === id)!;
+  type Label = { containerId?: string | null; textAlign: string; x: number; y: number; width: number; height: number };
+  const labelOf = (id: string) => (scene as unknown as Label[]).find((e) => e.containerId === id)!;
+  for (const id of ['a', 'b']) {
+    const box = el(id);
+    const text = labelOf(id);
+    expect(text.x - box.x).toBeGreaterThanOrEqual(16);
+    expect(box.x + box.width - (text.x + text.width)).toBeGreaterThanOrEqual(15);
+    expect(text.y - box.y).toBeGreaterThanOrEqual(15);
+    expect(box.y + box.height - (text.y + text.height)).toBeGreaterThanOrEqual(15);
+  }
+  expect(el('a').height).toBeGreaterThan(80);
+  // Each wrapped line fits the label as the board's font draws it, so nothing runs past the box.
+  const { page } = ctx;
+  for (const id of ['a', 'b']) {
+    const text = labelOf(id) as Label & { text: string; fontSize: number };
+    const widest = await page.evaluate(async ({ lines, size }) => {
+      await document.fonts.load(`${size}px Nunito`);
+      const c = document.createElement('canvas').getContext('2d')!;
+      c.font = `${size}px Nunito`;
+      return Math.max(...lines.map((l) => c.measureText(l).width));
+    }, { lines: text.text.split('\n'), size: text.fontSize });
+    expect(widest).toBeLessThanOrEqual(text.width + 1);
+  }
+  // A label with list lines lines up left, the rest center.
+  expect(labelOf('a').textAlign).toBe('center');
+  expect(labelOf('b').textAlign).toBe('left');
+  // The frame grew to hold the taller notes, and says what it now overlaps.
+  const frame = el('f');
+  expect(frame.y + frame.height).toBeGreaterThanOrEqual(Math.max(el('a').y + el('a').height, el('b').y + el('b').height));
+  expect(drawn.warnings?.some((w) => /^frame f grew to 700×\d+ to hold its contents and now overlaps g\./.test(w))).toBe(true);
+});
+
 test('a drawing at the origin of an empty board shows below the toolbar', async () => {
   const { app, page } = ctx;
   await backend(app, 'draw', 'current', {

@@ -28,6 +28,8 @@ export const TEXT_COLOR = PALETTE.black.stroke;
 
 /** Excalidraw's Nunito, the sans font its picker calls Normal. */
 export const TEXT_FONT = 6;
+/** TEXT_FONT's face name, which the renderer loads before it measures labels. */
+export const TEXT_FONT_NAME = 'Nunito';
 
 export function isColorName(value: unknown): value is ColorName {
   return typeof value === 'string' && Object.hasOwn(PALETTE, value);
