@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { BoardEntry, Draft } from '../shared/ipc';
 import type { DraftBook } from './drafts';
-import { FilingMenu, type FilingTab } from './FilingMenu';
+import { FileUnder, type FilingTab } from './FilingMenu';
 import { DeleteItem, MoreMenu } from './FooterMenu';
 import { CheckIcon, CopyIcon, LinkIcon, PlusIcon } from './Icons';
 import { richCopy } from './editor/rich-copy';
@@ -144,7 +144,6 @@ export function DraftEditor(props: {
             Open board
           </button>
         )}
-        <FilingMenu draft={draft} tabs={props.tabs} onFile={props.onFile} onOpen={props.onFilingMenu} />
         <span className="spacer" />
         {(book.saveError || props.shelf.saveError) && (
           <span className="error" title={book.saveError ?? props.shelf.saveError} data-testid="save-error">
@@ -170,6 +169,7 @@ export function DraftEditor(props: {
         <MoreMenu label="More for this note" testId="draft-more">
           {(close) => (
             <>
+              <FileUnder draft={draft} tabs={props.tabs} onFile={props.onFile} onOpen={props.onFilingMenu} close={close} />
               <button
                 className="ghost"
                 role="menuitem"

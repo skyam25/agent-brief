@@ -80,14 +80,14 @@ button:disabled {
 
 /* App chrome sizing. Scoped so Excalidraw's own buttons keep their styles. */
 
-:is(.strip, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) :is(button, select, input:not([type='checkbox'])) {
+:is(.strip, .board-bar, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) :is(button, select, input:not([type='checkbox'])) {
   height: 32px;
   box-sizing: border-box;
   border-radius: 8px;
   padding: 0 10px;
 }
 
-:is(.strip, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button {
+:is(.strip, .board-bar, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -95,18 +95,18 @@ button:disabled {
   white-space: nowrap;
 }
 
-:is(.strip, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button.icon-button {
+:is(.strip, .board-bar, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button.icon-button {
   width: 32px;
   padding: 0;
 }
 
-:is(.strip, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button.small {
+:is(.strip, .board-bar, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button.small {
   height: 24px;
   padding: 0 6px;
   border-radius: 6px;
 }
 
-:is(.strip, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button.icon-button.small {
+:is(.strip, .board-bar, .composer, .popover-panel, .notes, .sessions, .toast, .prompt-row, .resume-row, .items) button.icon-button.small {
   width: 24px;
   padding: 0;
 }
@@ -154,13 +154,21 @@ button.link {
   flex-direction: column;
 }
 
+/* Breadcrumb at the left, view tabs centred, tools at the right. The side columns share the spare width, so the tabs stay centred until the breadcrumb runs out of room. */
 .strip {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
-  gap: 6px 8px;
+  gap: 8px;
   padding: 8px 12px;
   -webkit-app-region: drag;
+}
+
+.strip .lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .strip button,
@@ -171,14 +179,16 @@ button.link {
 
 .boards,
 .top,
-.cluster {
+.cluster,
+.crumb {
   display: flex;
   align-items: center;
 }
 
 /* Rounded groups shaped like Excalidraw's islands. */
 .boards,
-.cluster {
+.cluster,
+.crumb {
   gap: 2px;
   padding: 2px;
   background: var(--island);
@@ -203,14 +213,77 @@ button.link {
   text-overflow: ellipsis;
 }
 
-/* The right end keeps its full width; when the window is too narrow it wraps to a row of its own. */
+/* The breadcrumb: session, then board. It shrinks and cuts its names short before it wraps. */
+.crumb {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.crumb .crumb-session {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  font-weight: 500;
+}
+
+.crumb .crumb-session.unfiled {
+  color: var(--muted);
+}
+
+.crumb .crumb-session .name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.crumb .crumb-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0 10px 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.crumb .sep {
+  flex: none;
+  color: var(--muted);
+}
+
+/* The board segment shares the breadcrumb's island. */
+.crumb .boards {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.crumb .board-trigger {
+  min-width: 0;
+}
+
+/* The new-board field gives up width before it overlaps the view tabs. */
+.crumb .boards input {
+  flex: 1 1 180px;
+  min-width: 80px;
+}
+
+.crumb .boards .layouts {
+  flex: none;
+}
+
 .top {
-  flex: 1 0 auto;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.strip button.pill {
+:is(.strip, .board-bar) button.pill {
   gap: 4px;
   padding: 0 10px 0 8px;
   font-weight: 500;
@@ -670,7 +743,29 @@ button.stop-talk:hover {
   position: relative;
 }
 
-/* The trash button sits over the row's right edge and shows on hover. */
+/* Detach and trash sit over the row's right edge and show on hover. */
+.popover-panel.board-menu button.detach {
+  position: absolute;
+  top: 50%;
+  right: 30px;
+  transform: translateY(-50%);
+  width: 24px;
+  opacity: 0;
+}
+
+.board-menu .board-row:hover button.detach,
+.board-menu button.detach:focus-visible {
+  opacity: 1;
+}
+
+.board-menu button.detach > .icon {
+  color: var(--muted);
+}
+
+.board-menu button.detach:hover > .icon {
+  color: var(--fg);
+}
+
 .popover-panel.board-menu button.delete {
   position: absolute;
   top: 50%;
@@ -789,6 +884,47 @@ button.stop-talk:hover {
 }
 
 /* Board and notes */
+
+/* The board bar sits above the canvas, in flow, so Excalidraw's islands keep their place. */
+.sheet {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet .canvas {
+  min-height: 0;
+}
+
+.board-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.board-bar .end {
+  margin-left: auto;
+}
+
+/* Attach: a live session can take an unfiled board. */
+.board-menu .attach {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.board-menu .attach h3 {
+  margin: 0;
+  padding: 2px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
 
 /* Session sidebar: Notes, running sessions, then ended ones folded away. */
 
@@ -961,7 +1097,47 @@ button.stop-talk:hover {
   background: var(--bg);
 }
 
-/* Notes has no session: no dot, no close. */
+/* The active container's boards and notes, indented under its row. */
+
+.sessions .children {
+  list-style: none;
+  margin: 2px 0 6px;
+  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sessions button.child {
+  width: 100%;
+  height: 26px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fg);
+}
+
+.sessions button.child > .icon {
+  color: var(--muted);
+}
+
+.sessions button.child[aria-current='true'] {
+  background: var(--selected);
+  font-weight: 500;
+}
+
+.sessions button.child[aria-current='true'] > .icon {
+  color: var(--accent);
+}
+
+.sessions button.child.note-count {
+  padding-left: 28px;
+  color: var(--muted);
+}
+
+/* Unfiled has no session: no dot, no close. */
 
 .sessions .notes-tab .label {
   align-items: center;
@@ -2121,15 +2297,11 @@ button.stop-talk:hover {
   background: var(--selected);
 }
 
-/* An unset board or filing is a dashed chip that names what it sets. */
-
-.board-pick.unset,
-.write button.chip.filing.unset {
-  border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent);
-  border-radius: 14px;
-}
+/* An unset board is a dashed chip that names what it sets. */
 
 .board-pick.unset {
+  border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+  border-radius: 14px;
   height: 28px;
   box-sizing: border-box;
   padding-left: 10px;
@@ -2186,39 +2358,38 @@ button.stop-talk:hover {
   line-height: 1.3;
 }
 
-/* The filing chip in the draft footer opens a menu of sessions. */
+/* File under… opens its list of sessions in place, inside the ⋯ menu. */
 
-.write button.chip.filing {
-  max-width: 200px;
-  padding: 0 6px 0 10px;
-  gap: 4px;
-  color: var(--muted);
-}
-
-.write button.chip.filing.filed {
-  color: var(--accent);
-}
-
-.chip.filing .label-text,
-.filing-menu .label-text {
+.more-menu .label-text {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  text-align: left;
   text-overflow: ellipsis;
 }
 
-.popover-panel.more-menu.filing-menu {
-  left: 0;
-  right: auto;
+.more-menu .file-under-toggle .icon {
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.12s;
 }
 
-.filing-menu button {
-  gap: 6px;
+.more-menu .file-under-toggle[aria-expanded='true'] .icon {
+  transform: none;
 }
 
-.filing-menu button .label-text {
-  flex: 1;
-  text-align: left;
+.more-menu .filing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 4px 12px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
+.more-menu .filing-list button > .icon {
+  color: var(--accent);
 }
 
 .popover-panel.more-menu {

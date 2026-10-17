@@ -154,7 +154,7 @@ test("Review mode links each item's Out files and opens them inside the project 
 test('Review needs a session tab, and says how to get one when the session goes', async () => {
   const { app, page } = ctx;
   await showPanel(app, page);
-  // The Notes tab has no Review, so ⌘3 does nothing there.
+  // Unfiled has no Review, so ⌘3 does nothing there.
   await page.keyboard.press('Meta+3');
   await expect(page.getByTestId('mode-review')).toHaveCount(0);
   await expect(page.getByTestId('mode-sketch')).toHaveAttribute('aria-selected', 'true');

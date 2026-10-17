@@ -236,6 +236,8 @@ export interface BoardHost {
   /** Moves a board other than the current one to the Trash. */
   deleteBoard(name: string): Promise<void>;
   setCurrent(name: string): Promise<void>;
+  /** Takes a board out of a session's brief. The board itself stays. */
+  detachBoard(sessionId: string, name: string): Promise<void>;
   send(payload: SendPayload): Promise<{ ok: boolean; message: string }>;
   onTheme(fn: (theme: Theme) => void): void;
 }
@@ -374,6 +376,8 @@ export interface CompanionApi extends BoardHost {
   onBriefs(fn: (briefs: SessionBriefEntry[]) => void): void;
   /** Makes the session the Send target, when it is still running, and opens its brief. The renderer picks the mode. */
   switchBrief(sessionId: string): Promise<SwitchResult>;
+  /** Clears the Send target and makes Unfiled's board current. The renderer switches to it. */
+  openUnfiled(): Promise<{ board: string }>;
   /** Stops tracking a session's brief. Its board and note stay. */
   forgetBrief(sessionId: string): Promise<void>;
   /** Ready drafts first by rank, then notes, newest first. */
@@ -435,6 +439,7 @@ export const CH = {
   renameBoard: 'boards:rename',
   deleteBoard: 'boards:delete',
   setCurrent: 'boards:current',
+  detachBoard: 'boards:detach',
   send: 'panel:send',
   setTarget: 'sessions:target',
   request: 'board:request',
@@ -466,6 +471,7 @@ export const CH = {
   listBriefs: 'briefs:list',
   briefs: 'briefs:changed',
   switchBrief: 'briefs:switch',
+  openUnfiled: 'briefs:openUnfiled',
   forgetBrief: 'briefs:forget',
   listDrafts: 'drafts:list',
   saveDraft: 'drafts:save',

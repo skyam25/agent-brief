@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
-import type { SessionBriefEntry } from '../shared/ipc';
+import { Fragment, useEffect, useState } from 'react';
+import type { BoardEntry, Mode, SessionBriefEntry } from '../shared/ipc';
 import { modeLabel, shortPath } from '../shared/sessions';
-import { ChevronIcon, CloseIcon, NotesIcon } from './Icons';
+import { childrenOf } from './boardScope';
+import type { DraftBook } from './drafts';
+import { useStore } from './hooks';
+import { BoardIcon, ChevronIcon, CloseIcon, NotesIcon } from './Icons';
 import { ago } from './WriteView';
 
 /** Below this width the sidebar opens over the work instead of beside it. */
@@ -74,13 +77,29 @@ export function useSidebar(): SidebarState {
   return { open: narrow ? drawer : !hidden, overlay: narrow, toggle, dismiss: () => setDrawer(false) };
 }
 
+/** What the active container lists under its row, and what a click on one does. */
+export interface ChildProps {
+  boards: BoardEntry[];
+  book: DraftBook;
+  /** The open board. */
+  board: string;
+  mode: Mode;
+  onOpenBoard: (name: string) => void;
+  /** The note count opens Write view, which lists the container's notes. */
+  onNotes: () => void;
+}
+
+/** "1 note", "3 notes". */
+export const noteCountLabel = (n: number) => `${n} ${n === 1 ? 'note' : 'notes'}`;
+
 /**
- * Notes, then each Claude Code session's brief: running sessions first, ended ones
- * in a group that folds away. The active session is the one Send goes to.
+ * Unfiled, then each Claude Code session's brief: running sessions first, ended
+ * ones in a group that folds away. The active session is the one Send goes to.
+ * The active container lists its boards and a note count under its row.
  */
 export function SessionSidebar(props: {
   briefs: SessionBriefEntry[];
-  /** The active session. Undefined when Notes is active. */
+  /** The active session. Undefined when Unfiled is active. */
   activeId?: string;
   home?: string;
   sidebar: SidebarState;
@@ -89,6 +108,7 @@ export function SessionSidebar(props: {
   onClose: (sessionId: string) => void;
   /** A click on the active session brings its terminal forward. */
   onFocus: (sessionId: string) => void;
+  contents: ChildProps;
 }) {
   const [endedOpen, setEndedOpen] = useState(() => readFlag(ENDED_KEY));
   const { running, ended } = groupBriefs(props.briefs);
@@ -108,6 +128,23 @@ export function SessionSidebar(props: {
     onClose: props.onClose,
     onFocus: props.onFocus,
   };
+  const tabs = props.briefs.map((b) => b.sessionId);
+  const { contents } = props;
+  const childList = (sessionId: string | undefined) => (
+    <Children
+      {...contents}
+      sessionId={sessionId}
+      tabs={tabs}
+      onOpenBoard={(name) => picked(() => contents.onOpenBoard(name))}
+      onNotes={() => picked(contents.onNotes)}
+    />
+  );
+  const row = (b: SessionBriefEntry) => (
+    <Fragment key={b.sessionId}>
+      <Row brief={b} {...rowProps} />
+      {b.sessionId === props.activeId && childList(b.sessionId)}
+    </Fragment>
+  );
 
   if (!sidebar.open) return null;
   return (
@@ -120,18 +157,17 @@ export function SessionSidebar(props: {
               className="ghost label"
               role="tab"
               aria-selected={props.activeId === undefined}
-              title="Notes for no session, and scratch boards. Send asks where to go."
+              title="Boards and notes that belong to no session. Send asks where to go."
               onClick={() => picked(() => props.activeId !== undefined && props.onNotes())}
             >
               <NotesIcon />
-              <span className="title">Notes</span>
+              <span className="title">Unfiled</span>
             </button>
           </div>
+          {props.activeId === undefined && childList(undefined)}
 
           {running.length > 0 && <h3 className="group">Running</h3>}
-          {running.map((b) => (
-            <Row key={b.sessionId} brief={b} {...rowProps} />
-          ))}
+          {running.map(row)}
 
           {ended.length > 0 && (
             <button
@@ -147,12 +183,42 @@ export function SessionSidebar(props: {
               Ended <span className="count">{ended.length}</span>
             </button>
           )}
-          {endedShown.map((b) => (
-            <Row key={b.sessionId} brief={b} {...rowProps} />
-          ))}
+          {endedShown.map(row)}
         </div>
       </nav>
     </>
+  );
+}
+
+/** The active container's boards, then its note count, indented under its row. */
+function Children(props: ChildProps & { sessionId?: string; tabs: string[] }) {
+  const book = useStore(props.book);
+  const kids = childrenOf(props.boards, book.drafts, props.sessionId, props.tabs);
+  if (!kids.boards.length && !kids.noteCount) return null;
+  return (
+    <ul className="children" aria-label="Boards and notes" data-testid="brief-children">
+      {kids.boards.map((b) => (
+        <li key={b.name}>
+          <button
+            className="ghost child"
+            title={`${b.name}\nOpen in Sketch`}
+            aria-current={props.mode === 'sketch' && b.name === props.board}
+            onClick={() => props.onOpenBoard(b.name)}
+            data-testid="brief-board"
+          >
+            <BoardIcon />
+            <span className="title">{b.name}</span>
+          </button>
+        </li>
+      ))}
+      {kids.noteCount > 0 && (
+        <li>
+          <button className="ghost child note-count" title="Open in Write" onClick={props.onNotes} data-testid="brief-notes">
+            {noteCountLabel(kids.noteCount)}
+          </button>
+        </li>
+      )}
+    </ul>
   );
 }
 

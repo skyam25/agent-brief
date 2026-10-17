@@ -12,18 +12,22 @@ Sketch, write, talk and paste screenshots on your Mac, then hand all of it to Cl
 
 ## Notes and sessions
 
-- The sidebar on the left starts with a fixed **Notes** entry, then one entry per Claude Code session, running ones first. The sidebar button in the toolbar hides it, and a narrow panel opens it as a drawer. Notes holds what belongs to no session yet, such as a thought captured with the hotkey. A session tab holds that session's board, its notes and its items.
-- A note is filed under a session or unfiled. `/write` files the note it opens under that session. Any note can be moved with **File under…**, and an unfiled note sits in Notes until you file it or send it.
-- Send from a session tab goes to that session. Send from Notes asks where to go.
-- A session that has ended moves to the folded **Ended** group, with a hollow dot. Opening it shows a resume command, `cd <project> && claude --resume <id>`, with **Copy** and **Open in** Ghostty, Terminal or herdr. Resume it and the tab goes live again on its own, with its board, notes and items where you left them.
-- Click a tab or press ⌃1 for Notes and ⌃2 onward for sessions. ⌃Tab cycles.
+- The sidebar on the left starts with **Unfiled**, then one entry per Claude Code session, running ones first. The sidebar button hides it, and a narrow panel opens it as a drawer.
+- Each session holds its boards, its notes and its items. The active entry lists its boards underneath, then a line counting its notes. A board opens in Sketch, and the count opens Write.
+- Unfiled holds what belongs to no session yet, such as a scratch board or a thought captured with the hotkey. Switching to Unfiled opens the unfiled board you last used, else a new `scratch`.
+- The breadcrumb at the top names where you are, the session or Unfiled, then the board in Sketch or the note in Write. Clicking a running session's name brings its terminal forward.
+- A note is filed under a session or unfiled. `/write` files the note it opens under that session. Any note can be moved with **File under…** in its ⋯ menu, and an unfiled note stays in Unfiled until you file it or send it.
+- Send on a running session goes to that session. On Unfiled or an ended session, a **Send to…** chip appears beside Send and asks where to go.
+- A session that has ended moves to the folded **Ended** group, with a hollow dot. Opening it shows a resume command, `cd <project> && claude --resume <id>`, with **Copy** and **Open in** Ghostty, Terminal or herdr. Resume it and the tab goes live again on its own, with its boards, notes and items where you left them.
+- Click an entry or press ⌃1 for Unfiled and ⌃2 onward for sessions. ⌃Tab cycles.
 
 ## Sketch
 
 - A floating whiteboard sits above your other windows and appears with a hotkey.
 - Pen pressure sets stroke width, the eraser end erases, and touch is ignored while the pen is near.
 - A pasted screenshot lands ready to mark up, with the pen still in hand.
-- Each board keeps its own notes, and you can keep several named boards.
+- Each board keeps its own notes, and you can keep several named boards. A session's new board is named by the date, such as `Oct 16`.
+- The board menu lists only the boards of the session you are on. **New board** adds one to the session. On a running session the menu also lists unfiled boards under **Attach**, and picking one adds it to the session. **Detach** on a board's row moves it to Unfiled.
 
 ## Talk while you draw
 
@@ -94,7 +98,7 @@ A send of item decisions from Review mode is text alone, such as `Decisions on 2
 ## Choose where it goes
 
 - Opened from Claude Code, the board is bound to that session. Its tab is selected, and clicking the tab again brings its terminal forward.
-- Send sits in the composer under the board or note. The chip beside Send names where it goes, and clicking the chip picks another session.
+- Send sits in the composer under the board or note. On a running session it goes there, and its tooltip names the session. Elsewhere a **Send to…** chip beside Send picks one.
 - Opened on its own, Send asks where to go. It lists running sessions and can start a new one in Ghostty, Terminal or herdr, or copy a start command.
 - The app never guesses a session. If the bound session exits, Send asks again.
 

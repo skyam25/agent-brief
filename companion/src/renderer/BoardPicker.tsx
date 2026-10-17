@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { BoardLayout } from '../protocol';
-import type { BoardEntry, BoardHost } from '../shared/ipc';
-import { CheckIcon, ChevronIcon, PencilIcon, PlusIcon, StackIcon, TrashIcon } from './Icons';
+import type { BoardEntry } from '../shared/ipc';
+import { pickerRows } from './boardScope';
+import { CheckIcon, ChevronIcon, DetachIcon, PencilIcon, PlusIcon, StackIcon, TrashIcon } from './Icons';
 import { useEscape, usePointerOutside } from './hooks';
 
 type Mode = { kind: 'idle' } | { kind: 'new' } | { kind: 'rename' };
@@ -33,18 +34,30 @@ export function LayoutSwitch(props: { layout: BoardLayout; onChange: (layout: Bo
   );
 }
 
-/** The board's name opens a menu of boards, with New and Rename at its foot. Each row can be deleted. */
+/**
+ * The board's name opens a menu of the active container's boards, with New and
+ * Rename at its foot. Each row can be deleted. A live session also lists the
+ * unfiled boards it can attach. On a session tab each row can also detach,
+ * which moves the board to Unfiled.
+ */
 export function BoardPicker(props: {
-  host: Pick<BoardHost, 'listBoards'>;
+  boards: BoardEntry[];
+  /** Fetches the board list again. The menu calls it as it opens. */
+  onRefresh: () => void;
   board: string;
+  /** The active session, or undefined on Unfiled. */
+  sessionId?: string;
+  /** The active session is live, so it can take an unfiled board. */
+  canAttach: boolean;
   /** Bumped to open the new-board field, as the tray and File menu do. */
   newRequest?: number;
   onSwitch: (name: string) => void;
   onCreate: (name: string, layout: BoardLayout) => void;
   onRename: (name: string) => void;
   onDelete: (name: string) => Promise<void>;
+  /** Moves a board out of the active session to Unfiled. */
+  onDetach: (name: string) => Promise<void>;
 }) {
-  const [boards, setBoards] = useState<BoardEntry[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: 'idle' });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -58,8 +71,6 @@ export function BoardPicker(props: {
     setConfirming(undefined);
   }, []);
 
-  const refresh = () => void props.host.listBoards().then(setBoards);
-  useEffect(refresh, [props.board]);
   useEffect(() => {
     if (!props.newRequest) return;
     setDraft('');
@@ -115,8 +126,14 @@ export function BoardPicker(props: {
     );
   }
 
-  const names = boards.some((b) => b.name === props.board) ? boards.map((b) => b.name) : [props.board, ...boards.map((b) => b.name)];
-  const stacks = new Set(boards.filter((b) => b.layout === 'stack').map((b) => b.name));
+  const { own, attach } = pickerRows(props.boards, props.board, props.sessionId, props.canAttach);
+  const stacks = new Set(props.boards.filter((b) => b.layout === 'stack').map((b) => b.name));
+  const stackMark = (n: string) =>
+    stacks.has(n) && (
+      <span className="layout-mark" title="Stack board" data-testid="board-stack-mark">
+        <StackIcon />
+      </span>
+    );
   return (
     <div className="boards anchor" ref={ref}>
       <button
@@ -125,7 +142,7 @@ export function BoardPicker(props: {
         aria-pressed={open}
         title="Boards"
         onClick={() => {
-          if (!open) refresh();
+          if (!open) props.onRefresh();
           setOpen((o) => !o);
         }}
         data-testid="board-picker"
@@ -136,7 +153,7 @@ export function BoardPicker(props: {
       {open && (
         <BoardMenu onClose={close}>
           <ul role="menu" aria-label="Boards">
-            {names.map((n) => (
+            {own.map((n) => (
               <li key={n} className="board-row" onMouseLeave={() => confirming === n && setConfirming(undefined)}>
                 <button
                   className="ghost"
@@ -149,13 +166,20 @@ export function BoardPicker(props: {
                   data-testid="board-item"
                 >
                   <span className="name">{n}</span>
-                  {stacks.has(n) && (
-                    <span className="layout-mark" title="Stack board" data-testid="board-stack-mark">
-                      <StackIcon />
-                    </span>
-                  )}
+                  {stackMark(n)}
                   {n === props.board && <CheckIcon />}
                 </button>
+                {props.sessionId && confirming !== n && (
+                  <button
+                    className="ghost icon-button small detach"
+                    aria-label={`Detach ${n}`}
+                    title="Move to Unfiled"
+                    onClick={() => void props.onDetach(n).then(props.onRefresh)}
+                    data-testid="board-detach"
+                  >
+                    <DetachIcon />
+                  </button>
+                )}
                 <button
                   className={confirming === n ? 'ghost delete confirm' : 'ghost icon-button small delete'}
                   aria-label={confirming === n ? `Confirm delete ${n}` : `Delete ${n}`}
@@ -163,7 +187,7 @@ export function BoardPicker(props: {
                   onClick={() => {
                     if (confirming !== n) return setConfirming(n);
                     setConfirming(undefined);
-                    void props.onDelete(n).then(refresh);
+                    void props.onDelete(n).then(props.onRefresh);
                   }}
                   data-testid="board-delete"
                 >
@@ -172,6 +196,29 @@ export function BoardPicker(props: {
               </li>
             ))}
           </ul>
+          {attach.length > 0 && (
+            <div className="attach">
+              <h3>Attach an unfiled board</h3>
+              <ul role="menu" aria-label="Attach an unfiled board">
+                {attach.map((n) => (
+                  <li key={n}>
+                    <button
+                      className="ghost"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpen(false);
+                        props.onSwitch(n);
+                      }}
+                      data-testid="board-attach"
+                    >
+                      <span className="name">{n}</span>
+                      {stackMark(n)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="menu-foot">
             <button className="ghost" onClick={() => start('new')} data-testid="board-new">
               <PlusIcon /> New board

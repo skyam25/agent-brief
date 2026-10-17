@@ -1,7 +1,8 @@
 /** Which board and note each Claude Code session last worked on, so /sketch and /write reopen them. */
 
-import { CURRENT_BOARD, type SessionHost, type SessionInfo } from '../protocol';
+import { CURRENT_BOARD, type BoardsResponse, type SessionHost, type SessionInfo } from '../protocol';
 import { folderName } from '../shared/sessions';
+import { DEFAULT_BOARD } from './store';
 
 export interface SessionBrief {
   /** The session's title, or its folder, as it last read. Kept for sessions that have ended. */
@@ -10,7 +11,10 @@ export interface SessionBrief {
   cwd?: string;
   /** The terminal it ran in, kept for resuming it after it ends. */
   host?: SessionHost;
+  /** The board the session opened last. */
   board?: string;
+  /** Every board the session has held, newest last. A brief without it holds just `board`. */
+  boards?: string[];
   draftId?: string;
   /** Which of the two it opened last, which a switch to the session reopens. */
   last?: 'board' | 'draft';
@@ -39,14 +43,26 @@ export function prune(briefs: SessionBriefs, now: number): SessionBriefs {
   return Object.fromEntries(fresh);
 }
 
-/** Records what a session just opened. */
+/** Every board a brief holds, newest last. `board` is always among them. */
+export function heldBoards(brief: SessionBrief): string[] {
+  const boards = brief.boards ?? [];
+  return brief.board && !boards.includes(brief.board) ? [...boards, brief.board] : boards;
+}
+
+/** Records what a session just opened. A board it opens joins its list. */
 export function remember(
   briefs: SessionBriefs,
   sessionId: string,
   patch: Partial<Omit<SessionBrief, 'at'>>,
   now: number,
 ): SessionBriefs {
-  return prune({ ...briefs, [sessionId]: { ...briefs[sessionId], ...patch, at: now } }, now);
+  const prev = briefs[sessionId];
+  const next: SessionBrief = { ...prev, ...patch, at: now };
+  if (patch.board) {
+    const held = prev ? heldBoards(prev) : [];
+    next.boards = held.includes(patch.board) ? held : [...held, patch.board];
+  }
+  return prune({ ...briefs, [sessionId]: next }, now);
 }
 
 /** What a live session tells its brief: its title, folder and terminal. */
@@ -69,18 +85,53 @@ export function refreshLive(briefs: SessionBriefs, live: SessionInfo[]): Session
 
 /** Follows a board rename, so the session still finds it. */
 export function renameBoard(briefs: SessionBriefs, from: string, to: string): SessionBriefs {
-  return Object.fromEntries(Object.entries(briefs).map(([id, b]) => [id, b.board === from ? { ...b, board: to } : b]));
+  return Object.fromEntries(
+    Object.entries(briefs).map(([id, b]) => {
+      if (!heldBoards(b).includes(from)) return [id, b];
+      const boards = heldBoards(b).map((n) => (n === from ? to : n));
+      return [id, { ...b, boards, ...(b.board === from ? { board: to } : {}) }];
+    }),
+  );
+}
+
+/**
+ * Takes one board out of a brief. When it was the last one opened, the brief
+ * falls back to its newest remaining board, else to its note.
+ */
+function dropBoard(brief: SessionBrief, board: string): SessionBrief {
+  const held = heldBoards(brief);
+  if (!held.includes(board)) return brief;
+  const { boards: _old, ...rest } = brief;
+  const boards = held.filter((n) => n !== board);
+  const next: SessionBrief = boards.length ? { ...rest, boards } : rest;
+  if (brief.board !== board) return next;
+  const fallback = boards.at(-1);
+  if (fallback) return { ...next, board: fallback };
+  const { board: _gone, last: _last, ...bare } = next;
+  return bare.draftId ? { ...bare, last: 'draft' } : bare;
 }
 
 /** Forgets a deleted board, so no session tries to reopen it. */
 export function forgetBoard(briefs: SessionBriefs, board: string): SessionBriefs {
-  return Object.fromEntries(
-    Object.entries(briefs).map(([id, b]) => {
-      if (b.board !== board) return [id, b];
-      const { board: _gone, last, ...rest } = b;
-      return [id, rest.draftId ? { ...rest, last: 'draft' } : rest];
-    }),
-  );
+  return Object.fromEntries(Object.entries(briefs).map(([id, b]) => [id, dropBoard(b, board)]));
+}
+
+/** Takes a board out of one session's brief, which leaves it unfiled unless another session holds it. */
+export function detachBoard(briefs: SessionBriefs, sessionId: string, board: string): SessionBriefs {
+  const brief = briefs[sessionId];
+  return brief ? { ...briefs, [sessionId]: dropBoard(brief, board) } : briefs;
+}
+
+/**
+ * The session whose brief holds a board. Ended sessions count until their brief goes.
+ * When two briefs hold it, the most recently used one wins.
+ */
+export function boardHolder(briefs: SessionBriefs, board: string): string | undefined {
+  let holder: { id: string; at: number } | undefined;
+  for (const [id, b] of Object.entries(briefs)) {
+    if (heldBoards(b).includes(board) && (!holder || b.at > holder.at)) holder = { id, at: b.at };
+  }
+  return holder?.id;
 }
 
 export interface BoardChoice {
@@ -93,26 +144,50 @@ export interface BoardChoice {
 /**
  * The board /sketch opens for a session: the one it last used if it still exists,
  * else the current board when it is empty and no other session holds it, else a
- * new board named after the session.
+ * new board named after today's date.
  */
 export function sketchBoard(opts: {
   sessionId: string;
   briefs: SessionBriefs;
   current: string;
-  label: string;
+  now: number;
   exists: (name: string) => boolean;
   isEmpty: (name: string) => boolean;
 }): BoardChoice {
   const remembered = opts.briefs[opts.sessionId]?.board;
   if (remembered && opts.exists(remembered)) return { board: remembered, isNew: false };
-  const heldByOther = Object.entries(opts.briefs).some(([id, b]) => id !== opts.sessionId && b.board === opts.current);
+  const heldByOther = Object.entries(opts.briefs).some(([id, b]) => id !== opts.sessionId && heldBoards(b).includes(opts.current));
   if (opts.isEmpty(opts.current) && !heldByOther) return { board: opts.current, isNew: false };
-  return { board: sessionBoardName(opts.label, opts.exists), isNew: true };
+  return { board: sessionBoardName(opts.now, opts.exists), isNew: true };
 }
 
-/** A free board name from a session's title or folder: `agent-brief`, then `agent-brief 2`. */
-export function sessionBoardName(label: string, exists: (name: string) => boolean): string {
-  let base = label
+/**
+ * The board Unfiled opens: the one it last used if it still exists and no session
+ * holds it, else the most recently updated unfiled board, else a new `scratch`.
+ */
+export function unfiledBoardChoice(opts: {
+  remembered: string | undefined;
+  /** Every board, each with the session that holds it. */
+  boards: BoardsResponse['boards'];
+}): BoardChoice {
+  const unfiled = opts.boards.filter((b) => !b.sessionId);
+  if (opts.remembered && unfiled.some((b) => b.name === opts.remembered)) return { board: opts.remembered, isNew: false };
+  const newest = unfiled.reduce<(typeof unfiled)[number] | undefined>((a, b) => (!a || b.updatedAt > a.updatedAt ? b : a), undefined);
+  if (newest) return { board: newest.name, isNew: false };
+  return { board: freeName(DEFAULT_BOARD, (n) => opts.boards.some((b) => b.name === n)), isNew: true };
+}
+
+/** `base` if no board has it, else `base 2`, `base 3` and on. */
+function freeName(base: string, exists: (name: string) => boolean): string {
+  let name = base;
+  for (let n = 2; exists(name); n++) name = `${base} ${n}`;
+  return name;
+}
+
+/** A free board name from the date: `Oct 16`, then `Oct 16 2`. */
+export function sessionBoardName(now: number, exists: (name: string) => boolean): string {
+  let base = new Date(now)
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     .replace(/[^\w .-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[^\w]+/, '')
@@ -121,7 +196,5 @@ export function sessionBoardName(label: string, exists: (name: string) => boolea
     .trim();
   if (!base) base = 'session';
   if (base === CURRENT_BOARD) base = `${base} session`;
-  let name = base;
-  for (let n = 2; exists(name); n++) name = `${base} ${n}`;
-  return name;
+  return freeName(base, exists);
 }

@@ -1,15 +1,18 @@
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { SessionsResponse } from '../protocol';
-import type { CompanionApi, InitInfo, Mode, Settings, Theme, UpdateStatus } from '../shared/ipc';
+import type { CompanionApi, InitInfo, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
 import { BoardPicker, LayoutSwitch } from './BoardPicker';
+import { fallbackBoard } from './boardScope';
 import { BoardController, parseScene, type LoadedScene } from './controller';
+import { draftTitle } from '../shared/drafts';
 import { DraftBook, onTab } from './drafts';
 import { TemplateShelf } from './templates';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
 import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, SidebarIcon } from './Icons';
+import { useStore } from './hooks';
 import { ItemsStore } from './items';
 import { Mic, VoiceStrip } from './Mic';
 import { OutputsStore } from './outputs';
@@ -21,6 +24,7 @@ import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
 import { PromptBanner, TopStrip } from './TopStrip';
+import { useBoards } from './useBoards';
 import { useBriefTabs, type TabScope } from './useBriefTabs';
 import { usePanelKeys } from './usePanelKeys';
 import { useSend } from './useSend';
@@ -68,7 +72,7 @@ function errorText(err: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
 
-/** Sketch, Write or Review, at the left of the strip. Review needs a session tab. */
+/** The view tabs, Sketch, Write and Review, in the middle of the strip. Review needs a session tab. */
 function ModeSwitch(props: { mode: Mode; hasReview: boolean; onChange: (mode: Mode) => void }) {
   const tab = (mode: Mode, label: string, key: string) => (
     <button
@@ -83,11 +87,64 @@ function ModeSwitch(props: { mode: Mode; hasReview: boolean; onChange: (mode: Mo
     </button>
   );
   return (
-    <div className="cluster modes" role="tablist" aria-label="Mode">
+    <div className="cluster modes" role="tablist" aria-label="View">
       {tab('sketch', 'Sketch', '⌘1')}
       {tab('write', 'Write', '⌘2')}
       {props.hasReview && tab('review', 'Review', '⌘3')}
     </div>
+  );
+}
+
+/** The breadcrumb's first segment: the active session, or Unfiled. A live session's segment brings its terminal forward. */
+function SessionCrumb(props: { brief?: SessionBriefEntry; onFocus: (sessionId: string) => void }) {
+  const b = props.brief;
+  if (!b) {
+    return (
+      <span className="crumb-session unfiled" title="Boards and notes that belong to no session" data-testid="crumb-session">
+        <span className="name">Unfiled</span>
+      </span>
+    );
+  }
+  const state = b.isLive ? 'Running in Claude Code' : 'Session ended';
+  const label = (
+    <>
+      <span className={b.isLive ? 'dot live' : 'dot'} aria-label={state} />
+      <span className="name">{b.title}</span>
+    </>
+  );
+  if (!b.isLive) {
+    return (
+      <span className="crumb-session" title={`${b.title}\n${state}`} data-testid="crumb-session">
+        {label}
+      </span>
+    );
+  }
+  return (
+    <button
+      className="ghost crumb-session"
+      title={`${b.title}\n${state}\nClick to bring its terminal forward`}
+      onClick={() => props.onFocus(b.sessionId)}
+      data-testid="crumb-session"
+    >
+      {label}
+    </button>
+  );
+}
+
+/** The breadcrumb's note segment in Write view: the open note's title. */
+function NoteCrumb(props: { book: DraftBook }) {
+  const draft = useStore(props.book).selected;
+  if (!draft) return null;
+  const title = draft.title || draftTitle(draft.body, 40) || 'Untitled note';
+  return (
+    <>
+      <span className="sep" aria-hidden="true">
+        ›
+      </span>
+      <span className="crumb-note" title={title} data-testid="crumb-note">
+        {title}
+      </span>
+    </>
   );
 }
 
@@ -187,6 +244,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   const { briefs, activeBrief, active, switchBrief, openNotes, closeBrief, leaveEnded } = useBriefTabs({
     host,
     book,
+    controller,
     sessions,
     modeRef,
     tabScope,
@@ -194,6 +252,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     showDraft,
     report,
   });
+  const boardList = useBoards(host, controller, briefs);
   const { send, sendTo, sendNew, openChooser } = useSend({
     host,
     book,
@@ -326,62 +385,80 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
         onSwitch={switchBrief}
         onClose={closeBrief}
         onFocus={(id) => void host.focusSession(id)}
+        contents={{
+          boards: boardList.boards,
+          book,
+          board,
+          mode,
+          onOpenBoard: openBoard,
+          onNotes: () => changeMode('write'),
+        }}
       />
       <div className="work">
         <header className="strip">
-          <button
-            className="ghost icon-button"
-            title={sidebar.open ? 'Hide sessions' : 'Show sessions'}
-            aria-label={sidebar.open ? 'Hide sessions' : 'Show sessions'}
-            aria-pressed={sidebar.open}
-            onClick={sidebar.toggle}
-            data-testid="sidebar-toggle"
-          >
-            <SidebarIcon />
-          </button>
+          <div className="lead">
+            <button
+              className="ghost icon-button"
+              title={sidebar.open ? 'Hide sessions' : 'Show sessions'}
+              aria-label={sidebar.open ? 'Hide sessions' : 'Show sessions'}
+              aria-pressed={sidebar.open}
+              onClick={sidebar.toggle}
+              data-testid="sidebar-toggle"
+            >
+              <SidebarIcon />
+            </button>
+            <nav className="crumb" aria-label="Where you are">
+              <SessionCrumb brief={active} onFocus={(id) => void host.focusSession(id)} />
+              {mode === 'sketch' && (
+                <>
+                  <span className="sep" aria-hidden="true">
+                    ›
+                  </span>
+                  <BoardPicker
+                    boards={boardList.boards}
+                    onRefresh={boardList.refresh}
+                    board={board}
+                    sessionId={activeBrief}
+                    canAttach={!!active?.isLive}
+                    newRequest={newBoardRequest}
+                    onSwitch={(name) => void controller.switchTo(name).catch(report('switch boards'))}
+                    onCreate={(name, layout) => void controller.createBoard(name, layout).catch(report('create the board'))}
+                    onRename={(name) => {
+                      const from = controller.board;
+                      void controller
+                        .renameBoard(name)
+                        .then(() => book.renameBoard(from, controller.board))
+                        .catch(report('rename the board'));
+                    }}
+                    onDelete={(name) =>
+                      controller
+                        .deleteBoard(name)
+                        .then(() => book.forgetBoard(name))
+                        .catch(report('delete the board'))
+                    }
+                    onDetach={async (name) => {
+                      if (!activeBrief) return;
+                      try {
+                        await host.detachBoard(activeBrief, name);
+                        // The panel stays on a detached board until it switches, so it moves to the session's newest other board.
+                        const next = name === controller.board ? fallbackBoard(await host.listBoards(), activeBrief, name) : undefined;
+                        if (next) await controller.switchTo(next);
+                      } catch (err) {
+                        report('detach the board')(err);
+                      }
+                      boardList.refresh();
+                    }}
+                  />
+                </>
+              )}
+              {mode === 'write' && <NoteCrumb book={book} />}
+            </nav>
+          </div>
           {/* Review shows on session tabs, and stays while Review is open so a cleared target can pick a tab again. */}
           <ModeSwitch mode={mode} hasReview={!!activeBrief || mode === 'review'} onChange={changeMode} />
-          {mode === 'sketch' && (
-            <>
-              <BoardPicker
-                host={host}
-                board={board}
-                newRequest={newBoardRequest}
-                onSwitch={(name) => void controller.switchTo(name).catch(report('switch boards'))}
-                onCreate={(name, layout) => void controller.createBoard(name, layout).catch(report('create the board'))}
-                onRename={(name) => {
-                  const from = controller.board;
-                  void controller
-                    .renameBoard(name)
-                    .then(() => book.renameBoard(from, controller.board))
-                    .catch(report('rename the board'));
-                }}
-                onDelete={(name) =>
-                  controller
-                    .deleteBoard(name)
-                    .then(() => book.forgetBoard(name))
-                    .catch(report('delete the board'))
-                }
-              />
-              <LayoutSwitch layout={layout} onChange={(l) => void controller.setLayout(l).catch(report('change the layout'))} />
-              <PullIn book={book} board={board} onOpen={openDraft} />
-            </>
-          )}
           <TopStrip
             tools={
               <>
-                {mode === 'sketch' && (
-                  <button
-                    className="ghost icon-button"
-                    title="Notes"
-                    aria-label="Notes"
-                    aria-pressed={notesOpen}
-                    onClick={() => setNotesOpen((o) => !o)}
-                    data-testid="notes-toggle"
-                  >
-                    <NotesIcon />
-                  </button>
-                )}
                 <div className="anchor">
                   <button
                     className="ghost icon-button"
@@ -459,7 +536,28 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
         )}
         <PromptBanner prompt={prompt} onDismiss={() => setPrompt(undefined)} />
         <main className="body">
-          <BoardCanvas controller={controller} scene={scene} theme={theme} active={mode === 'sketch'} onReady={onReady} />
+          <div className="sheet">
+            {mode === 'sketch' && (
+              <div className="board-bar" data-testid="board-bar">
+                <LayoutSwitch layout={layout} onChange={(l) => void controller.setLayout(l).catch(report('change the layout'))} />
+                <PullIn book={book} board={board} onOpen={openDraft} />
+                <div className="cluster end">
+                  <button
+                    className="ghost icon-button"
+                    title="Board notes"
+                    aria-label="Board notes"
+                    aria-pressed={notesOpen}
+                    onClick={() => setNotesOpen((o) => !o)}
+                    data-testid="notes-toggle"
+                  >
+                    <NotesIcon />
+                  </button>
+                </div>
+              </div>
+            )}
+            {/* The canvas stays mounted under Write and Review, so a view switch keeps its scene and undo. */}
+            <BoardCanvas controller={controller} scene={scene} theme={theme} active={mode === 'sketch'} onReady={onReady} />
+          </div>
           {mode === 'write' && (
             <WriteView
               book={book}

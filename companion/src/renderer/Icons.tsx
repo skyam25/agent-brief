@@ -173,3 +173,21 @@ export const ExternalIcon = () => (
   </Icon>
 );
 
+
+/** A board in the sidebar: a frame with a stroke on it. */
+export const BoardIcon = () => (
+  <Icon size={14}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="m7 15 3-3 3 2 4-5" />
+  </Icon>
+);
+
+/** A link pulled apart, for moving a board out of its session. */
+export const DetachIcon = () => (
+  <Icon>
+    <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+    <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
+    <path d="M12 4v3" />
+    <path d="M12 17v3" />
+  </Icon>
+);

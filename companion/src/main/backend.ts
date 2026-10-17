@@ -1,7 +1,7 @@
 /** The app's side of the socket API. Board work runs in the renderer, which owns the scene. */
 
 import { randomBytes } from 'node:crypto';
-import { CURRENT_BOARD, type OpenRequest } from '../protocol';
+import { CURRENT_BOARD, type BoardsResponse, type OpenRequest } from '../protocol';
 import type { BoardBackend } from '../server/contract';
 import { notFound } from '../board/errors';
 import type { RendererBridge } from './bridge';
@@ -15,6 +15,8 @@ export interface BackendDeps {
   state: StateFile;
   panel: Panel;
   bridge: RendererBridge;
+  /** Every board, each with the session that holds it. */
+  boards: () => BoardsResponse['boards'];
   setPrompt: (prompt: string | undefined) => void;
 }
 
@@ -47,7 +49,7 @@ export function createBoardBackend(deps: BackendDeps): BoardBackend {
     },
 
     async listBoards() {
-      return { boards: store.list(), current: state.state.currentBoard };
+      return { boards: deps.boards(), current: state.state.currentBoard };
     },
 
     read: (board, region) => bridge.request('read', { board: existing(board), region }),
