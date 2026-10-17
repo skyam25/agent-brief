@@ -201,6 +201,12 @@ describe('update and delete', () => {
     expect(r2.code).toBe(0);
   });
 
+  it('prints warnings from an update', async () => {
+    app.handler = () => ({ json: { ids: ['a'], batchId: 'u2', warnings: ['rectangle a grew from 80 to 113 px tall'] } });
+    const r = await run(['update'], JSON.stringify([{ id: 'a', label: 'Longer' }]));
+    expect(r.stdout).toContain('warning: rectangle a grew from 80 to 113 px tall');
+  });
+
   it('names the index of a bad update', async () => {
     const r = await run(['update'], JSON.stringify([{ id: 'a' }, { x: 3 }]));
     expect(r.code).toBe(2);

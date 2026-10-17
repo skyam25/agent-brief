@@ -101,6 +101,23 @@ describe('images', () => {
     expect(app.seen).toHaveLength(0);
   });
 
+  it('prints one line per new element when the app lists them', async () => {
+    app.handler = () => ({
+      json: {
+        ids: ['a', 'x7k2'],
+        batchId: 'b1',
+        elements: [
+          { id: 'a', type: 'rectangle', x: 0, y: 0, width: 200, height: 86, label: 'Two\nlines', color: 'blue', by: 'claude' },
+          { id: 'x7k2', type: 'arrow', x: 0, y: 0, width: 60, height: 0, label: 'ok', startId: 'a', endId: 'b', by: 'claude' },
+        ],
+      },
+    });
+    const r = await run(['draw'], '[{"type":"text","label":"x"}]');
+    expect(r.stdout).toBe(
+      'drew 2 elements, batch b1\na rectangle "Two\\nlines" at 0,0 200×86 blue (claude)\nx7k2 arrow "ok" a → b (claude)\n',
+    );
+  });
+
   it('prints warnings from the app', async () => {
     app.handler = () => ({ json: { ids: ['a'], batchId: 'b1', warnings: ['arrow a is 100 px long'] } });
     const r = await run(['draw'], '[{"type":"text","label":"x"}]');

@@ -124,6 +124,8 @@ export interface OpenRequest {
   text?: string;
   /** Sets the board's layout. Absent leaves it as it is. */
   layout?: BoardLayout;
+  /** Opens this output of `sessionId` instead of a board: a Markdown file as a note in Write, an HTML file in the review pane. Project-relative. Needs `sessionId`. */
+  output?: { path: string };
 }
 
 export interface OpenResponse {
@@ -132,6 +134,8 @@ export interface OpenResponse {
   targetSessionId?: string;
   /** True when Write mode started the new note with the request's text. */
   noteText?: boolean;
+  /** What the panel shows now: the board, a note in Write, or an HTML file in the review pane. */
+  opened?: 'board' | 'note' | 'review';
 }
 
 // ── POST /notes ───────────────────────────────────────────────────────────
@@ -353,6 +357,8 @@ export interface DrawResponse {
   batchId: string;
   /** Problems the drawing has, such as an arrow its label hides. */
   warnings?: string[];
+  /** The new elements as `read` lists them, in request order. */
+  elements?: ElementSummary[];
 }
 
 export interface ElementSummary {
@@ -402,4 +408,6 @@ export interface MutateResponse {
   /** Ids that changed. Unknown ids are left out. */
   ids: string[];
   batchId: string;
+  /** Problems the change made, such as a box that grew over its neighbour. */
+  warnings?: string[];
 }

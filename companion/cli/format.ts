@@ -8,7 +8,8 @@ import type {
 
 const n = (v: number) => String(Math.round(v));
 
-function element(e: ElementSummary): string {
+/** One element as `read` prints it: id, type, label, place, colour and author. */
+export function formatElement(e: ElementSummary): string {
   const parts: string[] = [e.id, e.type];
   if (e.label) parts.push(JSON.stringify(e.label));
   if (e.type === 'arrow' || e.type === 'line') {
@@ -39,7 +40,7 @@ export function formatRead(r: ReadResponse): string {
     }
   }
   const emit = (e: ElementSummary, depth: number) => {
-    lines.push('  '.repeat(depth) + element(e));
+    lines.push('  '.repeat(depth) + formatElement(e));
     for (const child of children.get(e.id) ?? []) emit(child, depth + 1);
   };
   for (const e of r.elements) {

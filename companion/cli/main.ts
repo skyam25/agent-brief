@@ -18,7 +18,7 @@ import {
   type Skeleton,
   bashRequestLine,
 } from '../src/protocol';
-import { formatBoards, formatRead, formatSessions, formatStatus } from './format';
+import { formatBoards, formatElement, formatRead, formatSessions, formatStatus } from './format';
 import { commandHelp, DOCS, topHelp } from './help';
 import { apply, FORCE_VAR, isOn, shellFiles } from './herdr';
 import { ApiError, call, callJson, NotRunningError } from './http';
@@ -179,9 +179,18 @@ async function resolveImages(ctx: Ctx, elements: Skeleton[]): Promise<Skeleton[]
   );
 }
 
-/** Prints a draw response, warnings included. */
+/** Prints a draw response, one line per new element as `read` lists it, then warnings. */
 function drawn(r: DrawResponse): string {
-  const lines = [`drew ${r.ids.length} element${r.ids.length === 1 ? '' : 's'}, batch ${r.batchId}`, `ids: ${r.ids.join(' ')}`];
+  const lines = [`drew ${r.ids.length} element${r.ids.length === 1 ? '' : 's'}, batch ${r.batchId}`];
+  if (r.elements?.length) lines.push(...r.elements.map(formatElement));
+  else lines.push(`ids: ${r.ids.join(' ')}`);
+  for (const w of r.warnings ?? []) lines.push(`warning: ${w}`);
+  return lines.join('\n');
+}
+
+/** Prints an update response, warnings included. */
+function updated(r: MutateResponse): string {
+  const lines = [`updated ${r.ids.length} element${r.ids.length === 1 ? '' : 's'}, batch ${r.batchId}`, `ids: ${r.ids.join(' ')}`];
   for (const w of r.warnings ?? []) lines.push(`warning: ${w}`);
   return lines.join('\n');
 }
@@ -439,7 +448,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
   async update(ctx) {
     const updates = validateUpdates(await readInput(ctx));
     const res = await callJson<MutateResponse>(ctx.socket, 'PATCH', boardPath(ctx, 'elements'), { updates });
-    show(ctx, res, (r) => `updated ${r.ids.length} element${r.ids.length === 1 ? '' : 's'}, batch ${r.batchId}\nids: ${r.ids.join(' ')}`);
+    show(ctx, res, updated);
   },
 
   async delete(ctx) {

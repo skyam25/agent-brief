@@ -348,6 +348,31 @@ test('draw warns when an arrow label hides the arrow', async () => {
   expect(drawn.warnings![0]).toMatch(/^arrow near is \d+ px long, so its label "POST \/login with password" hides it/);
 });
 
+test('draw lists its elements, and draw and update warn when a box grows over its neighbour', async () => {
+  const { app } = ctx;
+  const drawn = await backend(app, 'draw', 'current', {
+    elements: [
+      { id: 'top', type: 'rectangle', x: 0, y: 0, width: 380, height: 60, label: 'First line of the label\nSecond line' },
+      { id: 'next', type: 'rectangle', x: 0, y: 70, width: 380, height: 60, label: 'Next' },
+      { id: 'fits', type: 'rectangle', x: 500, y: 0, width: 380, height: 100, label: 'First line of the label\nSecond line' },
+      { id: 'clear', type: 'rectangle', x: 500, y: 160, width: 380, height: 100, label: 'Next' },
+      // Free text has no planned box, so text over a shape never reads as grown.
+      { id: 'caption', type: 'text', x: 1000, y: 0, label: 'Caption over a box' },
+      { id: 'under', type: 'rectangle', x: 1000, y: 5, width: 300, height: 60 },
+    ],
+  });
+  expect(drawn.elements?.map((e) => e.id)).toEqual(['top', 'next', 'fits', 'clear', 'caption', 'under']);
+  expect(drawn.elements?.[0]).toMatchObject({ type: 'rectangle', height: 86, label: 'First line of the label\nSecond line', by: 'claude' });
+  expect(drawn.warnings).toEqual([
+    'rectangle top grew from 60 to 86 px tall to hold its label and now overlaps next. Move it down at least 36 px with update, or give top more width.',
+  ]);
+
+  const updated = await backend(app, 'update', 'current', { updates: [{ id: 'fits', label: 'One\nTwo\nThree\nFour\nFive\nSix' }] });
+  expect(updated.warnings).toEqual([
+    'rectangle fits grew from 100 to 194 px tall to hold its label and now overlaps clear. Move it down at least 54 px with update, or give fits more width.',
+  ]);
+});
+
 test('a label keeps its padding, the box grows to hold it, and its frame grows too', async () => {
   const { app } = ctx;
   const note = 'AUGUST (Ahmed, first time)\nConfig entries named and bolded inconsistently (Erin)\nNot written in complete human sentences (Leia)';
@@ -391,7 +416,9 @@ test('a label keeps its padding, the box grows to hold it, and its frame grows t
   // The frame grew to hold the taller notes, and says what it now overlaps.
   const frame = el('f');
   expect(frame.y + frame.height).toBeGreaterThanOrEqual(Math.max(el('a').y + el('a').height, el('b').y + el('b').height));
-  expect(drawn.warnings?.some((w) => /^frame f grew to 700×\d+ to hold its contents and now overlaps g\./.test(w))).toBe(true);
+  expect(drawn.warnings?.some((w) => /^frame f grew to 700×\d+ to hold its contents and now overlaps g\. Move it down at least \d+ px with update\. A frame moves with everything in it\.$/.test(w))).toBe(true);
+  // The stickies sit in f, so the frame's warning speaks for them.
+  expect(drawn.warnings).toHaveLength(1);
 });
 
 test('a drawing at the origin of an empty board shows below the toolbar', async () => {

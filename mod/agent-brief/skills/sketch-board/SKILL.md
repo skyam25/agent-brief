@@ -91,22 +91,42 @@ Notes on types.
 
 ### Example
 
-Three boxes in a row, joined by arrows, inside a frame.
+Three boxes in a row, joined by arrows, inside a frame. The plain arrow gets a 60 px gap. The arrow labelled `ok` gets 100 px, 12 per character plus 60, rounded up to 20.
 
 ```bash
 agent-brief draw <<'JSON'
 {"elements": [
-  {"id": "f", "type": "frame", "x": 0, "y": 0, "width": 920, "height": 220, "label": "Signup flow"},
-  {"id": "a", "type": "rectangle", "x": 60,  "y": 70, "width": 200, "height": 80, "label": "Form",      "color": "blue",   "frameId": "f"},
-  {"id": "b", "type": "rectangle", "x": 320, "y": 70, "width": 200, "height": 80, "label": "Validate",  "color": "orange", "frameId": "f"},
-  {"id": "c", "type": "rectangle", "x": 580, "y": 70, "width": 200, "height": 80, "label": "Create user", "color": "green", "frameId": "f"},
+  {"id": "f", "type": "frame", "x": 0, "y": 0, "width": 840, "height": 160, "label": "Signup flow"},
+  {"id": "a", "type": "rectangle", "x": 40,  "y": 40, "width": 200, "height": 80, "label": "Form",        "color": "blue",   "frameId": "f"},
+  {"id": "b", "type": "rectangle", "x": 300, "y": 40, "width": 200, "height": 80, "label": "Validate",    "color": "orange", "frameId": "f"},
+  {"id": "c", "type": "rectangle", "x": 600, "y": 40, "width": 200, "height": 80, "label": "Create user", "color": "green",  "frameId": "f"},
   {"type": "arrow", "start": {"id": "a"}, "end": {"id": "b"}},
   {"type": "arrow", "start": {"id": "b"}, "end": {"id": "c"}, "label": "ok"}
 ]}
 JSON
 ```
 
-The call prints the new ids and a batch id, then any warnings. A warning names an arrow whose label hides it. Move the shapes apart with `update` when you get one. After a big draw, run `agent-brief png` and Read it to check the result.
+The call prints the batch id, then one line per new element in the format `read` uses, then any warnings.
+
+```
+drew 6 elements, batch b_k2x9
+f frame "Signup flow" at 0,0 840×160 black (claude)
+a rectangle "Form" at 40,40 200×80 blue (claude)
+…
+q81mz0d2kw4a arrow "ok" b → c violet (claude)
+```
+
+Take ids from these lines, not from their order. Elements you gave no `id` get a generated one. Agent Brief before 0.3.1 prints only an `ids:` line. Run `read` then to match ids to elements. Each line shows the element's final size, so a height larger than the one you sent means a label took more lines than you counted. After a big draw, run `agent-brief png` and Read it to check the result.
+
+### Warnings
+
+| Warning | Fix |
+|---|---|
+| `arrow … is N px long, so its label … hides it` | Move the shapes it joins apart by the amount it names |
+| `rectangle … grew from A to B px tall … and now overlaps …` | Move the named elements down by the amount it names, or widen the box. A `sticky` gets the same warning |
+| `frame … grew to W×H … and now overlaps …` | Move the named frame down by the amount it names. Its contents move with it |
+
+`update` also warns when a new label grows a box over a neighbour.
 
 ### Changing and removing
 
@@ -115,19 +135,53 @@ echo '[{"id": "b", "label": "Check input", "color": "violet", "x": 340}]' | agen
 agent-brief delete c
 ```
 
-An update can set `x`, `y`, `width`, `height`, `label` and `color`.
+An update can set `x`, `y`, `width`, `height`, `label` and `color`. A new `x` or `y` on a frame moves everything in it by the same amount, labels and arrows included. Arrows bound to those shapes from outside the frame re-route.
 
 ## Layout
 
-- Make boxes 200×80. A box or sticky keeps 16 px between its edges and its label, and grows taller to hold it, so give long text more width rather than more height. About 30 characters fit on a line of a 300 px box.
-- Give boxes in a row the same width and height. After drawing, `read` shows the heights they grew to; match the row to the tallest with `update`.
-- Leave 60 px between boxes. A row steps by 260 px, a column by 140 px.
-- A labelled arrow needs room for its label. Leave about 10 px per character of the label, plus 40 px, between the boxes it joins.
+Work out every size before you draw. A box or sticky grows taller to hold its label, and then it can cover what sits below it. When the sizes come from the rules below, nothing grows and the first draw is clean.
+
+### Height of a box or sticky
+
+- A label line takes 27 px. The box adds 16 px above the label and 16 px below.
+- The height a label needs is 27 × lines + 32. Round it up to the grid of 20.
+
+| Lines | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| Height | 60 | 100 | 120 | 140 | 180 | 200 | 220 |
+
+- Count lines after wrapping. A line holds about (width − 40) ÷ 10 characters. A label in capitals holds about two thirds as many.
+
+| Width | 200 | 260 | 300 | 380 | 460 |
+|---|---|---|---|---|---|
+| Characters per line | 16 | 22 | 26 | 34 | 42 |
+
+- Each line of the label starts a new line on the board, so a heading and three `- ` points start four lines. A line longer than the width holds wraps onto more lines. The `- ` counts as two characters.
+- For example, a sticky 260 wide holds 22 characters a line. A heading and three points of about 30 characters each take 1 + 3 × 2 = 7 lines, so the sticky needs a height of 220.
+- Give long text more width rather than more lines. A 380 px box holds a 34-character label on one line.
+- Make plain boxes 200×80. That holds one line of 16 characters. Two lines need 200×100.
+- Give boxes in a row the same width, and the height of the tallest.
+
+### Spacing
+
+- Leave 60 px between boxes in a row when the arrow between them has no label. A row of 200-wide boxes then steps by 260 px.
+- A labelled arrow needs 12 px per character of its label plus 60 between the boxes it joins, rounded up to 20. `ok` needs 100, `submit` 140, and `POST /login` 200.
+- Keep arrow labels to 20 characters or fewer. A longer label wraps and needs more room still.
+- Leave 60 px between boxes in a column, or 100 px when a labelled arrow joins them. A column steps by the box height plus that gap, so 80-tall boxes step by 140 px.
 - Snap positions to a grid of 20.
 - Flow left to right, or top to bottom for long chains.
 - Label every shape and every arrow that is not obvious.
-- Keep frames 40 px larger than their content on each side, with room for the title. A frame grows to hold boxes that grew, and `draw` warns when it then overlaps another frame. Move the frames below it down with `update`.
-- Run `agent-brief read` before drawing on a board that has content. Place new elements in empty space, using the `bounds` line. Start below or to the right of it.
+
+### Frames
+
+- Leave 40 px between a frame's edges and its content.
+- Size a frame from the heights its children need. Its height runs from its top to the lowest child's bottom, plus 40.
+- A frame's title sits above its top edge. Leave 60 px between one frame's bottom and the next frame's top.
+- A frame still grows to hold children that outgrew it, and `draw` warns when it then overlaps another frame.
+
+### Placing on a board with content
+
+Run `agent-brief read` before drawing on a board that has content. Place new elements in empty space, using the `bounds` line. Start below or to the right of it.
 
 ## Stack boards
 

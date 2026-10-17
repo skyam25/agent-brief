@@ -10,7 +10,7 @@ import type { Region } from '../server/contract';
 import { ARROW_GAP, boxOf, pad, union, type Box, type Shaped } from '../board/geometry';
 import { TEXT_COLOR, TEXT_FONT, swatch } from '../board/palette';
 import { endOf, linearGeometry, planDraw, type EndRef, type ExSkeleton, type PlannedFile } from '../board/skeleton';
-import { metaOf, readScene, type SceneElement } from '../board/summary';
+import { metaOf, readScene, summarize, type SceneElement } from '../board/summary';
 
 type El = ExcalidrawElement;
 /** A fresh element from conversion, safe to edit before it joins the scene. */
@@ -24,6 +24,10 @@ const EXCALIDRAW_LABEL_PADDING = 5;
 
 /** Line an arrow must show on each side of its label. */
 const LABEL_CLEARANCE = 20;
+
+/** Room a move suggestion leaves below an element, and below a frame for the next frame's title. */
+const MOVE_GAP = 20;
+const FRAME_MOVE_GAP = 40;
 
 export function randomId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
@@ -170,22 +174,77 @@ export function drawElements(
   }
 
   const next = [...elements.map((e) => replaced.get(e.id) ?? e), ...(drafts as unknown as El[])];
-  const warnings = [...hiddenArrows(linear), ...grownFrames(grown, next)];
-  return { next, response: { ids: plan.ids, batchId, ...(warnings.length ? { warnings } : {}) }, files: plan.files };
+
+  // Free text has no planned size, so only boxed shapes can grow.
+  const sized = plan.shapes.filter((s) => typeof s.skel.height === 'number');
+  const before = new Map(sized.map((s) => [s.id, s.skel as unknown as Box]));
+  const warnings = [...hiddenArrows(linear), ...grownShapes(before, next), ...grownFrames(grown, next)];
+  const scene = asScene(live(next));
+  const sceneById = new Map(scene.map((e) => [e.id, e]));
+  const summaries = plan.ids.map((id) => summarize(sceneById.get(id)!, sceneById));
+  const response: DrawResponse = { ids: plan.ids, batchId, elements: summaries, ...(warnings.length ? { warnings } : {}) };
+  return { next, response, files: plan.files };
 }
 
-/** Frames that grew to hold their contents, and anything they now overlap. */
+const boxOfEl = (e: El) => boxOf(e as unknown as Shaped);
+
+/** True when the boxes share area. Boxes that only touch do not overlap. */
+const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** How far `hits` must move to clear `box` by `gap`, as "down at least 26 px". */
+function clearance(box: Box, hits: Box[], gap: number): string {
+  if (hits.every((h) => h.y >= box.y)) {
+    return `down at least ${Math.ceil(Math.max(...hits.map((h) => box.y + box.height + gap - h.y)))} px`;
+  }
+  return `right at least ${Math.ceil(Math.max(...hits.map((h) => box.x + box.width + gap - h.x)))} px`;
+}
+
+const them = (ids: string[]) => (ids.length === 1 ? ids[0] : ids.join(', '));
+
+/**
+ * Shapes that grew taller to hold their label, and what they now cover that
+ * their planned box did not. A shape in a frame leaves frames to grownFrames.
+ */
+function grownShapes(before: ReadonlyMap<string, Box>, elements: readonly El[]): string[] {
+  const scene = live(elements);
+  const byId = new Map(scene.map((e) => [e.id, e]));
+  const solid = scene.filter((e) => !(e.type === 'text' && e.containerId) && e.type !== 'arrow' && e.type !== 'line');
+  const warnings: string[] = [];
+  for (const [id, planned] of before) {
+    const el = byId.get(id);
+    if (!el) continue;
+    const box = boxOfEl(el);
+    if (box.height <= planned.height) continue;
+    const hit = solid.filter((o) => {
+      if (o.id === id || (el.frameId && o.type === 'frame')) return false;
+      const b = boxOfEl(o);
+      return b.y >= box.y && overlaps(box, b) && !overlaps(planned, b);
+    });
+    if (hit.length === 0) continue;
+    const kind = metaOf(el as unknown as SceneElement).kind === 'sticky' ? 'sticky' : el.type;
+    const ids = hit.map((h) => h.id);
+    warnings.push(
+      `${kind} ${id} grew from ${Math.round(planned.height)} to ${Math.round(box.height)} px tall to hold its label and now overlaps ${them(ids)}. ` +
+        `Move ${ids.length === 1 ? 'it' : 'them'} ${clearance(box, hit.map(boxOfEl), MOVE_GAP)} with update, or give ${id} more width.`,
+    );
+  }
+  return warnings;
+}
+
+/** Frames that grew to hold their contents, and other frames they now overlap. */
 function grownFrames(grown: Set<string>, elements: readonly El[]): string[] {
   const frames = live(elements).filter((e) => e.type === 'frame');
-  const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
   return [...grown].map((id) => {
     const frame = frames.find((f) => f.id === id)!;
-    const box = boxOf(frame as unknown as Shaped);
-    const hit = frames.filter((f) => f.id !== id && overlaps(box, boxOf(f as unknown as Shaped))).map((f) => f.id);
+    const box = boxOfEl(frame);
+    const hit = frames.filter((f) => f.id !== id && overlaps(box, boxOfEl(f)));
     const size = `${Math.round(box.width)}×${Math.round(box.height)}`;
-    return hit.length === 0
-      ? `frame ${id} grew to ${size} to hold its contents.`
-      : `frame ${id} grew to ${size} to hold its contents and now overlaps ${hit.join(', ')}. Move ${hit.length === 1 ? 'it' : 'them'} with update.`;
+    if (hit.length === 0) return `frame ${id} grew to ${size} to hold its contents.`;
+    const ids = hit.map((h) => h.id);
+    return (
+      `frame ${id} grew to ${size} to hold its contents and now overlaps ${them(ids)}. ` +
+      `Move ${ids.length === 1 ? 'it' : 'them'} ${clearance(box, hit.map(boxOfEl), FRAME_MOVE_GAP)} with update. A frame moves with everything in it.`
+    );
   });
 }
 
@@ -280,6 +339,7 @@ export function updateElements(
   const created: Draft[] = [];
   const touched = new Set<string>();
   const ids: string[] = [];
+  const beforeGrowth = new Map<string, Box>();
 
   for (const u of req?.updates ?? []) {
     const el = get(u.id);
@@ -319,7 +379,10 @@ export function updateElements(
       const text = u.label ?? (textEl as Draft | undefined)?.originalText;
       if (text !== undefined && (textEl || u.label)) {
         const laid = layoutLabel(container, text, textEl);
-        if (!container.points && laid.containerHeight > container.height) set(u.id, { height: laid.containerHeight });
+        if (!container.points && laid.containerHeight > container.height) {
+          beforeGrowth.set(u.id, { x: container.x, y: container.y, width: container.width, height: container.height });
+          set(u.id, { height: laid.containerHeight });
+        }
         if (textEl) {
           set(textEl.id, laid.text);
         } else {
@@ -370,7 +433,8 @@ export function updateElements(
     }),
     ...(created as unknown as El[]),
   ];
-  return { next, response: { ids, batchId } };
+  const warnings = grownShapes(beforeGrowth, next);
+  return { next, response: { ids, batchId, ...(warnings.length ? { warnings } : {}) } };
 }
 
 // ── remove ───────────────────────────────────────────────────────────────

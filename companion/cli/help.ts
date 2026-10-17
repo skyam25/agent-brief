@@ -48,7 +48,7 @@ export const DOCS: Record<string, Doc> = {
   },
   draw: {
     usage: 'agent-brief draw [--board <name>] [--file f.json] [--json]',
-    about: 'Adds elements. Reads {"elements":[...]} or a bare array from --file or stdin. One call is one undo step. An image element takes "file", a png, jpeg, gif or webp path, and keeps its proportions when you give only a width or height. Warnings name arrows whose label hides them.',
+    about: 'Adds elements. Reads {"elements":[...]} or a bare array from --file or stdin. One call is one undo step. An image element takes "file", a png, jpeg, gif or webp path, and keeps its proportions when you give only a width or height. Prints one line per new element as read does. Warnings name arrows whose label hides them, boxes that grew over a neighbour, and frames that grew over another frame.',
     example: DRAW_EXAMPLE,
   },
   snap: {
@@ -58,7 +58,7 @@ export const DOCS: Record<string, Doc> = {
   },
   update: {
     usage: 'agent-brief update [--board <name>] [--file f.json] [--json]',
-    about: 'Moves, resizes, relabels or recolours elements by id. Reads {"updates":[...]} or a bare array from --file or stdin.',
+    about: 'Moves, resizes, relabels or recolours elements by id. Reads {"updates":[...]} or a bare array from --file or stdin. Moving a frame moves everything in it. Warnings name boxes that grew over a neighbour.',
     example: `echo '[{"id":"a","x":40,"label":"Browser","color":"violet"}]' | agent-brief update`,
   },
   delete: {
