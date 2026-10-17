@@ -45,6 +45,7 @@ Plugin, from `mod/agent-brief/`:
 - `claude plugin test .` runs `tests/`
 - `claude plugin validate .` checks the manifest
 - `node tests/live/run-live.mjs` runs the live tmux check
+- `node tests/live/brief-pane.mjs` opens the Brief pane in a real session at 117 columns
 
 ## Rules
 

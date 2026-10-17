@@ -553,14 +553,25 @@ async function loadBrief($: EngineInterface): Promise<void> {
   await refreshItems($)
 }
 
-/** The band's Brief button: opens the pane, or closes it while open. Never opens unasked. */
-async function toggleBrief($: EngineInterface): Promise<void> {
-  if ((await $.ui.panes()).some(pane => pane.id === BRIEF_PANE)) {
-    await $.ui.close({ id: BRIEF_PANE })
-    return
+/** Whether the Brief pane is open, kept here so a press can open it without an await first. */
+let isBriefOpen = false
+
+/**
+ * The band's Brief button: opens the pane, or closes it while open. Never opens unasked.
+ * `$.ui.open` is the first call, with no await before it, so the engine still counts the
+ * open as the user's press. An open after an await is unasked and waits for 144 columns.
+ */
+function toggleBrief($: EngineInterface): Promise<void> {
+  if (isBriefOpen) {
+    isBriefOpen = false
+    return $.ui.close({ id: BRIEF_PANE })
   }
-  await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
-  await $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS })
+  isBriefOpen = true
+  const opening = $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS })
+  return opening.then(async opened => {
+    if (!opened.isPlaced) $.ui.toast(`Brief pane not shown: ${opened.reason}`, { timeoutMs: 8000 })
+    await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
+  })
 }
 
 /** Opens an output in its default app, or a URL in the browser. */
@@ -1329,6 +1340,11 @@ export const register: Register = (on, options) => {
 
   // Pictures in the transcript. Their Open board button starts the app when needed, as /sketch does.
   registerShow(on)
+  on('ui.close', { id: BRIEF_PANE }, ($, e, next) => {
+    isBriefOpen = false
+    return next(e)
+  })
+
   on('ui.press', async ($, e, next) => {
     const board = boardOfKey(e.element)
     if (board === undefined) return next(e)
