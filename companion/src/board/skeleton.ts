@@ -68,6 +68,12 @@ const LAYOUT_MARGIN = 80;
 
 const KNOWN_TYPES = new Set(['rectangle', 'ellipse', 'diamond', 'text', 'sticky', 'arrow', 'line', 'frame', 'image']);
 
+/** A label's alignment: the caller's, else left for a list and center for the rest. */
+export function labelAlign(label: string, align?: 'left' | 'center'): 'left' | 'center' {
+  if (align) return align;
+  return /^\s*[-•] /m.test(label) ? 'left' : 'center';
+}
+
 export interface PlanContext {
   /** Live elements already on the board, by id. */
   existing: ReadonlyMap<string, Shaped>;
@@ -153,7 +159,7 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
           ...(sticky ? { roundness: { type: 3 } } : {}),
         };
         if (s.label) {
-          skel.label = { text: s.label, strokeColor: TEXT_COLOR, fontFamily: TEXT_FONT };
+          skel.label = { text: s.label, strokeColor: TEXT_COLOR, fontFamily: TEXT_FONT, textAlign: labelAlign(s.label, s.align) };
         }
         plan.shapes.push({ id, skel, frameId, sticky });
         break;

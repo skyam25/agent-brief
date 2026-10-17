@@ -321,6 +321,8 @@ export interface Skeleton {
   height?: number;
   /** Text inside a shape, sticky or frame title. The text of a `text` element. */
   label?: string;
+  /** How a label lines up inside its shape or sticky. Left when a line starts with `- ` or `• `, else center. */
+  align?: 'left' | 'center';
   color?: ColorName;
   /** Arrow and line ends. */
   start?: Endpoint;

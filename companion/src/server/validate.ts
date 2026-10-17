@@ -85,6 +85,7 @@ function checkSkeleton(v: unknown, i: number): Skeleton {
   optString(o, 'id', where);
   optString(o, 'label', where);
   optString(o, 'frameId', where);
+  if (o.align !== undefined && o.align !== 'left' && o.align !== 'center') fail(`${where}.align must be left or center`);
   checkNumbers(o, where);
   checkColor(o, where);
   if (o.start !== undefined) checkEndpoint(o.start, `${where}.start`);

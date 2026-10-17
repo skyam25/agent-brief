@@ -77,12 +77,13 @@ Send a JSON object `{"elements": [...]}` or a bare array. Each element is a skel
 | `color` | `black`, `gray`, `red`, `orange`, `yellow`, `green`, `blue`, `violet`, `pink` |
 | `start`, `end` | Arrow and line ends. `{"id": "r1"}` binds to an element. `{"x": 0, "y": 0}` is a free point |
 | `points` | Line points `[[0,0],[100,40]]`, relative to `x`,`y` |
+| `align` | `left` or `center`: how a label lines up inside its shape or sticky. A label with `- ` or `• ` lines is left by default, any other is centered |
 | `frameId` | Puts the element inside that frame |
 | `file` | An `image` element's picture: a png, jpeg, gif or webp path. Give a `width` or `height` and the other keeps the proportions; give neither and it is 720 wide |
 
 Notes on types.
 
-- Use `sticky` for short notes and questions to the user.
+- Use `sticky` for short notes and questions to the user. A note with a heading and several points reads best as a list, one `- ` line per point.
 - Use `frame` to group a region. Give it a `label` as its title and size it to hold its children.
 - Bind arrows by id so they follow the shapes when the user moves them. Use free points only for callouts.
 - Colours are names, not hex values.
@@ -118,13 +119,14 @@ An update can set `x`, `y`, `width`, `height`, `label` and `color`.
 
 ## Layout
 
-- Make boxes 200×80.
+- Make boxes 200×80. A box or sticky keeps 16 px between its edges and its label, and grows taller to hold it, so give long text more width rather than more height. About 30 characters fit on a line of a 300 px box.
+- Give boxes in a row the same width and height. After drawing, `read` shows the heights they grew to; match the row to the tallest with `update`.
 - Leave 60 px between boxes. A row steps by 260 px, a column by 140 px.
 - A labelled arrow needs room for its label. Leave about 10 px per character of the label, plus 40 px, between the boxes it joins.
 - Snap positions to a grid of 20.
 - Flow left to right, or top to bottom for long chains.
 - Label every shape and every arrow that is not obvious.
-- Keep frames 40 px larger than their content on each side, with room for the title.
+- Keep frames 40 px larger than their content on each side, with room for the title. A frame grows to hold boxes that grew, and `draw` warns when it then overlaps another frame. Move the frames below it down with `update`.
 - Run `agent-brief read` before drawing on a board that has content. Place new elements in empty space, using the `bounds` line. Start below or to the right of it.
 
 ## Stack boards
