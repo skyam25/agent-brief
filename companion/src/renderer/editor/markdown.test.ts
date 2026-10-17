@@ -1,5 +1,6 @@
 import { MarkdownManager } from '@tiptap/markdown';
 import { describe, expect, it } from 'vitest';
+import { STARTER_TEMPLATES } from '../../main/templates';
 import { findSlots } from '../../shared/slots';
 import { escapeProse, lightenEscapes, schemaExtensions } from './markdown';
 
@@ -17,6 +18,10 @@ const roundTrip = (markdown: string) => {
 const paragraph = (text: string) => manager().serialize({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
 
 describe('Markdown round trip', () => {
+  it('keeps every starter template as written', () => {
+    for (const t of STARTER_TEMPLATES) expect(roundTrip(t.body), t.id).toBe(t.body.trim());
+  });
+
   it('keeps every block the editor offers', () => {
     const doc = [
       '# Goal {{goal}}',

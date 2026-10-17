@@ -218,13 +218,13 @@ test('the gutter + follows the caret to a new line while the pointer rests on th
 test('an empty draft offers its templates as chips, and a chip fills the draft', async () => {
   const { page } = ctx;
   const chips = page.getByTestId('starter-chip');
-  await expect(chips).toHaveText(['Bug report', 'Feature', 'Plan first']);
+  await expect(chips).toHaveText(['One-pager', 'User story', 'Prototype', 'Status update']);
   await page.screenshot({ path: join(RESULTS, 'starter-chips.png') });
-  await chips.filter({ hasText: 'Bug report' }).click();
+  await chips.filter({ hasText: 'Prototype' }).click();
   await expect(page.getByTestId('starter-chips')).toHaveCount(0);
-  await expect.poll(() => draftBody(page)).toMatch(/^Something is broken: \{\{what you saw\}\}/);
-  await page.keyboard.type('login loops');
-  await expect.poll(() => draftBody(page)).toMatch(/^Something is broken: login loops/);
+  await expect.poll(() => draftBody(page)).toMatch(/^Prototype \{\{the idea\}\}/);
+  await page.keyboard.type('a pricing page');
+  await expect.poll(() => draftBody(page)).toMatch(/^Prototype a pricing page/);
 });
 
 test('/table inserts a table that grows by row and column, saved as a GFM table', async () => {

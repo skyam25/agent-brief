@@ -99,6 +99,7 @@ test('an HTML output opens live in the review pane, takes pinned comments, and s
   await page.mouse.up();
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(1).locator('.review-anchor')).toHaveText('p');
+  await expect(cards.nth(1).getByTestId('review-text')).toBeFocused();
   await page.keyboard.type('Say which plans.');
 
   // A selection shows as a quote on its card.
