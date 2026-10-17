@@ -2,7 +2,7 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DeliveriesResponse, SessionInfo, SessionsResponse } from '../src/protocol';
-import { briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, showEnded, sock, tempDataDir, themeShots } from './helpers';
+import { boardMenu, briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, showEnded, sock, tempDataDir, themeShots } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -27,6 +27,8 @@ const onDisk = (app: ElectronApplication, board: string) =>
   app.evaluate((_e, name) => globalThis.__companion.store.list().find((b) => b.name === name)?.elementCount ?? 0, board);
 const shown = (page: Page) => page.evaluate(() => ({ board: window.__board.board, count: window.__excalidraw.getSceneElements().length }));
 const briefs = (page: Page) => page.evaluate(() => window.companion.listBriefs());
+/** The name a session's new board gets today. A second one the same day is `<today> 2`. */
+const TODAY = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
 test('each session gets its own board, and /sketch brings back the one it left', async () => {
   const { app, page } = ctx;
@@ -38,9 +40,9 @@ test('each session gets its own board, and /sketch brings back the one it left',
   await drawBox(app, 'scratch', 0);
   await expect.poll(() => onDisk(app, 'scratch')).toBe(1);
 
-  // The second finds the current board in use and gets a board named after it.
-  expect((await openFor({ sessionId: 's2' })).board).toBe('Beta');
-  await expect.poll(() => shown(page)).toEqual({ board: 'Beta', count: 0 });
+  // The second finds the current board in use and gets a board named by the date.
+  expect((await openFor({ sessionId: 's2' })).board).toBe(TODAY);
+  await expect.poll(() => shown(page)).toEqual({ board: TODAY, count: 0 });
 
   // Back in the first session, /sketch reopens its board with its strokes.
   expect((await openFor({ sessionId: 's1' })).board).toBe('scratch');
@@ -49,7 +51,7 @@ test('each session gets its own board, and /sketch brings back the one it left',
   const list = await briefs(page);
   expect(list.map((b) => [b.sessionId, b.title, b.board, b.isLive, b.isTarget, b.hasContent])).toEqual([
     ['s1', 'Alpha', 'scratch', true, true, true],
-    ['s2', 'Beta', 'Beta', true, false, false],
+    ['s2', 'Beta', TODAY, true, false, false],
   ]);
 });
 
@@ -120,7 +122,7 @@ test('a switch opens the session brief and sets the target; an ended session ope
 
   await sock(socketPath, 'DELETE', '/sessions/s2');
   await page.evaluate(() => window.companion.switchBrief('s2'));
-  await expect.poll(() => shown(page)).toEqual({ board: 'Beta', count: 0 });
+  await expect.poll(() => shown(page)).toEqual({ board: TODAY, count: 0 });
   expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
   const ended = (await briefs(page)).find((b) => b.sessionId === 's2');
   expect(ended).toMatchObject({ title: 'Beta', isLive: false });
@@ -128,11 +130,12 @@ test('a switch opens the session brief and sets the target; an ended session ope
   // Forgetting a brief keeps its board.
   await page.evaluate(() => window.companion.forgetBrief('s2'));
   expect((await briefs(page)).map((b) => b.sessionId)).toEqual(['s1']);
-  expect(await app.evaluate(() => globalThis.__companion.store.exists('Beta'))).toBe(true);
+  expect(await app.evaluate((_e, name) => globalThis.__companion.store.exists(name), TODAY)).toBe(true);
 });
 
 const SHOTS = process.env.UI_SHOTS;
 const tabs = (page: Page) => page.getByTestId('brief-tab');
+const crumb = (page: Page) => page.getByTestId('crumb-session');
 
 test('the tab row: one tab per session, a click switches board and Send, close keeps the board', async () => {
   const { app, page } = ctx;
@@ -145,30 +148,32 @@ test('the tab row: one tab per session, a click switches board and Send, close k
   await expect.poll(() => onDisk(app, 'scratch')).toBe(1);
   await openFor({ sessionId: 's2' });
 
-  // Newest first; the session that opened last is active and named on Send.
+  // Newest first; the session that opened last is active and named in the breadcrumb.
   await expect(tabs(page)).toHaveText([/Beta/, /Alpha/]);
   await expect(briefTab(page, 'Beta')).toHaveAttribute('aria-current', 'true');
-  await expect(page.getByTestId('send-menu')).toHaveText('Beta');
+  await expect(crumb(page)).toHaveText('Beta');
+  await expect(page.getByTestId('send-menu')).toHaveCount(0);
   await expect(briefTab(page, 'Alpha').getByTestId('brief-unsent')).toBeVisible();
   await expect(briefTab(page, 'Beta').getByTestId('brief-unsent')).toHaveCount(0);
 
   await briefTab(page, 'Alpha').getByRole('tab').click();
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
-  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
+  await expect(crumb(page)).toHaveText('Alpha');
   await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
 
-  // Notes is ⌃1, so the sessions start at ⌃2; ⌃Tab cycles through Notes too.
+  // Unfiled is ⌃1, so the sessions start at ⌃2; ⌃Tab cycles through Unfiled too.
   await page.keyboard.press('Control+3');
-  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
+  await expect(crumb(page)).toHaveText('Alpha');
   await page.keyboard.press('Control+2');
-  await expect(page.getByTestId('send-menu')).toHaveText('Beta');
+  await expect(crumb(page)).toHaveText('Beta');
   await page.keyboard.press('Control+Tab');
-  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
+  await expect(crumb(page)).toHaveText('Alpha');
   await page.keyboard.press('Control+Tab');
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
-  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
+  await expect(crumb(page)).toHaveText('Unfiled');
+  await expect(page.getByTestId('send-menu')).toHaveText('Send to…');
   await page.keyboard.press('Control+Shift+Tab');
-  await expect(page.getByTestId('send-menu')).toHaveText('Alpha');
+  await expect(crumb(page)).toHaveText('Alpha');
 
   await themeShots(ctx, 'tabs', { x: 0, y: 0, width: 1100, height: 140 });
 
@@ -176,7 +181,7 @@ test('the tab row: one tab per session, a click switches board and Send, close k
   await briefTab(page, 'Beta').hover();
   await briefTab(page, 'Beta').getByTestId('brief-close').click();
   await expect(tabs(page)).toHaveText([/Alpha/]);
-  expect(await app.evaluate(() => globalThis.__companion.store.exists('Beta'))).toBe(true);
+  expect(await app.evaluate((_e, name) => globalThis.__companion.store.exists(name), TODAY)).toBe(true);
 });
 
 test('an ended session keeps its tab, which still opens its board', async () => {
@@ -197,7 +202,8 @@ test('an ended session keeps its tab, which still opens its board', async () => 
   await expect.poll(() => shown(page)).toEqual({ board: 'scratch', count: 1 });
   await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
   // An ended session cannot take a Send, so Send asks where to go.
-  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
+  await expect(crumb(page)).toHaveText('Alpha');
+  await expect(page.getByTestId('send-menu')).toHaveText('Send to…');
 });
 
 test('a tab shows the mode the mod reports, and drops it when the session ends', async () => {
@@ -251,5 +257,116 @@ test('the sidebar lists running sessions, folds ended ones, hides, and opens as 
   if (SHOTS) await page.screenshot({ path: join(SHOTS, 'sidebar-drawer.png') });
   await briefTab(page, 'Beta').getByRole('tab').click();
   await expect(page.getByTestId('brief-tabs')).toHaveCount(0);
-  await expect(page.getByTestId('send-menu')).toHaveText('Beta');
+  await expect(crumb(page)).toHaveText('Beta');
+});
+
+test("a session's board menu lists its own boards, never another session's", async () => {
+  const { app, page } = ctx;
+  await register('s1', 'Alpha');
+  await register('s2', 'Beta');
+  await openFor({ sessionId: 's1' });
+  await drawBox(app, 'scratch', 0);
+  await expect.poll(() => onDisk(app, 'scratch')).toBe(1);
+  await openFor({ sessionId: 's2' });
+  await expect(crumb(page)).toHaveText('Beta');
+
+  const rows = page.getByTestId('board-item');
+  await page.getByTestId('board-picker').click();
+  await expect(rows).toHaveText([TODAY]);
+  await expect(page.getByTestId('board-attach')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await briefTab(page, 'Alpha').getByRole('tab').click();
+  await expect(page.getByTestId('board-picker')).toHaveText('scratch');
+  await page.getByTestId('board-picker').click();
+  await expect(rows).toHaveText(['scratch']);
+});
+
+test('attaching an unfiled board adds it to the session, which keeps its other boards', async () => {
+  const { app, page } = ctx;
+  await register('s1', 'Alpha');
+  await openFor({ sessionId: 's1' });
+  await app.evaluate(() => globalThis.__companion.store.create('loose'));
+  const children = page.getByTestId('brief-children');
+  await expect(children.getByTestId('brief-board')).toHaveText(['scratch']);
+
+  // A live session's menu offers the unfiled board under Attach, not among its own.
+  await page.getByTestId('board-picker').click();
+  await expect(page.getByTestId('board-item')).toHaveText(['scratch']);
+  await page.getByTestId('board-attach').filter({ hasText: 'loose' }).click();
+  await expect(page.getByTestId('board-picker')).toHaveText('loose');
+  await expect.poll(async () => (await briefs(page)).find((b) => b.sessionId === 's1')?.board).toBe('loose');
+
+  // Both boards now show under the session, and the menu lists both as its own.
+  await expect(children.getByTestId('brief-board').filter({ hasText: 'loose' })).toHaveAttribute('aria-current', 'true');
+  await expect(children.getByTestId('brief-board').filter({ hasText: 'scratch' })).toHaveCount(1);
+  await page.getByTestId('board-picker').click();
+  await expect(page.getByTestId('board-item').filter({ hasText: 'loose' })).toHaveCount(1);
+  await expect(page.getByTestId('board-item').filter({ hasText: 'scratch' })).toHaveCount(1);
+  await expect(page.getByTestId('board-attach')).toHaveCount(0);
+});
+
+test('detaching a board moves it to Unfiled and opens the session\'s other board', async () => {
+  const { page } = ctx;
+  await register('s1', 'Alpha');
+  await openFor({ sessionId: 's1' });
+  await boardMenu(page, 'board-new');
+  await page.getByTestId('board-name').fill('second');
+  await page.getByTestId('board-name').press('Enter');
+  await expect(page.getByTestId('board-picker')).toHaveText('second');
+  const rows = page.getByTestId('board-item');
+  await page.getByTestId('board-picker').click();
+  await expect(rows).toHaveCount(2);
+
+  const row = page.getByRole('listitem').filter({ has: rows.filter({ hasText: /^second$/ }) });
+  await row.hover();
+  await expect(row.getByTestId('board-detach')).toHaveAttribute('title', 'Move to Unfiled');
+  await row.getByTestId('board-detach').click();
+  await expect(page.getByTestId('board-picker')).toHaveText('scratch');
+  await expect(rows).toHaveText(['scratch']);
+  await page.keyboard.press('Escape');
+
+  await page.getByTestId('notes-tab').getByRole('tab').click();
+  await expect(page.getByTestId('brief-children').getByTestId('brief-board')).toHaveText(['second']);
+  await page.getByTestId('board-picker').click();
+  await expect(page.getByTestId('board-detach')).toHaveCount(0);
+});
+
+test('the footer names no target on a live session, and offers Send to… on Unfiled', async () => {
+  const { page } = ctx;
+  await showPanel(ctx.app, page);
+  await expect(page.getByTestId('send-menu')).toHaveText('Send to…');
+
+  await register('s1', 'Alpha');
+  await openFor({ sessionId: 's1' });
+  await expect(crumb(page)).toHaveText('Alpha');
+  await expect(page.getByTestId('send-menu')).toHaveCount(0);
+  await expect(page.getByTestId('send')).toHaveAttribute('title', 'Send to Alpha');
+
+  await page.getByTestId('notes-tab').getByRole('tab').click();
+  await expect(crumb(page)).toHaveText('Unfiled');
+  await page.getByTestId('send-menu').click();
+  await expect(page.getByTestId('send-chooser')).toContainText('Running');
+  await expect(page.getByTestId('send-to-session')).toHaveText([/Alpha/]);
+});
+
+test('switching to Unfiled opens an unfiled board, never one a session holds', async () => {
+  const { page } = ctx;
+  await register('s1', 'Alpha');
+  expect((await openFor({ sessionId: 's1' })).board).toBe('scratch');
+  await expect(page.getByTestId('board-picker')).toHaveText('scratch');
+
+  // The session holds scratch, so Unfiled starts its own.
+  await page.getByTestId('notes-tab').getByRole('tab').click();
+  await expect(crumb(page)).toHaveText('Unfiled');
+  await expect(page.getByTestId('board-picker')).toHaveText('scratch 2');
+  await page.getByTestId('board-picker').click();
+  await expect(page.getByTestId('board-item')).toHaveText(['scratch 2']);
+  await page.keyboard.press('Escape');
+
+  // Back and forth, each side reopens its own board.
+  await briefTab(page, 'Alpha').getByRole('tab').click();
+  await expect(page.getByTestId('board-picker')).toHaveText('scratch');
+  await page.keyboard.press('Control+1');
+  await expect(page.getByTestId('board-picker')).toHaveText('scratch 2');
 });

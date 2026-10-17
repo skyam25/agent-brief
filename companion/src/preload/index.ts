@@ -11,6 +11,7 @@ const api: CompanionApi = {
   renameBoard: (from, to) => ipcRenderer.invoke(CH.renameBoard, from, to),
   deleteBoard: (name) => ipcRenderer.invoke(CH.deleteBoard, name),
   setCurrent: (name) => ipcRenderer.invoke(CH.setCurrent, name),
+  detachBoard: (sessionId, name) => ipcRenderer.invoke(CH.detachBoard, sessionId, name),
   send: (payload) => ipcRenderer.invoke(CH.send, payload),
   setTarget: (sessionId) => ipcRenderer.invoke(CH.setTarget, sessionId),
   onRequest: (handler) => {
@@ -45,6 +46,7 @@ const api: CompanionApi = {
   listBriefs: () => ipcRenderer.invoke(CH.listBriefs),
   onBriefs: (fn) => ipcRenderer.on(CH.briefs, (_e, briefs: SessionBriefEntry[]) => fn(briefs)),
   switchBrief: (sessionId) => ipcRenderer.invoke(CH.switchBrief, sessionId),
+  openUnfiled: () => ipcRenderer.invoke(CH.openUnfiled),
   forgetBrief: (sessionId) => ipcRenderer.invoke(CH.forgetBrief, sessionId),
   listDrafts: () => ipcRenderer.invoke(CH.listDrafts),
   onDraftsChanged: (fn) => ipcRenderer.on(CH.draftsChanged, () => fn()),

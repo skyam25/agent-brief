@@ -2,11 +2,12 @@
 
 import type { SessionInfo, SessionsResponse } from '../protocol';
 import { newDraftId } from '../shared/drafts';
-import { CH, type NewNote, type OpenDraft, type SessionBriefEntry } from '../shared/ipc';
-import { folderName } from '../shared/sessions';
+import { CH, type BoardEntry, type NewNote, type OpenDraft, type SessionBriefEntry } from '../shared/ipc';
 import type { DraftStore } from './drafts';
 import { resumeCommand } from './launch';
 import {
+  boardHolder,
+  detachBoard,
   forgetBoard,
   liveFields,
   refreshLive,
@@ -124,21 +125,39 @@ export class Briefs {
     this.publish();
   }
 
+  /** Takes a board out of a session's brief. */
+  detach(sessionId: string, board: string): void {
+    this.save(detachBoard(this.all(), sessionId, board));
+    this.publish();
+  }
+
   forget(sessionId: string): void {
     const { [sessionId]: _gone, ...rest } = this.all();
     this.save(rest);
     this.publish();
   }
 
+  /** The session whose brief holds a board, live or ended. */
+  holderOf(board: string): string | undefined {
+    return boardHolder(this.all(), board);
+  }
+
+  /** Every board, each with the session that holds it. */
+  boardsWithHolders(): BoardEntry[] {
+    return this.deps.store.list().map((b) => {
+      const sessionId = this.holderOf(b.name);
+      return sessionId ? { ...b, sessionId } : b;
+    });
+  }
+
   /** The board /sketch opens for a session that names none. */
   boardFor(sessionId: string): string {
     const { state, store } = this.deps;
-    const live = this.live(sessionId);
     return sketchBoard({
       sessionId,
       briefs: this.all(),
       current: state.state.currentBoard,
-      label: live ? live.title || folderName(live.cwd) : (this.get(sessionId)?.title ?? 'session'),
+      now: Date.now(),
       exists: (n) => store.exists(n),
       isEmpty: (n) => store.isEmpty(n),
     }).board;

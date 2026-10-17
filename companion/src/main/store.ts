@@ -180,6 +180,8 @@ export interface AppState extends Settings {
   mode: Mode;
   /** The board and note each Claude Code session last opened. */
   sessionBriefs?: SessionBriefs;
+  /** The board Unfiled last opened. */
+  unfiledBoard?: string;
 }
 
 export const DEFAULT_STATE: AppState = {

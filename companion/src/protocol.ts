@@ -279,8 +279,15 @@ export interface AckResponse {
 export type BoardLayout = 'freeform' | 'stack';
 
 export interface BoardsResponse {
-  /** `layout` is absent for a freeform board. */
-  boards: { name: string; updatedAt: number; elementCount: number; layout?: BoardLayout }[];
+  boards: {
+    name: string;
+    updatedAt: number;
+    elementCount: number;
+    /** Absent for a freeform board. */
+    layout?: BoardLayout;
+    /** The session whose brief holds this board. Absent for an unfiled board. */
+    sessionId?: string;
+  }[];
   current: string;
 }
 

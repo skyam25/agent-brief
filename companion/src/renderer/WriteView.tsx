@@ -37,7 +37,7 @@ export function WriteView(props: {
   onOpenBoard: (board: string) => void;
   /** A draft moved to another tab; `where` names it. */
   onFiled?: (where: string) => void;
-  /** The filing menu opened. A toast would cover it, so App clears one. */
+  /** The File under list opened. A toast would cover it, so App clears one. */
   onFilingMenu?: () => void;
   /** Puts a note on the clipboard as rich text and Markdown. False when that failed, which the panel has reported. */
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
@@ -112,7 +112,7 @@ export function WriteView(props: {
     const moved = book.get(d.id);
     if (!moved || here(moved)) return;
     book.select(book.firstOnTab(props.sessionId, tabIds)?.id);
-    props.onFiled?.(sessionId ? (filedTab(moved, props.tabs)?.title ?? 'that session') : 'Notes');
+    props.onFiled?.(sessionId ? (filedTab(moved, props.tabs)?.title ?? 'that session') : 'Unfiled');
   };
 
   return (

@@ -26,8 +26,15 @@ const target = async () => (await sock<SessionsResponse>(socketPath, 'GET', '/se
 const filedAs = (body: string) => draftsOnDisk(dataDir).find((d) => d.body === body)?.sessionId ?? null;
 const notesTab = (page: Page) => page.getByTestId('notes-tab');
 const rows = (page: Page) => page.getByTestId('draft-row');
+const crumb = (page: Page) => page.getByTestId('crumb-session');
 
-test('the Notes tab is first and always there, and has no Review', async () => {
+/** Opens the open note's ⋯ menu and its File under… list. */
+async function openFileUnder(page: Page): Promise<void> {
+  await page.getByTestId('draft-more').click();
+  await page.getByTestId('draft-file-under').click();
+}
+
+test('the Unfiled tab is first and always there, and has no Review', async () => {
   const { page } = ctx;
   await expect(notesTab(page)).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('brief-tab')).toHaveCount(0);
@@ -41,7 +48,7 @@ test('the Notes tab is first and always there, and has no Review', async () => {
   await expect(notesTab(page).getByTestId('brief-close')).toHaveCount(0);
   await expect(page.getByTestId('mode-review')).toBeVisible();
 
-  // Notes clears the Send target, and Review falls back to Write.
+  // Unfiled clears the Send target, and Review falls back to Write.
   await page.getByTestId('mode-review').click();
   await notesTab(page).getByRole('tab').click();
   await expect(notesTab(page)).toHaveAttribute('aria-current', 'true');
@@ -49,7 +56,7 @@ test('the Notes tab is first and always there, and has no Review', async () => {
   await expect(page.getByTestId('mode-review')).toHaveCount(0);
   // Write shows Send in the open note's footer.
   await page.getByTestId('draft-new').click();
-  await expect(page.getByTestId('send-menu')).toHaveText('Choose a session');
+  await expect(page.getByTestId('send-menu')).toHaveText('Send to…');
   await expect.poll(target).toBeUndefined();
 });
 
@@ -58,15 +65,18 @@ test('a note stays on the tab it was written on', async () => {
   await register('s1', 'Alpha');
   await page.getByTestId('mode-write').click();
   await typeDraft(page, 'loose idea');
-  await expect(page.getByTestId('draft-filing')).toHaveText('File under');
+  await expect(crumb(page)).toHaveText('Unfiled');
+  await expect(page.getByTestId('crumb-note')).toHaveText('loose idea');
   await expect.poll(() => filedAs('loose idea')).toBeNull();
 
   // /write files its note under the session and opens that session's tab.
   await openFor({ sessionId: 's1', mode: 'write', text: 'hi' });
   await expect(page.getByTestId('draft-body')).toHaveText('hi');
   await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
-  await expect(page.getByTestId('draft-filing')).toHaveText('Alpha');
+  await expect(crumb(page)).toHaveText('Alpha');
+  await expect(page.getByTestId('crumb-note')).toHaveText('hi');
   await expect(rows(page)).toHaveText([/hi/]);
+  await expect(page.getByTestId('brief-notes')).toHaveText('1 note');
   await expect.poll(() => filedAs('hi')).toBe('s1');
 
   await notesTab(page).getByRole('tab').click();
@@ -81,9 +91,10 @@ test('a note stays on the tab it was written on', async () => {
   await page.getByTestId('draft-new').click();
   await typeDraft(page, 'second for Alpha');
   await expect.poll(() => filedAs('second for Alpha')).toBe('s1');
+  await expect(page.getByTestId('brief-notes')).toHaveText('2 notes');
 });
 
-test('File under moves a note between Notes and a session tab', async () => {
+test('File under moves a note between Unfiled and a session tab', async () => {
   const { page } = ctx;
   await register('s1', 'Alpha');
   await openFor({ sessionId: 's1' });
@@ -92,8 +103,9 @@ test('File under moves a note between Notes and a session tab', async () => {
   await typeDraft(page, 'move me');
   await expect(rows(page)).toHaveText([/move me/]);
 
-  await page.getByTestId('draft-filing').click();
+  await openFileUnder(page);
   await expect(page.getByTestId('file-under')).toHaveText(['Alpha', 'Unfiled']);
+  await expect(page.locator('[data-testid="file-under"][aria-checked="true"]')).toHaveText('Unfiled');
   await themeShots(ctx, 'filing-menu');
   await page.getByTestId('file-under').filter({ hasText: 'Alpha' }).click();
   await expect(page.getByTestId('send-status')).toHaveText('Moved to Alpha.');
@@ -103,12 +115,13 @@ test('File under moves a note between Notes and a session tab', async () => {
   await briefTab(page, 'Alpha').getByRole('tab').click();
   await page.getByTestId('mode-write').click();
   await expect(rows(page)).toHaveText([/move me/]);
-  await expect(page.getByTestId('draft-filing')).toHaveText('Alpha');
+  await expect(crumb(page)).toHaveText('Alpha');
   await expect(page.getByTestId('draft-body')).toHaveText('move me');
 
-  await page.getByTestId('draft-filing').click();
+  await openFileUnder(page);
+  await expect(page.locator('[data-testid="file-under"][aria-checked="true"]')).toHaveAttribute('data-session', 's1');
   await page.getByTestId('file-under').filter({ hasText: 'Unfiled' }).click();
-  await expect(page.getByTestId('send-status')).toHaveText('Moved to Notes.');
+  await expect(page.getByTestId('send-status')).toHaveText('Moved to Unfiled.');
   await expect(rows(page)).toHaveCount(0);
   await expect.poll(() => filedAs('move me')).toBeNull();
 

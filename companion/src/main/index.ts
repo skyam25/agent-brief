@@ -45,6 +45,7 @@ import { trayMenuTemplate } from './menus';
 import { Panel } from './panel';
 import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './review-protocol';
 import { rememberProjects, Sender } from './sender';
+import { unfiledBoardChoice } from './session-briefs';
 import { SessionFiles, webUrl, type Opener } from './session-files';
 import { SessionModes } from './session-modes';
 import { TemplateStore } from './templates';
@@ -175,7 +176,7 @@ async function start(): Promise<void> {
   /** A board History restored. Switching to it is no session's choice, so it is not recorded. */
   let restoredBoard: string | undefined;
 
-  const baseBackend = createBoardBackend({ store, state, panel, bridge, setPrompt });
+  const baseBackend = createBoardBackend({ store, state, panel, bridge, setPrompt, boards: () => briefs.boardsWithHolders() });
   const backend: BoardBackend = {
     ...baseBackend,
     tracking(sessionId) {
@@ -295,7 +296,7 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.openLink, async (_e, url: unknown) => opener.openExternal(webUrl(String(url), 'Not a link').href));
 
   // Boards.
-  ipcMain.handle(CH.listBoards, () => store.list());
+  ipcMain.handle(CH.listBoards, () => briefs.boardsWithHolders());
   ipcMain.handle(CH.loadBoard, (_e, name: string) => store.load(name));
   ipcMain.handle(CH.saveBoard, (_e, name: string, json: string) => {
     store.saveScene(name, json);
@@ -309,6 +310,7 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.renameBoard, (_e, from: string, to: string) => {
     const name = store.rename(from, to);
     if (state.state.currentBoard === from) state.update({ currentBoard: name });
+    if (state.state.unfiledBoard === from) state.update({ unfiledBoard: name });
     drafts.renameBoard(from, name);
     briefs.renameBoard(from, name);
     return name;
@@ -322,14 +324,17 @@ async function start(): Promise<void> {
     else for (const f of paths) await shell.trashItem(f);
     drafts.forgetBoard(name);
     briefs.forgetBoard(name);
+    if (state.state.unfiledBoard === name) state.update({ unfiledBoard: undefined });
   });
+  // The renderer passes only the session's own boards or an unfiled board the user chose to attach.
   ipcMain.handle(CH.setCurrent, (_e, raw: string) => {
     const board = store.create(raw);
-    state.update({ currentBoard: board });
     const target = server.sessions().targetSessionId;
+    state.update({ currentBoard: board, ...(target ? {} : { unfiledBoard: board }) });
     if (board === restoredBoard) restoredBoard = undefined;
     else if (target) briefs.remember(target, { board, last: 'board' }, false);
   });
+  ipcMain.handle(CH.detachBoard, (_e, sessionId: string, name: string) => briefs.detach(sessionId, name));
 
   // Drafts, templates and history.
   ipcMain.handle(CH.listDrafts, () => drafts.list());
@@ -392,6 +397,13 @@ async function start(): Promise<void> {
     await bridge.request('show', { board: shown, fromSwitch: true });
     briefs.publish();
     return { board: shown };
+  });
+  ipcMain.handle(CH.openUnfiled, () => {
+    server.setTarget(undefined);
+    const choice = unfiledBoardChoice({ remembered: state.state.unfiledBoard, boards: briefs.boardsWithHolders() });
+    const board = choice.isNew ? store.create(choice.board) : choice.board;
+    state.update({ currentBoard: board, unfiledBoard: board });
+    return { board };
   });
   ipcMain.handle(CH.forgetBrief, (_e, sessionId: string) => briefs.forget(sessionId));
   ipcMain.handle(CH.focusSession, async (_e, id: string) => {
