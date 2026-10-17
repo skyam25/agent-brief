@@ -35,6 +35,10 @@ extraResources:
       - '!.claude-plugin/types/**'
       - '!**/.DS_Store'
 electronDist: node_modules/electron/dist
+# The UI is English only. Each locale.pak is signed and timestamped one at a
+# time, so dropping the other ~220 cuts minutes from signing and notarizing.
+electronLanguages:
+  - en
 npmRebuild: false
 nodeGypRebuild: false
 asar: true

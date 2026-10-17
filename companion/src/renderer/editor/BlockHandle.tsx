@@ -146,15 +146,24 @@ export function BlockHandle(props: { editor: Editor; box: RefObject<HTMLDivEleme
   );
 }
 
+/** Starters the chips lead with when present. Other templates follow by title. */
+const CHIP_FIRST = ['one-pager', 'user-story', 'prototype', 'status-update'];
+
+const chipRank = (t: Template) => {
+  const i = CHIP_FIRST.indexOf(t.id);
+  return i === -1 ? CHIP_FIRST.length : i;
+};
+
 /** Template chips under the placeholder of an empty draft. */
 export function StarterChips(props: { editor: Editor; templates: Template[]; onPick: (t: Template) => void }) {
   useEditorTick(props.editor);
   const empty = props.editor.isEmpty;
   if (!empty || props.templates.length === 0) return null;
+  const chips = [...props.templates].sort((a, b) => chipRank(a) - chipRank(b)).slice(0, 4);
   return (
     <div className="starter-chips" data-testid="starter-chips">
       <span className="muted">Start from</span>
-      {props.templates.slice(0, 4).map((t) => (
+      {chips.map((t) => (
         <button
           key={t.id}
           type="button"

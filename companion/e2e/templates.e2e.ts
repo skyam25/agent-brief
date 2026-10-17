@@ -19,11 +19,12 @@ test.afterEach(async () => {
 });
 
 const panelVisible = () => ctx.app.evaluate(() => globalThis.__companion.panel.isVisible());
-const templateFiles = () => readdirSync(join(dataDir, 'templates')).sort();
+const templateFiles = () => readdirSync(join(dataDir, 'templates')).filter((f) => f.endsWith('.md')).sort();
+const STARTER_FILES = ['bug-report.md', 'decision.md', 'interview-notes.md', 'launch-plan.md', 'one-pager.md', 'prototype.md', 'status-update.md', 'user-story.md'];
 
 test('typing / inserts a template and Tab walks its slots', async () => {
   const { page } = ctx;
-  expect(templateFiles()).toEqual(['bug-report.md', 'feature.md', 'plan-first.md']);
+  expect(templateFiles()).toEqual(STARTER_FILES);
   const body = page.getByTestId('draft-body');
   await body.click();
   await page.keyboard.type('Context first.\n/bug');
@@ -33,15 +34,15 @@ test('typing / inserts a template and Tab walks its slots', async () => {
   await page.screenshot({ path: join(RESULTS, 'templates-slash.png') });
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('slash-menu')).toHaveCount(0);
-  await expect.poll(() => draftBody(page)).toMatch(/^Context first\.\n\nSomething is broken: \{\{what you saw\}\}/);
+  await expect.poll(() => draftBody(page)).toMatch(/^Context first\.\n\nWhat happened: \{\{what you saw\}\}/);
   await expect.poll(() => selectedText(page)).toBe('{{what you saw}}');
 
   await page.keyboard.type('login loops back to the form');
   await page.keyboard.press('Tab');
-  await expect.poll(() => selectedText(page)).toBe('{{steps}}');
+  await expect.poll(() => selectedText(page)).toBe('{{what should happen}}');
   await page.keyboard.press('Shift+Tab');
   // Back wraps to the last slot, since the first is filled now.
-  await expect.poll(() => selectedText(page)).toBe('{{what should happen}}');
+  await expect.poll(() => selectedText(page)).toBe('{{who hits this, and how often}}');
   await page.screenshot({ path: join(RESULTS, 'templates-slots.png') });
 
   // Escape closes the menu, keeps the text, and leaves the panel up.
@@ -61,15 +62,15 @@ test('right-clicking a template row uses or deletes it', async () => {
   await page.getByTestId('templates-toggle').click();
   const row = (title: string) => page.getByTestId('template-row').filter({ hasText: title });
 
-  await row('Plan first').click({ button: 'right' });
+  await row('Decision').click({ button: 'right' });
   await page.getByTestId('row-menu-use').click();
-  await expect.poll(() => selectedText(page)).toBe('{{goal}}');
+  await expect.poll(() => selectedText(page)).toBe('{{the question}}');
 
   await row('Bug report').click({ button: 'right' });
   await page.getByTestId('row-menu-delete').click();
   await page.getByTestId('row-menu-delete').click();
   await expect(row('Bug report')).toHaveCount(0);
-  await expect.poll(templateFiles).toEqual(['feature.md', 'plan-first.md']);
+  await expect.poll(templateFiles).toEqual(STARTER_FILES.filter((f) => f !== 'bug-report.md'));
 });
 
 test('Send points out empty slots once, then sends as is', async () => {
@@ -77,24 +78,24 @@ test('Send points out empty slots once, then sends as is', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Login work' });
   await page.getByTestId('draft-new-menu').click();
-  await page.getByTestId('new-menu-item').filter({ hasText: 'Feature' }).click();
-  await expect.poll(() => selectedText(page)).toBe('{{the feature}}');
-  await page.keyboard.type('split the panel into two windows');
+  await page.getByTestId('new-menu-item').filter({ hasText: 'Prototype' }).click();
+  await expect.poll(() => selectedText(page)).toBe('{{the idea}}');
+  await page.keyboard.type('a pricing page');
 
   await sendToSession(page, 'Login work');
-  await expect(page.getByTestId('send-status')).toHaveText('3 empty slots. Send again to send anyway.');
-  await expect.poll(() => selectedText(page)).toBe('{{the problem it solves}}');
+  await expect(page.getByTestId('send-status')).toHaveText('5 empty slots. Send again to send anyway.');
+  await expect.poll(() => selectedText(page)).toBe('{{show it to or test it with whom}}');
   await page.getByTestId('draft-body').evaluate((el: HTMLElement) => el.blur());
   await page.getByTestId('send').click();
   await expect.poll(panelVisible).toBe(false);
   const { body } = await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=s1&wait=0');
-  expect(body.deliveries[0].draft).toMatch(/^Build split the panel into two windows\.\n\nWhy: \{\{the problem it solves\}\}/);
+  expect(body.deliveries[0].draft).toMatch(/^Prototype a pricing page so I can \{\{show it to or test it with whom\}\}\./);
 });
 
 test('templates are written here and saved from a draft', async () => {
   const { page } = ctx;
   await page.getByTestId('templates-toggle').click();
-  await expect(page.getByTestId('template-row')).toHaveText([/Bug report/, /Feature/, /Plan first/]);
+  await expect(page.getByTestId('template-row')).toHaveText([/Bug report/, /Decision/, /Interview notes/, /Launch plan/, /One-pager/, /Prototype/, /Status update/, /User story/]);
 
   await page.getByTestId('template-new').click();
   await expect(page.getByTestId('template-title')).toBeFocused();
@@ -118,11 +119,11 @@ test('templates are written here and saved from a draft', async () => {
   await page.getByTestId('save-template-name').press('Enter');
   await expect(page.getByTestId('save-template-done')).toHaveText('Saved “Release notes”');
   expect(templateFiles()).toContain('release-notes.md');
-  await expect(page.getByTestId('template-row')).toHaveText([/Bug report/, /Code review/, /Feature/, /Plan first/, /Release notes/]);
+  await expect(page.getByTestId('template-row')).toHaveText([/Bug report/, /Code review/, /Decision/, /Interview notes/, /Launch plan/, /One-pager/, /Prototype/, /Release notes/, /Status update/, /User story/]);
 
-  await page.getByTestId('template-row').filter({ hasText: 'Feature' }).click();
+  await page.getByTestId('template-row').filter({ hasText: 'Launch plan' }).click();
   await page.getByTestId('template-delete').click();
   await page.getByTestId('template-delete').click();
-  await expect(page.getByTestId('template-row')).toHaveCount(4);
-  expect(templateFiles()).not.toContain('feature.md');
+  await expect(page.getByTestId('template-row')).toHaveCount(9);
+  expect(templateFiles()).not.toContain('launch-plan.md');
 });
