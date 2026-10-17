@@ -425,7 +425,6 @@ async function applyMode($: EngineInterface, { mode, fidelity }: ModeChoice): Pr
   const isChanged = (await read($, modeRef)) !== mode || (await read($, fidelityRef)) !== rung
   await update($, modeRef, () => mode)
   await update($, fidelityRef, () => rung)
-  if (isChanged) $.ui.invalidate('tool.describe')
   void mirrorMode($).catch(err => log($, `mode mirror failed: ${String(err)}`))
   return modeToast(mode, rung, isChanged)
 }
@@ -458,7 +457,6 @@ async function resolveMode($: EngineInterface): Promise<void> {
     }
   }
   await update($, pickingRef, () => 'none')
-  if ((await read($, modeRef)) !== 'default') $.ui.invalidate('tool.describe')
 }
 
 type OpenMode = 'sketch' | 'write'

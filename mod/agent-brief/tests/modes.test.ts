@@ -3,9 +3,9 @@ import { describe, expect, test } from 'claude-code/testing'
 import {
   MODE_USAGE,
   bandLabel,
-  deferralOf,
   denyText,
-  isEditDenied,
+  editVerdict,
+  askText,
   modeFilePaths,
   modePatch,
   modeReport,
@@ -67,7 +67,7 @@ describe('labels and messages', () => {
 
   test('a change ends with the re-read note, and no change leaves it out', () => {
     expect(modeToast('product', null)).toBe(
-      'Mode: Product. Edits to source files are off; documents stay on. The next turn re-reads the conversation.',
+      'Mode: Product. Source edits ask first; documents write freely. The next turn re-reads the conversation.',
     )
     expect(modeToast('prototype', 'styled')).toMatch(/^Mode: Prototype at styled-HTML fidelity\. .* The next turn re-reads the conversation\.$/)
     expect(modeToast('default', null, false)).not.toContain('re-reads')
@@ -78,9 +78,10 @@ describe('labels and messages', () => {
     expect(modeReport('prototype', 'wireframe')).toBe('Mode: Prototype at wireframe fidelity. Switch with /mode default.')
   })
 
-  test('deny text names the mode and the way out', () => {
-    expect(denyText('product')).toBe('Product mode is on. Switch with /mode default to edit source files.')
+  test('deny and ask texts name the mode and the file', () => {
     expect(denyText('orchestrate')).toBe('Orchestrate mode is on. Switch with /mode default to edit files.')
+    expect(askText('/w/src/app.ts')).toBe('Product mode: this edits app.ts, which is source, not a document.')
+    expect(askText(undefined)).toBe('Product mode: this edits a file, which is source, not a document.')
   })
 })
 
@@ -110,54 +111,26 @@ describe('sectionText', () => {
   })
 })
 
-describe('tool posture', () => {
-  test('default leaves every tool where the engine put it', () => {
-    for (const tool of ['Edit', 'Write', 'NotebookEdit', 'LSP', 'mcp__playwright__browser_click']) {
-      expect(deferralOf('default', tool), tool).toBeUndefined()
-    }
-  })
-
-  test('product defers browsers and notebooks, and keeps Bash', () => {
-    expect(deferralOf('product', 'mcp__claude-in-chrome__navigate')).toBe(true)
-    expect(deferralOf('product', 'mcp__playwright__browser_click')).toBe(true)
-    expect(deferralOf('product', 'NotebookEdit')).toBe(true)
-    expect(deferralOf('product', 'Workflow')).toBe(true)
-    expect(deferralOf('product', 'Bash')).toBeUndefined()
-    expect(deferralOf('product', 'Edit')).toBeUndefined()
-  })
-
-  test('prototype pins browsers and defers LSP', () => {
-    expect(deferralOf('prototype', 'mcp__claude-in-chrome__computer')).toBe(false)
-    expect(deferralOf('prototype', 'mcp__playwright__browser_snapshot')).toBe(false)
-    expect(deferralOf('prototype', 'LSP')).toBe(true)
-    expect(deferralOf('prototype', 'mcp__playwrightish__x')).toBeUndefined()
-  })
-
-  test('orchestrate defers the edit tools', () => {
-    expect(deferralOf('orchestrate', 'Edit')).toBe(true)
-    expect(deferralOf('orchestrate', 'Write')).toBe(true)
-    expect(deferralOf('orchestrate', 'Read')).toBeUndefined()
-  })
-
-  test('product refuses source edits and lets documents through', () => {
-    expect(isEditDenied('product', 'Edit', '/w/src/app.ts', false)).toBe(true)
-    expect(isEditDenied('product', 'NotebookEdit', '/w/a.ipynb', false)).toBe(true)
-    expect(isEditDenied('product', 'Write', undefined, false)).toBe(true)
+describe('edit verdict', () => {
+  test('product asks on a source edit and lets documents through, in both loops', () => {
+    expect(editVerdict('product', 'Edit', '/w/src/app.ts', false)).toBe('ask')
+    expect(editVerdict('product', 'NotebookEdit', '/w/a.ipynb', false)).toBe('ask')
+    expect(editVerdict('product', 'Write', undefined, false)).toBe('ask')
+    expect(editVerdict('product', 'Edit', '/w/src/app.ts', true)).toBe('ask')
     for (const path of ['/w/spec.md', '/w/a.MDX', '/w/n.txt', '/w/d.csv', '/w/p.json', '/w/c.yaml', '/w/c.yml', '/w/.feedback/x/shot.png', '.feedback/a.ts']) {
-      expect(isEditDenied('product', 'Write', path, false), path).toBe(false)
+      expect(editVerdict('product', 'Write', path, false), path).toBe('allow')
     }
-    expect(isEditDenied('product', 'Edit', '/w/src/app.ts', true), 'a subagent too').toBe(true)
   })
 
   test('orchestrate refuses the main loop only', () => {
-    expect(isEditDenied('orchestrate', 'Edit', '/w/spec.md', false)).toBe(true)
-    expect(isEditDenied('orchestrate', 'Edit', '/w/src/app.ts', true)).toBe(false)
+    expect(editVerdict('orchestrate', 'Edit', '/w/spec.md', false)).toBe('deny')
+    expect(editVerdict('orchestrate', 'Edit', '/w/src/app.ts', true)).toBe('allow')
   })
 
-  test('default and prototype refuse nothing', () => {
-    expect(isEditDenied('default', 'Edit', '/w/src/app.ts', false)).toBe(false)
-    expect(isEditDenied('prototype', 'Write', '/w/src/app.ts', false)).toBe(false)
-    expect(isEditDenied('product', 'Bash', '/w/src/app.ts', false)).toBe(false)
+  test('default and prototype guard nothing, and other tools pass', () => {
+    expect(editVerdict('default', 'Edit', '/w/src/app.ts', false)).toBe('allow')
+    expect(editVerdict('prototype', 'Write', '/w/src/app.ts', false)).toBe('allow')
+    expect(editVerdict('product', 'Bash', '/w/src/app.ts', false)).toBe('allow')
   })
 
   test('the mirror sends fidelity only with prototype', () => {

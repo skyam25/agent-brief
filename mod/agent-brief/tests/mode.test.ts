@@ -10,7 +10,6 @@ type On = Parameters<TestBody>[1]
 
 const MODE_FILE = '.claude/agent-brief.local.md'
 const STYLE = { name: 'Explanatory', isKeepingCodingInstructions: true }
-const CORE = { plugin: 'engine', tier: 'core' } as const
 
 /** Seats the world, the clock, the fake app and an engine beneath the tool hooks. */
 function setup($: Dollar, on: On, files: Record<string, string> = {}, cwd = CWD) {
@@ -18,7 +17,7 @@ function setup($: Dollar, on: On, files: Record<string, string> = {}, cwd = CWD)
   const clock = mock.clock(on)
   mock.store(on)
   const app = fakeCompanion(on, clock)
-  on('tool.describe', ($, e) => ({ description: e.description, ...(e.isDeferred ? { isDeferred: true } : {}) }))
+  on('tool.check', () => ({ decision: 'allow' as const }))
   on('tool.call', () => ({ result: 'ran' }))
   return { world, clock, app, start: () => $.session.start(SESSION) }
 }
@@ -31,7 +30,8 @@ const sections = async ($: Dollar, outputStyle: typeof STYLE | null = null) =>
 const modeSection = async ($: Dollar, outputStyle: typeof STYLE | null = null) =>
   (await sections($, outputStyle)).find(s => s.id === 'agent-brief:mode')
 
-const describeTool = ($: Dollar, tool: string) => $.tool.describe({ tool, description: `${tool} does things`, provider: CORE })
+const check = ($: Dollar, tool: string, file_path: string, agentId?: string) =>
+  $.tool.check({ tool, input: { file_path, notebook_path: file_path }, ...(agentId ? { agentId } : {}) } as never)
 
 const edit = ($: Dollar, file_path: string) =>
   $.tool.call({ tool: 'Edit', file_path, old_string: 'a', new_string: 'b' } as never) as Promise<{ deny?: string; result?: unknown }>
@@ -102,7 +102,7 @@ describe('/mode', () => {
     await start()
     await clock.settle()
     expect(await $.command.run(command('mode', 'product'))).toEqual({
-      text: 'Mode: Product. Edits to source files are off; documents stay on. The next turn re-reads the conversation.',
+      text: 'Mode: Product. Source edits ask first; documents write freely. The next turn re-reads the conversation.',
     })
     expect(await $.command.run(command('mode', 'prototype html'))).toMatchObject({
       text: expect.stringMatching(/^Mode: Prototype at styled-HTML fidelity\./),
@@ -184,103 +184,66 @@ describe('the system prompt', () => {
   })
 })
 
-describe('tool placement', () => {
-  test('default passes every description through unchanged', async ($, on) => {
-    const { clock, start } = setup($, on)
-    await start()
-    await clock.settle()
-    expect(await describeTool($, 'Edit')).toEqual({ description: 'Edit does things' })
-    expect(await describeTool($, 'mcp__playwright__browser_click')).toEqual({ description: 'mcp__playwright__browser_click does things' })
-  })
-
-  test('product defers browser tools and leaves the rest', async ($, on) => {
-    const { clock, start } = setup($, on)
-    await start()
-    await clock.settle()
-    await $.command.run(command('mode', 'product'))
-    expect(await describeTool($, 'mcp__claude-in-chrome__navigate')).toEqual({
-      description: 'mcp__claude-in-chrome__navigate does things',
-      isDeferred: true,
-    })
-    expect(await describeTool($, 'Bash')).toEqual({ description: 'Bash does things' })
-  })
-
-  test('prototype pins browser tools', async ($, on) => {
-    const { clock, start } = setup($, on)
-    await start()
-    await clock.settle()
-    await $.command.run(command('mode', 'prototype styled'))
-    expect((await describeTool($, 'mcp__playwright__browser_snapshot')).isDeferred).toBe(false)
-    expect((await describeTool($, 'LSP')).isDeferred).toBe(true)
-  })
-
-  test('orchestrate defers the edit tools', async ($, on) => {
-    const { clock, start } = setup($, on)
-    await start()
-    await clock.settle()
-    await $.command.run(command('mode', 'orchestrate'))
-    expect((await describeTool($, 'Edit')).isDeferred).toBe(true)
-    expect((await describeTool($, 'Read')).isDeferred).toBeUndefined()
-  })
-})
-
 describe('edit guard', () => {
-  test('product allows code investigation and delegation but blocks source edits in both loops', async ($, on) => {
+  test('product asks before a source edit in either loop and lets reads and documents through', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
     await clock.settle()
     await $.command.run(command('mode', 'product'))
-    for (const tool of ['Read', 'Grep', 'Glob', 'Bash', 'Agent']) {
-      expect((await describeTool($, tool)).isDeferred, tool).toBeUndefined()
-    }
-    expect((await describeTool($, 'LSP')).isDeferred).toBe(true)
     for (const agentId of [undefined, 'investigator']) {
-      for (const tool of ['Read', 'Grep', 'Glob', 'LSP', 'Agent']) {
-        expect(await $.tool.call({ tool, agentId, file_path: `${CWD}/src/app.ts` } as never), tool).toEqual({ result: 'ran' })
+      for (const tool of ['Read', 'Grep', 'Glob', 'Agent']) {
+        expect(await check($, tool, `${CWD}/src/app.ts`, agentId), tool).toEqual({ decision: 'allow' })
       }
       for (const tool of ['Edit', 'Write', 'NotebookEdit']) {
-        const file_path = `${CWD}/src/app.ts`
-        expect(await $.tool.call({ tool, agentId, file_path, notebook_path: `${CWD}/analysis.ipynb` } as never), tool).toEqual({
-          deny: 'Product mode is on. Switch with /mode default to edit source files.',
+        expect(await check($, tool, `${CWD}/src/app.ts`, agentId), tool).toEqual({
+          decision: 'ask',
+          reason: 'Product mode: this edits app.ts, which is source, not a document.',
         })
       }
     }
+    expect(await check($, 'Edit', `${CWD}/docs/spec.md`)).toEqual({ decision: 'allow' })
+    expect(await check($, 'Write', `${CWD}/.feedback/items/s1.md`)).toEqual({ decision: 'allow' })
+    expect(await edit($, `${CWD}/src/app.ts`), 'the call itself is not refused').toEqual({ result: 'ran' })
+  })
+
+  test('product leaves a deny from beneath alone', async ($, on) => {
+    on('tool.check', { tool: 'Write' }, () => ({ decision: 'deny' as const, reason: 'a rule' }))
+    const { clock, start } = setup($, on)
+    await start()
+    await clock.settle()
+    await $.command.run(command('mode', 'product'))
+    expect(await check($, 'Write', `${CWD}/src/app.ts`)).toEqual({ decision: 'deny', reason: 'a rule' })
   })
 
   test('default lets every edit through', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
     await clock.settle()
+    expect(await check($, 'Edit', `${CWD}/src/app.ts`)).toEqual({ decision: 'allow' })
     expect(await edit($, `${CWD}/src/app.ts`)).toEqual({ result: 'ran' })
   })
 
-  test('product refuses a source file and allows a document', async ($, on) => {
-    const { clock, start } = setup($, on)
-    await start()
-    await clock.settle()
-    await $.command.run(command('mode', 'product'))
-    expect(await edit($, `${CWD}/src/app.ts`)).toEqual({
-      deny: 'Product mode is on. Switch with /mode default to edit source files.',
-    })
-    expect(await edit($, `${CWD}/docs/spec.md`)).toEqual({ result: 'ran' })
-    expect(await edit($, `${CWD}/.feedback/items/s1.md`)).toEqual({ result: 'ran' })
-  })
-
-  test('orchestrate refuses every edit', async ($, on) => {
+  test('orchestrate refuses every main-loop edit and lets a subagent edit', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
     await clock.settle()
     await $.command.run(command('mode', 'orchestrate'))
+    expect(await check($, 'Edit', `${CWD}/docs/spec.md`)).toEqual({
+      decision: 'deny',
+      reason: 'Orchestrate mode is on. Switch with /mode default to edit files.',
+    })
     expect(await edit($, `${CWD}/docs/spec.md`)).toEqual({
       deny: 'Orchestrate mode is on. Switch with /mode default to edit files.',
     })
+    expect(await check($, 'Edit', `${CWD}/src/app.ts`, 'builder')).toEqual({ decision: 'allow' })
   })
 
-  test('prototype refuses nothing', async ($, on) => {
+  test('prototype guards nothing', async ($, on) => {
     const { clock, start } = setup($, on)
     await start()
     await clock.settle()
     await $.command.run(command('mode', 'prototype wire'))
+    expect(await check($, 'Edit', `${CWD}/src/app.ts`)).toEqual({ decision: 'allow' })
     expect(await edit($, `${CWD}/src/app.ts`)).toEqual({ result: 'ran' })
   })
 })
@@ -319,7 +282,7 @@ describe('the Mode button above the prompt', () => {
     await press($, 'mode-product')
     await clock.settle()
     expect(world.toasts.at(-1)).toBe(
-      'Mode: Product. Edits to source files are off; documents stay on. The next turn re-reads the conversation.',
+      'Mode: Product. Source edits ask first; documents write freely. The next turn re-reads the conversation.',
     )
     expect(await band($)).toContain('"label":"◇ Product"')
     expect(await modeOf($)).toContain('Mode: Product.')

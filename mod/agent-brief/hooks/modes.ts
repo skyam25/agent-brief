@@ -24,8 +24,6 @@ const RE_READ = 'The next turn re-reads the conversation.'
 const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit'] as const
 type EditTool = (typeof EDIT_TOOLS)[number]
 
-const BROWSER = ['mcp__claude-in-chrome__*', 'mcp__playwright__*']
-
 /** Extension-based guardrail; the prompt also protects code and config in these formats. */
 const DOCUMENT = /\.(md|mdx|txt|csv|json|ya?ml)$/i
 
@@ -33,12 +31,8 @@ type ModeSpec = {
   label: string
   /** Read by the system prompt section. Empty for default. */
   posture: string
-  /** Tool names, or prefixes ending in `*`, moved behind ToolSearch. */
-  deferred: readonly string[]
-  /** Tool names, or prefixes ending in `*`, kept in the prompt's list. */
-  pinned: readonly string[]
-  /** `source` denies edits to anything but documents; `all` denies every edit from the main loop. */
-  deny: 'none' | 'source' | 'all'
+  /** `ask-source` puts a source edit to the permission dialog; `deny-main` refuses every edit from the main loop. */
+  guard: 'none' | 'ask-source' | 'deny-main'
   toast: string
 }
 
@@ -46,9 +40,7 @@ const MODES: Record<SessionMode, ModeSpec> = {
   default: {
     label: 'Default',
     posture: '',
-    deferred: [],
-    pinned: [],
-    deny: 'none',
+    guard: 'none',
     toast: 'Claude Code runs as it does without the mod.',
   },
   product: {
@@ -56,12 +48,10 @@ const MODES: Record<SessionMode, ModeSpec> = {
     posture:
       'Product mode is on for this session. Focus on discovery, analysis, specs, acceptance criteria and go-to-market. ' +
       'Read and search code, browse for research, and delegate code investigations as needed. Recommend implementation approaches grounded in evidence. ' +
-      'Write documents and analysis data. Keep application source and configuration unchanged, including through subagents or shell commands. ' +
-      'Run builds or tests only when requested. For implementation, ask the user to switch with /mode default.',
-    deferred: [...BROWSER, 'NotebookEdit', 'LSP', 'Workflow'],
-    pinned: [],
-    deny: 'source',
-    toast: 'Edits to source files are off; documents stay on.',
+      'Write documents and analysis data freely. An edit to application source or configuration asks the user first, so make one only when they asked for that file, ' +
+      'and prefer handing implementation to a subagent. Run builds or tests only when requested.',
+    guard: 'ask-source',
+    toast: 'Source edits ask first; documents write freely.',
   },
   prototype: {
     label: 'Prototype',
@@ -69,10 +59,8 @@ const MODES: Record<SessionMode, ModeSpec> = {
       'Prototype mode is on for this session. Favor speed and visual fidelity over architecture. ' +
       'Keep changes scoped to the prototype. Skip tests, refactors and git operations unless asked. ' +
       'Verify web prototypes in the browser; verify wireframes on the Agent Brief board.',
-    deferred: ['NotebookEdit', 'LSP', 'Workflow'],
-    pinned: BROWSER,
-    deny: 'none',
-    toast: 'Browser tools are loaded up front; NotebookEdit, LSP and Workflow wait behind ToolSearch.',
+    guard: 'none',
+    toast: 'Every edit runs; the prompt leans toward speed and visual fidelity.',
   },
   orchestrate: {
     label: 'Orchestrate',
@@ -81,9 +69,7 @@ const MODES: Record<SessionMode, ModeSpec> = {
       'Delegate tasks with clear deliverables to subagents, review their results, and synthesize the answer. ' +
       'Delegate all file edits, including tracking files; keep the main session read-only across all tools, including shell commands. ' +
       'Main-session Edit, Write and NotebookEdit are denied; subagents can edit. Switch with /mode default for direct edits.',
-    deferred: [...EDIT_TOOLS, ...BROWSER],
-    pinned: [],
-    deny: 'all',
+    guard: 'deny-main',
     toast: 'Claude hands the work to subagents; its own Edit, Write and NotebookEdit are off.',
   },
 }
@@ -203,7 +189,7 @@ export function modeReport(mode: SessionMode, fidelity: PrototypeFidelity | null
 
 /**
  * What applying a mode says. A change ends with the re-read note, because the
- * system prompt and tool list change and the prompt cache starts over.
+ * system prompt changes and the prompt cache starts over.
  */
 export function modeToast(mode: SessionMode, fidelity: PrototypeFidelity | null, isChanged = true): string {
   const text = `Mode: ${modeName(mode, fidelity)}. ${MODES[mode].toast}`
@@ -211,8 +197,12 @@ export function modeToast(mode: SessionMode, fidelity: PrototypeFidelity | null,
 }
 
 export function denyText(mode: SessionMode): string {
-  const what = MODES[mode].deny === 'all' ? 'files' : 'source files'
-  return `${modeLabel(mode)} mode is on. Switch with /mode default to edit ${what}.`
+  return `${modeLabel(mode)} mode is on. Switch with /mode default to edit files.`
+}
+
+/** What the permission dialog shows when product mode puts a source edit to the user. */
+export function askText(path: string | undefined): string {
+  return `Product mode: this edits ${path ? path.split('/').at(-1) : 'a file'}, which is source, not a document.`
 }
 
 /**
@@ -226,32 +216,24 @@ export function sectionText(mode: SessionMode, fidelity: PrototypeFidelity | nul
   return `# Session mode (Agent Brief)\n\n${lines.join('\n\n')}`
 }
 
-const matches = (tool: string, pattern: string) =>
-  pattern.endsWith('*') ? tool.startsWith(pattern.slice(0, -1)) : tool === pattern
-
-/** True to defer the tool, false to pin it, undefined to leave the engine's placement. */
-export function deferralOf(mode: SessionMode, tool: string): boolean | undefined {
-  const spec = MODES[mode]
-  if (spec.deferred.some(p => matches(tool, p))) return true
-  if (spec.pinned.some(p => matches(tool, p))) return false
-  return undefined
-}
-
 /** A path product mode may still write: a document, or anything under `.feedback/`. */
 export function isDocumentPath(path: string): boolean {
   return DOCUMENT.test(path) || path.includes('/.feedback/') || path.startsWith('.feedback/')
 }
 
+export type EditVerdict = 'allow' | 'ask' | 'deny'
+
 /**
- * Whether the mode refuses this edit. Orchestrate refuses the main loop only,
- * so the subagents it hands work to can still edit.
+ * What the mode does with this edit. Product puts a source edit to the user and lets
+ * documents through. Orchestrate refuses the main loop only, so the subagents it hands
+ * work to can still edit.
  */
-export function isEditDenied(mode: SessionMode, tool: string, path: string | undefined, isSubagent: boolean): boolean {
-  if (!(EDIT_TOOLS as readonly string[]).includes(tool as EditTool)) return false
-  const rule = MODES[mode].deny
-  if (rule === 'all') return !isSubagent
-  if (rule === 'source') return !isDocumentPath(path ?? '')
-  return false
+export function editVerdict(mode: SessionMode, tool: string, path: string | undefined, isSubagent: boolean): EditVerdict {
+  if (!(EDIT_TOOLS as readonly string[]).includes(tool as EditTool)) return 'allow'
+  const guard = MODES[mode].guard
+  if (guard === 'deny-main') return isSubagent ? 'allow' : 'deny'
+  if (guard === 'ask-source') return isDocumentPath(path ?? '') ? 'allow' : 'ask'
+  return 'allow'
 }
 
 /** The PATCH body that mirrors the mode to the app. Fidelity goes only with prototype. */

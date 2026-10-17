@@ -214,11 +214,11 @@ A session mode sets how Claude works in that session. The mod owns it and works 
 | Mode | What Claude does | Tools |
 | --- | --- | --- |
 | `default` | Runs as Claude Code does without the mod | Untouched |
-| `product` | Discovery, analysis, specs, acceptance criteria, go-to-market; code investigation and research as needed | Read, search, Bash and Agent stay available. Browser tools, NotebookEdit, LSP and Workflow wait behind ToolSearch. Source edits through Edit, Write and NotebookEdit are denied, including in subagents. |
-| `prototype` | Fast, disposable prototypes at a chosen fidelity | Browser tools load up front. NotebookEdit, LSP and Workflow wait behind ToolSearch. |
-| `orchestrate` | Splits the work and hands each task to a subagent | Edit, Write and NotebookEdit are denied in the main loop and wait behind ToolSearch. Subagents can still edit. |
+| `product` | Discovery, analysis, specs, acceptance criteria, go-to-market; code investigation and research as needed | Every tool stays where Claude Code puts it. An Edit, Write or NotebookEdit on a source file asks you first, in the main loop and in subagents. Documents write freely. |
+| `prototype` | Fast, disposable prototypes at a chosen fidelity | Untouched |
+| `orchestrate` | Splits the work and hands each task to a subagent | Edit, Write and NotebookEdit are denied in the main loop. Subagents can still edit. |
 
-Product mode allows implementation recommendations and delegated code analysis. Its prompt keeps application source and configuration unchanged through all tools; builds and tests require a user request. Implementation requires switching modes. The edit hook is an extension-based guardrail, not a filesystem sandbox: Markdown, MDX, text, CSV, JSON, YAML and anything under `.feedback/` pass it, and it does not intercept shell writes. The prompt's source/config restriction still applies to those paths and tools.
+Product mode is a posture with one soft guard. Its prompt leans Claude toward documents and delegated implementation, and a source edit goes to the permission dialog with the reason `Product mode: this edits app.ts, which is source, not a document.` Approve it when you asked for that file, such as a generated HTML page, and refuse it when Claude wandered into the app. No mode switch is needed. The guard is extension-based, not a filesystem sandbox: Markdown, MDX, text, CSV, JSON, YAML and anything under `.feedback/` pass without asking, and it does not intercept shell writes. In a permission mode that skips dialogs, an ask becomes an allow and the posture is the only brake.
 
 Orchestrate delegates all file writes, including item tracking, and keeps the main session read-only across tools.
 
@@ -245,9 +245,9 @@ Prototype takes a fidelity rung:
   ```
 
 - A mode set in the session outlives a plugin reload. The folder default applies only to a session that has not set one.
-- Default mode is untouched Claude Code. The mode adds no prompt section, moves no tool and denies nothing. The outputs section is separate and always present.
+- Default mode is untouched Claude Code. The mode adds no prompt section and guards nothing. The outputs section is separate and always present.
 - The mod never changes the project's output style. Mode rules and prototype fidelity remain in the prompt with any output style.
-- Each other mode adds one short section to the system prompt, after the prompt cache boundary. Its text depends only on the mode and fidelity. Switching mid-session changes that section and the tool list, so the next turn re-reads the conversation without the cache.
+- Each other mode adds one short section to the system prompt, after the prompt cache boundary. Its text depends only on the mode and fidelity. No mode moves tools behind ToolSearch, since Claude Code defers the rarely used ones itself. Switching mid-session changes that section, so the next turn re-reads the conversation without the cache.
 
 ## Command line
 
