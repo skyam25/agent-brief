@@ -132,3 +132,26 @@ test('Review mode lists a session\'s outputs, opens them, and sends an edited co
   writeOutputs(cwd, [{ ...PRICING, status: 'ready', declaredAt: T + 60_000 }, PAGE]);
   await expect(page.locator('[data-ref="docs/pricing.md"]')).toBeVisible();
 });
+
+test('POST /open with an output opens it in the panel for that session', async () => {
+  const { page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  put(cwd, 'docs/pricing.md', '# Pricing strategy\n');
+  put(cwd, 'site/index.html', '<h1>Pricing</h1>\n');
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Pricing' });
+
+  const note = await sock<Record<string, unknown>>(socketPath, 'POST', '/open', { sessionId: 's1', output: { path: 'docs/pricing.md' } });
+  expect(note).toMatchObject({ status: 200, body: { opened: 'note', targetSessionId: 's1' } });
+  await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('draft-body').locator('h1')).toHaveText('Pricing strategy');
+  expect((await sock<{ panelVisible: boolean }>(socketPath, 'GET', '/health')).body.panelVisible).toBe(true);
+
+  const review = await sock(socketPath, 'POST', '/open', { sessionId: 's1', output: { path: 'site/index.html' } });
+  expect(review).toMatchObject({ status: 200, body: { opened: 'review' } });
+  await expect(page.frameLocator('[data-testid="review-frame"]').locator('h1')).toHaveText('Pricing');
+
+  const outside = await sock<{ error: string }>(socketPath, 'POST', '/open', { sessionId: 's1', output: { path: '../escape.md' } });
+  expect(outside.status).toBe(400);
+  expect(outside.body.error).toContain('outside the project');
+  expect((await sock(socketPath, 'POST', '/open', { sessionId: 's1' })).body).toMatchObject({ opened: 'board' });
+});

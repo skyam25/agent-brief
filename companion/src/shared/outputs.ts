@@ -78,6 +78,9 @@ export function outputLabel(r: OutputRecord): string {
 
 export const isUrlRef = (ref: string): boolean => /^https?:\/\//i.test(ref);
 
+/** True for a path Write mode opens as a note. */
+export const isMarkdownRef = (ref: string): boolean => /\.(md|markdown|mdx)$/i.test(ref);
+
 /**
  * What Review mode opens on: the newest review with comments or a note, else the
  * newest Ready HTML output. Nothing while an item waits on you, so its question stays in view.

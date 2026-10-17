@@ -85,6 +85,8 @@ export interface OpenRequest {
   mode?: 'sketch' | 'write'
   /** Sets the board's layout. Absent leaves it as it is. */
   layout?: BoardLayout
+  /** Opens this output of `sessionId` instead of a board: a Markdown file as a note in Write, an HTML file in the review pane. Project-relative. Needs `sessionId`. */
+  output?: { path: string }
 }
 
 /** `stack` files each drop or paste of screenshots as a numbered group. `freeform` is the plain whiteboard. */
@@ -94,6 +96,8 @@ export interface OpenResponse {
   board: string
   targetSessionId?: string
   noteText?: boolean
+  /** What the panel shows now: the board, a note in Write, or an HTML file in the review pane. */
+  opened?: 'board' | 'note' | 'review'
 }
 
 // POST /notes files a note in Write mode without showing or focusing the panel.

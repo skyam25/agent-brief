@@ -1,4 +1,4 @@
-import { atom, read } from 'claude-code'
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import { bashRequestOf, outputsFile } from './companion-protocol'
@@ -21,6 +21,8 @@ import {
 
 /** Set by register.tsx at session start, for engines without `session.root`. */
 const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
+/** What the Brief pane lists. Each write here keeps it current. */
+const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 
 /**
  * The session's project folder, where the app registers it and looks for its outputs.
@@ -54,6 +56,7 @@ function changeOutputs($: EngineInterface, change: (file: OutputsFile) => Output
     const { path, file } = await readOutputs($)
     const changed = change(file)
     await $.fs.write(path, `${JSON.stringify(changed, null, 2)}\n`)
+    await update($, outputsRef, () => changed.outputs).catch(err => log($, `outputs state failed: ${String(err)}`))
     return changed
   })
   outputsQueue = run.catch(() => undefined)

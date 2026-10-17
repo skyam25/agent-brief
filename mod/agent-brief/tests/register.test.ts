@@ -12,8 +12,8 @@ describe('ingest on /apply-feedback', () => {
     mock.store(on)
 
     await $.session.start(SESSION)
-    expect(world.tools.sort()).toEqual(['declare_output', 'feedback_latest', 'feedback_list', 'show_image'])
-    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'stack', 'write', 'track', 'mode', 'outputs', 'show'])
+    expect(world.tools.sort()).toEqual(['ask_questions', 'declare_output', 'feedback_latest', 'feedback_list', 'show_image'])
+    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'stack', 'write', 'track', 'mode', 'outputs', 'grill', 'show'])
     await clock.advance(60_000)
 
     expect(world.runs.some(r => r.argv[1]?.endsWith('/bin/ingest.mjs'))).toBe(false)

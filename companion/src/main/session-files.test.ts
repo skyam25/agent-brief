@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -93,6 +93,28 @@ describe('SessionFiles', () => {
     await expect(files.openOutput('s1', '../escape.md')).rejects.toThrow('outside the project');
     await expect(files.openOutput('s1', 'file:///etc/hosts')).rejects.toThrow('only http and https');
     expect(() => files.reviewUrl('s1', 'missing.html')).toThrow('does not exist yet');
+  });
+
+  it('opens a Markdown or HTML document for POST /open and says where', async () => {
+    writeFileSync(join(cwd, 'plan.MD'), '# Plan');
+    writeFileSync(join(cwd, 'page.htm'), '<p>hi</p>');
+    writeFileSync(join(cwd, 'deck.pdf'), '');
+    expect(await files.openDocument('s1', 'plan.MD')).toBe('note');
+    expect(last(CH.newNote)).toMatchObject({ text: '# Plan', source: { path: 'plan.MD' } });
+    expect(await files.openDocument('s1', 'page.htm')).toBe('review');
+    expect(last(CH.newNote)).toMatchObject({ review: { path: 'page.htm' } });
+    await expect(files.openDocument('s1', 'deck.pdf')).rejects.toThrow('not a Markdown or HTML file');
+    expect(opened).toEqual([]);
+  });
+
+  it('refuses a document that is missing, outside the project, or a symlink out of it', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'outside-'));
+    writeFileSync(join(outside, 'secret.md'), 'no');
+    symlinkSync(join(outside, 'secret.md'), join(cwd, 'link.md'));
+    await expect(files.openDocument('s1', 'missing.md')).rejects.toThrow('does not exist yet');
+    await expect(files.openDocument('s1', '../escape.md')).rejects.toThrow('outside the project');
+    await expect(files.openDocument('s1', 'link.md')).rejects.toThrow('outside the project');
+    await expect(files.openDocument('gone', 'plan.md')).rejects.toThrow('does not know session gone');
   });
 
   it('hides a dismissed output until a later write', () => {

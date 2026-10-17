@@ -21,6 +21,10 @@ export type FakeCompanion = {
   isAckBroken: boolean
   /** True answers GET and PATCH /sessions/:id with 404, like an app before 0.2.6. */
   isPreTrackingApp: boolean
+  /** True ignores `output` on /open and opens the board, like an app before 0.3.1. */
+  isPreOutputsApp: boolean
+  /** Set, a POST /open with `output` answers 400 with this reason. */
+  outputRefusal: string | undefined
   /** Sessions the app knows, by id, with their item tracking and the mode the mod mirrored. */
   sessions: Map<string, { cwd: string; trackItems: boolean; mode?: string; fidelity?: string }>
   /** The prompt box. */
@@ -67,6 +71,8 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
     isBoxBlocked: false,
     isAckBroken: false,
     isPreTrackingApp: false,
+    isPreOutputsApp: false,
+    outputRefusal: undefined,
     sessions: new Map(),
     box: { text: '', cursor: 0 },
     fills: [],
@@ -117,6 +123,12 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
     if (path === '/open') {
       const open = text === undefined ? {} : JSON.parse(text)
       const tookText = !fake.isOldApp && open.mode === 'write' && Boolean(open.text)
+      if (open.output !== undefined && !fake.isPreOutputsApp) {
+        const path = String(open.output.path)
+        if (fake.outputRefusal !== undefined) return reply(400, { error: fake.outputRefusal, code: 'bad_request' })
+        if (!/\.(md|markdown|mdx|html?)$/i.test(path)) return reply(400, { error: `${path} is not a Markdown or HTML file`, code: 'bad_request' })
+        return reply(200, { board: 'main', opened: /\.html?$/i.test(path) ? 'review' : 'note' })
+      }
       return reply(200, { board: 'main', ...(tookText ? { noteText: true } : {}) })
     }
     if (path === '/sessions' && method === 'POST') {

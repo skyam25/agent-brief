@@ -31,6 +31,10 @@ export interface Region {
 /** Implemented by the app. Every board route calls into it. */
 export interface BoardBackend {
   health(): { panelVisible: boolean; currentBoard: string };
+  /**
+   * Shows the panel. With `output`, `sessionId` is live and the path is a Markdown or HTML file;
+   * the backend opens it and throws BadRequest when the file is not inside the session's folder.
+   */
   open(req: OpenRequest): Promise<OpenResponse>;
   listBoards(): Promise<BoardsResponse>;
   read(board: string, region?: Region): Promise<ReadResponse>;

@@ -31,6 +31,36 @@ export type ShownState = {
 /** Band dictation: yap is listening, or has been told to stop and is printing its transcript. */
 export type VoiceState = { phase: 'listening' | 'finishing'; seconds: number }
 
+/** As `OutputRecord` in hooks/companion-protocol.ts: one record of the session's outputs file. */
+export type BriefOutput = {
+  ref: string
+  url?: string
+  title?: string
+  kind: string
+  tier: 'declared' | 'detected'
+  status?: 'drafting' | 'ready'
+  origin?: 'created' | 'edited'
+  declaredAt?: number
+  firstWriteAt?: number
+  lastWriteAt?: number
+  writes?: number
+}
+
+/** The session's items file as the Brief pane last read it. `text` is null while the file does not exist. */
+export type BriefItems = { path: string; relPath: string; text: string | null }
+
+/** An answer the Brief pane holds for item `n` until Send. */
+export type BriefAnswer = { n: number; text: string }
+
+/** How the Brief pane takes an answer to a question: a Button per option, a Select, or an Input. */
+export type QuestionKind = 'options' | 'select' | 'text'
+
+/** A question Claude asked with ask_questions, and the answer the Brief pane holds until Send. */
+export type BriefQuestion = { id: string; text: string; kind: QuestionKind; options?: string[]; answer?: string }
+
+/** What the Brief pane has folded open, and whether its Mode Select waits on a fidelity. */
+export type BriefView = { isPrototypePending: boolean; isTouchedOpen: boolean; isDoneOpen: boolean }
+
 declare module 'claude-code' {
   interface PluginState {
     'agent-brief': {
@@ -48,6 +78,19 @@ declare module 'claude-code' {
       voice: VoiceState | null
       /** The folder the session started in. The shell's folder moves with each cd; this one stays. */
       home: string | null
+      /** True once the session has a submitted prompt. The band drops its Mode button then. */
+      hasPrompted: boolean
+      /** The session's outputs file records, kept current by each write. */
+      outputs: BriefOutput[]
+      /** The session's items file, read at start, on each write and when the Brief pane opens. */
+      items: BriefItems | null
+      /** Answers the Brief pane holds until Send answers. */
+      answers: BriefAnswer[]
+      brief: BriefView
+      /** Claude's open questions from ask_questions, in the order asked. */
+      questions: BriefQuestion[]
+      /** True while /grill has Claude interview the user before it starts. */
+      grilling: boolean
     }
   }
 }

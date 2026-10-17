@@ -9,7 +9,10 @@ export type BandRow = 'none' | 'mode' | 'fidelity'
 
 export type BandView = {
   ingesting: string | null
-  isTracking: boolean
+  /** The Mode button shows until the session's first prompt. */
+  hasPrompted: boolean
+  /** The Brief button's label, with its count and mode suffix. */
+  briefLabel: string
   mode: SessionMode
   fidelity: PrototypeFidelity | null
   picking: BandRow
@@ -20,7 +23,8 @@ export type BandView = {
 
 export type BandActions = {
   open: (target: 'sketch' | 'stack' | 'write') => Promise<void>
-  track: () => Promise<void>
+  /** Opens the Brief pane, or closes it while open. */
+  brief: () => Promise<void>
   /** Starts dictation, or stops it while listening. */
   talk: () => Promise<void>
   pick: (row: BandRow) => Promise<unknown>
@@ -28,13 +32,14 @@ export type BandActions = {
 }
 
 /**
- * One row with Sketch, Stack, Write, Talk, Track and Mode buttons.
+ * One row with Sketch, Stack, Write, Talk, Mode and Brief buttons.
+ * Mode shows until the session's first prompt; then the Brief pane's Select and /mode set it.
  * The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
  */
 export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
   const { Box, Button, Text } = table
   const { Image } = table as Partial<ElementTable<'terminal'>>
-  const { ingesting, isTracking, mode, fidelity, picking, voice, probe } = view
+  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, probe } = view
   const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
 
   if (picking === 'mode') {
@@ -86,22 +91,18 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
         {...(voice !== null ? { variant: 'primary' as const } : {})}
         onPress={() => void act.talk()}
       />
+      {!hasPrompted && <Text> </Text>}
+      {!hasPrompted && (
+        <Button
+          key="mode"
+          label={bandLabel(mode, fidelity)}
+          hotkey="m"
+          {...(mode !== 'default' ? { variant: 'primary' as const } : {})}
+          onPress={() => void act.pick('mode')}
+        />
+      )}
       <Text> </Text>
-      <Button
-        key="track"
-        label={isTracking ? '☑ Track' : '☐ Track'}
-        hotkey="t"
-        {...(isTracking ? { variant: 'primary' as const } : {})}
-        onPress={() => void act.track()}
-      />
-      <Text> </Text>
-      <Button
-        key="mode"
-        label={bandLabel(mode, fidelity)}
-        hotkey="m"
-        {...(mode !== 'default' ? { variant: 'primary' as const } : {})}
-        onPress={() => void act.pick('mode')}
-      />
+      <Button key="brief" label={briefLabel} hotkey="b" onPress={() => void act.brief()} />
       {voice?.phase === 'listening' && <Text dimColor>{` Listening ${clockText(voice.seconds)}`}</Text>}
       {voice?.phase === 'finishing' && <Text dimColor> Transcribing…</Text>}
       {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}

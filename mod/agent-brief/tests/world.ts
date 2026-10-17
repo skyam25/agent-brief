@@ -21,6 +21,22 @@ export const BAND: RenderInput<'AbovePrompt'> = {
   },
 }
 
+/** The Brief pane, docked beside the transcript or seated inline above the prompt. */
+export const briefPane = (placement: 'dock' | 'inline' = 'dock'): RenderInput<'Pane'> => ({
+  component: 'Pane',
+  surface: 'terminal',
+  requestId: 'brief',
+  viewport: { columns: 160, rows: 40, isFullscreen: true },
+  props: {
+    title: 'Brief',
+    isFocused: false,
+    bodyColumns: 60,
+    placement,
+    scroll: { offset: 0, bodyRows: 36 },
+    view: {},
+  },
+})
+
 /** What the engine passes `prompt.compose`. */
 export const COMPOSE = {
   model: 'claude-opus-5-5',

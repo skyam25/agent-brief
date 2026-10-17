@@ -155,7 +155,7 @@ test('POST /open shows the board and the prompt and picks the session', async ()
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd });
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd });
   const opened = await sock(socketPath, 'POST', '/open', { board: 'login', prompt: 'Sketch the login screen', sessionId: 's2' });
-  expect(opened.body).toEqual({ board: 'login', targetSessionId: 's2' });
+  expect(opened.body).toEqual({ board: 'login', opened: 'board', targetSessionId: 's2' });
   await expect(page.getByTestId('board-picker')).toHaveText('login');
   await expect(page.getByTestId('prompt')).toHaveText(/Sketch the login screen/);
   await expect(page.getByTestId('crumb-session')).toHaveText(cwd.split('/').pop()!);

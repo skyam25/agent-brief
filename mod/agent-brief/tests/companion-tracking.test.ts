@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { SESSION_ID, setupCompanion } from './companion-world'
-import { BAND, COMPOSE, CWD, command } from './world'
+import { COMPOSE, CWD, briefPane, command } from './world'
 
 describe('item tracking', () => {
   const ITEMS = `${CWD}/.feedback/items/${SESSION_ID}.md`
@@ -107,32 +107,34 @@ describe('item tracking', () => {
     expect(app.to('PATCH', `/sessions/${SESSION_ID}`)).toHaveLength(1)
   })
 
-  test('the Track button toggles tracking, which turns the items section on and off', async ($, on) => {
+  const pane = async ($: Parameters<TestBody>[0]) => JSON.stringify(await $.ui.render(briefPane()))
+
+  test('the Brief pane\'s Track button toggles tracking, which turns the items section on and off', async ($, on) => {
     const { app, world, clock, start } = await setupCompanion($, on)
     await start()
     await clock.settle()
-    await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'track' })
+    await $.ui.render(briefPane())
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief-track' })
     await clock.settle()
     expect(app.sessions.get(SESSION_ID)!.trackItems).toBe(true)
     expect(world.toasts.at(-1)).toContain('Item tracking on.')
-    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☑ Track"')
+    expect(await pane($)).toContain('"label":"☑ Track"')
     expect(await ids($)).toEqual(['intro', 'agent-brief:items', 'agent-brief:outputs'])
 
-    await $.ui.press({ plugin: 'agent-brief', key: 'track' })
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief-track' })
     await clock.settle()
     expect(world.toasts.at(-1)).toBe('Item tracking off.')
-    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☐ Track"')
+    expect(await pane($)).toContain('"label":"☐ Track"')
     expect(await ids($)).toEqual(['intro', 'agent-brief:outputs'])
   })
 
-  test('the Track button follows a change made in the panel', async ($, on) => {
+  test('the Brief pane\'s Track button follows a change made in the panel', async ($, on) => {
     const { app, clock, start } = await setupCompanion($, on)
     await start()
     await clock.settle()
     app.sessions.get(SESSION_ID)!.trackItems = true
     await ids($)
-    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☑ Track"')
+    expect(await pane($)).toContain('"label":"☑ Track"')
   })
 
   test('a Track press with the app down says so and stays off', async ($, on) => {
@@ -140,10 +142,10 @@ describe('item tracking', () => {
     app.isUp = false
     await start()
     await clock.settle()
-    await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'track' })
+    await $.ui.render(briefPane())
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief-track' })
     await clock.settle()
     expect(world.toasts.at(-1)).toBe('Agent Brief is not running. Start it, then run /track again.')
-    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"☐ Track"')
+    expect(await pane($)).toContain('"label":"☐ Track"')
   })
 })

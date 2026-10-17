@@ -15,6 +15,8 @@ import type {
   TrackingPatch,
   UpdateRequest,
 } from '../protocol';
+import { isMarkdownRef } from '../shared/outputs';
+import { isReviewable } from '../shared/review';
 import type { Region } from './contract';
 
 export class BadRequest extends Error {}
@@ -195,7 +197,18 @@ export function parseOpen(body: unknown): OpenRequest {
     mode: openMode(o),
     text: openText(o),
     layout: openLayout(o),
+    output: openOutput(o),
   };
+}
+
+/** An output to open. Its folder checks run in the app, which knows the session's files. */
+function openOutput(o: Obj): OpenRequest['output'] {
+  if (o.output === undefined) return undefined;
+  const output = object(o.output, 'body.output');
+  const path = reqString(output, 'path', 'body.output').trim();
+  if (!isMarkdownRef(path) && !isReviewable(path)) fail('body.output.path must be a Markdown (.md, .markdown, .mdx) or HTML (.html, .htm) file');
+  if (o.sessionId === undefined) fail('body.output needs body.sessionId');
+  return { path };
 }
 
 /** The longest note title, in characters. */

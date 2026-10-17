@@ -95,7 +95,7 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each panel mode, **✎ Sketch** and **¶ Write**, a **🎙 Talk** button for dictation, a **☐ Track** toggle that does what a bare `/track` does, and a **◇ Mode** button that picks the session mode.
+The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane.
 
 ### Dictation
 
@@ -109,11 +109,43 @@ The band above the prompt has a button for each panel mode, **✎ Sketch** and *
 - If the box refuses the text, as under a dialog, it goes on the clipboard instead.
 - yap hears the whole room, so other voices and video audio land in the transcript too.
 
+### The Brief pane
+
+**▣ Brief** (hotkey `b`) opens a pane beside the transcript, and a second press closes it. The pane never opens on its own. It is a place to look things up and make short decisions; the app stays the place to sketch and write.
+
+- The button counts the Ready outputs, the items waiting on you and Claude's open questions, and names the mode outside default, such as **▣ Brief 3 · Prototype**.
+- The header reads **Brief · <project folder>**, with a Mode Select at the right. Prototype adds a second Select for the fidelity, and the mode applies once you pick one. It does what `/mode` does, so the app's chip follows.
+- **Outputs** lists the declared outputs with their status, Drafting or Ready, and folds the touched files under **Touched (n)**. **Open** opens a file in its default app, or a link in the browser. **In Agent Brief** opens a Markdown file as a note in Write, or an HTML file in the review pane. It needs Agent Brief 0.3.1 or newer; an older app opens the board and the mod says to update.
+- **Questions** shows up between Outputs and Items when Claude asks something. See [Questions and `/grill`](#questions-and-grill-onoff).
+- **Items** lists the open items from the items file, with **☑ Track** or **☐ Track** in its header and the done items folded under **Done (n)**. Each row shows Claude's latest line, a control to answer it, and your latest answer.
+- The control follows Claude's line. `A or B?` with two short clauses, or `A / B` with up to four short options, gives a button each. Any other question gives a text field, and Enter holds what you typed. A line that asks nothing is a proposal, with **Agree** beside a field.
+- Answers wait in the pane until **Send answers**. Send appends your `You:` lines to the items file and sends the decisions as one prompt, as the app's Send does. An item answered in the app in the meantime keeps that answer, and the pane drops its own.
+- Seated inline above the prompt on a narrow terminal, the pane draws one line, such as `▣ Brief · 2 ready · 1 drafting · 2 items waiting · Prototype`, with **Open** for the Ready outputs only.
+- The pane redraws when Claude writes the outputs or the items file, and reads the items file again after each turn, so answers from the app show up too.
+
+### Questions and `/grill [on|off]`
+
+Claude can ask a short round of questions with the `ask_questions` tool. Each question is one of three kinds, and the pane draws a control for each.
+
+| Kind | Control |
+|---|---|
+| `options` | A button per option |
+| `select` | A Select, or buttons on mobile |
+| `text` | A text field. Enter holds what you typed |
+
+- A round holds 1 to 8 questions. `options` and `select` take 2 to 6 choices.
+- The section reads **Questions · from Claude · N**. A held answer shows on its row with **Clear**.
+- The section has its own **Send answers**. It sends one prompt that starts `Answers to your questions:`, with a `- <question>: <answer>` line each, then clears the section. A question you skipped goes out as `(no answer)`. Items keep their own Send.
+- Asking again replaces the questions you have not answered yet. Answered ones stay until Send.
+- The tool never opens the pane. When the pane is closed, a toast says the questions wait and to press `b`.
+- `/grill` tells Claude to interview you before it starts on an underspecified request. It asks three to five questions a round, with choices where the answer space is small, and starts as soon as it can. `/grill off` stops it. Both reply with the state they leave.
+- When a policy refuses plugin tools, `/grill` still works and Claude asks its questions in the reply instead.
+
 ### Item tracking and `/track [on|off]`
 
 Item tracking is off for every session until you turn it on. While it is off, the mod adds nothing to Claude's prompt.
 
-- Turn it on with the **Track items** switch in the panel, the **☐ Track** button above the prompt, or `/track`. `/track on` and `/track off` set it, and a bare `/track` flips it.
+- Turn it on with the **Track items** switch in the panel, the **☐ Track** button in the Brief pane's Items header, or `/track`. `/track on` and `/track off` set it, and a bare `/track` flips it.
 - The button reads **☑ Track** in the accent color while tracking is on. It picks up a change made in the panel on the next prompt.
 - `/track` never starts the app. When the app is down it replies `Agent Brief is not running. Start it, then run /track again.`
 - With tracking on, each system prompt gets a section that tells Claude to keep `<project>/.feedback/items/<session id>.md`. Claude writes the file only when the work has distinct items, such as several asks, a feedback list or numbered marks on a sketch.
@@ -133,7 +165,7 @@ Claude writes the file in this format, and never edits a `You:` line:
       Out: <path>
 ```
 
-Claude puts questions on items instead of asking in the chat. It adds an `Out:` line for each file or screenshot it writes for an item as soon as the file exists, and the panel shows those as links. You answer them in the panel, and Send delivers your decisions as a prompt like this:
+Claude puts questions on items instead of asking in the chat. It adds an `Out:` line for each file or screenshot it writes for an item as soon as the file exists, and the panel shows those as links. You answer them in the panel or the Brief pane, and Send delivers your decisions as a prompt like this:
 
 ```text
 Decisions on 2 items in .feedback/items/<id>.md:
@@ -160,7 +192,7 @@ The panel lists each session's deliverables under that session. The mod records 
 
 The `show_image` tool draws a picture inline in the transcript, where the terminal can (Ghostty, kitty). Claude uses it after visual work: a Playwright screenshot of a page it changed, a board it drew on, a design it made. The picture goes to the screen, not to Claude, so it costs no tokens.
 
-An organization policy can refuse plugin tools, which removes `show_image` and `declare_output`. The commands stay. Claude then runs `agent-brief show <file>` and `agent-brief output <title> --path <file>` with Bash, and the plugin draws or records them from the command's result. The transcript normally folds shell commands into one count line. A run that holds a picture stays unfolded, so the picture shows without ctrl+o.
+An organization policy can refuse plugin tools, which removes `show_image`, `declare_output` and `ask_questions`. The commands stay. Claude then runs `agent-brief show <file>` and `agent-brief output <title> --path <file>` with Bash, and the plugin draws or records them from the command's result. The transcript normally folds shell commands into one count line. A run that holds a picture stays unfolded, so the picture shows without ctrl+o.
 
 - The row holds the picture with Open page (or Open), Open board when `board` is set, Show in Finder and Copy path. Open board starts the app when needed, as `/sketch` does.
 - `options` with 2 to 4 pictures draws one sheet with the options side by side, lettered A to D, and a Pick button for each. A tab per option shows it alone at full size, and All goes back to the sheet. Pick puts "Go with option B (Title)" in the prompt box, after anything already typed, and you press Enter.
@@ -202,7 +234,7 @@ Prototype takes a fidelity rung:
 | `existing` | `iterate` | Match existing |
 
 - `/mode` reports the current mode. `/mode product`, `/mode orchestrate` and `/mode default` set one. `/mode prototype <fidelity>` sets prototype at that rung.
-- The **◇ Mode** button (hotkey `m`) opens a picker row. Prototype opens a second row for the fidelity. The button shows the mode, such as **◇ Prototype · styled HTML**, in the accent color outside default.
+- The **◇ Mode** button (hotkey `m`) shows until the session's first prompt, and a resumed session starts without it. After that, the Brief pane's Mode Select and `/mode` set the mode. The button opens a picker row. Prototype opens a second row for the fidelity. The button shows the mode, such as **◇ Prototype · styled HTML**, in the accent color outside default.
 - A folder default lives in `.claude/agent-brief.local.md`. The mod looks in the session folder, then each parent up to and including your home folder, and the first file found wins. It reads `mode:` and `fidelity:` from the frontmatter and ignores invalid values. A prototype with no valid fidelity is ignored, so that session opens in default.
 
   ```markdown

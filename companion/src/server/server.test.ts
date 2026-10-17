@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCompanionServer } from './index';
 import { closeServers, openServers, start } from './server-testkit';
 import { harness, request, tempDir } from './testkit';
+import { BadRequest } from './validate';
 
 afterEach(closeServers);
 
@@ -217,7 +218,7 @@ describe('open', () => {
     h.server.onOpen((req) => order.push(`open:${req.prompt}`));
 
     const r = await h.call('POST', '/open', { board: 'idea', sessionId: 'b', prompt: 'draw it' });
-    expect(r.body).toEqual({ board: 'idea', targetSessionId: 'b' });
+    expect(r.body).toEqual({ board: 'idea', opened: 'board', targetSessionId: 'b' });
     expect(h.backend.open).toHaveBeenCalledWith({
       board: 'idea',
       sessionId: 'b',
@@ -250,5 +251,50 @@ describe('open', () => {
     const h = await start();
     const r = await h.call('POST', '/open');
     expect(r.status).toBe(200);
+  });
+
+  it('says a Write open shows a note', async () => {
+    const h = await start();
+    expect((await h.call('POST', '/open', { mode: 'write' })).body).toMatchObject({ opened: 'note' });
+  });
+
+  it('opens an output of a live session and sets it as the target', async () => {
+    const h = await start();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    await h.call('POST', '/sessions', { sessionId: 'b', cwd: '/y' });
+    h.backend.open.mockImplementationOnce(async () => ({ board: 'main', opened: 'review' as const }));
+    const r = await h.call('POST', '/open', { sessionId: 'a', output: { path: ' docs/page.html ' } });
+    expect(r.body).toEqual({ board: 'main', opened: 'review', targetSessionId: 'a' });
+    expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'a', output: { path: 'docs/page.html' } }));
+    expect(h.server.sessions().targetSessionId).toBe('a');
+  });
+
+  it('refuses an output without a live session or of the wrong type', async () => {
+    const h = await start();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    const bad = [
+      { output: { path: 'plan.md' } },
+      { sessionId: 'gone', output: { path: 'plan.md' } },
+      { sessionId: 'a', output: { path: 'deck.pdf' } },
+      { sessionId: 'a', output: { path: '' } },
+      { sessionId: 'a', output: 'plan.md' },
+    ];
+    for (const body of bad) {
+      const r = await h.call('POST', '/open', body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.body.code).toBe('bad_request');
+    }
+    expect(h.backend.open).not.toHaveBeenCalled();
+  });
+
+  it("answers 400 with the backend's reason when the file is not in the session's folder", async () => {
+    const h = await start();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    h.backend.open.mockImplementationOnce(async () => {
+      throw new BadRequest('../escape.md is outside the project');
+    });
+    const r = await h.call('POST', '/open', { sessionId: 'a', output: { path: '../escape.md' } });
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: '../escape.md is outside the project', code: 'bad_request' });
   });
 });

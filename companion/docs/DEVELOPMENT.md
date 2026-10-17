@@ -74,6 +74,9 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
   - Any other file opens in its default app.
   - Files get the same check as item outputs. They must exist inside the session's folder, symlinks resolved.
   - Tests record opened files and links in `openedOutputs`.
+- `POST /open` with `output: { path }` opens a Markdown or HTML output the same way, shows the panel and makes the session the Send target. The mod's In Agent Brief button sends it.
+- It needs a live `sessionId`. An ended or missing session, another file type, or a file outside the session's folder answers 400 with the reason.
+- `OpenResponse.opened` says what the panel shows: `board`, `note` or `review`. An app that predates the field leaves it out and opens the board.
 - Send with a note that has `source` writes the edited text to `draft.md`, and the prompt is two lines:
 
   ```

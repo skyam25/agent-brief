@@ -1,9 +1,29 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { FeedbackInboxSession } from '../types'
+import type { FeedbackInboxSession, PrototypeFidelity, SessionMode } from '../types'
 import { bandTree } from './band'
 import type { BandRow, BandView } from './band'
+import { briefTree } from './brief'
+import type { BriefPaneView } from './brief'
+import {
+  BRIEF_COLUMNS,
+  BRIEF_PANE,
+  NOTHING_HELD,
+  NO_ITEMS_FILE,
+  OUTPUT_NEEDS_UPDATE,
+  briefBandLabel,
+  briefCounts,
+  dropAnswer,
+  droppedText,
+  hasUserPrompt,
+  heldDecisions,
+  holdAnswer,
+  isOutputOpened,
+  openTarget,
+  projectName,
+} from './brief-logic'
+import { decisionsDraft, itemsFile, itemsRelPath, parseItems, withDecisions } from './items-file'
 import {
   countEvents,
   expandHome,
@@ -52,6 +72,7 @@ import {
   trackingOf,
 } from './companion-logic'
 import type { Tracking } from './companion-logic'
+import { outputsFile } from './companion-protocol'
 import type { BoardLayout, Delivery, OpenRequest, TrackingPatch } from './companion-protocol'
 import {
   MODE_SECTION,
@@ -66,8 +87,19 @@ import {
 } from './modes'
 import type { ModeChoice } from './modes'
 import { registerModeGuard } from './mode-guard'
-import { DECLARE_TOOL, OUTPUTS_SECTION, outputsInstructions } from './outputs'
+import { DECLARE_TOOL, OUTPUTS_SECTION, outputsInstructions, parseOutputsFile } from './outputs'
 import { registerOutputs } from './outputs-file'
+import { questionsTree, registerQuestions } from './questions'
+import {
+  ASK_TOOL,
+  ASK_TOOL_SPEC,
+  GRILL_COMMAND_SPEC,
+  GRILL_SECTION,
+  NOTHING_ANSWERED,
+  answerQuestion,
+  answersMessage,
+  grillInstructions,
+} from './questions-logic'
 import {
   PROBE_KEY,
   SHOW_COMMAND_SPEC,
@@ -116,6 +148,13 @@ const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'non
 const repliesRef = atom({ plugin: 'agent-brief', key: 'replies' } as const, [])
 const voiceRef = atom({ plugin: 'agent-brief', key: 'voice' } as const, null)
 const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
+const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as const, false)
+const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
+const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
+const answersRef = atom({ plugin: 'agent-brief', key: 'answers' } as const, [])
+const briefRef = atom({ plugin: 'agent-brief', key: 'brief' } as const, { isPrototypePending: false, isTouchedOpen: false, isDoneOpen: false })
+const questionsRef = atom({ plugin: 'agent-brief', key: 'questions' } as const, [])
+const grillingRef = atom({ plugin: 'agent-brief', key: 'grilling' } as const, false)
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -130,6 +169,8 @@ const delivered = new Set<string>()
 
 /** Set when the engine refused to register declare_output, as an organization's plugin policy does. */
 let isDeclareRefused = false
+/** Set when the engine refused to register ask_questions. */
+let isAskRefused = false
 let companionConfig: CompanionConfig = { companionSocket: '', companionLaunch: '' }
 let isStopped = false
 let refresh: { cancel: () => void } | undefined
@@ -427,6 +468,19 @@ const pastes = new Map<number, string>()
 
 type Opened = { message: string; tookText: boolean }
 
+/** Starts the app when needed and registers this session. Undefined once ready, else what to tell the user. */
+async function readyApp($: EngineInterface): Promise<string | undefined> {
+  if (!(await isHealthy($))) {
+    if (companionConfig.companionLaunch.trim() !== '') {
+      await $.process.run(['sh', '-c', companionConfig.companionLaunch], { timeoutMs: 5_000 }).catch(() => undefined)
+    }
+    if (!(await waitForApp($))) return launchFailureText(companionConfig.companionLaunch, await socketPath($))
+  }
+  isUp = true
+  if (!(await registerSession($))) return 'Agent Brief is running but did not accept this session.'
+  return undefined
+}
+
 /**
  * Answers `/sketch`, `/stack` and `/write`: starts the app when needed, then opens the panel in that mode.
  * `tookText` says the app started the note with `text`; an app before 0.2.3 drops it.
@@ -437,14 +491,8 @@ async function openCompanion(
   { prompt = '', text = '', layout, board }: { prompt?: string; text?: string; layout?: BoardLayout; board?: string } = {},
 ): Promise<Opened> {
   const fail = (message: string): Opened => ({ message, tookText: false })
-  if (!(await isHealthy($))) {
-    if (companionConfig.companionLaunch.trim() !== '') {
-      await $.process.run(['sh', '-c', companionConfig.companionLaunch], { timeoutMs: 5_000 }).catch(() => undefined)
-    }
-    if (!(await waitForApp($))) return fail(launchFailureText(companionConfig.companionLaunch, await socketPath($)))
-  }
-  isUp = true
-  if (!(await registerSession($))) return fail('Agent Brief is running but did not accept this session.')
+  const failed = await readyApp($)
+  if (failed !== undefined) return fail(failed)
   const body: OpenRequest = {
     sessionId: await $.session.id(),
     ...(prompt === '' ? {} : { prompt }),
@@ -481,6 +529,141 @@ async function writeFromBox($: EngineInterface): Promise<string> {
   const opened = await openCompanion($, 'write', { text })
   if (opened.tookText) await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)
   return opened.message
+}
+
+/** Where this session's items file lives. */
+async function itemsLocation($: EngineInterface): Promise<{ path: string; relPath: string }> {
+  const sessionId = await $.session.id()
+  return { path: itemsFile(await homeCwd($), sessionId), relPath: itemsRelPath(sessionId) }
+}
+
+/** Reads the items file into the state the Brief pane and band draw from. */
+async function refreshItems($: EngineInterface): Promise<void> {
+  const { path, relPath } = await itemsLocation($)
+  const raw = await $.fs.read(path).catch(() => undefined)
+  const text = typeof raw === 'string' ? raw : null
+  await update($, itemsRef, held => (held?.path === path && held.text === text ? held : { path, relPath, text }))
+}
+
+/** Reads the outputs file and the items file into the Brief pane's state. */
+async function loadBrief($: EngineInterface): Promise<void> {
+  const text = await $.fs.read(outputsFile(await homeCwd($), await $.session.id())).catch(() => undefined)
+  const file = typeof text === 'string' ? parseOutputsFile(text) : undefined
+  await update($, outputsRef, () => file?.outputs ?? [])
+  await refreshItems($)
+}
+
+/** The band's Brief button: opens the pane, or closes it while open. Never opens unasked. */
+async function toggleBrief($: EngineInterface): Promise<void> {
+  if ((await $.ui.panes()).some(pane => pane.id === BRIEF_PANE)) {
+    await $.ui.close({ id: BRIEF_PANE })
+    return
+  }
+  await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
+  await $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS })
+}
+
+/** Opens an output in its default app, or a URL in the browser. */
+async function openOutput($: EngineInterface, ref: string): Promise<void> {
+  const target = openTarget(await homeCwd($), ref)
+  const ran = await $.process.run(['open', target]).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
+  if (ran.exitCode !== 0) $.ui.toast(`Could not open ${ref}: ${ran.stderr.trim() || `open exited ${ran.exitCode}`}`, { timeoutMs: 8000 })
+}
+
+/** Opens a Markdown or HTML output in the app, as a note in Write or in the review pane. */
+async function openOutputInApp($: EngineInterface, ref: string): Promise<void> {
+  const failed = await readyApp($)
+  if (failed !== undefined) {
+    $.ui.toast(failed, { timeoutMs: 8000 })
+    return
+  }
+  const body: OpenRequest = { sessionId: await $.session.id(), output: { path: ref } }
+  const reply = await call($, 'POST', '/open', body)
+  if (!reply?.ok) {
+    const error = (reply?.body as { error?: unknown } | undefined)?.error
+    $.ui.toast(typeof error === 'string' ? error : `Agent Brief did not open ${ref}.`, { timeoutMs: 8000 })
+    return
+  }
+  if (!isOutputOpened(reply.body)) $.ui.toast(OUTPUT_NEEDS_UPDATE, { timeoutMs: 8000 })
+}
+
+/** Set while a Send runs, so a second press before it clears the answers submits nothing. */
+let isSendingAnswers = false
+let isSendingQuestions = false
+
+/**
+ * Appends the held answers to the items file as `You:` lines, then submits the decisions message.
+ * The file is read fresh, so an item answered elsewhere since keeps that answer and drops the held one.
+ */
+async function sendAnswers($: EngineInterface): Promise<void> {
+  if (isSendingAnswers) return
+  isSendingAnswers = true
+  try {
+    await sendHeldAnswers($)
+  } finally {
+    isSendingAnswers = false
+  }
+}
+
+async function sendHeldAnswers($: EngineInterface): Promise<void> {
+  const answers = await read($, answersRef)
+  if (answers.length === 0) {
+    $.ui.toast(NOTHING_HELD)
+    return
+  }
+  const { path, relPath } = await itemsLocation($)
+  const text = await $.fs.read(path).catch(() => undefined)
+  if (typeof text !== 'string') {
+    $.ui.toast(NO_ITEMS_FILE)
+    return
+  }
+  const { decisions, dropped } = heldDecisions(text, answers)
+  const written = decisions.length === 0 ? text : withDecisions(text, decisions)
+  try {
+    if (written !== text) await $.fs.write(path, written)
+  } catch (err) {
+    $.ui.toast(`Could not write ${relPath}: ${String(err)}`, { timeoutMs: 8000 })
+    return
+  }
+  await update($, itemsRef, () => ({ path, relPath, text: written }))
+  await update($, answersRef, () => [])
+  if (dropped.length > 0) $.ui.toast(droppedText(dropped), { timeoutMs: 8000 })
+  if (decisions.length === 0) return
+  const draft = decisionsDraft(relPath, decisions, parseItems(text))
+  $.prompt.submit({ text: draft, asUser: true }).catch(err => log($, `answers submit failed: ${String(err)}`))
+}
+
+/** Submits the answers to Claude's questions as one message, then clears the Questions section. */
+async function sendQuestionAnswers($: EngineInterface): Promise<void> {
+  if (isSendingQuestions) return
+  isSendingQuestions = true
+  try {
+    const draft = answersMessage(await read($, questionsRef))
+    if (draft === undefined) {
+      $.ui.toast(NOTHING_ANSWERED)
+      return
+    }
+    await update($, questionsRef, () => [])
+    $.prompt.submit({ text: draft, asUser: true }).catch(err => log($, `question answers submit failed: ${String(err)}`))
+  } finally {
+    isSendingQuestions = false
+  }
+}
+
+/** The pane's Mode Select. Prototype waits for its fidelity Select before it applies. */
+async function pickBriefMode($: EngineInterface, mode: SessionMode): Promise<void> {
+  if (mode === 'prototype') {
+    const isPending = (await read($, modeRef)) !== 'prototype'
+    await update($, briefRef, view => ({ ...view, isPrototypePending: isPending }))
+    return
+  }
+  await update($, briefRef, view => ({ ...view, isPrototypePending: false }))
+  $.ui.toast(await applyMode($, { mode, fidelity: null }), { timeoutMs: 8000 })
+}
+
+async function pickBriefFidelity($: EngineInterface, fidelity: PrototypeFidelity): Promise<void> {
+  await update($, briefRef, view => ({ ...view, isPrototypePending: false }))
+  $.ui.toast(await applyMode($, { mode: 'prototype', fidelity }), { timeoutMs: 8000 })
 }
 
 /** The running yap: its pid once printed, and whether Stop came before the pid did. */
@@ -749,6 +932,14 @@ export const register: Register = (on, options) => {
     }
     // A reload ends yap with the old module, so a kept listening state is stale.
     if (dictation === undefined) await update($, voiceRef, () => null).catch(() => undefined)
+    // A resumed session already has prompts, so the band starts without its Mode button.
+    try {
+      const messages = await $.session.messages().catch(() => [])
+      if (Array.isArray(messages) && hasUserPrompt(messages)) await update($, hasPromptedRef, () => true)
+      await loadBrief($)
+    } catch (err) {
+      log($, `brief start failed: ${String(err)}`)
+    }
     try {
       const sessions = await load($)
       await update($, sessionsRef, () => sessions)
@@ -844,12 +1035,24 @@ export const register: Register = (on, options) => {
       log($, `declare_output refused: ${String(err)}`)
     }
     try {
+      await $.tool.register(ASK_TOOL_SPEC)
+      isAskRefused = false
+    } catch (err) {
+      isAskRefused = true
+      log($, `ask_questions refused: ${String(err)}`)
+    }
+    try {
       await $.command.register({
         name: 'outputs',
         description: "List this session's outputs: declared deliverables, then touched documents",
       })
     } catch (err) {
       log($, `outputs start failed: ${String(err)}`)
+    }
+    try {
+      await $.command.register(GRILL_COMMAND_SPEC)
+    } catch (err) {
+      log($, `grill refused: ${String(err)}`)
     }
     try {
       startShow(await showEnvironment($, started.cwd, config.nodePath))
@@ -906,15 +1109,19 @@ export const register: Register = (on, options) => {
     return { text: `Applying feedback: ${session.name}` }
   })
 
-  // A one-row band with Sketch, Stack, Write, Talk, Track and Mode buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write, /track or /mode does.
+  // A one-row band with Sketch, Stack, Write, Talk, Mode and Brief buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write or /mode does.
   // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
-  // Talk dictates into the prompt box until pressed again.
+  // Talk dictates into the prompt box until pressed again. Mode shows until the first prompt.
+  // Brief opens and closes the Brief pane.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
+    const mode = await read($, modeRef)
+    const counts = briefCounts(await read($, outputsRef), (await read($, itemsRef))?.text ?? null, (await read($, questionsRef)).length)
     const view: BandView = {
       ingesting: await read($, ingestingRef),
-      isTracking: await read($, trackingRef),
-      mode: await read($, modeRef),
+      hasPrompted: await read($, hasPromptedRef),
+      briefLabel: briefBandLabel(counts, mode),
+      mode,
       fidelity: await read($, fidelityRef),
       picking: await read($, pickingRef),
       voice: await read($, voiceRef),
@@ -945,7 +1152,7 @@ export const register: Register = (on, options) => {
             : (await openCompanion($, 'sketch', target === 'stack' ? { layout: 'stack' } : {})).message
         if (result !== SKETCH_OPENED && result !== STACK_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
       },
-      track: () => trackCommand($, '').then(text => $.ui.toast(text, { timeoutMs: 8000 })),
+      brief: () => toggleBrief($),
       talk: () => toggleDictation($),
       pick,
       choose: async choice => {
@@ -955,11 +1162,74 @@ export const register: Register = (on, options) => {
     })
   })
 
+  // The Brief pane beside the transcript: outputs, Claude's questions, items and the session's mode.
+  on('ui.render', { component: 'Pane', requestId: BRIEF_PANE }, async ($, e) => {
+    const props = e.props as { placement: 'dock' | 'inline' }
+    const questions = await read($, questionsRef)
+    const table = $.ui.resolve(e)
+    const hasFields = e.surface !== 'mobile'
+    const pane: BriefPaneView = {
+      placement: props.placement,
+      hasFields,
+      project: projectName(await homeCwd($)),
+      mode: await read($, modeRef),
+      fidelity: await read($, fidelityRef),
+      isTracking: await read($, trackingRef),
+      outputs: await read($, outputsRef),
+      items: await read($, itemsRef),
+      answers: await read($, answersRef),
+      asked: questions.length,
+      view: await read($, briefRef),
+    }
+    const asked = questionsTree(table, questions, hasFields, {
+      answer: (id, text) => update($, questionsRef, list => answerQuestion(list, id, text)).then(() => undefined),
+      clear: id => update($, questionsRef, list => answerQuestion(list, id, '')).then(() => undefined),
+      send: () => sendQuestionAnswers($),
+    })
+    return briefTree(table, pane, {
+      open: ref => openOutput($, ref),
+      openInApp: ref => openOutputInApp($, ref),
+      pickMode: mode => pickBriefMode($, mode),
+      pickFidelity: fidelity => pickBriefFidelity($, fidelity),
+      track: () => trackCommand($, '').then(text => $.ui.toast(text, { timeoutMs: 8000 })),
+      hold: (n, text) => update($, answersRef, list => holdAnswer(list, n, text)).then(() => undefined),
+      clear: n => update($, answersRef, list => dropAnswer(list, n)).then(() => undefined),
+      send: () => sendAnswers($),
+      fold: section =>
+        update($, briefRef, view =>
+          section === 'touched' ? { ...view, isTouchedOpen: !view.isTouchedOpen } : { ...view, isDoneOpen: !view.isDoneOpen },
+        ).then(() => undefined),
+    }, { questions: asked })
+  })
+
+  // The first prompt takes the Mode button off the band.
+  on('prompt.submit', async ($, e, next) => {
+    const entered = await next(e)
+    if (!('drop' in entered)) {
+      await update($, hasPromptedRef, () => true).catch(() => undefined)
+      // The Mode picker leaves the band with the Mode button.
+      await update($, pickingRef, () => 'none').catch(() => undefined)
+    }
+    return entered
+  }).catch(($, e, next) => next(e))
+
+  // A write to the items file redraws the Brief pane and the band's count.
+  on('tool.call', { tool: ['Edit', 'Write'] }, async ($, e, next) => {
+    const result = await next(e)
+    const sessionId = await $.session.id().catch(() => undefined)
+    if (sessionId !== undefined && typeof e.file_path === 'string' && e.file_path.endsWith(`/${itemsRelPath(sessionId)}`)) {
+      await refreshItems($).catch(err => log($, `items refresh failed: ${String(err)}`))
+    }
+    return result
+  }).catch(($, e, next) => next(e))
+
   // Each finished main-loop reply is kept, so its last block can carry the row below.
+  // The items file is read again, since the app's panel appends answers to it too.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined && e.reason === 'answer') await update($, repliesRef, list => keepReply(list, e.answer)).catch(() => undefined)
     if (e.agentId === undefined) await keepRegistered($, companionSettings).catch(() => undefined)
+    if (e.agentId === undefined) await refreshItems($).catch(() => undefined)
     return done
   })
 
@@ -1015,7 +1285,7 @@ export const register: Register = (on, options) => {
 
   // With item tracking on, the system prompt tells Claude to keep the items file.
   // Outside default mode, it also carries the mode's posture.
-  // The outputs section is always on.
+  // The outputs section is always on. With /grill on, Claude interviews the user before it starts.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     const added: { id: string; scope: 'session'; text: string }[] = []
@@ -1039,6 +1309,14 @@ export const register: Register = (on, options) => {
     } catch (err) {
       log($, `outputs section failed: ${String(err)}`)
     }
+    try {
+      if (await read($, grillingRef)) {
+        const hasTool = !isAskRefused || e.tools.includes(ASK_TOOL)
+        added.push({ id: GRILL_SECTION, scope: 'session', text: grillInstructions(hasTool) })
+      }
+    } catch (err) {
+      log($, `grill section failed: ${String(err)}`)
+    }
     const show = showSection(e.tools)
     if (show !== null) added.push(show)
     return added.length === 0 ? composed : { sections: [...composed.sections, ...added] }
@@ -1047,6 +1325,7 @@ export const register: Register = (on, options) => {
   // The mode guard wraps the outputs recorder, so a denied edit is never recorded.
   registerModeGuard(on)
   registerOutputs(on)
+  registerQuestions(on)
 
   // Pictures in the transcript. Their Open board button starts the app when needed, as /sketch does.
   registerShow(on)

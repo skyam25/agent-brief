@@ -18,6 +18,7 @@ import { autoUpdater } from 'electron-updater';
 import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protocol';
 import type { BoardBackend } from '../server/contract';
 import { createCompanionServer, type CompanionServer } from '../server/index';
+import { BadRequest } from '../server/validate';
 import {
   CH,
   type BoardReply,
@@ -200,6 +201,18 @@ async function start(): Promise<void> {
       // The user just typed /sketch, so the session's terminal is still in front.
       const live = briefs.live(req.sessionId);
       if (live) await terminals.capture(live);
+      // The server checked the session is live and the path names a Markdown or HTML file.
+      if (req.output && req.sessionId) {
+        let opened: 'note' | 'review';
+        try {
+          opened = await files.openDocument(req.sessionId, req.output.path);
+        } catch (err) {
+          throw new BadRequest((err as Error).message);
+        }
+        if (req.prompt !== undefined) setPrompt(req.prompt);
+        panel.show();
+        return { board: state.state.currentBoard, targetSessionId: req.sessionId, opened };
+      }
       if (req.mode === 'write') {
         if (req.prompt !== undefined) setPrompt(req.prompt);
         panel.show();

@@ -4,13 +4,13 @@
  */
 
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { extname, isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { outputsFile } from '../protocol';
 import { itemsFile } from '../server/index';
 import { newDraftId } from '../shared/drafts';
 import { CH, type Decision, type ItemsDocInfo, type OutputsInfo } from '../shared/ipc';
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
-import { isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
+import { isMarkdownRef, isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { cleanEdit, type EditResult, type HistoryResult } from '../shared/review-edit';
 import type { Briefs } from './briefs';
@@ -34,7 +34,6 @@ export interface SessionFilesDeps {
   reviewUrlFor: (cwd: string, path: string) => string;
 }
 
-const MARKDOWN = new Set(['.md', '.markdown', '.mdx']);
 /** Undo steps kept per file. */
 const MAX_UNDO = 100;
 
@@ -181,7 +180,7 @@ export class SessionFiles {
       this.openReview(sessionId, ref);
       return;
     }
-    if (!MARKDOWN.has(extname(target).toLowerCase())) {
+    if (!isMarkdownRef(target)) {
       await opener.openPath(target);
       return;
     }
@@ -194,6 +193,13 @@ export class SessionFiles {
     const text = readFileSync(target, 'utf8');
     if (text.length > MAX_DRAFT_BODY) throw new Error(`${ref} is longer than a note can hold (${MAX_DRAFT_BODY.toLocaleString('en-US')} characters)`);
     briefs.startNote({ text, id: newDraftId(), sessionId, source: { path: ref } }, false);
+  }
+
+  /** Opens a Markdown or HTML output in the panel for POST /open, and says where it opened. */
+  async openDocument(sessionId: string, path: string): Promise<'note' | 'review'> {
+    if (!isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file`);
+    await this.openOutput(sessionId, path);
+    return isReviewable(path) ? 'review' : 'note';
   }
 
   /** Opens a project file in its default app. */
