@@ -109,7 +109,7 @@ export function awaitsUser(item: Item): boolean {
  * item is filled instead. Decisions for unknown items are left out, and a decision's
  * line breaks become spaces. The caller drops empty decisions.
  */
-export function withDecisions(text: string, decisions: Decision[]): string {
+export function withDecisions(text: string, decisions: readonly Decision[]): string {
   const cr = text.includes('\r\n') ? '\r' : '';
   const lines = text.split('\n');
   const wanted = new Map(decisions.map((d) => [d.n, oneLine(d.text)]));
@@ -155,7 +155,7 @@ export function withDecisions(text: string, decisions: Decision[]): string {
 }
 
 /** The prompt that reports non-empty decisions. `relPath` is the items file relative to the session's cwd. */
-export function decisionsDraft(relPath: string, decisions: Decision[], doc: ItemsDoc): string {
+export function decisionsDraft(relPath: string, decisions: readonly Decision[], doc: ItemsDoc): string {
   const titleOf = (n: number) => doc.items.find((i) => i.n === n)?.title;
   const head = `Decisions on ${decisions.length === 1 ? 'an item' : `${decisions.length} items`} in ${relPath}:`;
   const body = decisions.map((d) => {

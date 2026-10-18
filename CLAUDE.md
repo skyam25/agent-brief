@@ -50,7 +50,7 @@ Plugin, from `mod/agent-brief/`:
 ## Rules
 
 - Protocol changes are add-only. Never rename or remove fields or routes.
-- `mod/agent-brief/hooks/companion-protocol.ts` is a copy of `companion/src/protocol.ts`. Change both together.
+- Edit contracts in `companion/src/protocol.ts` and shared item/output readers in `companion/src/shared/`. Run `pnpm sync:plugin` in `companion/` to regenerate the standalone plugin copies. Build syncs them; compile and tests reject stale copies.
 - E2E runs only with `COMPANION_TEST=1`, which keeps windows off screen. No visible pop-ups during tests.
 - Verify UI headlessly through Playwright `_electron`, not the browser extension.
 - Verify mod UI in a real session, not only in `claude plugin test`: `claude --plugin-dir mod/agent-brief` by hand, or a tmux check like `tests/live/brief-pane.mjs` at 110 to 130 columns. The installed plugin is the app's bundled copy, so a checkout change needs `--plugin-dir`.

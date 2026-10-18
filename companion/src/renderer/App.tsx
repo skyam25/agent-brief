@@ -1,6 +1,4 @@
-import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { SessionsResponse } from '../protocol';
 import type { CompanionApi, InitInfo, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
 import { BoardCommentsStore } from './board-comments';
@@ -9,7 +7,7 @@ import { BoardPicker, LayoutSwitch } from './BoardPicker';
 import { fallbackBoard } from './boardScope';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { draftTitle } from '../shared/drafts';
-import { DraftBook, onTab } from './drafts';
+import { DraftBook } from './drafts';
 import { TemplateShelf } from './templates';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
@@ -29,10 +27,9 @@ import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
 import { PromptBanner, TopStrip } from './TopStrip';
 import { useBoards } from './useBoards';
-import { useBriefTabs, type TabScope } from './useBriefTabs';
 import { usePanelKeys } from './usePanelKeys';
 import { useSend } from './useSend';
-import { useVoice } from './useVoice';
+import { useWorkspace } from './useWorkspace';
 import { WriteView } from './WriteView';
 
 interface Boot {
@@ -171,7 +168,6 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   const [theme, setTheme] = useState<Theme>(info.theme);
   const [notesOpen, setNotesOpen] = useState(false);
   const [prompt, setPrompt] = useState(info.prompt);
-  const [sessions, setSessions] = useState<SessionsResponse>(info.sessions);
   const [toast, setToast] = useState<ToastMessage>();
   const toastId = useRef(0);
   const notify = useCallback((text: string, kind: ToastKind = 'info') => setToast({ text, kind, id: ++toastId.current }), []);
@@ -182,88 +178,14 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   const [update, setUpdate] = useState<UpdateStatus>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
-  const [newBoardRequest, setNewBoardRequest] = useState(0);
-  const [mode, setModeState] = useState<Mode>(info.mode);
-  const [focusRequest, setFocusRequest] = useState(0);
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-  const tabScope = useRef<TabScope>({ tabs: [] });
-
   const [comments] = useState(() => new BoardCommentsStore());
+  const {
+    sessions, mode, modeRef, focusRequest, newBoardRequest, changeMode, openDraft, openBoard, onReady,
+    briefs, activeBrief, active, switchBrief, openNotes, closeBrief, reviewVoice,
+    reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, discardVoice, onMicrophone,
+  } = useWorkspace({ host, info, controller, book, shelf, comments, board, notify, report });
   useCommentKeys(comments, mode === 'sketch');
-  const { reviewVoice, reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, discardVoice } = useVoice({
-    host,
-    book,
-    controller,
-    comments,
-    board,
-    mode,
-    modeRef,
-    notify,
-  });
-
-  /** Sketch has a mic, which talks to the board's pins. Review mode has one while a review is open. */
-  const onMicrophone = reviewing || mode === 'sketch' ? () => void toggleReviewVoice() : undefined;
-
-  /** Switches modes. Write opens the first draft, or a new note when there is none. */
-  const changeMode = useCallback(
-    (next: Mode) => {
-      setModeState(next);
-      host.setMode(next);
-      // Pins belong to their mode, so the mic on them stops when the mode changes.
-      if (next !== modeRef.current) void reviewVoice.stop();
-      if (next === 'sketch') return;
-      // Only Sketch has a mic button, so a recording stops here and waits for the next sketch Send.
-      if (controller.recorder.recording) void controller.recorder.stop();
-      if (next !== 'write') return;
-      const { sessionId, tabs } = tabScope.current;
-      const open = book.selected;
-      if (!open || open.review || !onTab(open, sessionId, tabs)) {
-        const first = book.firstOnTab(sessionId, tabs);
-        if (first) book.select(first.id);
-        else book.create('', undefined, sessionId);
-      }
-      setFocusRequest((n) => n + 1);
-    },
-    [host, book, controller, reviewVoice],
-  );
-  /** Opens a draft in its mode: a review in Review, a note in Write. */
-  const openDraft = useCallback(
-    (id: string) => {
-      book.select(id);
-      changeMode(book.get(id)?.review ? 'review' : 'write');
-    },
-    [book, changeMode],
-  );
-  /** Opens a draft main named, filing it under `sessionId` when it has no session yet. */
-  const showDraft = useCallback(
-    async (id: string, sessionId?: string) => {
-      if (!book.get(id)) await book.load();
-      if (sessionId && book.get(id) && !book.get(id)!.sessionId) book.file(id, sessionId);
-      book.select(id);
-    },
-    [book],
-  );
-  const openBoard = useCallback(
-    (name: string) => {
-      changeMode('sketch');
-      if (name !== controller.board) void controller.switchTo(name).catch(report('switch boards'));
-    },
-    [changeMode, controller],
-  );
-
   const sidebar = useSidebar();
-  const { briefs, activeBrief, active, switchBrief, openNotes, closeBrief, leaveEnded } = useBriefTabs({
-    host,
-    book,
-    controller,
-    sessions,
-    modeRef,
-    tabScope,
-    changeMode,
-    showDraft,
-    report,
-  });
   const boardList = useBoards(host, controller, briefs);
   const { send, sendTo, sendNew, copyPrompt, openChooser } = useSend({
     host,
@@ -311,50 +233,15 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   }, [theme]);
 
   useEffect(() => {
-    host.onPrompt(setPrompt);
-    host.onSessions(setSessions);
-    host.onTheme(setTheme);
-    host.onOpenSettings(() => setSettingsOpen(true));
-    host.onUpdate(setUpdate);
+    const subscriptions = [
+      host.onPrompt(setPrompt), host.onTheme(setTheme),
+      host.onOpenSettings(() => setSettingsOpen(true)), host.onUpdate(setUpdate),
+    ];
     void host.getUpdate().then(setUpdate);
-    host.onNewBoard(() => {
-      changeMode('sketch');
-      setNewBoardRequest((n) => n + 1);
-    });
-    host.onNewNote(({ text, id, sessionId, source, review }) => {
-      // A note for no session comes with the Send target cleared, so the Notes tab shows.
-      if (!sessionId) leaveEnded();
-      // Main looks for an open review on disk, and a review edited a moment ago may not be there yet.
-      const kept = review && book.drafts.find((d) => d.sessionId === sessionId && d.review?.path === review.path);
-      if (kept) book.select(kept.id);
-      else book.create(text, id, sessionId, source, review);
-      changeMode(review ? 'review' : 'write');
-    });
-    host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode(book.get(id)?.review ? 'review' : 'write')));
-    // A note from `agent-brief note` joins the list. The open note and the mode stay.
-    host.onDraftsChanged(() => void book.load());
-    controller.panelVisible = info.panelVisible;
-    host.onVisibility((visible) => {
-      controller.panelVisible = visible;
-      if (!visible) leaveEnded();
-      if (!visible) void Promise.all([book.flush(), shelf.flush()]);
-    });
-  }, [host, controller, book, shelf, changeMode, showDraft, leaveEnded, info.panelVisible]);
-
-  const onReady = useCallback(
-    (api: ExcalidrawImperativeAPI) => {
-      host.onRequest(async (req) => {
-        // Draft saves never block the board's own flush before quitting.
-        if (req.op === 'flush') await Promise.all([book.flush(), shelf.flush()]).catch(() => undefined);
-        // /sketch shows a board, which brings Sketch mode forward. A tab switch picks its own mode.
-        if (req.op === 'show' && !(req.args as { fromSwitch?: boolean }).fromSwitch) changeMode('sketch');
-        return controller.reply(req);
-      });
-      host.ready();
-      if (info.testMode) Object.assign(window, { __board: controller, __excalidraw: api, __drafts: book, __templates: shelf });
-    },
-    [controller, host, book, shelf, changeMode, info.testMode],
-  );
+    return () => {
+      for (const off of subscriptions) if (typeof off === 'function') off();
+    };
+  }, [host]);
 
   const listBoards = useCallback(() => host.listBoards(), [host]);
   const reviewError = useCallback((message: string) => notify(message, 'error'), [notify]);

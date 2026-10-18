@@ -304,8 +304,11 @@ test('C4.1 through the CLI: draw, read and png against the running app', async (
 
 /** Runs the CLI and returns its exit code and output, without throwing on failure. */
 async function companion(socket: string, args: string[], input?: string) {
+  const env: NodeJS.ProcessEnv = { ...process.env, COMPANION_SOCKET: socket };
+  // Playwright forces color; a runner's NO_COLOR would make Node prefix stderr with a warning.
+  delete env.FORCE_COLOR;
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
-    const child = execFile('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { env: { ...process.env, COMPANION_SOCKET: socket } }, (err, stdout, stderr) =>
+    const child = execFile('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { env }, (err, stdout, stderr) =>
       resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout, stderr }),
     );
     child.stdin!.end(input ?? '');

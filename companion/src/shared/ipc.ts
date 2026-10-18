@@ -269,7 +269,7 @@ export interface BoardHost {
   /** Takes a board out of a session's brief. The board itself stays. */
   detachBoard(sessionId: string, name: string): Promise<void>;
   send(payload: SendPayload): Promise<{ ok: boolean; message: string }>;
-  onTheme(fn: (theme: Theme) => void): void;
+  onTheme(fn: (theme: Theme) => void): Subscription;
 }
 
 /** A starting point for drafts: `<dataDir>/templates/<id>.md`. `{{name}}` marks a slot to fill. */
@@ -278,6 +278,9 @@ export interface Template {
   title: string;
   body: string;
 }
+
+/** A subscription may provide cleanup; older host adapters can keep returning void. */
+export type Subscription = void | (() => void);
 
 /** What the preload script exposes as `window.companion`. */
 /** A new note main asks for: its starting text and, from /write, the id main records for the session. */
@@ -360,19 +363,19 @@ export interface CompanionApi extends BoardHost {
    * The handler answers with a whole reply. Errors thrown across the context
    * bridge lose their `code`, so the renderer catches them itself.
    */
-  onRequest(handler: (req: BoardRequest) => Promise<BoardReply>): void;
+  onRequest(handler: (req: BoardRequest) => Promise<BoardReply>): Subscription;
   /** Tells main the board handler is listening. */
   ready(): void;
-  onPrompt(fn: (prompt: string | undefined) => void): void;
-  onSessions(fn: (s: SessionsResponse) => void): void;
+  onPrompt(fn: (prompt: string | undefined) => void): Subscription;
+  onSessions(fn: (s: SessionsResponse) => void): Subscription;
   hidePanel(): void;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<SettingsResult>;
   requestMicrophone(): Promise<MicrophoneAccess>;
-  onOpenSettings(fn: () => void): void;
-  onNewBoard(fn: () => void): void;
+  onOpenSettings(fn: () => void): Subscription;
+  onNewBoard(fn: () => void): Subscription;
   /** Fires when the panel window shows or hides. */
-  onVisibility(fn: (visible: boolean) => void): void;
+  onVisibility(fn: (visible: boolean) => void): Subscription;
   /** The last sends, newest first, each with its PNG. */
   listHistory(): Promise<(HistoryEntry & { png?: Uint8Array })[]>;
   /** Copies a past send onto a new board, a new note, or both. */
@@ -394,21 +397,21 @@ export interface CompanionApi extends BoardHost {
   updateNow(): Promise<UpdateStatus>;
   /** Quits and installs a downloaded update. */
   installUpdate(): Promise<void>;
-  onUpdate(fn: (status: UpdateStatus) => void): void;
+  onUpdate(fn: (status: UpdateStatus) => void): Subscription;
   /** Remembers the mode for the next launch and the File menu. */
   setMode(mode: Mode): void;
   /** Fires when the capture shortcut, a menu or /write asks for a new note, with any starting text and the id main chose. */
-  onNewNote(fn: (note: NewNote) => void): void;
+  onNewNote(fn: (note: NewNote) => void): Subscription;
   /** Fires when /write reopens a session's note. */
-  onOpenDraft(fn: (open: OpenDraft) => void): void;
+  onOpenDraft(fn: (open: OpenDraft) => void): Subscription;
   /** Fires when main saved a draft the panel did not make, such as a note from `agent-brief note`. */
-  onDraftsChanged(fn: () => void): void;
+  onDraftsChanged(fn: () => void): Subscription;
   /** Puts rich text and its plain form on the clipboard in one write. */
   copyRich(clip: { html: string; text: string }): Promise<void>;
   /** Each tracked session's latest brief, newest first. */
   listBriefs(): Promise<SessionBriefEntry[]>;
   /** Fires when a brief, a session or the Send target changes. */
-  onBriefs(fn: (briefs: SessionBriefEntry[]) => void): void;
+  onBriefs(fn: (briefs: SessionBriefEntry[]) => void): Subscription;
   /** Makes the session the Send target, when it is still running, and opens its brief. The renderer picks the mode. */
   switchBrief(sessionId: string): Promise<SwitchResult>;
   /** Clears the Send target and makes Unfiled's board current. The renderer switches to it. */
@@ -429,7 +432,7 @@ export interface CompanionApi extends BoardHost {
   /** The session's items file, parsed. Undefined for a session the app does not know. */
   readItems(sessionId: string): Promise<ItemsDocInfo | undefined>;
   /** Fires when a tracked session's items file changes on disk. */
-  onItems(fn: (info: ItemsDocInfo) => void): void;
+  onItems(fn: (info: ItemsDocInfo) => void): Subscription;
   /** Appends the decisions as `You:` lines in the file and returns the prompt text that reports them. */
   saveDecisions(sessionId: string, decisions: Decision[]): Promise<{ draft: string }>;
   /** Starts a terminal in the ended session's folder running its resume command. `copy` puts the command on the clipboard. */
@@ -439,7 +442,7 @@ export interface CompanionApi extends BoardHost {
   /** The session's outputs file, parsed. Undefined for a session the app does not know. */
   readOutputs(sessionId: string): Promise<OutputsInfo | undefined>;
   /** Fires when a live session's outputs file changes on disk, or a dismissal changes the list. */
-  onOutputs(fn: (info: OutputsInfo) => void): void;
+  onOutputs(fn: (info: OutputsInfo) => void): Subscription;
   /**
    * Opens an output. A markdown file opens as a note filed under the session, with `source` set,
    * reusing the note already opened from it. Other files open in their app, after the same checks
@@ -475,7 +478,7 @@ export interface CompanionApi extends BoardHost {
   /** Shows a file or folder in Finder. `~/` is allowed. */
   revealPath(path: string): Promise<void>;
   /** Fires when an initiative, its brief file or a session binding changes. */
-  onInitiativesChanged(fn: (list: InitiativeSummary[]) => void): void;
+  onInitiativesChanged(fn: (list: InitiativeSummary[]) => void): Subscription;
 }
 
 export const CH = {
@@ -560,3 +563,96 @@ export const CH = {
   revealPath: 'initiatives:reveal',
   initiativesChanged: 'initiatives:changed',
 } as const;
+
+/** The explicit allowlist shared by main and preload. No arbitrary channel is exposed. */
+type ApiMethod = keyof CompanionApi;
+export type InvokeMethod = { [K in ApiMethod]: ReturnType<CompanionApi[K]> extends Promise<unknown> ? K : never }[ApiMethod];
+export type EventMethod = { [K in ApiMethod]: K extends `on${string}` ? K : never }[ApiMethod];
+export type SendMethod = Exclude<ApiMethod, InvokeMethod | EventMethod>;
+
+export const IPC_INVOKE = {
+  init: CH.init,
+  listBoards: CH.listBoards,
+  loadBoard: CH.loadBoard,
+  saveBoard: CH.saveBoard,
+  saveNotes: CH.saveNotes,
+  createBoard: CH.createBoard,
+  renameBoard: CH.renameBoard,
+  deleteBoard: CH.deleteBoard,
+  setCurrent: CH.setCurrent,
+  detachBoard: CH.detachBoard,
+  send: CH.send,
+  setTarget: CH.setTarget,
+  getSettings: CH.getSettings,
+  setSettings: CH.setSettings,
+  requestMicrophone: CH.mic,
+  listHistory: CH.historyList,
+  restoreHistory: CH.historyRestore,
+  launchOptions: CH.launchOptions,
+  chooseFolder: CH.chooseFolder,
+  sendNew: CH.sendNew,
+  copyPrompt: CH.copyPrompt,
+  sessionPlaces: CH.sessionPlaces,
+  focusSession: CH.focusSession,
+  getUpdate: CH.updateGet,
+  updateNow: CH.updateCheck,
+  installUpdate: CH.updateInstall,
+  listBriefs: CH.listBriefs,
+  switchBrief: CH.switchBrief,
+  openUnfiled: CH.openUnfiled,
+  forgetBrief: CH.forgetBrief,
+  listDrafts: CH.listDrafts,
+  copyRich: CH.copyRich,
+  saveDraft: CH.saveDraft,
+  deleteDraft: CH.deleteDraft,
+  listTemplates: CH.listTemplates,
+  saveTemplate: CH.saveTemplate,
+  deleteTemplate: CH.deleteTemplate,
+  setTracking: CH.setTracking,
+  readItems: CH.readItems,
+  saveDecisions: CH.saveDecisions,
+  openItemOutput: CH.openItemOutput,
+  resumeSession: CH.resumeSession,
+  readOutputs: CH.readOutputs,
+  openOutput: CH.openOutput,
+  dismissOutput: CH.dismissOutput,
+  openOutputElsewhere: CH.openOutputElsewhere,
+  readBehavior: CH.readBehavior,
+  decideBehavior: CH.decideBehavior,
+  reviewUrl: CH.reviewUrl,
+  reviewEdit: CH.reviewEdit,
+  reviewUndo: CH.reviewUndo,
+  reviewRedo: CH.reviewRedo,
+  capturePanel: CH.capturePanel,
+  transcribeClip: CH.transcribeClip,
+  openLink: CH.openLink,
+  listInitiatives: CH.listInitiatives,
+  getInitiative: CH.getInitiative,
+  createInitiative: CH.createInitiative,
+  updateInitiative: CH.updateInitiative,
+  revealPath: CH.revealPath,
+} as const satisfies Record<InvokeMethod, string>;
+
+export const IPC_SEND = {
+  ready: CH.ready,
+  hidePanel: CH.hide,
+  setMode: CH.setMode,
+} as const satisfies Record<SendMethod, string>;
+
+export const IPC_EVENT = {
+  onPrompt: CH.prompt,
+  onSessions: CH.sessions,
+  onTheme: CH.theme,
+  onOpenSettings: CH.openSettings,
+  onNewBoard: CH.newBoard,
+  onUpdate: CH.update,
+  onVisibility: CH.visibility,
+  onNewNote: CH.newNote,
+  onOpenDraft: CH.openDraft,
+  onBriefs: CH.briefs,
+  onDraftsChanged: CH.draftsChanged,
+  onItems: CH.items,
+  onOutputs: CH.outputs,
+  onInitiativesChanged: CH.initiativesChanged,
+  onBehaviorChanged: CH.behaviorChanged,
+} as const satisfies Record<Exclude<EventMethod, 'onRequest'>, string>;

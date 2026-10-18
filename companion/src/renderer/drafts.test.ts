@@ -191,6 +191,46 @@ describe('DraftBook', () => {
 });
 
 describe('DraftBook during a Send or a save', () => {
+  it('flush waits for an already-running draft save', async () => {
+    const host = fakeHost([saved('a')]);
+    let release!: () => void;
+    host.saveDraft.mockImplementationOnce((draft) => new Promise<undefined>((resolve) => {
+      release = () => { host.disk.set(draft.id, draft); resolve(undefined); };
+    }));
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.edit('a', 'new');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    let finished = false;
+    const flushing = book.flush().then(() => { finished = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finished).toBe(false);
+    release();
+    await flushing;
+    expect(host.disk.get('a')?.body).toBe('new');
+  });
+
+  it('saves edits made during an in-flight save in order and protects them from reload', async () => {
+    const host = fakeHost([saved('a')]);
+    let release!: () => void;
+    host.saveDraft.mockImplementationOnce((draft) => new Promise<undefined>((resolve) => {
+      release = () => { host.disk.set(draft.id, draft); resolve(undefined); };
+    }));
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.edit('a', 'first');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    book.edit('a', 'latest');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.saveDraft).toHaveBeenCalledTimes(1);
+    await book.load();
+    expect(book.get('a')?.body).toBe('latest');
+    release();
+    await book.flush();
+    expect(host.disk.get('a')?.body).toBe('latest');
+    expect(host.saveDraft.mock.calls.map(([draft]) => draft.body)).toEqual(['first', 'latest']);
+  });
+
   it('keeps a board attached while the Send was on its way', async () => {
     const host = fakeHost([saved('a')]);
     const book = new DraftBook(host, () => t++);

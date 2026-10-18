@@ -4,6 +4,7 @@ import { hasReviewContent } from '../shared/review';
 
 import { keptImages, newDraftId, sortDrafts } from '../shared/drafts';
 import type { CompanionApi, Draft, DraftSource } from '../shared/ipc';
+import { SaveQueue } from './save-queue';
 import { MAX_EDITS, type DraftReview, type ReviewComment } from '../shared/review';
 
 export const DRAFT_SAVE_MS = 400;
@@ -44,13 +45,9 @@ export class DraftBook {
   selectedId?: string;
   /** Bumps on every change, as the snapshot React compares. */
   version = 0;
-  /** Why the last save failed, until one succeeds. */
-  saveError?: string;
-  /** Drafts changed here and not yet on disk. */
-  private readonly dirty = new Set<string>();
-  /** Drafts whose save is on its way, which a reload must not overwrite either. */
-  private readonly saving = new Set<string>();
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly saves = new SaveQueue((id) => this.write(id), () => this.emit(), DRAFT_SAVE_MS, DRAFT_RETRY_MS);
+  /** Why the last save failed, until a write succeeds. */
+  get saveError(): string | undefined { return this.saves.error; }
   private readonly listeners = new Set<() => void>();
   /** Pictures an edit took out of a draft, by id. An undo or a paste that brings the reference back finds them here. */
   private readonly loose = new Map<string, string>();
@@ -74,7 +71,7 @@ export class DraftBook {
   async load(): Promise<void> {
     const saved = await this.host.listDrafts();
     const onDisk = new Set(saved.map((d) => d.id));
-    const local = this.drafts.filter((d) => this.dirty.has(d.id) || this.saving.has(d.id) || (isEmpty(d) && !onDisk.has(d.id)));
+    const local = this.drafts.filter((d) => this.saves.has(d.id) || (isEmpty(d) && !onDisk.has(d.id)));
     const keep = new Set(local.map((d) => d.id));
     this.drafts = sortDrafts([...saved.filter((d) => !keep.has(d.id)), ...local]);
     if (this.selectedId && !this.get(this.selectedId)) this.selectedId = undefined;
@@ -130,7 +127,7 @@ export class DraftBook {
     if (review) draft.review = review;
     this.drafts = sortDrafts([draft, ...this.drafts]);
     this.select(draft.id);
-    if (body) this.save(draft.id);
+    if (body) this.saves.schedule(draft.id);
     return draft;
   }
 
@@ -261,7 +258,7 @@ export class DraftBook {
   consume(id: string, sent: SentRevision): void {
     const draft = this.get(id);
     if (draft && (draft.body !== sent.body || draft.board !== sent.board)) {
-      this.save(id);
+      this.saves.schedule(id);
       this.emit();
       return;
     }
@@ -286,12 +283,8 @@ export class DraftBook {
   }
 
   /** Writes every pending save now, trying a failed one once more. Ones that still fail stay pending. */
-  async flush(): Promise<void> {
-    for (let attempt = 0; attempt < 2 && this.dirty.size > 0; attempt++) {
-      for (const timer of this.timers.values()) clearTimeout(timer);
-      this.timers.clear();
-      await Promise.all([...this.dirty].map((id) => this.write(id)));
-    }
+  flush(): Promise<void> {
+    return this.saves.flush();
   }
 
   private patch(id: string, change: Partial<Draft>, emit = true): void {
@@ -304,49 +297,21 @@ export class DraftBook {
     const list = [...this.drafts];
     list[at] = next;
     this.drafts = sortDrafts(list);
-    this.save(id);
+    this.saves.schedule(id);
     if (emit) this.emit();
   }
 
-  private save(id: string, delay = DRAFT_SAVE_MS): void {
-    this.dirty.add(id);
-    clearTimeout(this.timers.get(id));
-    this.timers.set(
-      id,
-      setTimeout(() => {
-        this.timers.delete(id);
-        void this.write(id);
-      }, delay),
-    );
-  }
-
-  /** Saves a draft with something in it, and deletes one emptied after a save. A failure retries. */
-  private async write(id: string): Promise<void> {
+  /** The store owns empty-draft deletion; the queue owns scheduling and retries. */
+  private async write(id: string): Promise<boolean> {
     const draft = this.get(id);
-    this.dirty.delete(id);
-    if (!draft) return;
-    this.saving.add(id);
-    try {
-      if (isEmpty(draft)) await this.host.deleteDraft(id);
-      else await this.host.saveDraft(draft);
-      if (this.saveError && this.dirty.size === 0) {
-        this.saveError = undefined;
-        this.emit();
-      }
-    } catch (err) {
-      if (!this.get(id)) return;
-      this.saveError = (err as Error).message;
-      if (!this.dirty.has(id)) this.save(id, DRAFT_RETRY_MS);
-      this.emit();
-    } finally {
-      this.saving.delete(id);
-    }
+    if (!draft) return false;
+    if (isEmpty(draft)) await this.host.deleteDraft(id);
+    else await this.host.saveDraft(draft);
+    return true;
   }
 
   private drop(id: string): void {
-    clearTimeout(this.timers.get(id));
-    this.timers.delete(id);
-    this.dirty.delete(id);
+    this.saves.cancel(id);
     this.drafts = this.drafts.filter((d) => d.id !== id);
     if (this.selectedId === id) this.selectedId = undefined;
   }

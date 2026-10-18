@@ -24,34 +24,13 @@ import {
   openTarget,
   projectName,
 } from './brief-logic'
+import { INITIATIVE_COMMAND_SPEC } from './initiative'
 import {
-  INITIATIVE_APP_DOWN,
-  INITIATIVE_COMMAND_SPEC,
-  INITIATIVE_NONE,
-  INITIATIVE_NOT_RUNNING,
-  NOT_ATTACHED,
-  attachPrompt,
-  attachedToast,
-  attachedOf,
-  choiceOf,
-  detachedNote,
-  detachedText,
-  discoverPrompt,
-  draftPrompt,
-  injectionText,
-  isInitiativeCommand,
-  parseInitiativeArgs,
-  pickChoices,
-  recentInitiativesPath,
-  recentLine,
-  refreshedText,
-  sessionInitiativePath,
-  shouldInject,
-  snapshotOf,
-  summariesOf,
-  tokenOf,
-} from './initiative'
-import type { InitiativeSnapshot, SessionInitiativeRequest } from './companion-protocol'
+  loadInitiative, loadRecent, initiativeContext, initiativeCommand, attachFromBand, detachFromBand,
+  fetchInitiative, currentInitiative, initiativeView, markInitiativeResumed, invalidateInitiative,
+  recordInitiativePrompt, type Appended, type InitiativeEnvironment,
+} from './initiative-feature'
+import { isInitiativeCommand } from './initiative'
 import { decisionsDraft, itemsFile, itemsRelPath, parseItems, withDecisions } from './items-file'
 import {
   countEvents,
@@ -188,11 +167,6 @@ const answersRef = atom({ plugin: 'agent-brief', key: 'answers' } as const, [])
 const briefRef = atom({ plugin: 'agent-brief', key: 'brief' } as const, { isPrototypePending: false, isTouchedOpen: false, isDoneOpen: false, isExpanded: false })
 const questionsRef = atom({ plugin: 'agent-brief', key: 'questions' } as const, [])
 const grillingRef = atom({ plugin: 'agent-brief', key: 'grilling' } as const, false)
-const initiativeRef = atom({ plugin: 'agent-brief', key: 'initiative' } as const, null)
-const recentRef = atom({ plugin: 'agent-brief', key: 'recentInitiatives' } as const, [])
-const sentRef = atom({ plugin: 'agent-brief', key: 'initiativeSent' } as const, null)
-const staleRef = atom({ plugin: 'agent-brief', key: 'isInitiativeStale' } as const, false)
-const recentDoneRef = atom({ plugin: 'agent-brief', key: 'isRecentLineDone' } as const, false)
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -221,6 +195,21 @@ let steppedAt = 0
 let socket: string | undefined
 /** The app's last answer on item tracking, kept for when it stops answering. */
 let tracking: (Tracking & { sessionId: string }) | undefined
+
+function initiativeEnvironment($: EngineInterface): InitiativeEnvironment {
+  return {
+    request: (method, path, body) => call($, method, path, body),
+    home: () => homeCwd($),
+    isUp,
+    ready: async () => {
+      if (!(await isHealthy($))) return false
+      isUp = true
+      await registerSession($)
+      return true
+    },
+    submit: text => submitPrompt($, text),
+  }
+}
 
 async function socketPath($: EngineInterface): Promise<string> {
   socket ??= socketPathOf(companionConfig.companionSocket, (await $.env.get('HOME')) ?? '')
@@ -283,7 +272,7 @@ async function registerSession($: EngineInterface): Promise<boolean> {
   registeredId = sessionId
   registeredAt = await $.clock.now()
   if (isNew && (await read($, modeRef)) !== 'default') await mirrorMode($)
-  if (isNew) void loadInitiative($).catch(err => log($, `initiative load failed: ${String(err)}`))
+  if (isNew) void loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`))
   return true
 }
 
@@ -718,146 +707,6 @@ async function pickBriefFidelity($: EngineInterface, fidelity: PrototypeFidelity
   $.ui.toast(await applyMode($, { mode: 'prototype', fidelity }), { timeoutMs: 8000 })
 }
 
-// ── Initiative ────────────────────────────────────────────────────────────
-
-/** Keeps the attached initiative for the band and the Brief pane. An unchanged one keeps the held value, so nothing redraws. */
-async function keepInitiative($: EngineInterface, snapshot: InitiativeSnapshot | null): Promise<void> {
-  const next = snapshot === null ? null : attachedOf(snapshot)
-  await update($, initiativeRef, held => {
-    if (held === null || next === null) return held === next ? held : next
-    return tokenOf(held) === tokenOf(next) && held.title === next.title ? held : next
-  })
-}
-
-/**
- * This session's initiative as the app holds it. Null when it has none: a 204, or a 404 from an app without initiatives.
- * Undefined when the app did not answer, which leaves the kept value alone.
- */
-async function fetchInitiative($: EngineInterface): Promise<InitiativeSnapshot | null | undefined> {
-  const reply = await call($, 'GET', sessionInitiativePath(await $.session.id()))
-  if (reply === undefined) return undefined
-  const snapshot = reply.ok ? (snapshotOf(reply.body) ?? null) : reply.status === 404 ? null : undefined
-  if (snapshot !== undefined) await keepInitiative($, snapshot)
-  return snapshot
-}
-
-async function loadRecent($: EngineInterface): Promise<void> {
-  const reply = await call($, 'GET', recentInitiativesPath())
-  if (reply?.ok) await update($, recentRef, () => summariesOf(reply.body).map(choiceOf))
-}
-
-/** Runs when the session registers: the recent initiatives for the first prompt's line, and any attachment the app already holds. */
-async function loadInitiative($: EngineInterface): Promise<void> {
-  await loadRecent($)
-  await fetchInitiative($)
-}
-
-/** What a prompt carries after the user's text. `sent` is what to record once the prompt entered; null clears the record. */
-type Appended = { context: string[]; sent?: { token: string; title: string } | null }
-
-/**
- * The snapshot when its token moved or a compaction dropped it. A detach since the last snapshot gets one note.
- * With nothing attached and `wantsRecent` set, one line naming the recent initiatives.
- */
-async function initiativeContext($: EngineInterface, wantsRecent: boolean): Promise<Appended> {
-  const snapshot = isUp ? await fetchInitiative($) : undefined
-  const sessionId = await $.session.id()
-  const held = await read($, sentRef)
-  const sent = held?.sessionId === sessionId ? held : undefined
-  if (snapshot) {
-    const token = tokenOf(snapshot)
-    if (!shouldInject(token, sent?.token, await read($, staleRef))) return { context: [] }
-    return { context: [injectionText(snapshot)], sent: { token, title: snapshot.title } }
-  }
-  if (snapshot === null && sent !== undefined) return { context: [detachedNote(sent.title)], sent: null }
-  if (snapshot === null && wantsRecent) {
-    const line = recentLine(await read($, recentRef))
-    if (line !== undefined) return { context: [line] }
-  }
-  return { context: [] }
-}
-
-async function recordSent($: EngineInterface, sent: { token: string; title: string } | null): Promise<void> {
-  const sessionId = await $.session.id()
-  await update($, sentRef, () => (sent === null ? null : { sessionId, ...sent }))
-  if (sent !== null) await update($, staleRef, () => false)
-}
-
-/** Submits a prompt for Claude once the command's answer has shown. A command.run hook cannot submit itself. */
-function handToClaude($: EngineInterface, text: string): void {
-  $.clock.after(0, () => submitPrompt($, text))
-}
-
-/**
- * Answers `/initiative`. Drafting, attaching by name and Discover go to Claude with the CLI calls to run.
- * `off` and `refresh` are the mod's own, so they cost no turn. Never starts the app.
- */
-async function initiativeCommand($: EngineInterface, args: string): Promise<{ text: string; context?: string[] }> {
-  const parsed = parseInitiativeArgs(args)
-  const sessionId = await $.session.id()
-  if (parsed.kind === 'discover') {
-    handToClaude($, discoverPrompt(await homeCwd($), sessionId))
-    return { text: 'Asking Claude to survey this folder for initiatives…' }
-  }
-  if (!(await isHealthy($))) return { text: INITIATIVE_NOT_RUNNING }
-  isUp = true
-  await registerSession($)
-  if (parsed.kind === 'attach') {
-    handToClaude($, attachPrompt(parsed.name, sessionId))
-    return { text: `Asking Claude to attach ${parsed.name}…` }
-  }
-  if (parsed.kind === 'draft') {
-    await loadRecent($)
-    handToClaude($, draftPrompt({ sessionId, cwd: await homeCwd($), outputs: await read($, outputsRef), recent: await read($, recentRef) }))
-    return { text: 'Asking Claude to draft an initiative from this session…' }
-  }
-  const snapshot = await fetchInitiative($)
-  if (snapshot === undefined) return { text: INITIATIVE_NOT_RUNNING }
-  if (snapshot === null) return { text: INITIATIVE_NONE }
-  if (parsed.kind === 'refresh') {
-    await recordSent($, { token: tokenOf(snapshot), title: snapshot.title })
-    return { text: refreshedText(snapshot), context: [injectionText(snapshot)] }
-  }
-  const reply = await call($, 'DELETE', sessionInitiativePath(sessionId))
-  if (!reply?.ok) return { text: `Agent Brief did not detach ${snapshot.title}.` }
-  await keepInitiative($, null)
-  await recordSent($, null)
-  return { text: detachedText(snapshot.title), context: [detachedNote(snapshot.title)] }
-}
-
-/** The band's change row: attaches this session to the picked initiative. */
-async function attachFromBand($: EngineInterface, initiativeId: string): Promise<void> {
-  await update($, pickingRef, () => 'none')
-  if (!(await isHealthy($))) {
-    $.ui.toast(INITIATIVE_APP_DOWN, { timeoutMs: 8000 })
-    return
-  }
-  isUp = true
-  await registerSession($)
-  const body: SessionInitiativeRequest = { initiativeId }
-  const reply = await call($, 'PUT', sessionInitiativePath(await $.session.id()), body)
-  const snapshot = reply?.ok ? snapshotOf(reply.body) : undefined
-  if (snapshot === undefined) {
-    $.ui.toast(NOT_ATTACHED, { timeoutMs: 8000 })
-    return
-  }
-  await keepInitiative($, snapshot)
-  $.ui.toast(attachedToast(snapshot.title), { timeoutMs: 8000 })
-}
-
-/** The change row's Detach. Claude reads a note about it with the next prompt. */
-async function detachFromBand($: EngineInterface): Promise<void> {
-  await update($, pickingRef, () => 'none')
-  const title = (await read($, initiativeRef))?.title
-  const reply = await call($, 'DELETE', sessionInitiativePath(await $.session.id()))
-  if (!reply?.ok) {
-    $.ui.toast(reply === undefined ? INITIATIVE_APP_DOWN : `Agent Brief did not detach ${title ?? 'the initiative'}.`, { timeoutMs: 8000 })
-    return
-  }
-  await keepInitiative($, null)
-  $.ui.toast(detachedText(title), { timeoutMs: 8000 })
-}
-
 /** The running yap: its pid once printed, and whether Stop came before the pid did. */
 let dictation: { pid?: string; isStopWanted: boolean } | undefined
 
@@ -1129,7 +978,7 @@ export const register: Register = (on, options) => {
       const messages = await $.session.messages().catch(() => [])
       if (Array.isArray(messages) && hasUserPrompt(messages)) {
         await update($, hasPromptedRef, () => true)
-        await update($, recentDoneRef, () => true)
+        await markInitiativeResumed($)
       }
       await loadBrief($)
     } catch (err) {
@@ -1316,7 +1165,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const mode = await read($, modeRef)
-    const initiative = await read($, initiativeRef)
+    const { initiative, choices } = await initiativeView($)
     const counts = briefCounts(await read($, outputsRef), (await read($, itemsRef))?.text ?? null, (await read($, questionsRef)).length)
     const view: BandView = {
       ingesting: await read($, ingestingRef),
@@ -1327,7 +1176,7 @@ export const register: Register = (on, options) => {
       picking: await read($, pickingRef),
       voice: await read($, voiceRef),
       initiative,
-      choices: pickChoices(initiative, await read($, recentRef)),
+      choices,
       ...(e.surface === 'terminal' && needsProbe() ? { probe: { key: PROBE_KEY, png: CLEAR_PIXEL } } : {}),
     }
     if (view.probe && !isBandProbing) {
@@ -1348,7 +1197,7 @@ export const register: Register = (on, options) => {
     }
     const pick = async (row: BandRow) => {
       await update($, pickingRef, () => row)
-      if (row === 'initiative') await loadRecent($).catch(err => log($, `recent initiatives failed: ${String(err)}`))
+      if (row === 'initiative') await loadRecent($, initiativeEnvironment($)).catch(err => log($, `recent initiatives failed: ${String(err)}`))
     }
     return bandTree($.ui.resolve(e), view, {
       open: async target => {
@@ -1365,8 +1214,8 @@ export const register: Register = (on, options) => {
         await pick('none')
         $.ui.toast(await applyMode($, choice), { timeoutMs: 8000 })
       },
-      attach: id => attachFromBand($, id),
-      detach: () => detachFromBand($),
+      attach: id => attachFromBand($, initiativeEnvironment($), id),
+      detach: () => detachFromBand($, initiativeEnvironment($)),
     })
   })
 
@@ -1388,7 +1237,7 @@ export const register: Register = (on, options) => {
       answers: await read($, answersRef),
       asked: questions.length,
       view: await read($, briefRef),
-      initiative: await read($, initiativeRef),
+      initiative: await currentInitiative($),
     }
     const asked = questionsTree(table, questions, hasFields, {
       answer: (id, text) => update($, questionsRef, list => answerQuestion(list, id, text)).then(() => undefined),
@@ -1420,8 +1269,7 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     let appended: Appended = { context: [] }
     if (e.isMeta === undefined && e.command === undefined) {
-      const wantsRecent = !(await read($, recentDoneRef))
-      appended = await initiativeContext($, wantsRecent).catch((err: unknown) => {
+      appended = await initiativeContext($, initiativeEnvironment($)).catch((err: unknown) => {
         log($, `initiative context failed: ${String(err)}`)
         return { context: [] }
       })
@@ -1431,8 +1279,7 @@ export const register: Register = (on, options) => {
       await update($, hasPromptedRef, () => true).catch(() => undefined)
       // The Mode picker leaves the band with the Mode button.
       await update($, pickingRef, () => 'none').catch(() => undefined)
-      if (appended.sent !== undefined) await recordSent($, appended.sent).catch(() => undefined)
-      if (appended.context.length > 0) await update($, recentDoneRef, () => true).catch(() => undefined)
+      await recordInitiativePrompt($, appended).catch(() => undefined)
     }
     return entered
   }).catch(($, e, next) => next(e))
@@ -1442,14 +1289,14 @@ export const register: Register = (on, options) => {
   // Where an organization manages Claude Code this event passes over the mod, so there `/initiative refresh` resends it.
   on('session.compact', async ($, e, next) => {
     const compacted = await next(e)
-    if (e.agentId === undefined && e.trigger !== 'precompute' && compacted.skip === undefined) await update($, staleRef, () => true).catch(() => undefined)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && compacted.skip === undefined) await invalidateInitiative($).catch(() => undefined)
     return compacted
   }).catch(($, e, next) => next(e))
 
   // An `agent-brief initiative` verb Claude ran may attach or detach the session, so the band reads the attachment again.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const result = await next(e)
-    if (isInitiativeCommand(e.command)) await fetchInitiative($).catch(err => log($, `initiative refresh failed: ${String(err)}`))
+    if (isInitiativeCommand(e.command)) await fetchInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative refresh failed: ${String(err)}`))
     return result
   }).catch(($, e, next) => next(e))
 
@@ -1526,7 +1373,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
   on('command.run', { command: 'track' }, async ($, e) => ({ text: await trackCommand($, e.args) }))
   on('command.run', { command: 'mode' }, async ($, e) => ({ text: await modeCommand($, e.args) }))
-  on('command.run', { command: 'initiative' }, async ($, e) => initiativeCommand($, e.args))
+  on('command.run', { command: 'initiative' }, async ($, e) => initiativeCommand($, initiativeEnvironment($), e.args))
 
   // With item tracking on, the system prompt tells Claude to keep the items file.
   // Outside default mode, it also carries the mode's posture.

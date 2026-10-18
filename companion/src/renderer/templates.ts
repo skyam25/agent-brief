@@ -1,6 +1,7 @@
 /** Holds the templates Write mode offers, with debounced saves while one is edited. */
 
 import type { CompanionApi, Template } from '../shared/ipc';
+import { SaveQueue } from './save-queue';
 
 export const TEMPLATE_SAVE_MS = 400;
 const TEMPLATE_RETRY_MS = 2000;
@@ -10,9 +11,8 @@ type TemplateHost = Pick<CompanionApi, 'listTemplates' | 'saveTemplate' | 'delet
 export class TemplateShelf {
   templates: Template[] = [];
   version = 0;
-  saveError?: string;
-  private readonly dirty = new Set<string>();
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly saves = new SaveQueue((id) => this.write(id), () => this.emit(), TEMPLATE_SAVE_MS, TEMPLATE_RETRY_MS);
+  get saveError(): string | undefined { return this.saves.error; }
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly host: TemplateHost) {}
@@ -47,55 +47,27 @@ export class TemplateShelf {
   /** Edits in place and saves after a pause. An empty title is kept on screen but not saved. */
   edit(id: string, change: Partial<Pick<Template, 'title' | 'body'>>): void {
     this.templates = this.templates.map((t) => (t.id === id ? { ...t, ...change } : t));
-    this.save(id, TEMPLATE_SAVE_MS);
+    this.saves.schedule(id);
     this.emit();
   }
 
-  private save(id: string, delay: number): void {
-    this.dirty.add(id);
-    clearTimeout(this.timers.get(id));
-    this.timers.set(
-      id,
-      setTimeout(() => {
-        this.timers.delete(id);
-        void this.write(id);
-      }, delay),
-    );
-  }
-
   remove(id: string): void {
-    clearTimeout(this.timers.get(id));
-    this.timers.delete(id);
-    this.dirty.delete(id);
+    this.saves.cancel(id);
     this.templates = this.templates.filter((t) => t.id !== id);
     void this.host.deleteTemplate(id);
     this.emit();
   }
 
   /** Writes every pending save now. Failed ones stay pending. */
-  async flush(): Promise<void> {
-    for (let attempt = 0; attempt < 2 && this.dirty.size > 0; attempt++) {
-      for (const timer of this.timers.values()) clearTimeout(timer);
-      this.timers.clear();
-      await Promise.all([...this.dirty].map((id) => this.write(id)));
-    }
+  flush(): Promise<void> {
+    return this.saves.flush();
   }
 
-  private async write(id: string): Promise<void> {
-    const t = this.get(id);
-    this.dirty.delete(id);
-    if (!t || !t.title.trim()) return;
-    try {
-      await this.host.saveTemplate(t);
-      if (this.saveError && this.dirty.size === 0) {
-        this.saveError = undefined;
-        this.emit();
-      }
-    } catch (err) {
-      if (!this.get(id)) return;
-      this.saveError = (err as Error).message;
-      if (!this.dirty.has(id)) this.save(id, TEMPLATE_RETRY_MS);
-      this.emit();
-    }
+  /** A title is required to persist a template; incomplete edits stay on screen. */
+  private async write(id: string): Promise<boolean> {
+    const template = this.get(id);
+    if (!template || !template.title.trim()) return false;
+    await this.host.saveTemplate(template);
+    return true;
   }
 }

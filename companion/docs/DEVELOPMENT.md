@@ -2,6 +2,16 @@
 
 How the app is built, tested and packaged. For what it does, see the [project README](../../README.md).
 
+## Shared contracts
+
+`src/protocol.ts`, `src/shared/items.ts` and `src/shared/output-file.ts` are canonical. `pnpm sync:plugin` generates tracked copies under the plugin's `hooks/` so the plugin remains standalone. Build syncs them; compile and `test/plugin-contracts.test.ts` reject stale copies. Edit the canonical files, then sync. Both output readers use the same trimming, invalid-record and first-record deduplication policy.
+
+`src/shared/ipc.ts` owns the explicit invoke, send and event allowlists. Main handlers use `mainIpc()` to check arguments/results against `CompanionApi`; preload derives its exposed methods from those allowlists. Existing channel strings and legacy event normalization remain stable. Event subscriptions return cleanup functions, with older host adapters permitted to return void.
+
+`renderer/useWorkspace.ts` owns mode/tab/draft/recording transitions and their host subscriptions. `hooks/initiative-feature.ts` owns plugin initiative state and snapshot injection. The plugin engine requires statically named engine helpers, so the registry supplies an environment whose callbacks capture the engine; it never passes the engine to dynamic object methods.
+
+`renderer/save-queue.ts` owns draft/template autosave timing, per-record write ordering, retries and save-error notifications. The stores retain their persistence rules: empty drafts are deleted and templates without a title stay unsaved. Flush waits for active writes and queued edits, with one immediate retry for failures; continued failures remain scheduled for retry. Cancelling a record drops its queued work and prevents a failed active save from retrying.
+
 ## Scripts
 
 | Script | Does |

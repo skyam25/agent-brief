@@ -1,5 +1,6 @@
+export { parseOutputsFile } from './generated/output-file'
 import { DOCUMENT_EXTENSIONS, OUTPUT_SKIP_DIRS } from './companion-protocol'
-import type { OutputKind, OutputOrigin, OutputRecord, OutputStatus, OutputTier, OutputsFile } from './companion-protocol'
+import type { OutputKind, OutputOrigin, OutputRecord, OutputStatus, OutputsFile } from './companion-protocol'
 
 export const OUTPUTS_SECTION = 'agent-brief:outputs'
 export const DECLARE_TOOL = 'mcp__agent-brief__declare_output'
@@ -21,10 +22,7 @@ const KIND_BY_EXTENSION: Readonly<Record<string, OutputKind>> = {
   xlsx: 'xlsx',
 }
 
-const KINDS: readonly OutputKind[] = ['markdown', 'html', 'pdf', 'docx', 'pptx', 'xlsx', 'artifact', 'other']
-const TIERS: readonly OutputTier[] = ['declared', 'detected']
 const STATUSES: readonly OutputStatus[] = ['drafting', 'ready']
-const ORIGINS: readonly OutputOrigin[] = ['created', 'edited']
 
 export function isUrl(ref: string): boolean {
   return /^https?:\/\//i.test(ref)
@@ -143,46 +141,6 @@ export function upsertDeclared(
 
 const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T =>
   typeof value === 'string' && (values as readonly string[]).includes(value)
-
-const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
-
-/** A record with only its valid fields, or undefined without a ref, kind and tier. */
-function recordOf(raw: unknown): OutputRecord | undefined {
-  if (typeof raw !== 'object' || raw === null) return undefined
-  const r = raw as Record<string, unknown>
-  if (typeof r.ref !== 'string' || r.ref === '' || !isOneOf(KINDS, r.kind) || !isOneOf(TIERS, r.tier)) return undefined
-  return {
-    ref: r.ref,
-    ...(typeof r.url === 'string' ? { url: r.url } : {}),
-    ...(typeof r.title === 'string' ? { title: r.title } : {}),
-    kind: r.kind,
-    tier: r.tier,
-    ...(isOneOf(STATUSES, r.status) ? { status: r.status } : {}),
-    ...(isOneOf(ORIGINS, r.origin) ? { origin: r.origin } : {}),
-    ...(isTime(r.declaredAt) ? { declaredAt: r.declaredAt } : {}),
-    ...(isTime(r.firstWriteAt) ? { firstWriteAt: r.firstWriteAt } : {}),
-    ...(isTime(r.lastWriteAt) ? { lastWriteAt: r.lastWriteAt } : {}),
-    ...(isTime(r.writes) ? { writes: r.writes } : {}),
-  }
-}
-
-/** Undefined unless the text is a version 1 file with an outputs array. Malformed records drop out. */
-export function parseOutputsFile(text: string): OutputsFile | undefined {
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  } catch {
-    return undefined
-  }
-  if (typeof raw !== 'object' || raw === null) return undefined
-  const r = raw as Record<string, unknown>
-  if (r.version !== 1 || !Array.isArray(r.outputs)) return undefined
-  return {
-    version: 1,
-    sessionId: typeof r.sessionId === 'string' ? r.sessionId : '',
-    outputs: r.outputs.map(recordOf).filter((o): o is OutputRecord => o !== undefined),
-  }
-}
 
 export type DeclareRequest = { ref: string; url?: string; title: string; kind: OutputKind; status: OutputStatus }
 

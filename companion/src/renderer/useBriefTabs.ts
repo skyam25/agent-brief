@@ -44,7 +44,7 @@ export function useBriefTabs({ host, book, controller, sessions, modeRef, tabSco
 
   useEffect(() => {
     void host.listBriefs().then(setBriefs);
-    host.onBriefs(setBriefs);
+    return host.onBriefs(setBriefs);
   }, [host]);
 
   // The active tab is the Send target's brief, or an ended session's brief the user opened.

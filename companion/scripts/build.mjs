@@ -2,6 +2,7 @@
 import { rmSync } from 'node:fs';
 import { build as esbuild, context } from 'esbuild';
 import { build as viteBuild } from 'vite';
+import { syncPlugin } from './sync-plugin.mjs';
 
 const shared = {
   bundle: true,
@@ -32,10 +33,12 @@ export const overlayOptions = {
 };
 
 export async function buildMain() {
+  syncPlugin();
   await Promise.all([esbuild(mainOptions), esbuild(overlayOptions)]);
 }
 
 export async function watchMain(onRebuild) {
+  syncPlugin();
   const notify = [{ name: 'notify', setup: (b) => b.onEnd((r) => r.errors.length === 0 && onRebuild()) }];
   const contexts = await Promise.all([context({ ...mainOptions, plugins: notify }), context({ ...overlayOptions, plugins: notify })]);
   await Promise.all(contexts.map((c) => c.watch()));
