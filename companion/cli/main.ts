@@ -6,8 +6,15 @@ import {
   SOCKET_ENV,
   defaultSocketPath,
   type BoardsResponse,
+  type DetachInitiativeResponse,
   type DrawResponse,
   type Health,
+  type Initiative,
+  type InitiativeCreateRequest,
+  type InitiativeRevision,
+  type InitiativeSnapshot,
+  type InitiativeSummary,
+  type InitiativeUpdateRequest,
   type MutateResponse,
   type NoteRequest,
   type NoteResponse,
@@ -23,7 +30,9 @@ import { commandHelp, DOCS, topHelp } from './help';
 import { apply, FORCE_VAR, isOn, shellFiles } from './herdr';
 import { ApiError, call, callJson, NotRunningError } from './http';
 import { fitSize, loadImage } from './image';
+import { DATA_DIR_ENV, defaultDataDir, formatInitiative, formatSummaries } from './initiative';
 import { InputError, parseRegion, validateDraw, validateUpdates } from './validate';
+import { InitiativeStore, resolveInitiative } from '../src/main/initiatives';
 
 export interface IO {
   /** Reads all of stdin. */
@@ -44,6 +53,8 @@ export const NOT_RUNNING_MESSAGE =
 
 export const NOTE_NOT_RUNNING_MESSAGE = 'Agent Brief is not running, so no note was made. Print the text instead.';
 
+export const INITIATIVE_NOT_RUNNING_MESSAGE = 'Agent Brief is not running, so the initiative was not changed. Reads still work; changes need the app.';
+
 /** Claude Code sets it in every shell it runs, so a note files under the session that wrote it. */
 export const SESSION_ID_ENV = 'CLAUDE_CODE_SESSION_ID';
 
@@ -58,7 +69,7 @@ interface Args {
 
 const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
-  'title', 'labels', 'url', 'path', 'status', 'text',
+  'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
 ]);
 const BOOL_FLAGS = new Set(['json', 'help']);
 
@@ -119,7 +130,7 @@ export async function main(argv: string[], io: IO): Promise<number> {
     return EXIT.ok;
   } catch (e) {
     if (e instanceof NotRunningError) {
-      err(command === 'note' ? NOTE_NOT_RUNNING_MESSAGE : NOT_RUNNING_MESSAGE);
+      err(command === 'note' ? NOTE_NOT_RUNNING_MESSAGE : command === 'initiative' ? INITIATIVE_NOT_RUNNING_MESSAGE : NOT_RUNNING_MESSAGE);
       return EXIT.notRunning;
     }
     if (e instanceof ApiError) {
@@ -232,6 +243,110 @@ function regionQuery(ctx: Ctx, extra: string[] = []): string {
 /** Shows a path under the home directory as ~/... */
 const tilde = (home: string, p: string) => (p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p);
 
+// ── Initiatives ───────────────────────────────────────────────────────────
+
+/** Asks the app, else reads the index and the brief files straight from disk. */
+async function initiativeRead<T>(ctx: Ctx, route: string, offline: (store: InitiativeStore) => T): Promise<T> {
+  try {
+    return await callJson<T>(ctx.socket, 'GET', route);
+  } catch (e) {
+    if (!(e instanceof NotRunningError)) throw e;
+    const home = ctx.io.home ?? os.homedir();
+    return offline(new InitiativeStore(ctx.io.env[DATA_DIR_ENV] || defaultDataDir(home), { readOnly: true, home }));
+  }
+}
+
+const allInitiatives = (ctx: Ctx) => initiativeRead<InitiativeSummary[]>(ctx, '/initiatives', (s) => s.list());
+
+/** The initiative an id or title names, or an error naming the list command. */
+async function initiativeNamed(ctx: Ctx, key: string): Promise<InitiativeSummary> {
+  if (!key.trim()) throw new UsageError('name an initiative by its id or title');
+  const found = resolveInitiative(await allInitiatives(ctx), key);
+  if (!found) throw new ApiError('not_found', `no initiative matches "${key}". Run "agent-brief initiative list".`);
+  return found;
+}
+
+/** --session, else the Claude Code session running the command. */
+function initiativeSession(ctx: Ctx, verb: string): string {
+  const id = str(ctx.args, 'session') ?? ctx.io.env[SESSION_ID_ENV];
+  if (!id) throw new UsageError(`${verb} needs --session <id>, or run it from Claude Code`);
+  return id;
+}
+
+/** `Claude · <session>` from Claude Code's shell, else `PM`. */
+const initiativeAuthor = (ctx: Ctx) => (ctx.io.env[SESSION_ID_ENV] ? `Claude · ${ctx.io.env[SESSION_ID_ENV]}` : 'PM');
+
+async function readJsonObject(ctx: Ctx): Promise<Record<string, unknown>> {
+  const value = await readInput(ctx);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new InputError('the JSON must be an object');
+  return value as Record<string, unknown>;
+}
+
+const INITIATIVE_VERBS: Record<string, (ctx: Ctx, words: string[]) => Promise<void>> = {
+  async list(ctx) {
+    show(ctx, await allInitiatives(ctx), (l) => formatSummaries(l, 'no initiatives'));
+  },
+
+  async recent(ctx) {
+    const raw = str(ctx.args, 'limit') ?? '3';
+    const limit = Number(raw);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new UsageError(`--limit must be 1 to 50, got "${raw}"`);
+    const res = await initiativeRead(ctx, `/initiatives/recent?limit=${limit}`, (s) => s.recent(limit));
+    show(ctx, res, (l) => formatSummaries(l, 'no initiatives'));
+  },
+
+  async find(ctx, words) {
+    const q = words.join(' ').trim();
+    if (!q) throw new UsageError('find needs words to match');
+    const res = await initiativeRead(ctx, `/initiatives/find?q=${encodeURIComponent(q)}`, (s) => s.find(q));
+    show(ctx, res, (l) => formatSummaries(l, 'no match. Run "agent-brief initiative list" to see them all.'));
+  },
+
+  async show(ctx, words) {
+    const { id } = await initiativeNamed(ctx, words.join(' '));
+    const at = `/initiatives/${encodeURIComponent(id)}`;
+    const initiative = await initiativeRead<Initiative>(ctx, at, (s) => s.get(id));
+    const history = await initiativeRead<InitiativeRevision[]>(ctx, `${at}/history`, (s) => s.history(id));
+    show(ctx, { ...initiative, history }, () => formatInitiative(initiative, history));
+  },
+
+  async attach(ctx, words) {
+    const session = initiativeSession(ctx, 'attach');
+    const { id } = await initiativeNamed(ctx, words.join(' '));
+    const snap = await callJson<InitiativeSnapshot>(ctx.socket, 'PUT', `/sessions/${encodeURIComponent(session)}/initiative`, { initiativeId: id });
+    show(ctx, snap, (s) => `attached "${s.title}" (revision ${s.revision}) to session ${session}`);
+  },
+
+  async detach(ctx) {
+    const session = initiativeSession(ctx, 'detach');
+    const res = await callJson<DetachInitiativeResponse>(ctx.socket, 'DELETE', `/sessions/${encodeURIComponent(session)}/initiative`);
+    show(ctx, res, (r) => (r.detached ? `detached session ${session}` : `session ${session} had no initiative`));
+  },
+
+  async create(ctx, words) {
+    const title = words.join(' ').trim();
+    if (!title) throw new UsageError('create needs a title');
+    const raw = str(ctx.args, 'folder');
+    if (!raw) throw new UsageError('create needs --folder <path>');
+    const folder = raw.startsWith('~/') ? raw : path.resolve(ctx.io.cwd ?? process.cwd(), raw);
+    const draft = str(ctx.args, 'file') ? await readJsonObject(ctx) : {};
+    const body: InitiativeCreateRequest = { updatedBy: initiativeAuthor(ctx), ...draft, title, folder };
+    const res = await callJson<Initiative>(ctx.socket, 'POST', '/initiatives', body);
+    show(ctx, res, (i) => `created "${i.title}" (id ${i.id}) at ${i.path}`);
+  },
+
+  async update(ctx, words) {
+    const { id } = await initiativeNamed(ctx, words.join(' '));
+    const patch = await readJsonObject(ctx);
+    if (!Number.isInteger(patch.revision)) {
+      throw new InputError('the JSON needs "revision", the one you read. "agent-brief initiative show" prints it.');
+    }
+    const body = { updatedBy: initiativeAuthor(ctx), ...patch } as InitiativeUpdateRequest;
+    const res = await callJson<Initiative>(ctx.socket, 'PUT', `/initiatives/${encodeURIComponent(id)}`, body);
+    show(ctx, res, (i) => `updated "${i.title}" to revision ${i.revision}`);
+  },
+};
+
 const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
   // `show` and `output` print a request line for the mod's Bash hook, which draws or records it.
   // They need no app, so they work where a policy stops the mod's own tools.
@@ -331,6 +446,13 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
       lines.push('', 'New Herdr panes no longer force pictures on.');
     }
     ctx.out(lines.join('\n'));
+  },
+
+  async initiative(ctx) {
+    const [verb, ...words] = ctx.positional;
+    const run = verb ? INITIATIVE_VERBS[verb] : undefined;
+    if (!run) throw new UsageError(`initiative takes ${Object.keys(INITIATIVE_VERBS).join(', ')}. Run "agent-brief initiative --help".`);
+    await run(ctx, words);
   },
 
   async status(ctx) {
