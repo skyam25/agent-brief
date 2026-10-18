@@ -16,6 +16,8 @@
     "dist": "pnpm build && node -e \"require('electron')\" && electron-builder --mac --dir",
     "dist:notarize": "APPLE_KEYCHAIN_PROFILE=companion-notary pnpm dist",
     "release": "node scripts/release.mjs",
+    "install:local": "node scripts/install-local.mjs",
+    "setup:worktree": "node scripts/setup-worktree.mjs",
     "sync:plugin": "node scripts/sync-plugin.mjs"
   },
   "devDependencies": {

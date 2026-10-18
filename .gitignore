@@ -11,3 +11,7 @@ PLAN*.md
 
 # Hygiene scan reports
 .hygiene/
+
+# Agent worktrees and personal Claude Code settings
+.claude/worktrees/
+.claude/settings.local.json

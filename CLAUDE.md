@@ -35,10 +35,12 @@ Run from `companion/`.
 |---|---|
 | `pnpm test` | Vitest unit suites |
 | `pnpm compile` | Type check |
-| `pnpm test:e2e` | Build, then Playwright `_electron` tests in `e2e/` |
+| `pnpm test:e2e` | Build, then Playwright `_electron` tests in `e2e/`. Bare `playwright test` runs a stale build |
 | `pnpm dev` | Dev server with Electron restart |
 | `node live/full-loop.mjs` | Real Claude sessions in tmux, no model calls |
 | `pnpm release` | Notarize and publish a GitHub release (bump `version` first) |
+| `pnpm install:local` | Build, notarize and replace `/Applications/Agent Brief.app` |
+| `pnpm setup:worktree` | Install, repair Electron and build in a fresh worktree. Tests and releases fail without it |
 
 Plugin, from `mod/agent-brief/`:
 
@@ -46,6 +48,7 @@ Plugin, from `mod/agent-brief/`:
 - `claude plugin validate .` checks the manifest
 - `node tests/live/run-live.mjs` runs the live tmux check
 - `node tests/live/brief-pane.mjs` opens the Brief pane in a real session at 117 columns
+- `tests/live/harness.mjs` holds the shared tmux session, stub server, band focus and pane clicks
 
 ## Rules
 
@@ -55,6 +58,11 @@ Plugin, from `mod/agent-brief/`:
 - Verify UI headlessly through Playwright `_electron`, not the browser extension.
 - Verify mod UI in a real session, not only in `claude plugin test`: `claude --plugin-dir mod/agent-brief` by hand, or a tmux check like `tests/live/brief-pane.mjs` at 110 to 130 columns. The installed plugin is the app's bundled copy, so a checkout change needs `--plugin-dir`.
 - In a mod press handler, `$.ui.open` comes first with no `await` before it. After an await the engine treats the open as unasked and the pane waits for 144 columns.
+- Mod engine limits: `$` never crosses files, atoms are declared in the file that reads them, `$.env.get` takes a literal name, and a plugin gets one unmatched `session.start` and `prompt.compose` hook. Use `$.session.root()`, never the shell cwd.
+- A release needs a green full `pnpm test:e2e` and, for mod UI changes, a live check. If either was skipped, ask before releasing.
+- Subagents never commit to main.
+- Propose the smallest design that works, then add. Explain structure, flows or IA with a board drawing or wireframe, not prose.
+- The shell is zsh with BSD tools. Quote globs such as `--include='*.ts'`.
 - The app never guesses a send target. A standalone open makes the user pick a session.
 - No ambient nags. Hand-offs are explicit, one step, user-triggered.
 - Bump `companion/package.json` `version` for app releases and `mod/agent-brief/.claude-plugin/plugin.json` `version` for plugin changes.

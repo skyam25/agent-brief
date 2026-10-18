@@ -24,8 +24,12 @@ How the app is built, tested and packaged. For what it does, see the [project RE
 | `pnpm compile` | Type check |
 | `pnpm dist` | Builds `dist/mac-arm64/Agent Brief.app`, signed with the Developer ID cert |
 | `pnpm dist:notarize` | The same, notarized and stapled |
+| `pnpm install:local` | `dist:notarize`, then replaces `/Applications/Agent Brief.app` and relaunches it. `--no-build` installs the existing `dist/` |
+| `pnpm setup:worktree` | `pnpm install`, a working Electron binary, and `pnpm build` |
 
-On a fresh checkout, Electron fetches its binary on first use. `node node_modules/electron/install.js` does it up front.
+On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own install check reads only `dist/version`, so it misses a skipped download or a truncated framework. `scripts/electron.mjs` runs the binary and reinstalls it when that fails. The CLI unit tests need the built `bin/agent-brief.mjs`.
+
+`pnpm install:local` quits the running app, moves the old bundle to the Trash, then copies the new one in. Copying over the old bundle merges stale files and breaks the code seal.
 
 ## Paths
 
@@ -184,11 +188,12 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 - `COMPANION_TEST_AUDIO=<file.wav>` makes Chromium's fake microphone play that file.
 - Test mode also turns off Chromium's GPU shader disk cache, which kept each test profile at several MB.
 - Each Vitest and Playwright run sets `TMPDIR` to its own folder, `abunit-<pid>` or `abe2e-<pid>` in the system temp folder. The run deletes it at the end. The next run sweeps folders left by runs that crashed or were killed. `KEEP_TEST_TMP=1` keeps the folder for inspection.
+- Playwright retries a failed spec once. Specs that launch the app can time out when several suites share the machine. A retry that passes shows as flaky in the report.
 - In off-screen mode, CDP pen input stops creating strokes after the panel has been hidden and shown again. This comes from the test window (`showInactive`, not focusable), not from the app, so tests that hide the panel change the scene directly afterwards.
 
 ## Packaging
 
-`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons, the CLI (`Resources/bin/agent-brief`, plus a `companion` alias) and the Claude Code plugin (`Resources/plugin/`). It does not bundle ffmpeg or yap, which it finds at runtime. Nothing is installed into /Applications.
+`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons, the CLI (`Resources/bin/agent-brief`, plus a `companion` alias) and the Claude Code plugin (`Resources/plugin/`). It does not bundle ffmpeg or yap, which it finds at runtime. Only `pnpm install:local` touches /Applications.
 
 - `bin/agent-brief` is a shell wrapper. Inside the bundle it runs `agent-brief.mjs` with the app's Electron as Node (`ELECTRON_RUN_AS_NODE=1`). In a checkout it uses `node`.
 - Install Command Line Tool… links `~/.local/bin/agent-brief` to that wrapper.
@@ -207,7 +212,7 @@ To release:
 1. Bump `version` in `package.json`, commit and push `main`.
 2. Run `pnpm release`, or `pnpm release --notes-file notes.md`.
 
-The script builds, notarizes and verifies the app. It then creates the `v<version>` release with three files: `Agent-Brief-<version>-arm64.zip`, its `.blockmap`, and `latest-mac.yml`, which is the file installed copies read. A release without `latest-mac.yml` is invisible to the updater.
+Before building, the script refuses a dirty tree (untracked files included), an unpushed HEAD, an existing tag, a `mod/agent-brief` change since the last tag without a plugin version bump, and a broken Electron binary. Agent worktrees under `.claude/worktrees/` are gitignored, so they don't count as dirty. It builds, notarizes and verifies the app. It then creates the `v<version>` release with three files: `Agent-Brief-<version>-arm64.zip`, its `.blockmap`, and `latest-mac.yml`, which is the file installed copies read. A release without `latest-mac.yml` is invisible to the updater, so the script reads the release back with `gh release view` and fails if any of the three is missing.
 
 ### The CLI and the plugin follow the app
 
