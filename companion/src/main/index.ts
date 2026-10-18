@@ -1,11 +1,13 @@
 import { BehaviorStore } from './behavior';
 import { FeedbackStore } from './feedback';
 import { FeedbackWorkspaces } from './feedback-workspace';
+import { FeedbackSnaps, offscreenCapture } from './feedback-snap';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   app,
+  BrowserWindow,
   clipboard,
   ClipboardItem,
   dialog,
@@ -187,6 +189,7 @@ async function start(): Promise<void> {
   const briefs = new Briefs({ state, store, drafts, sessions: () => server.sessions(), send, onPublish: () => files.sync() });
   const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
   const feedback = new FeedbackStore(() => send(CH.feedbackChanged));
+  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow) });
   const behaviorRoot = (sessionId: string) => {
     const cwd = briefs.cwdOf(sessionId);
     if (!cwd) throw new Error('Unknown session');
@@ -261,7 +264,7 @@ async function start(): Promise<void> {
   // The socket server: sessions, deliveries and the board API for the CLI and the mod.
   // POST /open runs backend.open, which shows the panel and sets the prompt.
   const workspaces = new FeedbackWorkspaces({ feedback, store, boards: backend });
-  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, workspaces });
+  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, feedbackSnaps, workspaces });
 
   // Writes pending saves and closes the socket once before quitting.
   const quitter = new Quitter({
@@ -524,6 +527,7 @@ async function start(): Promise<void> {
   ipc.handle('listFeedback', (sessionId: string) => feedback.project(behaviorRoot(sessionId)));
   ipc.handle('openFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, snapshot?: unknown) => workspaces.open(behaviorRoot(sessionId), path, n, snapshot));
   ipc.handle('saveFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown) => workspaces.save(behaviorRoot(sessionId), path, n, 'You'));
+  ipc.handle('readFeedbackPicture', (sessionId: string, output: unknown, picture: unknown) => feedbackSnaps.picture(behaviorRoot(sessionId), output, picture));
   ipc.handle('reviewUrl', (sessionId: string, path: unknown) => files.reviewUrl(sessionId, path));
   ipc.handle('reviewEdit', (sessionId: string, path: unknown, version: unknown, edit: unknown) => files.reviewEdit(sessionId, path, version, edit));
   ipc.handle('reviewUndo', (sessionId: string, path: unknown) => files.reviewUndo(sessionId, path));

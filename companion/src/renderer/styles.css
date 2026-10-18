@@ -3602,6 +3602,37 @@ button.stop-talk:hover {
 .write button.output-feedback { position: absolute; right: 6px; bottom: 6px; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .feedback-view .feedback-panel h3 { margin: 0; font-size: 15px; }
 
+/* Feedback before and after pictures, and the project graph */
+.feedback-heading-actions { display: flex; gap: 2px; }
+.feedback-item.focused { box-shadow: 0 0 0 1px var(--accent); }
+.feedback-pictures { display: flex; flex-direction: column; gap: 4px; }
+.feedback-pictures-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; }
+.feedback-pictures-head select { height: 22px; padding: 0 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font-size: 11px; }
+.before-after { position: relative; margin: 0; min-height: 32px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.before-after img { display: block; width: 100%; height: auto; }
+.before-after img.before { position: absolute; inset: 0; height: 100%; object-fit: contain; object-position: top left; clip-path: inset(0 calc(100% - var(--split)) 0 0); }
+.before-after:not(.single)::after { content: ''; position: absolute; top: 0; bottom: 0; left: var(--split); width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; }
+.before-after input[type='range'] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+.before-after-tag { position: absolute; top: 6px; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 16px; font-weight: 600; color: var(--accent-fg); background: color-mix(in srgb, var(--accent) 85%, transparent); pointer-events: none; }
+.before-after-tag.left { left: 6px; }
+.before-after-tag.right { right: 6px; }
+.before-after-gone { padding: 8px; font-size: 12px; }
+.feedback-graph { overflow: auto; padding: 4px 0 8px; }
+.feedback-graph svg { display: block; font: 11px -apple-system, BlinkMacSystemFont, sans-serif; }
+.feedback-graph .graph-head { fill: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.graph-edge { fill: none; stroke: color-mix(in srgb, var(--accent) 45%, transparent); stroke-width: 1.25; }
+.graph-edge.related { stroke-dasharray: 3 3; stroke: var(--accent); }
+.graph-edge.worked-in { stroke: color-mix(in srgb, var(--muted) 60%, transparent); }
+.graph-node rect { fill: var(--raised); stroke: var(--line); }
+.graph-node text { fill: var(--fg); }
+.graph-node.item rect { stroke: color-mix(in srgb, var(--accent) 50%, transparent); }
+.graph-node.item.done text, .graph-node.item.rejected text, .graph-node.missing text { fill: var(--muted); }
+.graph-node.here rect { fill: color-mix(in srgb, var(--accent) 16%, var(--raised)); stroke: var(--accent); }
+.graph-node.missing rect { fill: none; stroke-dasharray: 3 2; }
+.graph-node.link { cursor: pointer; }
+.graph-node.link:hover rect, .graph-node.link:focus-visible rect { fill: var(--hover); stroke: var(--accent); }
+.graph-node:focus { outline: none; }
+
 /* An item's workspace covers the output: its board on the left, what was said about it on the right. */
 .feedback-workspace { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 .workspace-host { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }

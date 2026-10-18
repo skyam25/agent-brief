@@ -467,6 +467,8 @@ export interface CompanionApi extends BoardHost {
   updateFeedback(sessionId: string, path: string, update: FeedbackUpdate): Promise<FeedbackUpdateResult>;
   /** Every feedback file in the session's project, with counts. */
   listFeedback(sessionId: string): Promise<FeedbackProject>;
+  /** A `Before:` or `After:` picture, relative to the output's folder, as a data URL. Undefined when the file is gone. */
+  readFeedbackPicture(sessionId: string, output: string, picture: string): Promise<string | undefined>;
   onFeedbackChanged(fn: () => void): () => void;
   /** Makes an item's workspace board when missing and adds a frame for its newest round, seeded with `snapshot` when given. */
   openFeedbackWorkspace(sessionId: string, path: string, n: number, snapshot?: WorkspaceSnapshot): Promise<FeedbackWorkspace>;
@@ -568,6 +570,7 @@ export const CH = {
   readFeedback: 'feedback:read',
   updateFeedback: 'feedback:update',
   listFeedback: 'feedback:list',
+  readFeedbackPicture: 'feedback:picture',
   feedbackChanged: 'feedback:changed',
   openFeedbackWorkspace: 'feedback:workspace-open',
   saveFeedbackWorkspace: 'feedback:workspace-save',
@@ -647,6 +650,7 @@ export const IPC_INVOKE = {
   listFeedback: CH.listFeedback,
   openFeedbackWorkspace: CH.openFeedbackWorkspace,
   saveFeedbackWorkspace: CH.saveFeedbackWorkspace,
+  readFeedbackPicture: CH.readFeedbackPicture,
   reviewUrl: CH.reviewUrl,
   reviewEdit: CH.reviewEdit,
   reviewUndo: CH.reviewUndo,

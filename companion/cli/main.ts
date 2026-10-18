@@ -1,4 +1,5 @@
-import type { BehaviorDocument, FeedbackDocument, FeedbackOp, FeedbackProject, FeedbackUpdateResult } from '../src/protocol';
+import type { BehaviorDocument, FeedbackDocument, FeedbackOp, FeedbackProject, FeedbackSnapResult, FeedbackUpdateResult } from '../src/protocol';
+import { formatFeedbackGraph } from '../src/shared/feedback-graph';
 import type { FeedbackWorkspace } from '../src/protocol';
 import { behaviorMarkdown } from '../src/shared/behavior';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -82,7 +83,7 @@ const VALUE_FLAGS = new Set([
 ]);
 /** Value flags that may repeat. */
 const LIST_FLAGS = new Set(['src', 'related']);
-const BOOL_FLAGS = new Set(['json', 'help']);
+const BOOL_FLAGS = new Set(['json', 'help', 'before', 'after']);
 
 function parseArgs(argv: string[]): Args {
   const flags = new Map<string, string | true>();
@@ -466,6 +467,18 @@ const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[])
     const res = await callJson<FeedbackWorkspace>(ctx.socket, 'POST', route);
     show(ctx, res, formatWorkspace);
   },
+
+  async snap(ctx, output, [rawN]) {
+    const n = itemNumber(rawN, 'snap');
+    const before = ctx.args.flags.has('before');
+    if (before === ctx.args.flags.has('after')) throw new UsageError('snap needs --before or --after');
+    const rawRound = str(ctx.args, 'round');
+    const round = rawRound === undefined ? undefined : Number(rawRound);
+    if (round !== undefined && !Number.isInteger(round)) throw new UsageError(`--round must be a round number, got "${rawRound}"`);
+    const body = { item: n, side: before ? 'before' : 'after', ...(round !== undefined ? { round } : {}) };
+    const res = await callJson<FeedbackSnapResult>(ctx.socket, 'POST', `${feedbackRoute(ctx)}/snap?path=${encodeURIComponent(output)}`, body);
+    show(ctx, res, (d) => `saved ${d.picture} on ${itemHead(d.items.find((i) => i.n === n)!)}`);
+  },
 };
 
 const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
@@ -598,8 +611,13 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
       show(ctx, res, formatProject);
       return;
     }
+    if (verb === 'graph') {
+      const res = await callJson<FeedbackProject>(ctx.socket, 'GET', `${feedbackRoute(ctx)}/project`);
+      show(ctx, res.graph ?? { nodes: [], edges: [] }, formatFeedbackGraph);
+      return;
+    }
     const run = verb ? FEEDBACK_VERBS[verb] : undefined;
-    if (!run) throw new UsageError(`feedback takes list, ${Object.keys(FEEDBACK_VERBS).join(', ')}. Run "agent-brief feedback --help".`);
+    if (!run) throw new UsageError(`feedback takes list, graph, ${Object.keys(FEEDBACK_VERBS).join(', ')}. Run "agent-brief feedback --help".`);
     if (!output) throw new UsageError(`feedback ${verb} needs a project-relative output path`);
     await run(ctx, output, words);
   },

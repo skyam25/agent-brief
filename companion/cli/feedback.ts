@@ -1,10 +1,12 @@
 /** Text views for `agent-brief feedback`. */
 
-import path from 'node:path';
 import type { FeedbackDocument, FeedbackItem, FeedbackProject } from '../src/protocol';
 import { feedbackItemText, relatedCandidates } from '../src/shared/feedback';
 import type { FeedbackWorkspace } from '../src/protocol';
 import { frameTitle } from '../src/shared/feedback-workspace';
+import { relatedOutput } from '../src/shared/feedback-graph';
+
+export { relatedOutput };
 
 const roundsOf = (item: FeedbackItem) => {
   const [first, ...later] = item.rounds;
@@ -33,9 +35,6 @@ export function formatProject(project: FeedbackProject): string {
   if (project.truncated) lines.push('(the scan stopped early; some files are not listed)');
   return lines.join('\n');
 }
-
-/** A `Related:` path is relative to the feedback file's folder. */
-export const relatedOutput = (from: string, rel: string) => path.posix.normalize(path.posix.join(path.posix.dirname(from), rel));
 
 export interface RelatedView {
   item?: FeedbackItem;

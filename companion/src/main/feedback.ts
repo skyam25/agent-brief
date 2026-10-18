@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
+import { buildFeedbackGraph, type GraphFile } from '../shared/feedback-graph';
 import { applyFeedbackOps, FEEDBACK_SUFFIX, feedbackPath, feedbackSummary, FeedbackOpError, isoDate, parseFeedback, type FeedbackActor } from '../shared/feedback';
 
 class FeedbackError extends Error {
@@ -68,10 +69,11 @@ export class FeedbackStore {
     return { ...parseFeedback(next.text), path: where.path, output: where.output, version: hash(next.text), added: next.added };
   }
 
-  /** Every feedback file under the project, skipping dot folders and node_modules. */
+  /** Every feedback file under the project, skipping dot folders and node_modules, and the graph that links them. */
   project(root: string): FeedbackProject {
     const realRoot = realpathSync(root);
     const files: FeedbackFileSummary[] = [];
+    const parsed: GraphFile[] = [];
     const queue = [realRoot];
     let dirs = 0;
     let truncated = false;
@@ -88,11 +90,13 @@ export class FeedbackStore {
           if (files.length >= MAX_FILES) { truncated = true; break; }
           if (statSync(full).size > MAX_BYTES) continue;
           const outputFull = full.slice(0, -FEEDBACK_SUFFIX.length);
-          files.push(feedbackSummary(relative(realRoot, full), relative(realRoot, outputFull), existsSync(outputFull), parseFeedback(readFileSync(full, 'utf8'))));
+          const file: GraphFile = { path: relative(realRoot, full), output: relative(realRoot, outputFull), outputExists: existsSync(outputFull), doc: parseFeedback(readFileSync(full, 'utf8')) };
+          parsed.push(file);
+          files.push(feedbackSummary(file.path, file.output, file.outputExists, file.doc));
         }
       }
       if (files.length >= MAX_FILES && truncated) break;
     }
-    return { files, ...(truncated ? { truncated } : {}) };
+    return { files, graph: buildFeedbackGraph(parsed), ...(truncated ? { truncated } : {}) };
   }
 }

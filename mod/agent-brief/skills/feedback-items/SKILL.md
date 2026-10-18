@@ -89,3 +89,16 @@ Each item has one Sketch board, `fb-<output stem>-<n>`, with a `Round N` frame p
 - Never save for the user or write `Workspace:` lines yourself.
 
 On a conflict the CLI reads the file again and retries once. If it still fails, run `show` and repeat only your own line.
+
+## Before and after pictures
+
+For an HTML output, picture the item before you change it and again after:
+
+- `agent-brief feedback snap <output> <n> --before`, then make the change, then `--after`.
+- It captures the item's `Where:` element, or the visible page without one, into `<output>.feedback/<n>-r<round>-<side>.png` and appends the `Before:` or `After:` line. The round defaults to the item's latest. Pass `--round N` for another.
+- A retake replaces the picture and keeps its one line. Other outputs return an error; skip pictures for them.
+- The item card shows the pair as a slider.
+
+## Project graph
+
+`agent-brief feedback graph` lists every item by output with the sources that raised it, its `Related:` links both ways, and its workspaces. Add `--json` for nodes and edges. Use it to see how a transcript spread across outputs.

@@ -695,6 +695,56 @@ export interface FeedbackProject {
   files: FeedbackFileSummary[];
   /** The scan stopped at its file or folder limit. */
   truncated?: boolean;
+  /** How the scanned files' rounds, items, outputs and workspaces link. */
+  graph?: FeedbackGraph;
+}
+
+/**
+ * The project graph, built from the feedback files. Node ids:
+ * `source:<label> · <source>` for a round with a source, else `source:<feedback file>#<n>`;
+ * `item:<output>#<n>`, `output:<output>` and `workspace:<board>`.
+ */
+export interface FeedbackGraphNode {
+  id: string;
+  kind: 'source' | 'item' | 'output' | 'workspace';
+  label: string;
+  /** Item and output nodes: the output, relative to the project. */
+  output?: string;
+  /** Item nodes: the item number. */
+  n?: number;
+  state?: FeedbackState;
+  /** An output file that is gone, or a `Related:` item no scanned file holds. */
+  missing?: boolean;
+  /** Longer text for a tooltip, such as a source's rounds. */
+  detail?: string;
+}
+
+export interface FeedbackGraphEdge {
+  from: string;
+  to: string;
+  /** raised: source to item. about: item to output. related: item to item. worked in: item to workspace. */
+  kind: 'raised' | 'about' | 'related' | 'worked in';
+}
+
+export interface FeedbackGraph {
+  nodes: FeedbackGraphNode[];
+  edges: FeedbackGraphEdge[];
+}
+
+/**
+ * POST /sessions/:id/feedback/snap?path=<HTML output> captures the item's `Where:`
+ * element, or the visible page without one, into `<output>.feedback/<n>-r<round>-<side>.png`,
+ * and appends a `Before:` or `After:` line. `round` defaults to the item's latest round.
+ */
+export interface FeedbackSnapRequest {
+  item: number;
+  side: 'before' | 'after';
+  round?: number;
+}
+
+export interface FeedbackSnapResult extends FeedbackDocument {
+  /** The picture, relative to the project. */
+  picture: string;
 }
 
 /** An item's workspace board, as POST /sessions/:id/feedback/workspace?path=<output>&item=<n> answers it.
