@@ -138,6 +138,10 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - `agent-brief feedback list|show|round|add|log|done|related`. Writes read the version first and retry once on a conflict.
 - Review shows a Feedback tab for HTML outputs. Other outputs open `FeedbackView` full width from their row. Send decisions sends the You lines since each item's last `You: … · sent`, then appends `sent`.
 - Coverage: `src/shared/feedback.test.ts`, `src/main/feedback.test.ts`, `src/server/feedback.test.ts` (CLI over a real socket), `e2e/feedback.e2e.ts`.
+- Each item has one workspace board, `fb-<output stem>-<n>` (`src/shared/feedback-workspace.ts`). Its notes' first line binds it to the output's real path and item, so another project's `fb-checkout-6` makes `fb-checkout-6-2`. A `Workspace:` line's board wins when it exists. `boardsWithHolders` leaves `fb-` boards out, so they never show in the sidebar, the picker or `agent-brief boards`.
+- `src/main/feedback-workspace.ts` makes the board and adds a `Round N` frame for the item's newest round, with a quote sticky and, from the Review pane, a crop of the `Where:` element (overlay `measure`, then `capturePanel`). Save exports `<output>.feedback/<n>-workspace.png` and appends `Workspace: … · saved · <board> · <png>` as You. It sends nothing.
+- The layer (`renderer/WorkspaceLayer.tsx`) runs its own `BoardController`. `renderer/workspace-boards.ts` routes main's board requests for that board to it while it is open, so Claude's `draw --board fb-…` lands live.
+- `POST /sessions/:id/feedback/workspace?path=<output>&item=<n>` and `agent-brief feedback workspace <output> <n>`. Coverage: `src/shared/feedback-workspace.test.ts`, `src/main/feedback-workspace.test.ts`, `src/server/feedback-workspace.test.ts`, `e2e/feedback-workspace.e2e.ts`.
 
 ## Initiatives
 

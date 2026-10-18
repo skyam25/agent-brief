@@ -80,4 +80,12 @@ The user's Send decisions message starts with `@<output>.feedback.md` and lists 
 5. Log what you did not do, too, such as `Claude "note · blocked on the pricing API"`. Every change gets a dated line.
 6. Say which items you closed and which still wait on the user.
 
+## Item workspaces
+
+Each item has one Sketch board, `fb-<output stem>-<n>`, with a `Round N` frame per round. The user opens it from the item card and saves it to the item, which adds a `Workspace:` line and a PNG in `<output>.feedback/`. Saving sends you nothing.
+
+- To draw options on an item, run `agent-brief feedback workspace <output> <n>`. It prints the board name first, making the board or the newest round's frame when missing.
+- Draw inside that round's frame with `agent-brief draw --board <name>`. Read it with `agent-brief read --board <name>`.
+- Never save for the user or write `Workspace:` lines yourself.
+
 On a conflict the CLI reads the file again and retries once. If it still fails, run `show` and repeat only your own line.
