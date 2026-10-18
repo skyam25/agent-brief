@@ -17,16 +17,24 @@ const QUESTIONS = [
   { id: 'goal', text: 'What should it decide?', kind: 'text' },
 ]
 
-/** Seats the world, the app and a pane host, then starts the session. */
-async function setup($: Dollar, on: On, { isToolRefused = false, isPaneOpen = false } = {}) {
+/**
+ * Seats the world, the app and a pane host, then starts the session.
+ * `isNarrow` makes the host refuse to place an unasked open, as a terminal under 144 columns does.
+ */
+async function setup($: Dollar, on: On, { isToolRefused = false, isPaneOpen = false, isNarrow = false } = {}) {
   const seated = await setupCompanion($, on)
   seated.world.isToolRefused = isToolRefused
   seated.world.files.set(ITEMS_PATH, ITEMS)
   const panes = new Set<string>(isPaneOpen ? ['brief'] : [])
   on('ui.panes', () => ({ value: [...panes].map(id => ({ id, title: 'Brief', isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', ($, e) => {
+    if (isNarrow) return { value: { isPlaced: false, reason: 'below 144 columns at 117' } }
     panes.add(e.id)
     return { value: { isPlaced: true } }
+  })
+  on('ui.close', ($, e) => {
+    panes.delete(e.id)
+    return { value: undefined }
   })
   on('session.messages', () => ({ value: [] }))
   await seated.start()
@@ -46,11 +54,11 @@ const grillText = async ($: Dollar, tools: string[] = []) =>
   (await $.prompt.compose({ ...COMPOSE, tools })).sections.find(s => s.id === 'agent-brief:grill')?.text
 
 describe('ask_questions', () => {
-  test('puts the questions in the pane and toasts while the pane is closed', async ($, on) => {
+  test('opens the pane with the questions in it', async ($, on) => {
     const { world, panes } = await setup($, on)
     expect(await ask($)).toBe("Asked 3 questions in the Brief pane. The answers arrive as the user's next message.")
-    expect([...panes]).toEqual([])
-    expect(world.toasts.at(-1)).toBe('3 questions wait in the Brief pane, press b')
+    expect([...panes]).toEqual(['brief'])
+    expect(world.toasts).toEqual([])
 
     const drawn = await pane($)
     expect(drawn).toContain('Questions · from Claude · 3')
@@ -66,6 +74,23 @@ describe('ask_questions', () => {
     await ask($)
     expect(world.toasts).toEqual([])
     expect([...panes]).toEqual(['brief'])
+  })
+
+  test('a terminal too narrow for an unasked pane gets the toast instead', async ($, on) => {
+    const { world, panes } = await setup($, on, { isNarrow: true })
+    await ask($)
+    expect([...panes]).toEqual([])
+    expect(world.toasts.at(-1)).toBe('3 questions wait in the Brief pane, press b')
+    expect(await pane($)).toContain('Questions · from Claude · 3')
+  })
+
+  test('the Brief button closes a pane the questions opened', async ($, on) => {
+    const { panes } = await setup($, on)
+    await ask($)
+    expect([...panes]).toEqual(['brief'])
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief' })
+    expect([...panes]).toEqual([])
   })
 
   test('a bad input returns the usage and asks nothing', async ($, on) => {
@@ -151,6 +176,33 @@ describe('the Questions section', () => {
     expect(world.submitted.at(-1)).toContain('Decisions on')
     expect(world.submitted.at(-1)).not.toContain('Answers to your questions')
     expect(await pane($)).toContain('"label":"Send answers (1)"')
+  })
+
+  test('Other opens a field under the options and sends the typed words', async ($, on) => {
+    const { world } = await setup($, on)
+    await ask($)
+    let drawn = await pane($)
+    expect(drawn).toContain('"key":"question-audience-other"')
+    expect(drawn).not.toContain('"key":"question-audience-answer"')
+    await press($, 'question-audience-other')
+    drawn = await pane($)
+    expect(drawn).toContain('"key":"question-audience-answer"')
+    await $.ui.input({ plugin: 'agent-brief', key: 'question-audience-answer', text: 'Designers' })
+    expect(await pane($)).toContain('"→ ","Designers"')
+    await press($, 'questions-send')
+    expect(world.submitted.at(-1)).toContain('- Who reads it?: Designers (their own words)')
+  })
+
+  test('Other on a select opens the field, and a listed pick closes it', async ($, on) => {
+    await setup($, on)
+    await ask($)
+    expect(await pane($)).toContain('{"value":"__other__","label":"Other…"}')
+    await $.ui.select({ plugin: 'agent-brief', key: 'question-length-select', value: '__other__' })
+    expect(await pane($)).toContain('"key":"question-length-answer"')
+    await $.ui.select({ plugin: 'agent-brief', key: 'question-length-select', value: 'Long' })
+    const drawn = await pane($)
+    expect(drawn).not.toContain('"key":"question-length-answer"')
+    expect(drawn).toContain('"→ ","Long"')
   })
 
   test('a surface without a Select draws Buttons for a select question', async ($, on) => {

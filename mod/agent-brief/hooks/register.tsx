@@ -99,6 +99,8 @@ import {
   answerQuestion,
   answersMessage,
   grillInstructions,
+  openOther,
+  typeOther,
 } from './questions-logic'
 import {
   PROBE_KEY,
@@ -551,11 +553,14 @@ async function loadBrief($: EngineInterface): Promise<void> {
   await refreshItems($)
 }
 
-/** Whether the Brief pane is open, kept here so a press can open it without an await first. */
+/**
+ * Whether the Brief pane is placed, kept here so a press can open it without an await first.
+ * The `ui.open` and `ui.close` hooks below keep it true to opens made elsewhere, as by ask_questions.
+ */
 let isBriefOpen = false
 
 /**
- * The band's Brief button: opens the pane, or closes it while open. Never opens unasked.
+ * The band's Brief button: opens the pane, or closes it while open. Never opens on its own.
  * `$.ui.open` is the first call, with no await before it, so the engine still counts the
  * open as the user's press. An open after an await is unasked and waits for 144 columns.
  */
@@ -1192,6 +1197,8 @@ export const register: Register = (on, options) => {
     }
     const asked = questionsTree(table, questions, hasFields, {
       answer: (id, text) => update($, questionsRef, list => answerQuestion(list, id, text)).then(() => undefined),
+      other: id => update($, questionsRef, list => openOther(list, id)).then(() => undefined),
+      type: (id, text) => update($, questionsRef, list => typeOther(list, id, text)).then(() => undefined),
       clear: id => update($, questionsRef, list => answerQuestion(list, id, '')).then(() => undefined),
       send: () => sendQuestionAnswers($),
     })
@@ -1338,6 +1345,12 @@ export const register: Register = (on, options) => {
 
   // Pictures in the transcript. Their Open board button starts the app when needed, as /sketch does.
   registerShow(on)
+  // A placed open from any module, and a close by the person, keep the band's toggle right.
+  on('ui.open', { id: BRIEF_PANE }, async ($, e, next) => {
+    const opened = await next(e)
+    if (opened.deny === undefined && opened.value.isPlaced) isBriefOpen = true
+    return opened
+  })
   on('ui.close', { id: BRIEF_PANE }, ($, e, next) => {
     isBriefOpen = false
     return next(e)

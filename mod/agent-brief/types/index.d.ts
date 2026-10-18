@@ -55,8 +55,11 @@ export type BriefAnswer = { n: number; text: string }
 /** How the Brief pane takes an answer to a question: a Button per option, a Select, or an Input. */
 export type QuestionKind = 'options' | 'select' | 'text'
 
-/** A question Claude asked with ask_questions, and the answer the Brief pane holds until Send. */
-export type BriefQuestion = { id: string; text: string; kind: QuestionKind; options?: string[]; answer?: string }
+/**
+ * A question Claude asked with ask_questions, and the answer the Brief pane holds until Send.
+ * `isOther` is set while an options or select question takes the user's own words instead of a listed option.
+ */
+export type BriefQuestion = { id: string; text: string; kind: QuestionKind; options?: string[]; answer?: string; isOther?: true }
 
 /** What the Brief pane has folded open, and whether its Mode Select waits on a fidelity. */
 export type BriefView = { isPrototypePending: boolean; isTouchedOpen: boolean; isDoneOpen: boolean }

@@ -8,6 +8,12 @@ export const MIN_OPTIONS = 2
 export const MAX_OPTIONS = 6
 
 export const NOTHING_ANSWERED = 'Answer a question first, then Send answers.'
+
+/** The Other choice that ends every options and select question: picked, it opens a field for the user's own words. */
+export const OTHER_VALUE = '__other__'
+export const OTHER_LABEL = 'Other…'
+/** Marks a typed answer in the Send message, so Claude tells it from a listed option. */
+export const OWN_WORDS = '(their own words)'
 export const GRILL_USAGE = 'Usage: /grill [on|off]'
 
 const KINDS: readonly QuestionKind[] = ['options', 'select', 'text']
@@ -105,13 +111,32 @@ export function waitingText(n: number): string {
   return `${plural(n, 'question waits', 'questions wait')} in the Brief pane, press b`
 }
 
-/** Holds `text` as the answer to question `id`. Blank text drops the answer. */
+/** Holds `text` as the answer to question `id`, closing its Other field. Blank text drops the answer. */
 export function answerQuestion(questions: readonly BriefQuestion[], id: string, text: string): BriefQuestion[] {
   const answer = text.trim()
   return questions.map(q => {
     if (q.id !== id) return q
-    const { answer: _, ...rest } = q
+    const { answer: _, isOther: __, ...rest } = q
     return answer === '' ? rest : { ...rest, answer }
+  })
+}
+
+/** Opens the Other field on an options or select question. A listed answer drops; the field takes the next one. */
+export function openOther(questions: readonly BriefQuestion[], id: string): BriefQuestion[] {
+  return questions.map(q => {
+    if (q.id !== id || q.kind === 'text') return q
+    const { answer: _, ...rest } = q
+    return { ...rest, isOther: true }
+  })
+}
+
+/** Holds `text`, the user's own words, as the answer in an open Other field. Blank text empties the field and keeps it open. */
+export function typeOther(questions: readonly BriefQuestion[], id: string, text: string): BriefQuestion[] {
+  const answer = text.trim()
+  return questions.map(q => {
+    if (q.id !== id || q.kind === 'text') return q
+    const { answer: _, ...rest } = q
+    return answer === '' ? { ...rest, isOther: true as const } : { ...rest, isOther: true as const, answer }
   })
 }
 
@@ -119,10 +144,10 @@ export function answeredCount(questions: readonly BriefQuestion[]): number {
   return questions.filter(q => q.answer !== undefined).length
 }
 
-/** What Send answers submits, or undefined while nothing is answered. */
+/** What Send answers submits, or undefined while nothing is answered. A typed answer to a listed question carries OWN_WORDS. */
 export function answersMessage(questions: readonly BriefQuestion[]): string | undefined {
   if (answeredCount(questions) === 0) return undefined
-  const lines = questions.map(q => `- ${q.text}: ${q.answer ?? '(no answer)'}`)
+  const lines = questions.map(q => `- ${q.text}: ${q.answer === undefined ? '(no answer)' : q.isOther ? `${q.answer} ${OWN_WORDS}` : q.answer}`)
   return ['Answers to your questions:', ...lines].join('\n')
 }
 

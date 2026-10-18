@@ -9,7 +9,9 @@ import {
   grillInstructions,
   grillReply,
   grillTarget,
+  openOther,
   parseQuestions,
+  typeOther,
   waitingText,
 } from '../hooks/questions-logic'
 
@@ -80,6 +82,33 @@ describe('rounds and answers', () => {
     expect(askedText(3)).toBe("Asked 3 questions in the Brief pane. The answers arrive as the user's next message.")
     expect(waitingText(1)).toBe('1 question waits in the Brief pane, press b')
     expect(waitingText(4)).toBe('4 questions wait in the Brief pane, press b')
+  })
+})
+
+describe('the Other choice', () => {
+  test('opens a field, holds the typed words and marks them in the message', () => {
+    const opened = openOther([AUDIENCE, LENGTH, GOAL] as BriefQuestion[], 'audience')
+    expect(opened[0]).toEqual({ ...AUDIENCE, isOther: true })
+    const typed = typeOther(opened, 'audience', ' Designers ')
+    expect(typed[0]).toEqual({ ...AUDIENCE, isOther: true, answer: 'Designers' })
+    expect(answersMessage(typed)).toBe(
+      ['Answers to your questions:', '- Who reads it?: Designers (their own words)', '- How long?: (no answer)', '- What should it decide?: (no answer)'].join('\n'),
+    )
+    expect(typeOther(typed, 'audience', '')[0]).toEqual({ ...AUDIENCE, isOther: true })
+  })
+
+  test('Other drops a listed answer, and a listed option closes the field', () => {
+    const answered = answerQuestion([AUDIENCE] as BriefQuestion[], 'audience', 'Execs')
+    const opened = openOther(answered, 'audience')
+    expect(opened[0]).toEqual({ ...AUDIENCE, isOther: true })
+    const typed = typeOther(opened, 'audience', 'Designers')
+    expect(answerQuestion(typed, 'audience', 'Execs')[0]).toEqual({ ...AUDIENCE, answer: 'Execs' })
+    expect(answerQuestion(typed, 'audience', '')[0]).toEqual(AUDIENCE)
+  })
+
+  test('a text question has no Other', () => {
+    expect(openOther([GOAL] as BriefQuestion[], 'goal')).toEqual([GOAL])
+    expect(typeOther([GOAL] as BriefQuestion[], 'goal', 'x')).toEqual([GOAL])
   })
 })
 
