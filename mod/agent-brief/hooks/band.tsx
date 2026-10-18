@@ -1,11 +1,12 @@
 import type { ElementTable } from 'claude-code'
 
-import type { PrototypeFidelity, SessionMode, VoiceState } from '../types'
+import type { AttachedInitiative, PrototypeFidelity, SessionMode, VoiceState } from '../types'
+import { bandTitle } from './initiative'
 import { FIDELITY_IDS, MODE_IDS, bandLabel, fidelityLabel, modeLabel } from './modes'
 import type { ModeChoice } from './modes'
 import { clockText } from './voice'
 
-export type BandRow = 'none' | 'mode' | 'fidelity'
+export type BandRow = 'none' | 'mode' | 'fidelity' | 'initiative'
 
 export type BandView = {
   ingesting: string | null
@@ -17,6 +18,10 @@ export type BandView = {
   fidelity: PrototypeFidelity | null
   picking: BandRow
   voice: VoiceState | null
+  /** The attached initiative. The row reads `Attached <title> · change` while there is one. */
+  initiative: AttachedInitiative | null
+  /** What the change row offers: the attached initiative, then the recent ones. */
+  choices: { id: string; title: string }[]
   /** Draws show.tsx's clear pixel at the row's end, until it learns whether pictures draw here. */
   probe?: { key: string; png: string }
 }
@@ -29,17 +34,21 @@ export type BandActions = {
   talk: () => Promise<void>
   pick: (row: BandRow) => Promise<unknown>
   choose: (choice: ModeChoice) => Promise<void>
+  /** Attaches the session to the initiative with this id. */
+  attach: (id: string) => Promise<void>
+  detach: () => Promise<void>
 }
 
 /**
  * One row with Sketch, Stack, Write, Talk, Mode and Brief buttons.
  * Mode shows until the session's first prompt; then the Brief pane's Select and /mode set it.
  * The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
+ * An attached initiative adds `Attached <title> · change`. Change swaps the row for a pick among the recent ones.
  */
 export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
   const { Box, Button, Text } = table
   const { Image } = table as Partial<ElementTable<'terminal'>>
-  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, probe } = view
+  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, initiative, choices, probe } = view
   const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
 
   if (picking === 'mode') {
@@ -76,6 +85,24 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
     )
   }
 
+  if (picking === 'initiative') {
+    return (
+      <Box gap={1}>
+        <Text dimColor>Initiative</Text>
+        {choices.map(c => (
+          <Button
+            key={`initiative-${c.id}`}
+            label={bandTitle(c.title)}
+            {...current(c.id === initiative?.id)}
+            onPress={() => void (c.id === initiative?.id ? act.pick('none') : act.attach(c.id))}
+          />
+        ))}
+        {initiative !== null && <Button key="initiative-detach" label="Detach" onPress={() => void act.detach()} />}
+        <Button key="initiative-cancel" label="Cancel" dimColor onPress={() => void act.pick('none')} />
+      </Box>
+    )
+  }
+
   return (
     <Box>
       <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void act.open('sketch')} />
@@ -103,6 +130,10 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
       )}
       <Text> </Text>
       <Button key="brief" label={briefLabel} hotkey="b" onPress={() => void act.brief()} />
+      {initiative !== null && <Text dimColor>{`  Attached ${bandTitle(initiative.title)} · `}</Text>}
+      {initiative !== null && (
+        <Button key="initiative-change" plain dimColor label="change" hotkey="i" onPress={() => void act.pick('initiative')} />
+      )}
       {voice?.phase === 'listening' && <Text dimColor>{` Listening ${clockText(voice.seconds)}`}</Text>}
       {voice?.phase === 'finishing' && <Text dimColor> Transcribing…</Text>}
       {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}

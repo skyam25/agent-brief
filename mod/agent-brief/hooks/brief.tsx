@@ -1,6 +1,6 @@
 import type { ElementTable, RenderElement } from 'claude-code'
 
-import type { BriefAnswer, BriefItems, BriefOutput, BriefView, PrototypeFidelity, SessionMode } from '../types'
+import type { AttachedInitiative, BriefAnswer, BriefItems, BriefOutput, BriefView, PrototypeFidelity, SessionMode } from '../types'
 import { AGREE_TEXT, briefCounts, inlineSummary, itemRows, outputRows } from './brief-logic'
 import type { ItemRow, OutputRow } from './brief-logic'
 import { DEFAULT_FIDELITY, FIDELITY_IDS, MODE_IDS, fidelityLabel, modeLabel } from './modes'
@@ -19,6 +19,8 @@ export type BriefPaneView = {
   /** How many questions Claude asked that wait in the Questions section. */
   asked: number
   view: BriefView
+  /** The attached initiative, or null while the session has none. */
+  initiative: AttachedInitiative | null
 }
 
 export type BriefActions = {
@@ -43,7 +45,7 @@ export type BriefActions = {
 export type BriefSlots = { questions?: RenderElement | null }
 
 /**
- * The Brief pane: a header with the Mode Select, Outputs, the Questions slot, then Items.
+ * The Brief pane: a header with the Mode Select and the Initiative line, Outputs, the Questions slot, then Items.
  * Seated inline above the prompt it draws one summary line and the Ready outputs only.
  */
 export function briefTree(table: ElementTable, pane: BriefPaneView, act: BriefActions, slots: BriefSlots = {}) {
@@ -114,6 +116,15 @@ function headerTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
             }}
           />
         </Box>
+      )}
+      {pane.initiative === null ? (
+        <Text dimColor>Initiative · none</Text>
+      ) : (
+        <Text wrap="truncate-end">
+          <Text dimColor>Initiative · </Text>
+          {pane.initiative.title}
+          <Text dimColor>{` · revision ${pane.initiative.revision}`}</Text>
+        </Text>
       )}
     </Box>
   )
