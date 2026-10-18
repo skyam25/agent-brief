@@ -21,15 +21,17 @@ const editable = (t: EventTarget | null) =>
 export function CommentToggle({ comments }: { comments: BoardCommentsStore }) {
   const { tool } = useStore(comments);
   return (
-    <button
-      className="ghost pill"
-      aria-pressed={tool}
-      title={tool ? 'Stop commenting (Esc)' : 'Pin comments to the board, then talk or type (C)'}
-      onClick={() => comments.setTool(!tool)}
-      data-testid="comment-tool"
-    >
-      <CommentIcon /> Comment
-    </button>
+    <div className="cluster">
+      <button
+        className="ghost pill"
+        aria-pressed={tool}
+        title={tool ? 'Stop commenting (Esc)' : 'Pin comments to the board, then talk or type (C)'}
+        onClick={() => comments.setTool(!tool)}
+        data-testid="comment-tool"
+      >
+        <CommentIcon /> Comment
+      </button>
+    </div>
   );
 }
 
