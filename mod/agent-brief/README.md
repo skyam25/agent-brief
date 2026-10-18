@@ -208,7 +208,7 @@ An initiative is work that runs across many sessions, such as a pricing change. 
 - **change** on the band (hotkey `i`) swaps the row for a pick among the recent initiatives, with **Detach** and **Cancel**. A pick attaches the session at once.
 - The Brief pane opens on an **Initiative** line with the title and revision, or **Initiative · none**.
 - When Claude runs an `agent-brief initiative` command, the band reads the attachment again.
-- The `initiative` skill tells Claude when to attach, how to keep the brief short and current, how to draft one and how to run Discover. In the brief and in its replies, Claude names folders by role (Sources, Decisions, Working, Grounding, Outputs), not by their names.
+- The `initiative-brief` skill tells Claude when to attach, how to keep the brief short and current, how to draft one and how to run Discover. In the brief and in its replies, Claude names folders by role (Sources, Decisions, Working, Grounding, Outputs), not by their names.
 
 Claude works through these CLI verbs:
 
@@ -244,7 +244,7 @@ The renderer and the `wireframe` skill are copies from [wireframe-dsl](../../../
 
 ### Skills
 
-`skills/initiative/SKILL.md` teaches Claude to attach a session to an initiative and keep its brief, as above.
+`skills/initiative-brief/SKILL.md` teaches Claude to attach a session to an initiative and keep its brief, as above.
 
 `skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `agent-brief` CLI, and to post a browser session it drives as numbered screenshots with `agent-brief snap`, which needs Agent Brief 0.2.5 or newer.
 

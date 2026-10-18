@@ -1,85 +1,122 @@
 /**
  * The Initiative slice of the companion socket protocol, until it lands in companion-protocol.ts.
- * Names and shapes match companion/src/protocol.ts. Once both copies carry them, this file goes
- * and the imports switch to './companion-protocol'.
- *
- * GET /initiatives, /initiatives/recent?limit=3 and /initiatives/find?q=<words> answer InitiativeSummary[].
- * GET /sessions/:id/initiative answers InitiativeSnapshot, or 204 while the session has none.
- * PUT /sessions/:id/initiative with SessionInitiativeRequest attaches and answers the new snapshot.
- * DELETE /sessions/:id/initiative detaches.
+ * A copy of the Initiatives block of companion/src/protocol.ts. Once both protocol copies carry it,
+ * this file goes and the imports switch to './companion-protocol'.
  */
 
+// ── Initiatives ───────────────────────────────────────────────────────────
+// An initiative is a standing brief above sessions, kept as `<Title> brief.md`
+// in the initiative's own folder. Its front matter holds `agent_brief_id`, so a
+// rename or move survives. The app indexes briefs in `<data>/initiatives.json`
+// with revisions, session bindings and lastActiveAt. The CLI reads the index
+// and the briefs directly when the app is closed. Writes need the app.
+//
+// GET    /initiatives                 → InitiativeSummary[], latest lastActiveAt first
+// GET    /initiatives/recent?limit=3  → InitiativeSummary[]
+// GET    /initiatives/find?q=<words>  → InitiativeSummary[], the top 3 with `score`
+// POST   /initiatives                 InitiativeCreateRequest → Initiative
+// GET    /initiatives/:id             → Initiative
+// PUT    /initiatives/:id             InitiativeUpdateRequest → Initiative, 409 on a stale revision
+// GET    /initiatives/:id/history     → InitiativeRevision[], newest first
+// GET    /sessions/:id/initiative     → InitiativeSnapshot, or 204 when none is attached
+// PUT    /sessions/:id/initiative     SessionInitiativeRequest → InitiativeSnapshot. The session must be live.
+// DELETE /sessions/:id/initiative     → { detached: boolean }
+
+/** The part a folder plays in an initiative's map. */
 export type InitiativeRole = 'working' | 'sources' | 'decisions' | 'grounding' | 'outputs'
 
-export type InitiativeFolder = { path: string; role: InitiativeRole; note?: string }
+export const INITIATIVE_ROLES: readonly InitiativeRole[] = ['working', 'sources', 'decisions', 'grounding', 'outputs']
 
-export type Initiative = {
+/** The most Understanding a snapshot carries. A longer one is cut and ends with `…`. */
+export const INITIATIVE_UNDERSTANDING_CAP = 2400
+
+export interface InitiativeFolder {
+  /** As the brief writes it. `~/` is allowed. */
+  path: string
+  role: InitiativeRole
+  note?: string
+}
+
+export interface Initiative {
   id: string
   title: string
-  /** The brief file. */
+  /** The brief file, absolute. */
   path: string
   understanding: string
-  /** Raw lines without the leading "- ". */
+  /** Raw lines without the leading `- `. */
   decisions: string[]
   open: string[]
   folders: InitiativeFolder[]
   revision: number
+  /** ISO time of the latest revision. */
   updatedAt: string
-  /** "PM" or "Claude · <sessionId>". */
+  /** `PM` or `Claude · <sessionId>`. */
   updatedBy: string
+  /** ISO time of the latest attach, update or creation. */
   lastActiveAt: string
-  /** Attached session ids. */
+  /** The sessions attached now. */
   sessions?: string[]
-  /** True when the brief file is not found. */
+  /** True when the brief file is gone and no moved copy turned up. */
   missing?: boolean
 }
 
-/** `line` is the first sentence of Understanding. `find` adds a score. */
-export type InitiativeSummary = Pick<Initiative, 'id' | 'title' | 'lastActiveAt'> & { line: string; score?: number }
+export type InitiativeSummary = Pick<Initiative, 'id' | 'title' | 'lastActiveAt'> & {
+  /** The first sentence of Understanding. */
+  line: string
+  /** Term overlap. Only `find` sets it. */
+  score?: number
+}
 
-export type InitiativeSnapshot = {
+export interface InitiativeSnapshot {
   id: string
   title: string
   revision: number
+  /** Bumps on every attach to this session, so a re-attach sends the snapshot again. */
   attachmentRevision: number
+  /** At most INITIATIVE_UNDERSTANDING_CAP characters. */
   understanding: string
   decisions: string[]
   open: string[]
   folders: InitiativeFolder[]
 }
 
-// POST /initiatives creates the brief file in `folder` and the index row.
-export interface InitiativeCreateRequest {
-  title: string
-  folder: string
-  understanding?: string
-  folders?: InitiativeFolder[]
-  decisions?: string[]
-  open?: string[]
-  /** Written as "- <row>" lines under ## Working. */
-  working?: string[]
-}
-
-// PUT /initiatives/:id answers 409 on a revision mismatch.
-export interface InitiativeUpdateRequest {
-  revision: number
-  understanding?: string
-  decisions?: string[]
-  open?: string[]
-  folders?: InitiativeFolder[]
-  updatedBy: string
-}
-
-// GET /initiatives/:id/history
 export interface InitiativeRevision {
   revision: number
   updatedAt: string
   updatedBy: string
+  /** The sections the revision changed, such as `understanding`. Absent for an edit made outside the app. */
   changed?: string[]
 }
 
-// PUT /sessions/:id/initiative answers the new InitiativeSnapshot; 404 when the session is not live or the id is unknown.
-// DELETE /sessions/:id/initiative answers { detached: boolean }.
+export interface InitiativeCreateRequest {
+  title: string
+  /** Absolute folder the brief goes in. Created when missing. */
+  folder: string
+  understanding?: string
+  /** Defaults to the folder as `working`. */
+  folders?: InitiativeFolder[]
+  decisions?: string[]
+  open?: string[]
+  /** Rows for the Working section, without the leading `- `. */
+  working?: string[]
+  /** Defaults to `PM`. */
+  updatedBy?: string
+}
+
+export interface InitiativeUpdateRequest {
+  /** The revision the change was made against. */
+  revision: number
+  understanding?: string
+  decisions?: string[]
+  open?: string[]
+  folders?: InitiativeFolder[]
+  updatedBy: string
+}
+
 export interface SessionInitiativeRequest {
   initiativeId: string
+}
+
+export interface DetachInitiativeResponse {
+  detached: boolean
 }

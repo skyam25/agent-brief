@@ -4,7 +4,6 @@ import type { TestBody } from 'claude-code/testing'
 import {
   INITIATIVE_MARK,
   INITIATIVE_NOT_RUNNING,
-  UNDERSTANDING_CAP,
   attachPrompt,
   draftPrompt,
   injectionText,
@@ -17,6 +16,7 @@ import {
   summariesOf,
   tokenOf,
 } from '../hooks/initiative'
+import { INITIATIVE_UNDERSTANDING_CAP } from '../hooks/initiative-types'
 import type { InitiativeSnapshot } from '../hooks/initiative-types'
 import { SESSION_ID, setupCompanion } from './companion-world'
 import { BAND, CWD, briefPane, command } from './world'
@@ -69,7 +69,7 @@ describe('initiative logic', () => {
     expect(long).not.toContain('## Decisions')
     expect(long).not.toContain('## Folders')
     const understanding = long.split('## Understanding\n')[1]!.split('\n')[0]!
-    expect(understanding).toHaveLength(UNDERSTANDING_CAP)
+    expect(understanding).toHaveLength(INITIATIVE_UNDERSTANDING_CAP)
     expect(understanding.endsWith('…')).toBe(true)
     expect(injectionText({ ...PRICING, understanding: '' })).toContain('## Understanding\n(empty)')
   })
@@ -270,7 +270,7 @@ describe('/initiative', () => {
     expect(await $.command.run(command('initiative', 'discover'))).toEqual({ text: 'Asking Claude to survey this folder for initiatives…' })
     await clock.settle()
     expect(world.submitted).toHaveLength(1)
-    expect(world.submitted[0]).toContain(`Run Discover from the initiative skill over ${CWD}`)
+    expect(world.submitted[0]).toContain(`Run Discover from the initiative-brief skill over ${CWD}`)
   })
 
   test('refresh hands Claude the snapshot without a turn, and the next prompt does not repeat it', async ($, on) => {

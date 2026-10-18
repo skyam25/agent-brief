@@ -1,5 +1,5 @@
 ---
-name: initiative
+name: initiative-brief
 description: Attach this session to the user's Agent Brief initiative and keep its brief current. Use when a prompt carries an "Agent Brief · recent initiatives" line or a "--- Agent Brief initiative ---" snapshot, when the user names an initiative, a project or workstream they track across sessions, or runs /initiative. Also use to draft a new initiative from the session, or to survey a product folder for likely initiatives (Discover).
 ---
 

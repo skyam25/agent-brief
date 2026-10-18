@@ -1,11 +1,10 @@
 import type { AttachedInitiative, BriefOutput, InitiativeChoice } from '../types'
+import { INITIATIVE_ROLES, INITIATIVE_UNDERSTANDING_CAP } from './initiative-types'
 import type { InitiativeFolder, InitiativeRole, InitiativeSnapshot, InitiativeSummary } from './initiative-types'
 
 /** Opens and closes the snapshot appended after the user's prompt. */
 export const INITIATIVE_MARK = '--- Agent Brief initiative ---'
 
-/** The most of Understanding a snapshot carries. The app cuts at the same length. */
-export const UNDERSTANDING_CAP = 2400
 export const RECENT_LIMIT = 3
 /** The band's change row cuts titles past this. */
 const TITLE_COLUMNS = 24
@@ -19,8 +18,6 @@ export const INITIATIVE_COMMAND_SPEC = {
   description: 'Attach this session to an Agent Brief initiative: draft one from the session, name one, off, refresh or discover',
   argumentHint: '[<name> | off | refresh | discover]',
 }
-
-const ROLES: readonly InitiativeRole[] = ['working', 'sources', 'decisions', 'grounding', 'outputs']
 
 export function sessionInitiativePath(sessionId: string): string {
   return `/sessions/${encodeURIComponent(sessionId)}/initiative`
@@ -59,7 +56,7 @@ export function draftPrompt(input: {
   const ready = input.outputs.filter(o => o.tier === 'declared' && o.status === 'ready')
   const readyText = ready.length === 0 ? 'none' : ready.map(o => `${o.title ?? o.ref} (${o.ref})`).join('; ')
   const recentText = input.recent.length === 0 ? 'none' : input.recent.map(r => r.title).join(', ')
-  return `Draft an Agent Brief initiative from this session, as the initiative skill's "New initiative" steps say.
+  return `Draft an Agent Brief initiative from this session, as the initiative-brief skill's "New initiative" steps say.
 
 - Session: ${input.sessionId}. Project folder: ${input.cwd}.
 - Ready outputs, for the Working rows: ${readyText}.
@@ -84,7 +81,7 @@ Run \`agent-brief initiative attach ${quoted(name)} --session ${sessionId}\`. If
 
 /** What `/initiative discover` hands Claude. It creates nothing until the user picks. */
 export function discoverPrompt(cwd: string, sessionId: string): string {
-  return `Run Discover from the initiative skill over ${cwd}: survey the folder and list the likely initiatives.
+  return `Run Discover from the initiative-brief skill over ${cwd}: survey the folder and list the likely initiatives.
 
 Run \`agent-brief initiative list\` first and leave out initiatives that already exist. Give each candidate a title, one line on why, and its folders by role. Create nothing until the user picks one. Then create it as the "New initiative" steps say and attach this session (${sessionId}).`
 }
@@ -121,7 +118,7 @@ const lines = (value: unknown): string[] => (Array.isArray(value) ? value.filter
 function folderOf(raw: unknown): InitiativeFolder | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
   const { path, role, note } = raw as Record<string, unknown>
-  if (!isText(path) || !(ROLES as readonly unknown[]).includes(role)) return undefined
+  if (!isText(path) || !(INITIATIVE_ROLES as readonly unknown[]).includes(role)) return undefined
   return { path, role: role as InitiativeRole, ...(isText(note) ? { note } : {}) }
 }
 
@@ -163,9 +160,11 @@ export const attachedOf = (s: InitiativeSnapshot): AttachedInitiative => ({
   attachmentRevision: s.attachmentRevision,
 })
 
+/** The app caps the snapshot too. This holds the line against an app that does not. */
 export function capUnderstanding(text: string): string {
   const trimmed = text.trim()
-  return trimmed.length <= UNDERSTANDING_CAP ? trimmed : `${trimmed.slice(0, UNDERSTANDING_CAP - 1).trimEnd()}…`
+  const cap = INITIATIVE_UNDERSTANDING_CAP
+  return trimmed.length <= cap ? trimmed : `${trimmed.slice(0, cap - 1).trimEnd()}…`
 }
 
 /** The snapshot as appended after the user's prompt, between the markers, with a one-line pointer to the skill. */
@@ -175,13 +174,13 @@ export function injectionText(s: InitiativeSnapshot): string {
   return [
     INITIATIVE_MARK,
     `This session is attached to the initiative ${s.title} (id ${s.id}, revision ${s.revision}). This snapshot replaces any earlier one.`,
-    `Keep its brief current as the initiative skill says, with \`agent-brief initiative update ${s.id} --file <json>\` at revision ${s.revision}.`,
+    `Keep its brief current as the initiative-brief skill says, with \`agent-brief initiative update ${s.id} --file <json>\` at revision ${s.revision}.`,
     '',
     '## Understanding',
     understanding === '' ? '(empty)' : understanding,
     ...list('Decisions', s.decisions),
     ...list('Open', s.open),
-    ...list('Folders', s.folders.map(f => `${f.path} → ${f.role}${f.note ? ` (${f.note})` : ''}`)),
+    ...list('Folders', s.folders.map(f => `${f.path} → ${f.role}${f.note ? ` · ${f.note}` : ''}`)),
     INITIATIVE_MARK,
   ].join('\n')
 }
