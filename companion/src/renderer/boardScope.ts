@@ -38,9 +38,12 @@ export function pickerRows(
   return { own, attach };
 }
 
-/** The session's newest board other than `leaving`, to show after `leaving` moves out. Undefined when it holds no other board. */
-export function fallbackBoard(boards: readonly BoardEntry[], sessionId: string, leaving: string): string | undefined {
+/**
+ * The container's newest board outside `leaving`, to show after those move out.
+ * Undefined when it holds no other board.
+ */
+export function fallbackBoard(boards: readonly BoardEntry[], sessionId: string | undefined, leaving: readonly string[]): string | undefined {
   return boardsOf(boards, sessionId)
-    .filter((b) => b.name !== leaving)
+    .filter((b) => !leaving.includes(b.name))
     .reduce<BoardEntry | undefined>((newest, b) => (!newest || b.updatedAt > newest.updatedAt ? b : newest), undefined)?.name;
 }

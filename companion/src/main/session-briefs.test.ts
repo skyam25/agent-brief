@@ -7,6 +7,7 @@ import {
   heldBoards,
   liveFields,
   MAX_BRIEFS,
+  moveBoard,
   prune,
   refreshLive,
   remember,
@@ -166,6 +167,32 @@ describe('detachBoard', () => {
   it('leaves the briefs alone for an unknown session or board', () => {
     expect(detachBoard(briefs, 'z', 'one')).toBe(briefs);
     expect(detachBoard(briefs, 'a', 'none').a).toBe(briefs.a);
+  });
+});
+
+describe('moveBoard', () => {
+  const briefs: SessionBriefs = {
+    a: { board: 'two', boards: ['one', 'two'], last: 'board', at: 1 },
+    b: { board: 'mine', boards: ['mine'], last: 'board', at: 2 },
+    c: { draftId: 'n1', last: 'draft', at: 3 },
+  };
+
+  it('adds an unfiled board to the session and keeps its open board', () => {
+    expect(moveBoard(briefs, 'loose', 'b').b).toEqual({ board: 'mine', boards: ['mine', 'loose'], last: 'board', at: 2 });
+  });
+
+  it('takes the board out of the session that held it', () => {
+    const moved = moveBoard(briefs, 'two', 'b');
+    expect(moved.a).toEqual({ board: 'one', boards: ['one'], last: 'board', at: 1 });
+    expect(moved.b.boards).toEqual(['mine', 'two']);
+  });
+
+  it('makes the board the open one of a session that has none', () => {
+    expect(moveBoard(briefs, 'loose', 'c').c).toEqual({ draftId: 'n1', last: 'draft', board: 'loose', boards: ['loose'], at: 3 });
+  });
+
+  it('leaves the briefs alone for an unknown session', () => {
+    expect(moveBoard(briefs, 'one', 'z')).toBe(briefs);
   });
 });
 

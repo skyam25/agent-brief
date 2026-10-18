@@ -266,11 +266,15 @@ export class BoardController {
     if (layout !== 'freeform') await this.setLayout(layout);
   }
 
-  renameBoard(to: string): Promise<void> {
+  /** Renames `from`, the open board by default, and returns the cleaned-up name. */
+  renameBoard(to: string, from = this.board): Promise<string> {
     return this.enqueue(async () => {
-      await this.flush();
-      this.board = await this.bridge.renameBoard(this.board, to);
+      const open = from === this.board;
+      if (open) await this.flush();
+      const name = await this.bridge.renameBoard(from, to);
+      if (open) this.board = name;
       this.emit();
+      return name;
     });
   }
 

@@ -268,6 +268,8 @@ export interface BoardHost {
   setCurrent(name: string): Promise<void>;
   /** Takes a board out of a session's brief. The board itself stays. */
   detachBoard(sessionId: string, name: string): Promise<void>;
+  /** Files boards under a session, out of Unfiled or any other session. */
+  moveBoards(names: string[], sessionId: string): Promise<void>;
   send(payload: SendPayload): Promise<{ ok: boolean; message: string }>;
   onTheme(fn: (theme: Theme) => void): Subscription;
 }
@@ -492,6 +494,7 @@ export const CH = {
   deleteBoard: 'boards:delete',
   setCurrent: 'boards:current',
   detachBoard: 'boards:detach',
+  moveBoards: 'boards:move',
   send: 'panel:send',
   setTarget: 'sessions:target',
   request: 'board:request',
@@ -581,6 +584,7 @@ export const IPC_INVOKE = {
   deleteBoard: CH.deleteBoard,
   setCurrent: CH.setCurrent,
   detachBoard: CH.detachBoard,
+  moveBoards: CH.moveBoards,
   send: CH.send,
   setTarget: CH.setTarget,
   getSettings: CH.getSettings,

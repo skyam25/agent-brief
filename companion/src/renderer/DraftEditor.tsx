@@ -169,7 +169,7 @@ export function DraftEditor(props: {
         <MoreMenu label="More for this note" testId="draft-more">
           {(close) => (
             <>
-              <FileUnder draft={draft} tabs={props.tabs} onFile={props.onFile} onOpen={props.onFilingMenu} close={close} />
+              <FileUnder filed={draft.sessionId} tabs={props.tabs} onFile={props.onFile} onOpen={props.onFilingMenu} close={close} />
               <button
                 className="ghost"
                 role="menuitem"

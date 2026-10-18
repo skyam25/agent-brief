@@ -279,6 +279,42 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   /** A Write draft carries its own Send in its footer. Review mode keeps the composer, with the mic while a review is open. */
   const inlineSend = mode === 'write';
 
+  /** The panel stays on a board that leaves the active container, so it moves to the container's newest other board. */
+  const leaveBoards = async (names: string[]) => {
+    if (!names.includes(controller.board)) return;
+    const next = fallbackBoard(await host.listBoards(), activeBrief, names);
+    if (next) await controller.switchTo(next);
+  };
+  const renameBoard = (from: string, to: string) =>
+    void controller
+      .renameBoard(to, from)
+      .then((name) => book.renameBoard(from, name))
+      .catch(report('rename the board'))
+      .finally(boardList.refresh);
+  const deleteBoards = async (names: string[]) => {
+    try {
+      await leaveBoards(names);
+      for (const name of names) {
+        await controller.deleteBoard(name);
+        book.forgetBoard(name);
+      }
+    } catch (err) {
+      report('delete the board')(err);
+    }
+    boardList.refresh();
+  };
+  /** Files boards under a session, or detaches them from the active one to Unfiled. */
+  const fileBoards = async (names: string[], sessionId: string | undefined) => {
+    try {
+      if (sessionId) await host.moveBoards(names, sessionId);
+      else if (activeBrief) for (const name of names) await host.detachBoard(activeBrief, name);
+      await leaveBoards(names);
+    } catch (err) {
+      report('move the board')(err);
+    }
+    boardList.refresh();
+  };
+
   return (
     <div className="panel">
       <SessionSidebar
@@ -297,6 +333,11 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
           mode,
           onOpenBoard: openBoard,
           onNotes: () => changeMode('write'),
+          actions: {
+            rename: renameBoard,
+            remove: (names) => void deleteBoards(names),
+            file: (names, sessionId) => void fileBoards(names, sessionId),
+          },
         }}
       />
       <div className="work">
@@ -329,31 +370,9 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
                     newRequest={newBoardRequest}
                     onSwitch={(name) => void controller.switchTo(name).catch(report('switch boards'))}
                     onCreate={(name, layout) => void controller.createBoard(name, layout).catch(report('create the board'))}
-                    onRename={(name) => {
-                      const from = controller.board;
-                      void controller
-                        .renameBoard(name)
-                        .then(() => book.renameBoard(from, controller.board))
-                        .catch(report('rename the board'));
-                    }}
-                    onDelete={(name) =>
-                      controller
-                        .deleteBoard(name)
-                        .then(() => book.forgetBoard(name))
-                        .catch(report('delete the board'))
-                    }
-                    onDetach={async (name) => {
-                      if (!activeBrief) return;
-                      try {
-                        await host.detachBoard(activeBrief, name);
-                        // The panel stays on a detached board until it switches, so it moves to the session's newest other board.
-                        const next = name === controller.board ? fallbackBoard(await host.listBoards(), activeBrief, name) : undefined;
-                        if (next) await controller.switchTo(next);
-                      } catch (err) {
-                        report('detach the board')(err);
-                      }
-                      boardList.refresh();
-                    }}
+                    onRename={(name) => renameBoard(controller.board, name)}
+                    onDelete={(name) => deleteBoards([name])}
+                    onDetach={(name) => fileBoards([name], undefined)}
                   />
                 </>
               )}

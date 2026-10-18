@@ -123,6 +123,19 @@ export function detachBoard(briefs: SessionBriefs, sessionId: string, board: str
 }
 
 /**
+ * Files a board under one session. It leaves every other brief and joins the
+ * session's list. It becomes the session's open board only when it has none.
+ */
+export function moveBoard(briefs: SessionBriefs, board: string, sessionId: string): SessionBriefs {
+  const target = briefs[sessionId];
+  if (!target) return briefs;
+  const next = Object.fromEntries(Object.entries(briefs).map(([id, b]) => [id, id === sessionId ? b : dropBoard(b, board)]));
+  const held = heldBoards(target);
+  if (held.includes(board)) return next;
+  return { ...next, [sessionId]: { ...target, boards: [...held, board], ...(target.board ? {} : { board }) } };
+}
+
+/**
  * The session whose brief holds a board. Ended sessions count until their brief goes.
  * When two briefs hold it, a live session beats an ended one, then the most recently used wins.
  */

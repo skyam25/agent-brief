@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { boardMenu, interactiveCanvas, launch, openNotes, penStroke, pickPen, pickBoard, sceneElements, showPanel, tempDataDir } from './helpers';
+import { boardMenu, boardRow, boardRowMenu, interactiveCanvas, renameBoardRow, RESULTS, launch, openNotes, penStroke, pickPen, pickBoard, sceneElements, showPanel, tempDataDir } from './helpers';
 
 test('C1.1 the hotkey toggle shows and hides the panel; test runs stay off screen and unfocused', async () => {
   const { app } = await launch(tempDataDir());
@@ -124,22 +124,18 @@ test('renaming a board onto a taken name is refused and says why', async () => {
   await page.getByTestId('board-name').press('Enter');
   await expect(page.getByTestId('board-picker')).toHaveText('second');
 
-  await boardMenu(page, 'board-rename');
-  await page.getByTestId('board-name').fill('scratch');
-  await page.getByTestId('board-name').press('Enter');
+  await renameBoardRow(page, 'second', 'scratch');
   await expect(page.getByTestId('send-status')).toHaveText('Could not rename the board: a board named "scratch" exists');
   await expect(page.getByTestId('board-picker')).toHaveText('second');
   const names = await app.evaluate(() => globalThis.__companion.store.list().map((b) => b.name));
   expect(names).toEqual(['scratch', 'second']);
 
-  await boardMenu(page, 'board-rename');
-  await page.getByTestId('board-name').fill('../escape');
-  await page.getByTestId('board-name').press('Enter');
+  await renameBoardRow(page, 'second', '../escape');
   await expect(page.getByTestId('send-status')).toHaveText(/Could not rename the board: board name may use letters/);
   await app.close();
 });
 
-test('with the sidebar open, the board menu holds only actions for the open board', async () => {
+test('with the sidebar open, the board menu holds only New, and each row has its own menu', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
   const names = () => app.evaluate(() => globalThis.__companion.store.list().map((b) => b.name));
@@ -150,26 +146,91 @@ test('with the sidebar open, the board menu holds only actions for the open boar
     await expect(page.getByTestId('board-picker')).toHaveText(name);
   }
 
-  // The sidebar lists the boards, so the menu lists none.
+  // The sidebar lists the boards, so the menu lists none and keeps only New.
   await expect(page.getByTestId('brief-children').getByTestId('brief-board')).toHaveText(['scratch', 'second', 'third']);
   await page.getByTestId('board-picker').click();
   await expect(page.getByTestId('board-item')).toHaveCount(0);
-  await expect(page.getByTestId('board-menu').getByRole('menuitem')).toHaveText(['New board', 'Rename “third”', 'Delete “third”']);
+  await expect(page.getByTestId('board-menu').getByRole('menuitem')).toHaveText(['New board']);
+  await page.keyboard.press('Escape');
 
-  // Delete asks first. Closing the menu takes the question back.
-  const del = page.getByTestId('board-delete');
+  // A row's ⋯ and its right-click open the same menu.
+  await boardRowMenu(page, 'second');
+  const menu = page.getByTestId('board-row-menu');
+  await expect(menu.getByRole('menuitem')).toHaveText(['Rename', 'File under…', 'Delete board']);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await boardRow(page, 'second').getByTestId('brief-board').click({ button: 'right' });
+  await expect(menu).toBeVisible();
+
+  // Rename works on a board that is not open, and the open board stays.
+  await page.getByTestId('board-row-rename').click();
+  await page.getByTestId('board-row-name').fill('renamed');
+  await page.getByTestId('board-row-name').press('Enter');
+  await expect.poll(names).toEqual(['renamed', 'scratch', 'third']);
+  await expect(page.getByTestId('board-picker')).toHaveText('third');
+
+  // Double-click renames too, and Escape keeps the name.
+  await boardRow(page, 'scratch').getByTestId('brief-board').dblclick();
+  await page.getByTestId('board-row-name').fill('dropped');
+  await page.getByTestId('board-row-name').press('Escape');
+  await expect(boardRow(page, 'scratch')).toHaveCount(1);
+
+  // Delete asks first. The second click deletes the open board and opens another.
+  await boardRowMenu(page, 'third');
+  const del = page.getByTestId('board-row-delete');
   await del.click();
   await expect(del).toHaveText('Click again to delete');
-  await page.keyboard.press('Escape');
-  await page.getByTestId('board-picker').click();
-  await expect(del).toHaveText('Delete “third”');
-
-  // The second click deletes the open board and opens another.
   await del.click();
-  await del.click();
-  await expect.poll(names).toEqual(['scratch', 'second']);
+  await expect.poll(names).toEqual(['renamed', 'scratch']);
   await expect(page.getByTestId('board-picker')).not.toHaveText('third');
-  await expect(page.getByTestId('board-menu')).toHaveCount(0);
+  await expect(menu).toHaveCount(0);
+  await app.close();
+});
+
+test('⌘ and ⇧ select several boards, and the selection bar deletes them after asking', async () => {
+  const { app, page } = await launch(tempDataDir());
+  await showPanel(app, page);
+  const names = () => app.evaluate(() => globalThis.__companion.store.list().map((b) => b.name));
+  for (const name of ['b1', 'b2', 'b3', 'b4']) await app.evaluate((_e, n) => globalThis.__companion.store.create(n), name);
+  await page.getByTestId('board-picker').click();
+  await page.keyboard.press('Escape');
+  const row = (name: string) => boardRow(page, name).getByTestId('brief-board');
+  await expect(page.getByTestId('brief-children').getByTestId('brief-board')).toHaveCount(5);
+  const order = await page.getByTestId('brief-children').getByTestId('brief-board').allTextContents();
+
+  // ⌘-click selects without opening. ⇧-click extends from there.
+  const open = await page.getByTestId('board-picker').textContent();
+  const [first, , third] = order.filter((n) => n !== open);
+  await row(first).click({ modifiers: ['Meta'] });
+  await expect(page.getByTestId('board-picker')).toHaveText(open!);
+  await expect(page.getByTestId('board-selection')).toContainText('1 selected');
+  await row(third).click({ modifiers: ['Shift'] });
+  const span = order.slice(order.indexOf(first), order.indexOf(third) + 1);
+  await expect(page.getByTestId('board-selection')).toContainText(`${span.length} selected`);
+  for (const n of span) await expect(boardRow(page, n)).toHaveAttribute('data-selected', 'true');
+
+  // Escape clears the selection, and the panel stays up.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('board-selection')).toHaveCount(0);
+  expect(await app.evaluate(() => globalThis.__companion.panel.isVisible())).toBe(true);
+
+  // A selected row's menu acts on the whole selection.
+  await row(first).click({ modifiers: ['Meta'] });
+  await row(third).click({ modifiers: ['Meta'] });
+  await boardRowMenu(page, first);
+  await expect(page.getByTestId('board-row-menu').getByRole('menuitem')).toHaveText(['File under…', 'Delete 2 boards']);
+  await page.keyboard.press('Escape');
+
+  // The bar asks before it deletes. Cancel keeps everything.
+  await page.getByTestId('selection-delete').click();
+  await expect(page.getByTestId('selection-menu')).toContainText('Delete 2 boards? They go to the Trash.');
+  await page.getByTestId('selection-cancel').click();
+  expect(await names()).toHaveLength(5);
+  await page.getByTestId('selection-delete').click();
+  await page.getByTestId('selection-confirm-delete').click();
+  await expect.poll(names).toEqual(order.filter((n) => n !== first && n !== third).sort());
+  await expect(page.getByTestId('board-selection')).toHaveCount(0);
+  await page.screenshot({ path: join(RESULTS, 'board-rows.png') });
   await app.close();
 });
 

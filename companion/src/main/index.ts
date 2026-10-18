@@ -400,6 +400,11 @@ async function start(): Promise<void> {
     else if (target) briefs.remember(target, { board, last: 'board' }, false);
   });
   ipc.handle('detachBoard', (sessionId: string, name: string) => briefs.detach(sessionId, name));
+  ipc.handle('moveBoards', (raw: string[], sessionId: string) => {
+    const names = raw.map(cleanName);
+    briefs.move(names, sessionId);
+    if (state.state.unfiledBoard && names.includes(state.state.unfiledBoard)) state.update({ unfiledBoard: undefined });
+  });
 
   // Drafts, templates and history.
   ipc.handle('listDrafts', () => drafts.list());

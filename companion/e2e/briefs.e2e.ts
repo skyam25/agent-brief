@@ -2,7 +2,7 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DeliveriesResponse, SessionInfo, SessionsResponse } from '../src/protocol';
-import { boardMenu, briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, showEnded, sock, tempDataDir, themeShots } from './helpers';
+import { boardMenu, boardRow, boardRowMenu, briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, showEnded, sock, tempDataDir, themeShots } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -308,7 +308,7 @@ test('attaching an unfiled board adds it to the session, which keeps its other b
   await expect(page.getByTestId('board-attach')).toHaveCount(0);
 });
 
-test('detaching a board moves it to Unfiled and opens the session\'s other board', async () => {
+test('filing a board under Unfiled moves it out of the session and opens the session\'s other board', async () => {
   const { page } = ctx;
   await register('s1', 'Alpha');
   await openFor({ sessionId: 's1' });
@@ -319,18 +319,58 @@ test('detaching a board moves it to Unfiled and opens the session\'s other board
   const children = page.getByTestId('brief-children').getByTestId('brief-board');
   await expect(children).toHaveCount(2);
 
-  // The menu detaches the open board.
-  await page.getByTestId('board-picker').click();
-  await expect(page.getByTestId('board-detach')).toHaveText('Detach “second”');
-  await expect(page.getByTestId('board-detach')).toHaveAttribute('title', 'Move to Unfiled');
-  await page.getByTestId('board-detach').click();
+  // The row's File under… lists the sessions and Unfiled, with this session checked.
+  await boardRowMenu(page, 'second');
+  await page.getByTestId('board-file-under').click();
+  const targets = page.getByTestId('board-row-menu').getByTestId('file-under');
+  await expect(targets.filter({ hasText: 'Alpha' })).toHaveAttribute('aria-checked', 'true');
+  await targets.filter({ hasText: 'Unfiled' }).click();
   await expect(page.getByTestId('board-picker')).toHaveText('scratch');
   await expect(children).toHaveText(['scratch']);
 
   await page.getByTestId('notes-tab').getByRole('tab').click();
   await expect(page.getByTestId('brief-children').getByTestId('brief-board')).toHaveText(['second']);
-  await page.getByTestId('board-picker').click();
-  await expect(page.getByTestId('board-detach')).toHaveCount(0);
+});
+
+test('unfiled boards file under a session one at a time or as a selection', async () => {
+  const { app, page } = ctx;
+  await register('s1', 'Alpha');
+  await register('s2', 'Beta');
+  await openFor({ sessionId: 's1' });
+  await openFor({ sessionId: 's2' });
+  for (const name of ['loose', 'stray', 'extra']) await app.evaluate((_e, n) => globalThis.__companion.store.create(n), name);
+  await page.getByTestId('notes-tab').getByRole('tab').click();
+  const children = page.getByTestId('brief-children').getByTestId('brief-board');
+  await expect(children.filter({ hasText: 'loose' })).toHaveCount(1);
+  const held = async (id: string) => (await page.evaluate(() => window.companion.listBoards())).filter((b) => b.sessionId === id).map((b) => b.name);
+
+  // One board from its row menu. The session keeps the board it had open.
+  const before = (await briefs(page)).find((b) => b.sessionId === 's1')?.board;
+  await boardRowMenu(page, 'loose');
+  await page.getByTestId('board-file-under').click();
+  await page.getByTestId('board-row-menu').getByTestId('file-under').filter({ hasText: 'Alpha' }).click();
+  await expect.poll(() => held('s1')).toContain('loose');
+  await expect(children.filter({ hasText: 'loose' })).toHaveCount(0);
+  expect((await briefs(page)).find((b) => b.sessionId === 's1')?.board).toBe(before);
+
+  // Two boards from the selection bar.
+  await boardRow(page, 'stray').getByTestId('brief-board').click({ modifiers: ['Meta'] });
+  await boardRow(page, 'extra').getByTestId('brief-board').click({ modifiers: ['Meta'] });
+  await page.getByTestId('selection-file').click();
+  const menu = page.getByTestId('selection-menu');
+  await expect(menu).toContainText('File 2 boards under');
+  await expect(menu.getByTestId('file-under').filter({ hasText: 'Unfiled' })).toHaveAttribute('aria-checked', 'true');
+  await menu.getByTestId('file-under').filter({ hasText: 'Beta' }).click();
+  await expect.poll(async () => (await held('s2')).sort()).toEqual(expect.arrayContaining(['extra', 'stray']));
+  await expect(page.getByTestId('board-selection')).toHaveCount(0);
+
+  // A board moves between sessions, out of the one that held it.
+  await briefTab(page, 'Alpha').getByRole('tab').click();
+  await boardRowMenu(page, 'loose');
+  await page.getByTestId('board-file-under').click();
+  await page.getByTestId('board-row-menu').getByTestId('file-under').filter({ hasText: 'Beta' }).click();
+  await expect.poll(() => held('s2')).toContain('loose');
+  expect(await held('s1')).not.toContain('loose');
 });
 
 test('the footer names no target on a live session, and offers Send to… on Unfiled', async () => {

@@ -71,10 +71,32 @@ export async function openNotes(page: Page): Promise<void> {
   await page.getByTestId('notes').waitFor();
 }
 
-/** Opens the board menu and runs New board or Rename from its foot. */
-export async function boardMenu(page: Page, action: 'board-new' | 'board-rename'): Promise<void> {
+/** Opens the board menu and runs New board from its foot. */
+export async function boardMenu(page: Page, action: 'board-new'): Promise<void> {
   await page.getByTestId('board-picker').click();
   await page.getByTestId(action).click();
+}
+
+/** The sidebar row of the active container's board named `name`. */
+export function boardRow(page: Page, name: string) {
+  const exact = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+  return page.getByTestId('brief-children').locator('li', { has: page.getByTestId('brief-board').filter({ hasText: exact }) });
+}
+
+/** Opens a sidebar board's ⋯ menu. */
+export async function boardRowMenu(page: Page, name: string): Promise<void> {
+  const row = boardRow(page, name);
+  await row.hover();
+  await row.getByTestId('board-more').click();
+  await page.getByTestId('board-row-menu').waitFor();
+}
+
+/** Renames a sidebar board from its ⋯ menu. */
+export async function renameBoardRow(page: Page, from: string, to: string): Promise<void> {
+  await boardRowMenu(page, from);
+  await page.getByTestId('board-row-rename').click();
+  await page.getByTestId('board-row-name').fill(to);
+  await page.getByTestId('board-row-name').press('Enter');
 }
 
 /** Switches boards from the sidebar, or from the board menu while the sidebar is hidden. */

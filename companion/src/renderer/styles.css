@@ -1176,6 +1176,85 @@ button.stop-talk:hover {
   color: var(--accent);
 }
 
+/* Each board row shows its ⋯ on hover. A ⌘- or ⇧-click selects the row. */
+
+.sessions .board-row {
+  position: relative;
+}
+
+.sessions .board-row button.child {
+  padding-right: 28px;
+}
+
+.sessions .board-row button.more {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  opacity: 0;
+}
+
+.sessions .board-row:hover button.more,
+.sessions .board-row button.more:focus-visible,
+.sessions .board-row button.more[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.sessions .board-row button.more > .icon {
+  color: var(--muted);
+}
+
+.sessions .board-row[data-selected='true'] button.child {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.sessions input.rename {
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+/* Shows while boards are selected, pinned to the sidebar's foot. */
+
+.selection-bar {
+  position: sticky;
+  bottom: 8px;
+  margin: auto 8px 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 10px;
+  background: var(--raised);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
+}
+
+.selection-bar .count {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.selection-bar button.danger:hover > .icon {
+  color: var(--error);
+}
+
+.context-menu .confirm-text {
+  margin: 4px 8px 8px;
+}
+
+.context-menu .confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.context-menu .confirm-actions button {
+  width: auto;
+}
+
 .sessions button.child.note-count {
   padding-left: 28px;
   color: var(--muted);
@@ -2402,7 +2481,7 @@ button.stop-talk:hover {
   line-height: 1.3;
 }
 
-/* File under… opens its list of sessions in place, inside the ⋯ menu. */
+/* File under… opens its list of sessions in place, inside the ⋯ menu or a right-click menu. */
 
 .more-menu .label-text {
   flex: 1;
@@ -2413,17 +2492,17 @@ button.stop-talk:hover {
   text-overflow: ellipsis;
 }
 
-.more-menu .file-under-toggle .icon {
+:is(.more-menu, .context-menu) .file-under-toggle .icon {
   color: var(--muted);
   transform: rotate(-90deg);
   transition: transform 0.12s;
 }
 
-.more-menu .file-under-toggle[aria-expanded='true'] .icon {
+:is(.more-menu, .context-menu) .file-under-toggle[aria-expanded='true'] .icon {
   transform: none;
 }
 
-.more-menu .filing-list {
+:is(.more-menu, .context-menu) .filing-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2432,8 +2511,34 @@ button.stop-talk:hover {
   border-left: 1px solid var(--line);
 }
 
-.more-menu .filing-list button > .icon {
+:is(.more-menu, .context-menu) .filing-list button > .icon {
   color: var(--accent);
+}
+
+/* Straight under a header, as the selection bar opens it, the list needs no indent. */
+.context-menu > .filing-list {
+  margin: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.filing-list button:has(.where) {
+  height: auto;
+  min-height: 32px;
+}
+
+.filing-list .label-text:has(.where) {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.filing-list .where {
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+  text-overflow: ellipsis;
 }
 
 .popover-panel.more-menu {

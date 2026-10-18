@@ -61,11 +61,19 @@ describe('fallbackBoard', () => {
   const held = [{ ...board('Oct 14', 'a'), updatedAt: 3 }, { ...board('Oct 16', 'a'), updatedAt: 9 }, { ...board('Oct 15', 'a'), updatedAt: 5 }, { ...board('loose'), updatedAt: 99 }];
 
   it("picks the session's newest board other than the one leaving", () => {
-    expect(fallbackBoard(held, 'a', 'Oct 14')).toBe('Oct 16');
-    expect(fallbackBoard(held, 'a', 'Oct 16')).toBe('Oct 15');
+    expect(fallbackBoard(held, 'a', ['Oct 14'])).toBe('Oct 16');
+    expect(fallbackBoard(held, 'a', ['Oct 16'])).toBe('Oct 15');
+  });
+
+  it('skips every board that is leaving', () => {
+    expect(fallbackBoard(held, 'a', ['Oct 16', 'Oct 15'])).toBe('Oct 14');
+  });
+
+  it('picks the newest unfiled board for Unfiled', () => {
+    expect(fallbackBoard([...held, { ...board('older'), updatedAt: 1 }], undefined, ['loose'])).toBe('older');
   });
 
   it('gives nothing when the session holds no other board', () => {
-    expect(fallbackBoard([board('Oct 16', 'a'), board('loose')], 'a', 'Oct 16')).toBeUndefined();
+    expect(fallbackBoard([board('Oct 16', 'a'), board('loose')], 'a', ['Oct 16'])).toBeUndefined();
   });
 });

@@ -40,8 +40,8 @@ export function LayoutSwitch(props: { layout: BoardLayout; onChange: (layout: Bo
  * unfiled boards it can attach. On a session tab each row can also detach,
  * which moves the board to Unfiled.
  *
- * While the sidebar lists the container's boards, the menu drops its own list.
- * It keeps New, then Rename, Detach and Delete for the open board, and Attach.
+ * While the sidebar lists the container's boards, the menu keeps only New and
+ * Attach. Each sidebar row carries its own Rename, File under and Delete.
  */
 export function BoardPicker(props: {
   boards: BoardEntry[];
@@ -161,38 +161,6 @@ export function BoardPicker(props: {
             <div className="menu-foot" role="menu" aria-label="Board actions">
               <button className="ghost" role="menuitem" onClick={() => start('new')} data-testid="board-new">
                 <PlusIcon /> New board
-              </button>
-              <button className="ghost" role="menuitem" onClick={() => start('rename')} data-testid="board-rename">
-                <PencilIcon /> <span className="name">Rename “{props.board}”</span>
-              </button>
-              {props.sessionId && (
-                <button
-                  className="ghost"
-                  role="menuitem"
-                  title="Move to Unfiled"
-                  onClick={() => {
-                    setOpen(false);
-                    void props.onDetach(props.board).then(props.onRefresh);
-                  }}
-                  data-testid="board-detach"
-                >
-                  <DetachIcon /> <span className="name">Detach “{props.board}”</span>
-                </button>
-              )}
-              <button
-                className={confirming === props.board ? 'ghost delete-current confirm' : 'ghost delete-current'}
-                role="menuitem"
-                aria-label={confirming === props.board ? `Confirm delete ${props.board}` : `Delete ${props.board}`}
-                title={confirming === props.board ? undefined : 'Move to the Trash'}
-                onClick={() => {
-                  if (confirming !== props.board) return setConfirming(props.board);
-                  close();
-                  void props.onDelete(props.board).then(props.onRefresh);
-                }}
-                data-testid="board-delete"
-              >
-                <TrashIcon />{' '}
-                <span className="name">{confirming === props.board ? 'Click again to delete' : `Delete “${props.board}”`}</span>
               </button>
             </div>
           ) : (

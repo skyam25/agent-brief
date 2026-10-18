@@ -11,6 +11,7 @@ import {
   detachBoard,
   forgetBoard,
   liveFields,
+  moveBoard,
   refreshLive,
   remember,
   renameBoard,
@@ -129,6 +130,12 @@ export class Briefs {
   /** Takes a board out of a session's brief. */
   detach(sessionId: string, board: string): void {
     this.save(detachBoard(this.all(), sessionId, board));
+    this.publish();
+  }
+
+  /** Files boards under one session, out of any other brief. */
+  move(boards: string[], sessionId: string): void {
+    this.save(boards.reduce((all, board) => moveBoard(all, board, sessionId), this.all()));
     this.publish();
   }
 

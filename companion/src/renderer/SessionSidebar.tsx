@@ -1,10 +1,13 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type MouseEvent } from 'react';
 import type { BoardEntry, Mode, SessionBriefEntry } from '../shared/ipc';
 import { modeLabel, shortPath } from '../shared/sessions';
-import { childrenOf } from './boardScope';
+import { boardsOf, childrenOf } from './boardScope';
+import type { MenuPoint } from './ContextMenu';
 import type { DraftBook } from './drafts';
+import type { FilingTab } from './FilingMenu';
 import { useStore } from './hooks';
-import { BoardIcon, ChevronIcon, CloseIcon, NotesIcon, StackIcon } from './Icons';
+import { BoardIcon, ChevronIcon, CloseIcon, MoreIcon, NotesIcon, StackIcon } from './Icons';
+import { BoardMenu, RenameField, SelectionBar, useBoardSelection, type BoardActions, type BoardSelection } from './SidebarBoards';
 import { ago } from './WriteView';
 
 /** Below this width the sidebar opens over the work instead of beside it. */
@@ -32,6 +35,11 @@ function writeFlag(key: string, on: boolean): void {
 export function folderTail(path: string): string {
   const parts = path.split('/').filter(Boolean);
   return path.length <= 28 || parts.length <= 2 ? path : `…/${parts.slice(-2).join('/')}`;
+}
+
+/** A session's second line: how long ago it ended, and its folder. */
+function whereLine(b: SessionBriefEntry, home?: string): string {
+  return [!b.isLive && ago(b.at), b.cwd && folderTail(shortPath(b.cwd, home))].filter(Boolean).join(' · ');
 }
 
 /** Splits the briefs into running and ended sessions, each newest first. */
@@ -87,6 +95,7 @@ export interface ChildProps {
   onOpenBoard: (name: string) => void;
   /** The note count opens Write view, which lists the container's notes. */
   onNotes: () => void;
+  actions: BoardActions;
 }
 
 /** "1 note", "3 notes". */
@@ -130,11 +139,16 @@ export function SessionSidebar(props: {
   };
   const tabs = props.briefs.map((b) => b.sessionId);
   const { contents } = props;
+  const filing: FilingTab[] = [...running, ...ended].map((b) => ({ sessionId: b.sessionId, title: b.title, where: whereLine(b, props.home) }));
+  const names = boardsOf(contents.boards, props.activeId).map((b) => b.name);
+  const selection = useBoardSelection(names, contents.board, props.activeId);
   const childList = (sessionId: string | undefined) => (
     <Children
       {...contents}
       sessionId={sessionId}
       tabs={tabs}
+      filing={filing}
+      selection={selection}
       onOpenBoard={(name) => picked(() => contents.onOpenBoard(name))}
       onNotes={() => picked(contents.onNotes)}
     />
@@ -185,36 +199,85 @@ export function SessionSidebar(props: {
           )}
           {endedShown.map(row)}
         </div>
+        {selection.selected.length > 0 && (
+          <SelectionBar selection={selection} container={props.activeId} tabs={filing} actions={contents.actions} />
+        )}
       </nav>
     </>
   );
 }
 
-/** The active container's boards, then its note count, indented under its row. */
-function Children(props: ChildProps & { sessionId?: string; tabs: string[] }) {
+/**
+ * The active container's boards, then its note count, indented under its row.
+ * Each board has a ⋯ and right-click menu. ⌘ and ⇧ select several.
+ */
+function Children(props: ChildProps & { sessionId?: string; tabs: string[]; filing: FilingTab[]; selection: BoardSelection }) {
   const book = useStore(props.book);
+  const [menu, setMenu] = useState<{ names: string[]; at: MenuPoint }>();
+  const [renaming, setRenaming] = useState<string>();
+  const { selection } = props;
   const kids = childrenOf(props.boards, book.drafts, props.sessionId, props.tabs);
   if (!kids.boards.length && !kids.noteCount) return null;
+
+  /** A selected board's menu acts on the whole selection. Any other board's acts on it alone. */
+  const openMenu = (name: string, at: MenuPoint) => {
+    const many = selection.selected.length > 1 && selection.selected.includes(name);
+    if (!many) selection.clear();
+    setMenu({ names: many ? selection.selected : [name], at });
+  };
+  const onContext = (e: MouseEvent, name: string) => {
+    e.preventDefault();
+    openMenu(name, { x: e.clientX, y: e.clientY });
+  };
+
   return (
     <ul className="children" aria-label="Boards and notes" data-testid="brief-children">
       {kids.boards.map((b) => (
-        <li key={b.name}>
-          <button
-            className="ghost child"
-            title={`${b.name}${b.layout === 'stack' ? ' · Stack board' : ''}\nOpen in Sketch`}
-            aria-current={props.mode === 'sketch' && b.name === props.board}
-            onClick={() => props.onOpenBoard(b.name)}
-            data-testid="brief-board"
-          >
-            {b.layout === 'stack' ? (
-              <span className="layout-mark" data-testid="board-stack-mark">
-                <StackIcon />
-              </span>
-            ) : (
-              <BoardIcon />
-            )}
-            <span className="title">{b.name}</span>
-          </button>
+        <li key={b.name} className="board-row" data-selected={selection.selected.includes(b.name)}>
+          {renaming === b.name ? (
+            <RenameField
+              name={b.name}
+              onDone={(to) => {
+                setRenaming(undefined);
+                if (to) props.actions.rename(b.name, to);
+              }}
+            />
+          ) : (
+            <button
+              className="ghost child"
+              title={`${b.name}${b.layout === 'stack' ? ' · Stack board' : ''}\nOpen in Sketch. ⌘-click to select.`}
+              aria-current={props.mode === 'sketch' && b.name === props.board}
+              onClick={(e) => selection.click(e, b.name) || props.onOpenBoard(b.name)}
+              onDoubleClick={() => setRenaming(b.name)}
+              onContextMenu={(e) => onContext(e, b.name)}
+              data-testid="brief-board"
+            >
+              {b.layout === 'stack' ? (
+                <span className="layout-mark" data-testid="board-stack-mark">
+                  <StackIcon />
+                </span>
+              ) : (
+                <BoardIcon />
+              )}
+              <span className="title">{b.name}</span>
+            </button>
+          )}
+          {renaming !== b.name && (
+            <button
+              className="ghost icon-button small more"
+              aria-label={`More for ${b.name}`}
+              aria-haspopup="menu"
+              aria-expanded={!!menu?.names.includes(b.name)}
+              title="Rename, file under a session, or delete"
+              onClick={(e) => {
+                const box = e.currentTarget.getBoundingClientRect();
+                openMenu(b.name, { x: box.left, y: box.bottom + 4 });
+              }}
+              data-testid="board-more"
+            >
+              <MoreIcon />
+            </button>
+          )}
         </li>
       ))}
       {kids.noteCount > 0 && (
@@ -223,6 +286,18 @@ function Children(props: ChildProps & { sessionId?: string; tabs: string[] }) {
             {noteCountLabel(kids.noteCount)}
           </button>
         </li>
+      )}
+      {menu && (
+        <BoardMenu
+          names={menu.names}
+          at={menu.at}
+          container={props.sessionId}
+          tabs={props.filing}
+          actions={props.actions}
+          onRename={setRenaming}
+          onClose={() => setMenu(undefined)}
+          onDone={selection.clear}
+        />
       )}
     </ul>
   );
@@ -239,7 +314,7 @@ function Row(props: {
   const b = props.brief;
   const isActive = b.sessionId === props.activeId;
   const state = b.isLive ? 'Running in Claude Code' : 'Session ended';
-  const where = [!b.isLive && ago(b.at), b.cwd && folderTail(shortPath(b.cwd, props.home))].filter(Boolean).join(' · ');
+  const where = whereLine(b, props.home);
   return (
     <div className="tab" aria-current={isActive} data-testid="brief-tab" data-session={b.sessionId}>
       <button
