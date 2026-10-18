@@ -225,7 +225,7 @@ agent-brief initiative update <id> --file <json>
 
 Reads work with the app closed. Writes exit 3 while it is down.
 
-The mod's socket calls: `GET /initiatives/recent?limit=3` at registration and when **change** opens, `GET /sessions/<id>/initiative` on each typed prompt while the app is up, `PUT /sessions/<id>/initiative` with `{ initiativeId }` from **change**, and `DELETE /sessions/<id>/initiative` from **Detach** and `/initiative off`. Every failure is silent, and the prompt goes in as typed. The types are in `hooks/initiative-types.ts` until they move into `hooks/companion-protocol.ts`. Initiatives need an Agent Brief app with the Initiative tab; an older app answers 404 and the mod adds nothing.
+The mod's socket calls: `GET /initiatives/recent?limit=3` at registration and when **change** opens, `GET /sessions/<id>/initiative` on each typed prompt while the app is up, `PUT /sessions/<id>/initiative` with `{ initiativeId }` from **change**, and `DELETE /sessions/<id>/initiative` from **Detach** and `/initiative off`. Every failure is silent, and the prompt goes in as typed. The types are in `hooks/companion-protocol.ts`. Initiatives need an Agent Brief app with the Initiative tab; an older app answers 404 and the mod adds nothing.
 
 ### Pictures in the chat
 
