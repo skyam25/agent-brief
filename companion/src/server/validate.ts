@@ -1,5 +1,13 @@
 /** Request validation for the socket routes. Each check throws BadRequest. */
 
+import {
+  INITIATIVE_ROLES,
+  type InitiativeCreateRequest,
+  type InitiativeFolder,
+  type InitiativeRole,
+  type InitiativeUpdateRequest,
+  type SessionInitiativeRequest,
+} from '../protocol';
 import type {
   DeleteRequest,
   DrawRequest,
@@ -258,5 +266,105 @@ export function parseMaxEdge(raw: string | null): number | undefined {
   if (raw === null || raw === '') return undefined;
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) fail('maxEdge must be a positive integer');
+  return n;
+}
+
+// ── Initiatives ───────────────────────────────────────────────────────────
+
+const MAX_LINES = 500;
+const MAX_LINE = 2000;
+const MAX_TITLE = 120;
+
+function oneLine(v: unknown, where: string): string {
+  if (typeof v !== 'string') fail(`${where} must be a string`);
+  const line = v.trim();
+  if (line.includes('\n')) fail(`${where} must be one line`);
+  if (line.length > MAX_LINE) fail(`${where} must be under ${MAX_LINE} characters`);
+  return line;
+}
+
+function optLines(o: Obj, key: string, where: string): string[] | undefined {
+  const v = o[key];
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) fail(`${where}.${key} must be an array of strings`);
+  if (v.length > MAX_LINES) fail(`${where}.${key} takes at most ${MAX_LINES} lines`);
+  return v.map((line, i) => oneLine(line, `${where}.${key}[${i}]`)).filter(Boolean);
+}
+
+function optFolders(o: Obj, where: string): InitiativeFolder[] | undefined {
+  const v = o.folders;
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) fail(`${where}.folders must be an array`);
+  if (v.length > MAX_LINES) fail(`${where}.folders takes at most ${MAX_LINES} rows`);
+  return v.map((raw, i) => {
+    const at = `${where}.folders[${i}]`;
+    const f = object(raw, at);
+    const path = oneLine(f.path, `${at}.path`);
+    if (!path) fail(`${at}.path is required`);
+    const role = f.role as InitiativeRole;
+    if (!INITIATIVE_ROLES.includes(role)) fail(`${at}.role must be one of ${INITIATIVE_ROLES.join(', ')}`);
+    const note = f.note === undefined ? '' : oneLine(f.note, `${at}.note`);
+    return { path, role, ...(note ? { note } : {}) };
+  });
+}
+
+function optUnderstanding(o: Obj, where: string): string | undefined {
+  const text = optString(o, 'understanding', where);
+  if (text !== undefined && text.length > MAX_NOTE) fail(`${where}.understanding must be under ${MAX_NOTE} characters`);
+  return text;
+}
+
+/** Keeps the fields that are set. */
+const defined = <T extends object>(o: T): Partial<T> => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+
+export function parseInitiativeCreate(body: unknown): InitiativeCreateRequest {
+  const o = object(body ?? {}, 'body');
+  const title = reqString(o, 'title', 'body').replace(/\s+/g, ' ').trim();
+  if (!title) fail('body.title is required');
+  if (title.length > MAX_TITLE) fail(`body.title must be under ${MAX_TITLE} characters`);
+  const folder = reqString(o, 'folder', 'body').trim();
+  if (!folder.startsWith('/') && !folder.startsWith('~/')) fail('body.folder must be an absolute path');
+  const updatedBy = optString(o, 'updatedBy', 'body');
+  return {
+    title,
+    folder,
+    ...defined({
+      understanding: optUnderstanding(o, 'body'),
+      folders: optFolders(o, 'body'),
+      decisions: optLines(o, 'decisions', 'body'),
+      open: optLines(o, 'open', 'body'),
+      working: optLines(o, 'working', 'body'),
+      updatedBy: updatedBy === undefined ? undefined : oneLine(updatedBy, 'body.updatedBy') || undefined,
+    }),
+  };
+}
+
+export function parseInitiativeUpdate(body: unknown): InitiativeUpdateRequest {
+  const o = object(body ?? {}, 'body');
+  if (!Number.isInteger(o.revision)) fail('body.revision must be the revision the change was made against');
+  const updatedBy = oneLine(reqString(o, 'updatedBy', 'body'), 'body.updatedBy');
+  if (!updatedBy) fail('body.updatedBy is required');
+  return {
+    revision: o.revision as number,
+    updatedBy,
+    ...defined({
+      understanding: optUnderstanding(o, 'body'),
+      decisions: optLines(o, 'decisions', 'body'),
+      open: optLines(o, 'open', 'body'),
+      folders: optFolders(o, 'body'),
+    }),
+  };
+}
+
+export function parseSessionInitiative(body: unknown): SessionInitiativeRequest {
+  const o = object(body ?? {}, 'body');
+  return { initiativeId: reqString(o, 'initiativeId', 'body').trim() };
+}
+
+/** `limit` for /initiatives/recent: 1 to 50, 3 when absent. */
+export function parseLimit(raw: string | null): number {
+  if (raw === null || raw === '') return 3;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 50) fail('limit must be an integer from 1 to 50');
   return n;
 }

@@ -9,6 +9,12 @@ import type {
   DrawRequest,
   DrawResponse,
   BoardsResponse,
+  Initiative,
+  InitiativeCreateRequest,
+  InitiativeRevision,
+  InitiativeSnapshot,
+  InitiativeSummary,
+  InitiativeUpdateRequest,
   ModePatch,
   MutateResponse,
   NoteRequest,
@@ -86,9 +92,29 @@ export interface DeliveryInput {
   comments?: BoardComments;
 }
 
+/**
+ * Implemented by the app's initiative store. Every `/initiatives` route and
+ * `/sessions/:id/initiative` calls into it. Errors carry a protocol `code`.
+ */
+export interface InitiativeBackend {
+  list(): InitiativeSummary[];
+  recent(limit: number): InitiativeSummary[];
+  find(q: string): InitiativeSummary[];
+  get(id: string): Initiative;
+  history(id: string): InitiativeRevision[];
+  create(req: InitiativeCreateRequest): Initiative;
+  /** Throws a `conflict` error when `req.revision` is not the current one. */
+  update(id: string, req: InitiativeUpdateRequest): Initiative;
+  attach(sessionId: string, initiativeId: string): InitiativeSnapshot;
+  detach(sessionId: string): boolean;
+  snapshot(sessionId: string): InitiativeSnapshot | undefined;
+}
+
 export interface CompanionServerOptions {
   socketPath: string;
   backend: BoardBackend;
+  /** Absent, the initiative routes answer 503. */
+  initiatives?: InitiativeBackend;
   now?: () => number;
 }
 
