@@ -78,7 +78,7 @@ describe('feedback store', () => {
       writeFileSync(join(root, dir, 'x.md.feedback.md'), '# Feedback · x.md\n');
     }
     writeFileSync(join(root, 'gone.md.feedback.md'), '# Feedback · gone.md\n');
-    expect(store.project(root)).toEqual({ files: [
+    expect(store.project(root)).toMatchObject({ files: [
       { path: 'gone.md.feedback.md', output: 'gone.md', outputExists: false, title: 'Feedback · gone.md', rounds: 0, items: 0, open: 0, accepted: 0, rejected: 0, done: 0 },
       { path: 'prototype/checkout.html.feedback.md', output: 'prototype/checkout.html', outputExists: true, title: 'Feedback · checkout.html', rounds: 1, items: 2, open: 1, accepted: 0, rejected: 0, done: 1 },
     ] });

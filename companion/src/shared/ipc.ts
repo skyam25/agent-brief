@@ -465,6 +465,8 @@ export interface CompanionApi extends BoardHost {
   updateFeedback(sessionId: string, path: string, update: FeedbackUpdate): Promise<FeedbackUpdateResult>;
   /** Every feedback file in the session's project, with counts. */
   listFeedback(sessionId: string): Promise<FeedbackProject>;
+  /** A `Before:` or `After:` picture, relative to the output's folder, as a data URL. Undefined when the file is gone. */
+  readFeedbackPicture(sessionId: string, output: string, picture: string): Promise<string | undefined>;
   onFeedbackChanged(fn: () => void): () => void;
   reviewUrl(sessionId: string, path: string): Promise<string>;
   /** Applies a review pane edit to the HTML file. `version` is the file's as the page loaded it. */
@@ -562,6 +564,7 @@ export const CH = {
   readFeedback: 'feedback:read',
   updateFeedback: 'feedback:update',
   listFeedback: 'feedback:list',
+  readFeedbackPicture: 'feedback:picture',
   feedbackChanged: 'feedback:changed',
   reviewUrl: 'review:url',
   reviewEdit: 'review:edit',
@@ -637,6 +640,7 @@ export const IPC_INVOKE = {
   readFeedback: CH.readFeedback,
   updateFeedback: CH.updateFeedback,
   listFeedback: CH.listFeedback,
+  readFeedbackPicture: CH.readFeedbackPicture,
   reviewUrl: CH.reviewUrl,
   reviewEdit: CH.reviewEdit,
   reviewUndo: CH.reviewUndo,

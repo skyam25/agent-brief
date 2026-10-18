@@ -319,6 +319,12 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       if (method === 'PUT') return { json: opts.behaviors.update(session.cwd, q.get('path'), await readJson(req), `Agent · ${id}`) };
     }
 
+    if (root === 'sessions' && sub === 'feedback' && parts.length === 4 && parts[3] === 'snap' && method === 'POST') {
+      const session = liveSession(id);
+      if (!opts.feedbackSnaps) throw new HttpError(503, 'unavailable', 'this app does not take feedback snapshots');
+      return { json: await opts.feedbackSnaps.snap(session.cwd, q.get('path'), await readJson(req), 'Claude') };
+    }
+
     if (root === 'sessions' && sub === 'feedback' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'project'))) {
       const session = liveSession(id);
       if (!opts.feedback) throw new HttpError(503, 'unavailable', 'this app does not keep feedback items');

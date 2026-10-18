@@ -1,5 +1,6 @@
 import type { BehaviorStore } from '../main/behavior';
 import type { FeedbackStore } from '../main/feedback';
+import type { FeedbackSnaps } from '../main/feedback-snap';
 /**
  * Seams between the socket server (src/server) and the Electron app (src/main).
  * The server owns sessions, deliveries and routing. The app owns the board.
@@ -121,6 +122,8 @@ export interface CompanionServerOptions {
   initiatives?: InitiativeBackend;
   behaviors?: Pick<BehaviorStore, 'read' | 'update'>;
   feedback?: Pick<FeedbackStore, 'read' | 'update' | 'project'>;
+  /** Absent, POST /sessions/:id/feedback/snap answers 503. */
+  feedbackSnaps?: Pick<FeedbackSnaps, 'snap'>;
   now?: () => number;
 }
 
