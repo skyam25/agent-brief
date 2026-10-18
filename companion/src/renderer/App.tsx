@@ -187,7 +187,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   useCommentKeys(comments, mode === 'sketch');
   const sidebar = useSidebar();
   const boardList = useBoards(host, controller, briefs);
-  const { send, sendTo, sendNew, copyPrompt, openChooser } = useSend({
+  const { send, sendTo, sendNew, copyPrompt, openChooser, sendText } = useSend({
     host,
     book,
     controller,
@@ -526,6 +526,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               onTrack={(sessionId, on) => void host.setTracking(sessionId, on).catch(report('change item tracking'))}
               onOpenItemOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
               onSend={() => void send()}
+              onSendFeedback={(sessionId, text, onSent) => void sendText(sessionId, text, onSent)}
             />
           )}
           {mode === 'initiative' && (

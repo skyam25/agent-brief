@@ -1,6 +1,7 @@
 import { useEffect, useState, type MouseEvent } from 'react';
-import type { OutputKind, OutputRecord } from '../protocol';
-import { outputLabel, outputTouchedAt } from '../shared/outputs';
+import type { FeedbackFileSummary, OutputKind, OutputRecord } from '../protocol';
+import { isUrlRef, outputLabel, outputTouchedAt } from '../shared/outputs';
+import { isReviewable } from '../shared/review';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { ago, SectionHeader } from './DraftList';
 import { CloseIcon } from './Icons';
@@ -32,6 +33,9 @@ export function OutputsList(props: {
   selectedRef?: string;
   onOpen: (ref: string) => void;
   onDismiss: (ref: string) => void;
+  /** Feedback files by output. An HTML output shows its feedback in the review pane instead. */
+  feedback?: Map<string, FeedbackFileSummary>;
+  onFeedback?: (ref: string) => void;
 }) {
   const { store, sessionId } = props;
   useStore(store);
@@ -56,6 +60,8 @@ export function OutputsList(props: {
       selected={r.ref === props.selectedRef}
       onOpen={() => props.onOpen(r.ref)}
       onDismiss={() => props.onDismiss(r.ref)}
+      feedback={takesFeedback(r.ref) ? props.feedback?.get(r.ref) : undefined}
+      onFeedback={props.onFeedback && takesFeedback(r.ref) ? () => props.onFeedback!(r.ref) : undefined}
       onMenu={(e) => {
         e.preventDefault();
         setMenu({ ref: r.ref, x: e.clientX, y: e.clientY });
@@ -96,6 +102,19 @@ export function OutputsList(props: {
           >
             Open
           </button>
+          {props.onFeedback && takesFeedback(menu.ref) && (
+            <button
+              className="ghost"
+              role="menuitem"
+              onClick={() => {
+                setMenu(undefined);
+                props.onFeedback!(menu.ref);
+              }}
+              data-testid="output-menu-feedback"
+            >
+              Feedback
+            </button>
+          )}
           <button
             className="ghost"
             role="menuitem"
@@ -114,7 +133,19 @@ export function OutputsList(props: {
   );
 }
 
-function OutputRow(props: { record: OutputRecord; index: number; selected: boolean; onOpen: () => void; onDismiss: () => void; onMenu: (e: MouseEvent) => void }) {
+/** A file output the Feedback view opens full width. */
+const takesFeedback = (ref: string) => !isUrlRef(ref) && !isReviewable(ref);
+
+function OutputRow(props: {
+  record: OutputRecord;
+  index: number;
+  selected: boolean;
+  feedback?: FeedbackFileSummary;
+  onOpen: () => void;
+  onDismiss: () => void;
+  onFeedback?: () => void;
+  onMenu: (e: MouseEvent) => void;
+}) {
   const { record: r, index } = props;
   const label = outputLabel(r);
   const declared = r.tier === 'declared';
@@ -150,6 +181,11 @@ function OutputRow(props: { record: OutputRecord; index: number; selected: boole
       >
         <CloseIcon />
       </button>
+      {props.feedback && props.onFeedback && (
+        <button className="ghost output-feedback" title="Open its feedback items" onClick={props.onFeedback} data-testid={`output-feedback-${index}`}>
+          Feedback{props.feedback.open ? ` · ${props.feedback.open}` : ''}
+        </button>
+      )}
     </li>
   );
 }

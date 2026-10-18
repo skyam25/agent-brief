@@ -11,6 +11,7 @@ import { hasReviewContent } from '../shared/review';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { DraftRow, SectionHeader } from './DraftList';
 import type { DraftBook } from './drafts';
+import { FeedbackView, useFeedbackFiles, type SendFeedback } from './FeedbackPanel';
 import { DeleteItem } from './FooterMenu';
 import { useStore } from './hooks';
 import type { ItemsStore } from './items';
@@ -38,6 +39,7 @@ export function ReviewMode(props: {
   /** Opens a file from an item's `Out:` lines. */
   onOpenItemOutput: (sessionId: string, path: string) => void;
   onSend: () => void;
+  onSendFeedback: SendFeedback;
 }) {
   const book = useStore(props.book);
   const items = useStore(props.items);
@@ -56,7 +58,10 @@ export function ReviewMode(props: {
   }, []);
   /** The items were picked, so the pane shows them rather than a page. */
   const [itemsPicked, setItemsPicked] = useState(false);
+  /** An output whose Feedback view fills the pane. */
+  const [feedbackFor, setFeedbackFor] = useState<string>();
   const sessionId = props.brief?.sessionId;
+  const feedbackFiles = useFeedbackFiles(props.review.host, sessionId);
   const tracking = !!props.brief?.trackItems;
   const held = (d: Draft) => !!d.review && hasReviewContent(d.review, d.body);
   const open = book.selected?.review && book.selected.sessionId === sessionId ? book.selected : undefined;
@@ -68,7 +73,10 @@ export function ReviewMode(props: {
   const openItems = list?.filter((i) => !i.done).length ?? 0;
   const waiting = list?.filter(awaitsUser).length ?? 0;
 
-  useEffect(() => setItemsPicked(false), [sessionId]);
+  useEffect(() => {
+    setItemsPicked(false);
+    setFeedbackFor(undefined);
+  }, [sessionId]);
 
   // With nothing picked, the pane opens on the work: the newest review, else the newest Ready page.
   // It waits for the session's lists, and tries each choice once, so a page that fails to open leaves the items in view.
@@ -76,7 +84,7 @@ export function ReviewMode(props: {
   const itemsInfo = sessionId ? items.doc(sessionId) : undefined;
   const tried = useRef(new Set<string>());
   useEffect(() => {
-    if (!sessionId || open || itemsPicked) return;
+    if (!sessionId || open || itemsPicked || feedbackFor) return;
     if (!outputsInfo) {
       void props.outputs.load(sessionId).catch(() => undefined);
       return;
@@ -98,15 +106,22 @@ export function ReviewMode(props: {
     tried.current.add(key);
     if ('draftId' in start) props.book.select(start.draftId);
     else props.onOpenOutput(sessionId, start.ref);
-  }, [sessionId, open?.id, itemsPicked, tracking, outputsInfo, itemsInfo]);
+  }, [sessionId, open?.id, itemsPicked, feedbackFor, tracking, outputsInfo, itemsInfo]);
 
   const pickItems = () => {
     setItemsPicked(true);
+    setFeedbackFor(undefined);
     if (open) book.select(undefined);
   };
   const openOutput = (ref: string) => {
     setItemsPicked(false);
+    setFeedbackFor(undefined);
     if (sessionId) props.onOpenOutput(sessionId, ref);
+  };
+  const openFeedback = (ref: string) => {
+    setItemsPicked(false);
+    setFeedbackFor(ref);
+    if (open) book.select(undefined);
   };
 
   return (
@@ -117,9 +132,11 @@ export function ReviewMode(props: {
             <OutputsList
               store={props.outputs}
               sessionId={sessionId}
-              selectedRef={open?.review?.path}
+              selectedRef={open?.review?.path ?? feedbackFor}
               onOpen={openOutput}
               onDismiss={(ref) => props.onDismissOutput(sessionId, ref)}
+              feedback={feedbackFiles}
+              onFeedback={openFeedback}
             />
           )}
           {reviews.length > 0 && (
@@ -133,6 +150,7 @@ export function ReviewMode(props: {
                     selected={d.id === open?.id}
                     onSelect={() => {
                       setItemsPicked(false);
+                      setFeedbackFor(undefined);
                       book.select(d.id);
                     }}
                     onMenu={(e) => {
@@ -148,7 +166,7 @@ export function ReviewMode(props: {
             <SectionHeader title="Items" count={tracking ? openItems : 0} />
             <ul>
               <li>
-                <button className="ghost draft-row" aria-current={!open} onClick={pickItems} data-testid="items-row">
+                <button className="ghost draft-row" aria-current={!open && !feedbackFor} onClick={pickItems} data-testid="items-row">
                   <span className="lines">
                     <span className="title-line">
                       <span className="title">{tracking ? `${openItems} open` : 'Not tracked'}</span>
@@ -185,8 +203,23 @@ export function ReviewMode(props: {
           listOpen={listOpen}
           onToggleList={() => setListWanted(!listOpen)}
           onSend={props.onSend}
+          onSendFeedback={props.onSendFeedback}
+          canSend={!!props.brief?.isLive}
           onError={props.review.onError}
         />
+      ) : feedbackFor && sessionId ? (
+        <div className="review-side">
+          <FeedbackView
+            key={feedbackFor}
+            host={props.review.host}
+            sessionId={sessionId}
+            path={feedbackFor}
+            canSend={!!props.brief?.isLive}
+            onSend={props.onSendFeedback}
+            onOpenFile={() => props.onOpenOutput(sessionId, feedbackFor)}
+            onError={props.review.onError}
+          />
+        </div>
       ) : (
         <div className="review-side">
           <ItemsView

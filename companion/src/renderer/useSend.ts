@@ -41,6 +41,8 @@ export interface PanelSend {
   sendNew: (cwd: string, via: Launcher) => Promise<void>;
   copyPrompt: (cwd: string) => Promise<void>;
   openChooser: (open: boolean) => void;
+  /** Hands a running session a fixed text, such as Feedback's decisions. `onSent` runs once it went out. */
+  sendText: (sessionId: string, text: string, onSent?: () => Promise<void>) => Promise<void>;
 }
 
 /** The payload fields a draft adds: the pictures its body references and the output file it was copied from, when it has them. */
@@ -76,7 +78,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
    * Initiative mode sends the discover prompt.
    */
   const outgoing = async (): Promise<
-    { payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided; pinned?: string } | string
+    { payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided; pinned?: string; onSent?: () => Promise<void> } | string
   > => {
     if (modeRef.current === 'initiative') return { payload: { text: DISCOVER_PROMPT }, clearsBoard: false };
     if (modeRef.current === 'review') {
@@ -132,14 +134,14 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     return { payload: { ...(await controller.payload()), text: draft.body, draftId: draft.id, ...fromDraft(draft) }, clearsBoard: true, sent };
   };
 
-  /** Builds the payload, hands it over, and hides the panel once it went out. */
-  const deliver = async (handOff: (payload: Outgoing) => Promise<SendResult>) => {
+  /** Builds the payload, or takes a fixed one, hands it over, and hides the panel once it went out. */
+  const deliver = async (handOff: (payload: Outgoing) => Promise<SendResult>, fixed?: { payload: Outgoing; onSent?: () => Promise<void> }) => {
     if (sending.current) return;
     sending.current = true;
     setChooserOpen(false);
     notify('Preparing…', 'progress');
     try {
-      const out = await outgoing();
+      const out = fixed ? { ...fixed, clearsBoard: false } : await outgoing();
       if (typeof out === 'string') {
         notify(out);
         return;
@@ -157,6 +159,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
           items.clear(out.decided.sessionId, out.decided.decisions);
           void items.load(out.decided.sessionId).catch(() => undefined);
         }
+        if (out.onSent) await out.onSent().catch((err: Error) => notify(`Sent, but the file was not marked: ${err.message}`, 'error'));
         host.hidePanel();
       }
     } catch (err) {
@@ -177,6 +180,16 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       sending.current = false;
     }
     await deliver((p) => host.send(p));
+  };
+  const sendText = async (sessionId: string, text: string, onSent?: () => Promise<void>) => {
+    if (sending.current) return;
+    sending.current = true;
+    try {
+      await host.setTarget(sessionId);
+    } finally {
+      sending.current = false;
+    }
+    await deliver((p) => host.send(p), { payload: { text }, onSent });
   };
   const sendNew = (cwd: string, via: Launcher) => deliver((p) => host.sendNew(p, { cwd, via }));
   const copyPrompt = (cwd: string) => deliver((p) => host.copyPrompt(p, cwd));
@@ -201,5 +214,5 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     return !note || (!note.body.trim() && !note.board) ? 'Write something first.' : undefined;
   };
 
-  return { send, sendTo, sendNew, copyPrompt, openChooser };
+  return { send, sendTo, sendNew, copyPrompt, openChooser, sendText };
 }

@@ -3574,3 +3574,30 @@ button.stop-talk:hover {
 .behavior-actions { margin-top: 8px; }
 .behavior-error { color: var(--error); }
 .behavior-history { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+
+/* Feedback shares the review pane's cards, and fills the pane for outputs with no page. */
+.feedback-panel { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.feedback-panel p { margin: 0; }
+.feedback-path { font-size: 11px; }
+.feedback-round { display: flex; flex-direction: column; gap: 6px; }
+.feedback-round .section-head { margin: 10px 2px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.feedback-item .num { flex: none; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.feedback-title { min-width: 0; font-weight: 600; }
+.feedback-item.rejected .feedback-title, .feedback-item.done .feedback-title { color: var(--muted); }
+.feedback-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.feedback-badges .kind-tag { padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 16px; background: var(--hover); }
+.feedback-badges .kind-tag.also { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.feedback-state { margin-right: 2px; font-size: 11px; font-weight: 600; }
+.feedback-state.accepted, .feedback-state.done { color: var(--accent); }
+.feedback-state.rejected { color: var(--muted); }
+.feedback-note { display: flex; align-items: center; gap: 4px; }
+.feedback-note input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
+.feedback-note input:focus { outline: none; border-color: var(--accent); }
+.feedback-item.listening .feedback-note input { border-color: var(--error); }
+.feedback-note .icon-button.on { color: var(--error); }
+.feedback-history summary { cursor: pointer; font-size: 12px; }
+.feedback-history .item-line { font-size: 12px; }
+.feedback-foot { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 2px; font-size: 11px; background: var(--bg); }
+.feedback-view .feedback-panel { max-width: 720px; margin: 0 auto; }
+.write button.output-feedback { position: absolute; right: 6px; bottom: 6px; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.feedback-view .feedback-panel h3 { margin: 0; font-size: 15px; }

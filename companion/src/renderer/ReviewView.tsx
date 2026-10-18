@@ -1,5 +1,6 @@
 import type { BehaviorDocument, BehaviorDecision } from '../protocol';
 import { BehaviorPanel } from './BehaviorPanel';
+import { FeedbackPanel, openCount, useFeedbackDoc, type FeedbackHost, type SendFeedback } from './FeedbackPanel';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { CompanionApi, Draft } from '../shared/ipc';
 import { anchorLabel, baseName, commentCount, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
@@ -12,7 +13,7 @@ import { CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIc
 import { Inspector } from './Inspector';
 import { OVERALL, type ReviewVoice } from './review-voice';
 
-export type ReviewHost = Pick<CompanionApi, 'readBehavior' | 'decideBehavior' | 'onBehaviorChanged' | 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
+export type ReviewHost = FeedbackHost & Pick<CompanionApi, 'readBehavior' | 'decideBehavior' | 'onBehaviorChanged' | 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
 
 export type ReviewDraft = Draft & { review: DraftReview };
 
@@ -51,12 +52,18 @@ export function ReviewView(props: {
   listOpen: boolean;
   onToggleList: () => void;
   onSend: () => void;
+  onSendFeedback: SendFeedback;
+  /** The session runs, so Send decisions can reach it. */
+  canSend: boolean;
   onError: (message: string) => void;
 }) {
   const { book, draft, host } = props;
   const voice = useStore(props.voice);
   const { review } = draft;
-  const [side, setSide] = useState<'comments' | 'behavior'>('comments');
+  const [side, setSide] = useState<'comments' | 'behavior' | 'feedback'>('comments');
+  const sideRef = useRef(side);
+  sideRef.current = side;
+  const feedback = useFeedbackDoc(host, draft.sessionId, review.path);
   const [behavior, setBehavior] = useState<BehaviorDocument>();
   const [behaviorError, setBehaviorError] = useState<string>();
   const behaviorRequest = useRef(0);
@@ -235,7 +242,7 @@ export function ReviewView(props: {
       if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
       if (m.type === 'pin' && live.current.onPage) void addPin(m.anchor, m.view);
       if (m.type === 'open-pin') select(m.id, true);
-      if (m.type === 'behavior-missing') props.onError('That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');
+      if (m.type === 'behavior-missing') props.onError(sideRef.current === 'feedback' ? 'That element is not on the page now. Ask Claude to update the item\'s Where line.' : 'That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');
       if (m.type === 'missing') setMissing(m.ids);
       if (m.type === 'link') void host.openLink(m.href).catch(() => props.onError('Could not open that link.'));
       if (m.type === 'key' && m.key === 'c') setCommenting((on) => !on);
@@ -412,8 +419,9 @@ export function ReviewView(props: {
           <div className="behavior-tabs" role="tablist" aria-label="Review details">
             <button className={side === 'comments' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'comments'} onClick={() => setSide('comments')}>Comments</button>
             <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { setSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
+            <button className={side === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'feedback'} data-testid="feedback-tab" onClick={() => { setSide('feedback'); setCommenting(false); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>
           </div>
-          {side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
+          {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
 
           <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
             <span className="section-head">Overall</span>
