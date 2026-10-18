@@ -35,6 +35,7 @@ if (args.some(a => a !== '--no-build')) {
 if (!args.includes('--no-build')) run('pnpm', ['dist:notarize']);
 if (!existsSync(BUILT)) throw new Error(`missing ${BUILT}`);
 run('codesign', ['--verify', '--deep', '--strict', BUILT]);
+run('spctl', ['--assess', '--type', 'execute', BUILT]);
 
 if (running()) {
   execFileSync('osascript', ['-e', `tell application id "${BUNDLE_ID}" to quit`], { stdio: 'ignore' });
@@ -49,7 +50,6 @@ if (running()) {
 if (existsSync(APP)) renameSync(APP, join(homedir(), '.Trash', `Agent Brief ${Date.now()}.app`));
 run('ditto', [BUILT, APP]);
 run('codesign', ['--verify', '--deep', '--strict', APP]);
-run('spctl', ['--assess', '--type', 'execute', APP]);
 run('open', [APP]);
 
 const version = execFileSync('plutil', ['-extract', 'CFBundleShortVersionString', 'raw', '-o', '-', `${APP}/Contents/Info.plist`], { encoding: 'utf8' }).trim();
