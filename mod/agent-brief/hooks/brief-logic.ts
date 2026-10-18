@@ -6,6 +6,9 @@ import { modeLabel } from './modes'
 export const BRIEF_PANE = 'brief'
 export const BRIEF_COLUMNS = 60
 
+/** The most rows the pane asks for while seated inline. The frame shrinks to fit a shorter tree. */
+export const BRIEF_ROWS = 30
+
 /** What Agree holds as the answer to a proposal. */
 export const AGREE_TEXT = 'Agreed'
 

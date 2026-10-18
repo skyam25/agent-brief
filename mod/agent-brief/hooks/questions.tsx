@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface, On } from 'claude-code'
 
 import type { BriefQuestion } from '../types'
-import { BRIEF_COLUMNS, BRIEF_PANE } from './brief-logic'
+import { BRIEF_COLUMNS, BRIEF_PANE, BRIEF_ROWS } from './brief-logic'
 import {
   ASK_TOOL,
   ASK_USAGE,
@@ -20,6 +20,7 @@ import {
 
 const questionsRef = atom({ plugin: 'agent-brief', key: 'questions' } as const, [])
 const grillingRef = atom({ plugin: 'agent-brief', key: 'grilling' } as const, false)
+const briefRef = atom({ plugin: 'agent-brief', key: 'brief' } as const, { isPrototypePending: false, isTouchedOpen: false, isDoneOpen: false, isExpanded: false })
 
 export type QuestionsActions = {
   /** Holds a listed option, or the text of a text question. */
@@ -146,12 +147,14 @@ function inputTree(table: ElementTable, q: BriefQuestion, hasFields: boolean, su
  * Answers `ask_questions`: holds the round and opens the Brief pane so the user sees it.
  * The open is the model's, not the user's, so the engine seats it only from 144 columns
  * (110 once the user has opened the pane). Below that it waits undrawn and a toast says where the questions are.
+ * The pane expands, so an inline seat shows the questions and not just their count.
  */
 async function ask($: EngineInterface, input: unknown): Promise<string> {
   const asked = parseQuestions(input)
   if (asked === undefined) return ASK_USAGE
   const questions = await update($, questionsRef, held => askQuestions(held, asked))
-  const opened = await $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS }).catch(err => {
+  await update($, briefRef, view => ({ ...view, isExpanded: true }))
+  const opened = await $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS, rows: BRIEF_ROWS }).catch(err => {
     log($, `brief open failed: ${String(err)}`)
     return { isPlaced: false as const }
   })

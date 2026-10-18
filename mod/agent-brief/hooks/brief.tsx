@@ -34,7 +34,8 @@ export type BriefActions = {
   hold: (n: number, text: string) => Promise<void>
   clear: (n: number) => Promise<void>
   send: () => Promise<void>
-  fold: (section: 'touched' | 'done') => Promise<void>
+  /** `expanded` swaps the inline seat between its summary line and the full Brief. */
+  fold: (section: 'touched' | 'done' | 'expanded') => Promise<void>
 }
 
 /**
@@ -46,13 +47,16 @@ export type BriefSlots = { questions?: RenderElement | null }
 
 /**
  * The Brief pane: a header with the Mode Select and the Initiative line, Outputs, the Questions slot, then Items.
- * Seated inline above the prompt it draws one summary line and the Ready outputs only.
+ * Seated inline above the prompt it draws one summary line and the Ready outputs, until Expand.
  */
 export function briefTree(table: ElementTable, pane: BriefPaneView, act: BriefActions, slots: BriefSlots = {}) {
-  if (pane.placement === 'inline') return inlineTree(table, pane, act)
-  const { Box, Text } = table
+  if (pane.placement === 'inline' && !pane.view.isExpanded) return inlineTree(table, pane, act)
+  const { Box, Button, Text } = table
   return (
     <Box flexDirection="column">
+      {pane.placement === 'inline' && (
+        <Button key="brief-expand" plain dimColor label="▾ Collapse" onPress={() => void act.fold('expanded')} />
+      )}
       {headerTree(table, pane, act)}
       {outputsTree(table, pane, act)}
       {slots.questions ? <Box marginTop={1}>{slots.questions}</Box> : null}
@@ -75,7 +79,7 @@ function inlineTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
           ))}
         </Box>
       )}
-      <Text dimColor>Widen the terminal for the full Brief.</Text>
+      <Button key="brief-expand" plain dimColor label="▸ Expand" onPress={() => void act.fold('expanded')} />
     </Box>
   )
 }

@@ -272,5 +272,25 @@ describe('the inline seat', () => {
     expect(json).toContain('"label":"Open Spec"')
     expect(json).not.toContain('Open Deck')
     expect(json).not.toContain('brief-send')
+    expect(json).toContain('"label":"▸ Expand"')
+  })
+
+  test('Expand draws the full Brief inline, and Collapse returns to the summary', async ($, on) => {
+    await setup($, on, { [ITEMS_PATH]: ITEMS, [OUTPUTS_PATH]: OUTPUTS })
+    await $.ui.render(briefPane('inline'))
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief-expand' })
+    const expanded = await pane($, 'inline')
+    expect(expanded).toContain('"label":"▾ Collapse"')
+    expect(expanded).toContain('brief-send')
+    expect(expanded).toContain('"key":"brief-mode"')
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief-expand' })
+    const collapsed = await pane($, 'inline')
+    expect(collapsed).toContain('"label":"▸ Expand"')
+    expect(collapsed).not.toContain('brief-send')
+  })
+
+  test('the docked pane draws no Expand', async ($, on) => {
+    await setup($, on, { [ITEMS_PATH]: ITEMS, [OUTPUTS_PATH]: OUTPUTS })
+    expect(await pane($)).not.toContain('brief-expand')
   })
 })

@@ -61,8 +61,11 @@ export type QuestionKind = 'options' | 'select' | 'text'
  */
 export type BriefQuestion = { id: string; text: string; kind: QuestionKind; options?: string[]; answer?: string; isOther?: true }
 
-/** What the Brief pane has folded open, and whether its Mode Select waits on a fidelity. */
-export type BriefView = { isPrototypePending: boolean; isTouchedOpen: boolean; isDoneOpen: boolean }
+/**
+ * What the Brief pane has folded open, and whether its Mode Select waits on a fidelity.
+ * `isExpanded` makes the pane draw the full Brief while seated inline above the prompt.
+ */
+export type BriefView = { isPrototypePending: boolean; isTouchedOpen: boolean; isDoneOpen: boolean; isExpanded: boolean }
 
 /** The initiative this session is attached to, as the band and the Brief pane show it. As `InitiativeSnapshot` in hooks/companion-protocol.ts. */
 export type AttachedInitiative = { id: string; title: string; revision: number; attachmentRevision: number }

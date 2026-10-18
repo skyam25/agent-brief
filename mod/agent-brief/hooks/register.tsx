@@ -8,6 +8,7 @@ import { briefTree } from './brief'
 import type { BriefPaneView } from './brief'
 import {
   BRIEF_COLUMNS,
+  BRIEF_ROWS,
   BRIEF_PANE,
   NOTHING_HELD,
   NO_ITEMS_FILE,
@@ -184,7 +185,7 @@ const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as con
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
 const answersRef = atom({ plugin: 'agent-brief', key: 'answers' } as const, [])
-const briefRef = atom({ plugin: 'agent-brief', key: 'brief' } as const, { isPrototypePending: false, isTouchedOpen: false, isDoneOpen: false })
+const briefRef = atom({ plugin: 'agent-brief', key: 'brief' } as const, { isPrototypePending: false, isTouchedOpen: false, isDoneOpen: false, isExpanded: false })
 const questionsRef = atom({ plugin: 'agent-brief', key: 'questions' } as const, [])
 const grillingRef = atom({ plugin: 'agent-brief', key: 'grilling' } as const, false)
 const initiativeRef = atom({ plugin: 'agent-brief', key: 'initiative' } as const, null)
@@ -607,7 +608,7 @@ function toggleBrief($: EngineInterface): Promise<void> {
     return $.ui.close({ id: BRIEF_PANE })
   }
   isBriefOpen = true
-  const opening = $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS })
+  const opening = $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS, rows: BRIEF_ROWS })
   return opening.then(async opened => {
     if (!opened.isPlaced) $.ui.toast(`Brief pane not shown: ${opened.reason}`, { timeoutMs: 8000 })
     await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
@@ -1405,10 +1406,10 @@ export const register: Register = (on, options) => {
       hold: (n, text) => update($, answersRef, list => holdAnswer(list, n, text)).then(() => undefined),
       clear: n => update($, answersRef, list => dropAnswer(list, n)).then(() => undefined),
       send: () => sendAnswers($),
-      fold: section =>
-        update($, briefRef, view =>
-          section === 'touched' ? { ...view, isTouchedOpen: !view.isTouchedOpen } : { ...view, isDoneOpen: !view.isDoneOpen },
-        ).then(() => undefined),
+      fold: section => {
+        const field = ({ touched: 'isTouchedOpen', done: 'isDoneOpen', expanded: 'isExpanded' } as const)[section]
+        return update($, briefRef, view => ({ ...view, [field]: !view[field] })).then(() => undefined)
+      },
     }, { questions: asked })
   })
 

@@ -120,7 +120,7 @@ The band above the prompt has a button for each panel mode, **✎ Sketch**, **�
 - **Items** lists the open items from the items file, with **☑ Track** or **☐ Track** in its header and the done items folded under **Done (n)**. Each row shows Claude's latest line, a control to answer it, and your latest answer.
 - The control follows Claude's line. `A or B?` with two short clauses, or `A / B` with up to four short options, gives a button each. Any other question gives a text field, and Enter holds what you typed. A line that asks nothing is a proposal, with **Agree** beside a field.
 - Answers wait in the pane until **Send answers**. Send appends your `You:` lines to the items file and sends the decisions as one prompt, as the app's Send does. An item answered in the app in the meantime keeps that answer, and the pane drops its own.
-- Seated inline above the prompt on a narrow terminal, the pane draws one line, such as `▣ Brief · 2 ready · 1 drafting · 2 items waiting · Prototype`, with **Open** for the Ready outputs only.
+- Seated inline above the prompt on a narrow terminal, the pane draws one line, such as `▣ Brief · 2 ready · 1 drafting · 2 items waiting · Prototype`, with **Open** for the Ready outputs only. **▸ Expand** draws the full Brief there, and **▾ Collapse** returns to the line. A round of `ask_questions` expands it.
 - The pane redraws when Claude writes the outputs or the items file, and reads the items file again after each turn, so answers from the app show up too.
 
 ### Questions and `/grill [on|off]`

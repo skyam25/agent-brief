@@ -99,11 +99,21 @@ describe('ask_questions', () => {
     expect(await pane($)).not.toContain('Questions · from Claude')
   })
 
-  test('the band counts the questions, and the inline line names them', async ($, on) => {
+  test('the band counts the questions, and the collapsed inline line names them', async ($, on) => {
     await setup($, on)
     await ask($)
     expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"▣ Brief 4"')
+    await $.ui.render(briefPane('inline'))
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief-expand' })
     expect(await pane($, 'inline')).toContain('1 item waiting · 3 questions waiting')
+  })
+
+  test('asking expands the inline seat so the questions show', async ($, on) => {
+    await setup($, on)
+    await ask($)
+    const drawn = await pane($, 'inline')
+    expect(drawn).toContain('Questions · from Claude')
+    expect(drawn).toContain('"label":"▾ Collapse"')
   })
 
   test('asking again replaces the unanswered questions', async ($, on) => {
