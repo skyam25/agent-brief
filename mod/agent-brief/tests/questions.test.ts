@@ -26,8 +26,10 @@ async function setup($: Dollar, on: On, { isToolRefused = false, isPaneOpen = fa
   seated.world.isToolRefused = isToolRefused
   seated.world.files.set(ITEMS_PATH, ITEMS)
   const panes = new Set<string>(isPaneOpen ? ['brief'] : [])
+  const opens: { id: string; focus?: true }[] = []
   on('ui.panes', () => ({ value: [...panes].map(id => ({ id, title: 'Brief', isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', ($, e) => {
+    opens.push({ id: e.id, ...(e.focus ? { focus: e.focus } : {}) })
     if (isNarrow) return { value: { isPlaced: false, reason: 'below 144 columns at 117' } }
     panes.add(e.id)
     return { value: { isPlaced: true } }
@@ -39,7 +41,7 @@ async function setup($: Dollar, on: On, { isToolRefused = false, isPaneOpen = fa
   on('session.messages', () => ({ value: [] }))
   await seated.start()
   await seated.clock.settle()
-  return { ...seated, panes }
+  return { ...seated, panes, opens }
 }
 
 const ask = async ($: Dollar, questions: unknown = QUESTIONS) =>
@@ -67,6 +69,18 @@ describe('ask_questions', () => {
     expect(drawn).toContain('"key":"question-goal-answer"')
     expect(drawn).toContain('"key":"questions-send"')
     expect(drawn.indexOf('Questions · from Claude')).toBeLessThan(drawn.indexOf('"key":"brief-track"'))
+  })
+
+  test('asks for the keyboard and starts the focus ring on the first unanswered option', async ($, on) => {
+    const { opens } = await setup($, on)
+    await ask($)
+    expect(opens).toEqual([{ id: 'brief', focus: true }])
+    const autoFocused = (await pane($)).match(/"key":"[^"]+"(?=[^{}]*"autoFocus":true)|"autoFocus":true[^{}]*"key":"[^"]+"/g) ?? []
+    expect(autoFocused).toHaveLength(1)
+    expect(autoFocused[0]).toContain('question-audience-option-0')
+
+    await press($, 'question-audience-option-1')
+    expect(await pane($)).not.toContain('"autoFocus":true')
   })
 
   test('an open pane redraws without a toast', async ($, on) => {

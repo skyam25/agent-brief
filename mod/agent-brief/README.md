@@ -137,7 +137,7 @@ Claude can ask a short round of questions with the `ask_questions` tool. Each qu
 - The section reads **Questions · from Claude · N**. A held answer shows on its row with **Clear**.
 - The section has its own **Send answers**. It sends one prompt that starts `Answers to your questions:`, with a `- <question>: <answer>` line each, then clears the section. A question you skipped goes out as `(no answer)`. Items keep their own Send.
 - Asking again replaces the questions you have not answered yet. Answered ones stay until Send.
-- The tool never opens the pane. When the pane is closed, a toast says the questions wait and to press `b`.
+- The tool opens the Brief pane from 144 columns, or from 110 once you have opened it before. Below that a toast says the questions wait and to press `b`. Over an empty prompt the pane takes the keyboard, so Up and Down walk the options.
 - `/grill` tells Claude to interview you before it starts on an underspecified request. It asks three to five questions a round, with choices where the answer space is small, and starts as soon as it can. `/grill off` stops it. Both reply with the state they leave.
 - When a policy refuses plugin tools, `/grill` still works and Claude asks its questions in the reply instead.
 

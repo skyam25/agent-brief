@@ -1,7 +1,7 @@
 {
   "name": "agent-brief",
-  "version": "0.6.1",
-  "description": "Watches ~/Downloads/feedback-inbox for sessions exported by the companion Chrome extension, transcribes them locally with yap, writes .feedback/<session>/ into the project, and hands the report to Claude. Also links the session to the Agent Brief sketch panel.",
+  "version": "0.6.2",
+  "description": "Links a Claude Code session to the Agent Brief panel: sketch, stack, write and track from the band or /sketch, /stack, /write and /track, with what you send delivered into the prompt. Also applies feedback sessions exported by the companion Chrome extension with /apply-feedback.",
   "author": {
     "name": "skyam25"
   },

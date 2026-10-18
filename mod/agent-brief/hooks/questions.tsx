@@ -42,10 +42,11 @@ export function questionsTree(table: ElementTable, questions: readonly BriefQues
   if (questions.length === 0) return null
   const { Box, Button, Text } = table
   const answered = answeredCount(questions)
+  const lead = leadQuestion(questions)
   return (
     <Box flexDirection="column">
       <Text bold>{`Questions · from Claude · ${questions.length}`}</Text>
-      {questions.map(q => questionTree(table, q, hasFields, act))}
+      {questions.map(q => questionTree(table, q, hasFields, q.id === lead, act))}
       <Box marginTop={1}>
         <Button
           key="questions-send"
@@ -58,12 +59,20 @@ export function questionsTree(table: ElementTable, questions: readonly BriefQues
   )
 }
 
-function questionTree(table: ElementTable, q: BriefQuestion, hasFields: boolean, act: QuestionsActions) {
+/**
+ * The first unanswered options question. Its first option holds the focus ring when the pane takes the keyboard,
+ * so the arrows start on an answer. Only Buttons take it: an Input there would catch the user's typing.
+ */
+function leadQuestion(questions: readonly BriefQuestion[]): string | undefined {
+  return questions.find(q => q.kind === 'options' && q.answer === undefined && !q.isOther)?.id
+}
+
+function questionTree(table: ElementTable, q: BriefQuestion, hasFields: boolean, isLead: boolean, act: QuestionsActions) {
   const { Box, Button, Text } = table
   return (
     <Box key={`question-${q.id}`} flexDirection="column" marginTop={1}>
       <Text>{q.text}</Text>
-      {controlTree(table, q, hasFields, act)}
+      {controlTree(table, q, hasFields, isLead, act)}
       {q.answer !== undefined && (
         <Box columnGap={1}>
           <Text color="green">→ {q.answer}</Text>
@@ -78,7 +87,7 @@ function questionTree(table: ElementTable, q: BriefQuestion, hasFields: boolean,
  * Buttons for options, a Select for select, an Input for text. Options and select end with Other,
  * which opens an Input under them for the user's own words. A surface without fields draws Buttons where it can.
  */
-function controlTree(table: ElementTable, q: BriefQuestion, hasFields: boolean, act: QuestionsActions) {
+function controlTree(table: ElementTable, q: BriefQuestion, hasFields: boolean, isLead: boolean, act: QuestionsActions) {
   const { Box, Button } = table
   const { Select } = (hasFields ? table : {}) as Partial<ElementTable<'terminal'>>
   const options = q.options ?? []
@@ -112,6 +121,7 @@ function controlTree(table: ElementTable, q: BriefQuestion, hasFields: boolean, 
             key={`question-${q.id}-option-${i}`}
             label={option}
             {...(q.answer === option && !q.isOther ? { variant: 'primary' as const } : {})}
+            {...(isLead && i === 0 ? { autoFocus: true as const } : {})}
             onPress={() => void act.answer(q.id, option)}
           />
         ))}
@@ -145,6 +155,8 @@ function inputTree(table: ElementTable, q: BriefQuestion, hasFields: boolean, su
 
 /**
  * Answers `ask_questions`: holds the round and opens the Brief pane so the user sees it.
+ * The open asks for the keyboard so the arrows walk the options. The engine grants it only over
+ * an empty composer, so a user mid-prompt keeps typing.
  * The open is the model's, not the user's, so the engine seats it only from 144 columns
  * (110 once the user has opened the pane). Below that it waits undrawn and a toast says where the questions are.
  * The pane expands, so an inline seat shows the questions and not just their count.
@@ -154,7 +166,7 @@ async function ask($: EngineInterface, input: unknown): Promise<string> {
   if (asked === undefined) return ASK_USAGE
   const questions = await update($, questionsRef, held => askQuestions(held, asked))
   await update($, briefRef, view => ({ ...view, isExpanded: true }))
-  const opened = await $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS, rows: BRIEF_ROWS }).catch(err => {
+  const opened = await $.ui.open({ id: BRIEF_PANE, title: 'Brief', focus: true, columns: BRIEF_COLUMNS, rows: BRIEF_ROWS }).catch(err => {
     log($, `brief open failed: ${String(err)}`)
     return { isPlaced: false as const }
   })

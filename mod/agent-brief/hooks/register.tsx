@@ -417,7 +417,7 @@ async function currentTracking($: EngineInterface): Promise<Tracking | undefined
   return setTracking($, sessionId, reply.ok ? reply.body : undefined)
 }
 
-/** Keeps the app's answer, and redraws the band's Track button when it changed. */
+/** Keeps the app's answer, and redraws the Brief pane's Track toggle when it changed. */
 async function setTracking($: EngineInterface, sessionId: string, body: unknown): Promise<Tracking> {
   tracking = { sessionId, ...trackingOf(body) }
   const isOn = tracking.trackItems
