@@ -211,6 +211,10 @@ async function start(): Promise<void> {
     },
     mode: (sessionId) => modes.get(sessionId),
     setMode: (sessionId, patch) => modes.set(sessionId, patch),
+    // The brief reaches the panel before the target does, so the sidebar never falls back to Unfiled.
+    claim(sessionId) {
+      if (!briefs.get(sessionId)) briefs.remember(sessionId, {});
+    },
     // A note from `agent-brief note`. The panel stays as it is and lists the note.
     addNote(req) {
       const draft = drafts.addNote(req);

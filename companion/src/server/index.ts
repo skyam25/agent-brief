@@ -378,7 +378,10 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       const body = parseOpen(await readJson(req));
       sweep();
       if (body.output && !sessionMap.has(body.sessionId!)) throw new BadRequest('body.sessionId names no live session');
-      if (body.sessionId !== undefined && sessionMap.has(body.sessionId)) setTarget(body.sessionId);
+      if (body.sessionId !== undefined && sessionMap.has(body.sessionId)) {
+        backend.claim?.(body.sessionId);
+        setTarget(body.sessionId);
+      }
       const res = await backend.open(body);
       for (const fn of openListeners) fn(body);
       const opened = body.output ? res.opened : (res.opened ?? (body.mode === 'write' ? 'note' : 'board'));

@@ -197,6 +197,27 @@ test('a session opened by /sketch is the named Send and the active tab until it 
   expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
 });
 
+test('/sketch from a session with no brief yet selects its row without passing through Unfiled', async () => {
+  const { page } = ctx;
+  const cwd = project();
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'First' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await expect(page.getByTestId('brief-tab').filter({ hasText: 'First' })).toHaveAttribute('aria-current', 'true');
+
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd, title: 'Second' });
+  await page.evaluate(() => {
+    const w = window as unknown as { __unfiled: boolean };
+    w.__unfiled = false;
+    const check = () => {
+      if (document.querySelector('[data-testid="notes-tab"][aria-current="true"]')) w.__unfiled = true;
+    };
+    new MutationObserver(check).observe(document.body, { subtree: true, childList: true, attributes: true });
+  });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's2' });
+  await expect(page.getByTestId('brief-tab').filter({ hasText: 'Second' })).toHaveAttribute('aria-current', 'true');
+  expect(await page.evaluate(() => (window as unknown as { __unfiled: boolean }).__unfiled)).toBe(false);
+});
+
 test('Send to a new session writes the bundle into the folder and starts Claude Code there', async () => {
   const { app, page } = ctx;
   const cwd = project();

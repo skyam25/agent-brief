@@ -60,6 +60,8 @@ export interface BoardBackend {
   mode?(sessionId: string): ModePatch | undefined;
   /** Stores the mode the mod reports. `default` clears it, and a mode other than prototype has no fidelity. */
   setMode?(sessionId: string, patch: ModePatch): void | Promise<void>;
+  /** Runs before an open makes the session the Send target, so the panel has its brief first. */
+  claim?(sessionId: string): void;
 }
 
 /** What the app hands over when you press Send. */
