@@ -50,6 +50,8 @@ export interface SessionInfo {
   pid?: number;
   /** The user's latest typed prompt, trimmed, so two sessions in one folder look different. */
   summary?: string;
+  /** Epoch ms when the session last finished a reply. Absent before its first one. */
+  activeAt?: number;
   /** Where the session runs, for its label and for jumping back to it. */
   host?: SessionHost;
   /** Set by the app. Epoch ms of the last register or poll. */

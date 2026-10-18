@@ -8,6 +8,7 @@ import type { CompanionServer, DeliveryInput } from '../server/contract';
 import { isTextPayload, type Launcher, type Outgoing, type SendPayload, type SendResult } from '../shared/ipc';
 import { cleanBoardComments } from '../shared/board-comments';
 import { cleanReview } from '../shared/review';
+import { portablePrompt } from '../shared/sessions';
 import { composeDelivery, findTool } from '../voice/compose';
 import type { Briefs } from './briefs';
 import { deliveryImages, type DraftStore } from './drafts';
@@ -111,7 +112,10 @@ export class Sender {
       const { input, warnings } = await this.compose(payload);
       const delivery = await server.deliver(input);
       const target = this.sessionName(delivery.sessionId);
-      this.record({ id: delivery.id, sentAt: delivery.createdAt, target, dir: delivery.dir, draft: delivery.draft, ...sent(input, delivery.id) }, input);
+      this.record(
+        { id: delivery.id, sentAt: delivery.createdAt, target, sessionId: delivery.sessionId, dir: delivery.dir, draft: delivery.draft, ...sent(input, delivery.id) },
+        input,
+      );
       this.usedUp(payload);
       for (const w of warnings) console.warn(`[companion] ${w}`);
       const note = warnings.length ? ` (${warnings[0]})` : '';
@@ -130,19 +134,40 @@ export class Sender {
     }
   }
 
-  private async startNew(payload: Outgoing, cwd: string, via: Launcher): Promise<SendResult> {
-    const { state, terminals } = this.deps;
-    if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return { ok: false, message: `No folder at ${cwd}` };
+  /** Writes the bundle into `cwd` and copies a prompt with absolute paths, to paste into any session. */
+  async copyPrompt(payload: Outgoing, cwd: string): Promise<SendResult> {
+    try {
+      const { id, dir, draft, input, warnings } = await this.saveBundle(payload, cwd);
+      this.record({ id, sentAt: Date.now(), target: 'the clipboard', dir, draft, ...sent(input, id) }, input);
+      for (const w of warnings) console.warn(`[companion] ${w}`);
+      this.deps.terminals.copy(portablePrompt(draft, id, dir));
+      this.usedUp(payload);
+      return { ok: true, message: 'Copied the prompt. Paste it into the session it is for.' };
+    } catch (err) {
+      return { ok: false, message: `Could not copy the prompt: ${(err as Error).message}` };
+    }
+  }
+
+  /** Writes the bundle and its prompt file under `cwd`'s `.feedback/sketches`. */
+  private async saveBundle(payload: Outgoing, cwd: string) {
+    if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error(`No folder at ${cwd}`);
     const { input, warnings } = await this.compose(payload);
-    const sentAt = Date.now();
     const sketches = join(cwd, '.feedback', 'sketches');
-    const id = freeId(sketches, sentAt);
+    const id = freeId(sketches, Date.now());
     const dir = join(sketches, id);
     await writeBundle(dir, input);
     const draft = buildDraft(id, input);
     const promptPath = join(dir, 'prompt.md');
     await writeFile(promptPath, draft);
-    rememberProjects(state, [cwd]);
+    rememberProjects(this.deps.state, [cwd]);
+    return { id, dir, draft, promptPath, input, warnings };
+  }
+
+  private async startNew(payload: Outgoing, cwd: string, via: Launcher): Promise<SendResult> {
+    const { terminals } = this.deps;
+    if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return { ok: false, message: `No folder at ${cwd}` };
+    const sentAt = Date.now();
+    const { id, dir, draft, promptPath, input, warnings } = await this.saveBundle(payload, cwd);
     this.record({ id, sentAt, target: `new session (${LAUNCHER_NAMES[via]})`, dir, draft, ...sent(input, id) }, input);
     for (const w of warnings) console.warn(`[companion] ${w}`);
     if (via === 'copy') {

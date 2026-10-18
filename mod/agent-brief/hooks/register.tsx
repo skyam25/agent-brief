@@ -150,6 +150,8 @@ const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'non
 const repliesRef = atom({ plugin: 'agent-brief', key: 'replies' } as const, [])
 const voiceRef = atom({ plugin: 'agent-brief', key: 'voice' } as const, null)
 const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
+/** When the main loop last finished a reply, so the app can tell a busy session from an idle one. */
+const activeAtRef = atom({ plugin: 'agent-brief', key: 'activeAt' } as const, null)
 const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as const, false)
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
@@ -210,17 +212,18 @@ async function isHealthy($: EngineInterface): Promise<boolean> {
   return (await call($, 'GET', '/health'))?.ok === true
 }
 
-/** What the app shows for this session: where it runs and what the user last asked. */
+/** What the app shows for this session: where it runs, what the user last asked, and when it last replied. */
 async function sessionExtras($: EngineInterface) {
-  const read = (value: Promise<string | undefined>) => value.catch(() => undefined)
+  const settle = (value: Promise<string | undefined>) => value.catch(() => undefined)
   const env = {
-    TERM_PROGRAM: await read($.env.get('TERM_PROGRAM')),
-    __CFBundleIdentifier: await read($.env.get('__CFBundleIdentifier')),
-    HERDR_ENV: await read($.env.get('HERDR_ENV')),
-    HERDR_PANE_ID: await read($.env.get('HERDR_PANE_ID')),
+    TERM_PROGRAM: await settle($.env.get('TERM_PROGRAM')),
+    __CFBundleIdentifier: await settle($.env.get('__CFBundleIdentifier')),
+    HERDR_ENV: await settle($.env.get('HERDR_ENV')),
+    HERDR_PANE_ID: await settle($.env.get('HERDR_PANE_ID')),
   }
   const messages = await $.session.messages().catch(() => [])
-  return { host: hostOf(env), summary: summaryOf(Array.isArray(messages) ? messages : []) }
+  const activeAt = (await read($, activeAtRef).catch(() => null)) ?? undefined
+  return { host: hostOf(env), summary: summaryOf(Array.isArray(messages) ? messages : []), activeAt }
 }
 
 /**
@@ -1244,7 +1247,11 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined && e.reason === 'answer') await update($, repliesRef, list => keepReply(list, e.answer)).catch(() => undefined)
-    if (e.agentId === undefined) await keepRegistered($, companionSettings).catch(() => undefined)
+    if (e.agentId === undefined) {
+      const at = await $.clock.now()
+      await update($, activeAtRef, () => at).catch(() => undefined)
+      await keepRegistered($, companionSettings).catch(() => undefined)
+    }
     if (e.agentId === undefined) await refreshItems($).catch(() => undefined)
     return done
   })

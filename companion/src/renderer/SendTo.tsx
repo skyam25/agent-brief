@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { SessionsResponse } from '../protocol';
 import type { Launcher, LaunchOptions } from '../shared/ipc';
-import { folderName, hueOf, sessionTitle, shortFolder } from '../shared/sessions';
+import type { SessionInfo } from '../protocol';
+import { activeAgo, folderName, hostLabel, hueOf, shortFolder } from '../shared/sessions';
 import { CheckIcon, ChevronIcon, TerminalIcon } from './Icons';
 import { usePointerOutside } from './hooks';
 
@@ -27,7 +28,14 @@ export function SendTo(props: {
   onSend: () => void;
   onSendTo: (sessionId: string) => void;
   onSendNew: (cwd: string, via: Launcher) => void;
+  /** Saves the files in a folder and copies a prompt to paste into a session by hand. */
+  onCopyPrompt: (cwd: string) => void;
+  /** The session whose brief holds the open board or note. */
+  holder?: string;
+  /** What the open item is, for the holder's tag. */
+  holds: 'board' | 'note';
   loadOptions: () => Promise<LaunchOptions>;
+  loadPlaces: () => Promise<Record<string, string>>;
   chooseFolder: () => Promise<string | undefined>;
   /** Sits before the chip and Send, set apart by a divider. */
   mic?: ReactNode;
@@ -72,16 +80,19 @@ export function SendTo(props: {
 
 function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) {
   const [options, setOptions] = useState<LaunchOptions>();
+  const [places, setPlaces] = useState<Record<string, string>>({});
   const [folder, setFolder] = useState('');
   const [extra, setExtra] = useState<string[]>([]);
   const [launchMore, setLaunchMore] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const held = props.sessions.sessions.find((s) => s.sessionId === props.holder)?.cwd;
     void props.loadOptions().then((o) => {
       setOptions(o);
-      setFolder((f) => f || o.recentProjects[0] || '');
+      setFolder((f) => f || held || o.recentProjects[0] || '');
     });
+    void props.loadPlaces().then(setPlaces, () => undefined);
     // Loads once each time the chooser opens.
   }, []);
 
@@ -94,8 +105,9 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
     setFolder(picked);
   };
 
-  const folders = [...new Set([...extra, ...(options?.recentProjects ?? [])])];
-  const sessions = props.sessions.sessions;
+  const folders = [...new Set([...extra, ...(folder ? [folder] : []), ...(options?.recentProjects ?? [])])];
+  const sessions = byRelevance(props.sessions.sessions, props.holder);
+  const now = Date.now();
   const [first, ...others] = options?.launchers ?? [];
 
   return (
@@ -118,8 +130,18 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
                   {(s.title || folderName(s.cwd)).charAt(0).toUpperCase() || <TerminalIcon />}
                 </span>
                 <span className="lines">
-                  <span>{sessionTitle(s)}</span>
-                  <span className="muted">{s.summary ?? shortFolder(s.cwd, props.home)}</span>
+                  <span className="name">
+                    <span>{[s.title || folderName(s.cwd), places[s.sessionId] ?? hostLabel(s.host)].filter(Boolean).join(' · ')}</span>
+                    {s.sessionId === props.holder && (
+                      <span className="holds" data-testid="send-holder">
+                        Has this {props.holds}
+                      </span>
+                    )}
+                  </span>
+                  {s.summary && <span className="muted">“{s.summary}”</span>}
+                  <span className="muted small">
+                    {[shortFolder(s.cwd, props.home), s.activeAt ? activeAgo(s.activeAt, now) : undefined].filter(Boolean).join(' · ')}
+                  </span>
                 </span>
                 {s.sessionId === props.sessions.targetSessionId && <CheckIcon />}
               </button>
@@ -127,7 +149,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
           ))}
         </ul>
       )}
-      <h3>New session</h3>
+      <h3>Somewhere else</h3>
       <div className="row">
         <select
           value={folder}
@@ -148,6 +170,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
       </div>
       {first && (
         <div className="launchers">
+          <div className="launch-row">
           <div className="split-button">
             <button className="primary" disabled={!folder} onClick={() => props.onSendNew(folder, first)} data-testid={`new-${first}`}>
               {launchLabel(first)}
@@ -166,6 +189,16 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
               </button>
             )}
           </div>
+          <button
+            className="ghost"
+            disabled={!folder}
+            title="Save the files in this folder and copy a prompt that names them in full, to paste into any session"
+            onClick={() => props.onCopyPrompt(folder)}
+            data-testid="copy-prompt"
+          >
+            Copy prompt
+          </button>
+          </div>
           {launchMore && (
             <ul className="launch-more" role="menu">
               {others.map((l) => (
@@ -181,4 +214,10 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
       )}
     </div>
   );
+}
+
+/** The holder first, then the sessions that replied most recently. */
+function byRelevance(sessions: SessionInfo[], holder: string | undefined): SessionInfo[] {
+  const rank = (s: SessionInfo) => (s.sessionId === holder ? 1 : 0);
+  return [...sessions].sort((a, b) => rank(b) - rank(a) || (b.activeAt ?? 0) - (a.activeAt ?? 0));
 }

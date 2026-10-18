@@ -83,6 +83,10 @@ describe('session label', () => {
     })
   })
 
+  test('carries when the session last replied', () => {
+    expect(sessionInfo('s1', '/Users/me/app', { activeAt: 42 })).toMatchObject({ activeAt: 42 })
+  })
+
   test('reads the terminal, its app and the herdr pane from the environment', () => {
     expect(hostOf({})).toBeUndefined()
     expect(hostOf({ TERM_PROGRAM: 'ghostty', __CFBundleIdentifier: 'com.mitchellh.ghostty' })).toEqual({

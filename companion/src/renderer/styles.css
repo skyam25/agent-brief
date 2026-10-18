@@ -675,6 +675,33 @@ button.stop-talk:hover {
   text-overflow: ellipsis;
 }
 
+.chooser .lines .name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chooser .lines .small {
+  font-size: 11px;
+}
+
+/* Marks the session whose brief holds what Send would send. */
+.chooser .lines .holds {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.chooser .launch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .chooser .launchers {
   display: flex;
   flex-direction: column;

@@ -81,6 +81,8 @@ declare module 'claude-code' {
       voice: VoiceState | null
       /** The folder the session started in. The shell's folder moves with each cd; this one stays. */
       home: string | null
+      /** Epoch ms when the main loop last finished a reply. */
+      activeAt: number | null
       /** True once the session has a submitted prompt. The band drops its Mode button then. */
       hasPrompted: boolean
       /** The session's outputs file records, kept current by each write. */

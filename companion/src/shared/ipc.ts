@@ -201,6 +201,8 @@ export interface HistoryEntry {
   text?: string;
   /** The session it went to, in words. */
   target: string;
+  /** The session it went to. Absent for a new session or the clipboard. */
+  sessionId?: string;
   /** The bundle folder in the session's project. */
   dir: string;
   /** The prompt text Claude Code received. */
@@ -356,6 +358,10 @@ export interface CompanionApi extends BoardHost {
   send(payload: Outgoing): Promise<SendResult>;
   /** Writes the bundle into `cwd` and starts Claude Code there on it. */
   sendNew(payload: Outgoing, target: { cwd: string; via: Launcher }): Promise<SendResult>;
+  /** Writes the bundle into `cwd` and copies a prompt with absolute paths, for pasting into a session by hand. */
+  copyPrompt(payload: Outgoing, cwd: string): Promise<SendResult>;
+  /** Where live sessions sit in their terminal, such as `herdr #16`, by session id. */
+  sessionPlaces(): Promise<Record<string, string>>;
   /** Brings a session's terminal forward. */
   focusSession(sessionId: string): Promise<void>;
   getUpdate(): Promise<UpdateStatus>;
@@ -463,6 +469,8 @@ export const CH = {
   launchOptions: 'sessions:launch-options',
   chooseFolder: 'sessions:choose-folder',
   sendNew: 'panel:send-new',
+  copyPrompt: 'panel:copy-prompt',
+  sessionPlaces: 'sessions:places',
   focusSession: 'sessions:focus',
   update: 'update:status',
   updateGet: 'update:get',

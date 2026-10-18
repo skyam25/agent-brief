@@ -38,6 +38,7 @@ export interface PanelSend {
   send: () => Promise<void>;
   sendTo: (sessionId: string) => Promise<void>;
   sendNew: (cwd: string, via: Launcher) => Promise<void>;
+  copyPrompt: (cwd: string) => Promise<void>;
   openChooser: (open: boolean) => void;
 }
 
@@ -172,6 +173,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     await deliver((p) => host.send(p));
   };
   const sendNew = (cwd: string, via: Launcher) => deliver((p) => host.sendNew(p, { cwd, via }));
+  const copyPrompt = (cwd: string) => deliver((p) => host.copyPrompt(p, cwd));
   /** An empty note says so before any session is picked. */
   const openChooser = (open: boolean) => {
     const blocked = open ? chooserBlocker() : undefined;
@@ -193,5 +195,5 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     return !note || (!note.body.trim() && !note.board) ? 'Write something first.' : undefined;
   };
 
-  return { send, sendTo, sendNew, openChooser };
+  return { send, sendTo, sendNew, copyPrompt, openChooser };
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { draftTitle } from '../shared/drafts';
+import { portablePrompt } from '../shared/sessions';
 import type { CompanionApi, HistoryEntry } from '../shared/ipc';
 import { usePointerOutside } from './hooks';
 
@@ -11,7 +12,7 @@ function when(ms: number): string {
   return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-/** The last sends. Open puts one on a new board, a new note, or both; Copy puts its prompt on the clipboard. */
+/** The last sends. Open puts one on a new board, a new note, or both; Copy puts its prompt, with full paths, on the clipboard. */
 export function HistoryPopover(props: {
   host: CompanionApi;
   onOpen: (id: string) => void;
@@ -40,7 +41,7 @@ export function HistoryPopover(props: {
   usePointerOutside(ref, props.onClose, { parent: true });
 
   const copy = async (item: Item) => {
-    await navigator.clipboard.writeText(item.draft);
+    await navigator.clipboard.writeText(portablePrompt(item.draft, item.id, item.dir));
     setCopied(item.id);
   };
 
@@ -66,7 +67,7 @@ export function HistoryPopover(props: {
               >
                 Open
               </button>
-              <button className="ghost small" title="Copy the prompt" onClick={() => void copy(item)} data-testid="history-copy">
+              <button className="ghost small" title="Copy the prompt with full paths, to paste into any session" onClick={() => void copy(item)} data-testid="history-copy">
                 {copied === item.id ? 'Copied' : 'Copy'}
               </button>
             </div>

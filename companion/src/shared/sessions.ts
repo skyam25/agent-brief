@@ -80,3 +80,24 @@ export function hueOf(id: string): number {
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return Math.round((h % 1000) * 137.508) % 360;
 }
+
+/** The herdr workspace a pane sits in: `w1G` for `w1G:p1`. */
+export function herdrWorkspace(pane: string): string {
+  return pane.split(':')[0] ?? pane;
+}
+
+/** How long ago the session last replied, as in `active 5 min ago`. */
+export function activeAgo(at: number, now: number): string {
+  const min = Math.floor((now - at) / 60_000);
+  if (min < 1) return 'active just now';
+  if (min < 60) return `active ${min} min ago`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `active ${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  return `active ${days} ${days === 1 ? 'day' : 'days'} ago`;
+}
+
+/** A sent prompt with its bundle paths made absolute, so it works pasted into a session in any folder. */
+export function portablePrompt(draft: string, id: string, dir: string): string {
+  return draft.split(`.feedback/sketches/${id}`).join(dir);
+}

@@ -91,6 +91,46 @@ describe('sessions', () => {
       expect(h.server.sessions().sessions.map((s) => s.sessionId)).toEqual(['b']);
       expect(h.server.sessions().targetSessionId).toBeUndefined();
     });
+
+    it('comes back when the lapsed target registers again', async () => {
+      const h = await start();
+      await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+      await h.call('POST', '/sessions', { sessionId: 'b', cwd: '/y' });
+      h.server.setTarget('a');
+      h.clock.t += 100_000;
+      expect(h.server.sessions().targetSessionId).toBeUndefined();
+      await h.call('POST', '/sessions', { sessionId: 'b', cwd: '/y' });
+      expect(h.server.sessions().targetSessionId).toBeUndefined();
+      await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+      expect(h.server.sessions().targetSessionId).toBe('a');
+    });
+
+    it('stays clear after a lapse when the user cleared it or the session ended', async () => {
+      const h = await start();
+      await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+      h.server.setTarget('a');
+      h.clock.t += 100_000;
+      h.server.sessions();
+      h.server.setTarget(undefined);
+      await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+      expect(h.server.sessions().targetSessionId).toBeUndefined();
+
+      h.server.setTarget('a');
+      await h.call('DELETE', '/sessions/a');
+      await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+      expect(h.server.sessions().targetSessionId).toBeUndefined();
+    });
+  });
+
+  it('keeps activeAt and reports a change in it', async () => {
+    const h = await start();
+    const seen: number[] = [];
+    h.server.onSessionsChange((s) => seen.push(s.sessions[0]?.activeAt ?? 0));
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', activeAt: 5 });
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', activeAt: 5 });
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', activeAt: 9 });
+    expect(seen).toEqual([5, 9]);
+    expect((await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', activeAt: 'soon' })).status).toBe(400);
   });
 
   it('fires onSessionsChange on real changes only, and unsubscribes', async () => {

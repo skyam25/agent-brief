@@ -5,13 +5,28 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SessionInfo } from '../protocol';
 import type { Launcher, SendResult } from '../shared/ipc';
-import { isGhostty } from '../shared/sessions';
+import { herdrWorkspace, isGhostty } from '../shared/sessions';
 import { findTool } from '../voice/compose';
 import { exec, focusSession, frontGhosttyTerminal, resumeCommand, resumeSession, startSession, type Exec } from './launch';
 
 export const LAUNCHER_NAMES: Record<Launcher, string> = { ghostty: 'Ghostty', terminal: 'Terminal', herdr: 'herdr', copy: 'the clipboard' };
 
 const herdrPath = () => findTool('herdr', [join(homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']);
+
+/** Workspace id to sidebar number, from `herdr workspace list`. Empty when the output does not parse. */
+export function herdrNumbers(out: string): Map<string, number> {
+  const numbers = new Map<string, number>();
+  try {
+    const list = (JSON.parse(out) as { result?: { workspaces?: unknown } }).result?.workspaces;
+    for (const w of Array.isArray(list) ? list : []) {
+      const { workspace_id: id, number } = (w ?? {}) as { workspace_id?: unknown; number?: unknown };
+      if (typeof id === 'string' && typeof number === 'number') numbers.set(id, number);
+    }
+  } catch {
+    // An older herdr or an error message. Rows just go without a number.
+  }
+  return numbers;
+}
 
 export class Terminals {
   /** Commands a test run recorded in place of opening terminals. */
@@ -54,6 +69,24 @@ export class Terminals {
     await focusSession(this.run, session, { herdr: herdrPath(), ghosttyTerminal: this.ghostty.get(session.sessionId) }).catch((err) =>
       console.warn(`[companion] could not focus the session: ${(err as Error).message}`),
     );
+  }
+
+  /**
+   * Where each herdr session sits, as herdr's sidebar numbers it: `herdr #16`.
+   * Sessions outside herdr, or a herdr that does not answer, are left out.
+   */
+  async places(sessions: SessionInfo[]): Promise<Record<string, string>> {
+    const herdr = this.opts.testMode ? undefined : herdrPath();
+    const inHerdr = sessions.filter((s) => s.host?.herdrPane);
+    if (!herdr || inHerdr.length === 0) return {};
+    const out = await this.run(herdr, ['workspace', 'list']).catch(() => '');
+    const numbers = herdrNumbers(out);
+    const places: Record<string, string> = {};
+    for (const s of inHerdr) {
+      const n = numbers.get(herdrWorkspace(s.host!.herdrPane!));
+      if (n !== undefined) places[s.sessionId] = `herdr #${n}`;
+    }
+    return places;
   }
 
   copy(text: string): void {

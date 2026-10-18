@@ -51,13 +51,14 @@ export function toastFor(mode: Delivery['mode']): string {
 export function sessionInfo(
   sessionId: string,
   cwd: string,
-  extra: { summary?: string; host?: SessionHost } = {},
+  extra: { summary?: string; activeAt?: number; host?: SessionHost } = {},
 ): SessionInfo {
   return {
     sessionId,
     cwd,
     title: cwd.split('/').filter(Boolean).at(-1) ?? cwd,
     ...(extra.summary ? { summary: extra.summary } : {}),
+    ...(extra.activeAt ? { activeAt: extra.activeAt } : {}),
     ...(extra.host ? { host: extra.host } : {}),
   }
 }

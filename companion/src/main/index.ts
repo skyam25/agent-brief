@@ -454,6 +454,8 @@ async function start(): Promise<void> {
   // Send.
   ipcMain.handle(CH.send, (_e, payload: Outgoing) => sender.send(payload));
   ipcMain.handle(CH.sendNew, (_e, payload: Outgoing, target: { cwd: string; via: Launcher }) => sender.sendNew(payload, target));
+  ipcMain.handle(CH.copyPrompt, (_e, payload: Outgoing, cwd: string) => sender.copyPrompt(payload, String(cwd)));
+  ipcMain.handle(CH.sessionPlaces, () => terminals.places(server.sessions().sessions));
   ipcMain.handle(
     CH.launchOptions,
     (): LaunchOptions => ({ launchers: terminals.launchers(), recentProjects: state.state.recentProjects ?? [] }),

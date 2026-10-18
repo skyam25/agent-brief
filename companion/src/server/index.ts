@@ -101,6 +101,8 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
   const sessionListeners = new Set<(s: SessionsResponse) => void>();
   const openListeners = new Set<(req: OpenRequest) => void>();
   let target: string | undefined;
+  /** The target that lapsed without ending. It comes back when that session registers again. */
+  let held: string | undefined;
   let sweepTimer: NodeJS.Timeout | undefined;
   let closing = false;
 
@@ -149,6 +151,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       }
     }
     if (target !== undefined && !sessionMap.has(target)) {
+      held = target;
       target = undefined;
       changed = true;
     }
@@ -160,18 +163,26 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
     sweep();
     const prev = sessionMap.get(info.sessionId);
     sessionMap.set(info.sessionId, { ...info, lastSeen: now() });
+    const isBack = target === undefined && held === info.sessionId;
+    if (isBack) {
+      target = held;
+      held = undefined;
+    }
     const changed =
+      isBack ||
       !prev ||
       prev.cwd !== info.cwd ||
       prev.title !== info.title ||
       prev.pid !== info.pid ||
       prev.summary !== info.summary ||
+      prev.activeAt !== info.activeAt ||
       JSON.stringify(prev.host) !== JSON.stringify(info.host);
     if (changed) emitSessions();
   }
 
   function removeSession(id: string): boolean {
     sweep();
+    if (held === id) held = undefined;
     if (!sessionMap.delete(id)) return false;
     if (target === id) target = undefined;
     emitSessions();
@@ -181,6 +192,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
   function setTarget(id: string | undefined): void {
     sweep();
     if (id !== undefined && !sessionMap.has(id)) throw new Error(`unknown session ${id}`);
+    held = undefined;
     if (target === id) return;
     target = id;
     emitSessions();

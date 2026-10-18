@@ -145,6 +145,7 @@ export function parseSession(body: unknown): SessionInfo {
   const title = optString(o, 'title', 'body');
   if (o.pid !== undefined && !finite(o.pid)) fail('body.pid must be a finite number');
   const summary = optString(o, 'summary', 'body')?.slice(0, 200);
+  if (o.activeAt !== undefined && !finite(o.activeAt)) fail('body.activeAt must be a finite number');
   let host: SessionHost | undefined;
   if (o.host !== undefined) {
     const h = object(o.host, 'body.host');
@@ -154,7 +155,7 @@ export function parseSession(body: unknown): SessionInfo {
       herdrPane: optString(h, 'herdrPane', 'body.host'),
     };
   }
-  return { sessionId, cwd, title, pid: o.pid as number | undefined, summary, host };
+  return { sessionId, cwd, title, pid: o.pid as number | undefined, summary, activeAt: o.activeAt as number | undefined, host };
 }
 
 const SESSION_MODES: SessionMode[] = ['default', 'product', 'prototype', 'orchestrate'];

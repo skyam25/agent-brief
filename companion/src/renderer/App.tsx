@@ -260,7 +260,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     report,
   });
   const boardList = useBoards(host, controller, briefs);
-  const { send, sendTo, sendNew, openChooser } = useSend({
+  const { send, sendTo, sendNew, copyPrompt, openChooser } = useSend({
     host,
     book,
     controller,
@@ -364,7 +364,11 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       onSend={() => void send()}
       onSendTo={(id) => void sendTo(id)}
       onSendNew={(cwd, via) => void sendNew(cwd, via)}
+      onCopyPrompt={(cwd) => void copyPrompt(cwd)}
+      holder={mode === 'sketch' ? boardList.boards.find((b) => b.name === board)?.sessionId : book.selected?.sessionId}
+      holds={mode === 'sketch' ? 'board' : 'note'}
       loadOptions={() => host.launchOptions()}
+      loadPlaces={() => host.sessionPlaces()}
       chooseFolder={() => host.chooseFolder()}
       mic={
         onMicrophone && (

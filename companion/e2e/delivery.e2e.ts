@@ -148,6 +148,40 @@ test('C2.3 with two sessions the delivery reaches only the picked one', async ()
   expect((await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=sb&wait=0')).body.deliveries).toHaveLength(1);
 });
 
+test('after a standalone open, the chooser puts the board\'s session first and Copy prompt names the files in full', async () => {
+  const { app, page } = ctx;
+  const cwd = project();
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'old', cwd, title: 'app', summary: 'an old ask', activeAt: Date.now() - 5 * 86_400_000 });
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'mine', cwd, title: 'app', summary: 'draw the walkthrough', activeAt: Date.now() - 3 * 60_000 });
+  await sock(socketPath, 'POST', '/open', { board: 'walkthrough', sessionId: 'mine' });
+  await backend(app, 'draw', 'current', { elements: [{ type: 'sticky', x: 0, y: 0, label: 'Scene 1' }] });
+
+  // The shortcut opens standalone, so the target clears and Send asks.
+  await app.evaluate(() => globalThis.__companion.panel.hide());
+  await showPanel(app, page);
+  await expect(page.getByTestId('board-picker')).toHaveText('walkthrough');
+  await page.getByTestId('send').click();
+  const rows = page.getByTestId('send-to-session');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('Has this board');
+  await expect(rows.first()).toContainText('draw the walkthrough');
+  await expect(rows.first()).toContainText('active 3 min ago');
+  await expect(rows.last()).toContainText('active 5 days ago');
+  await expect(page.getByTestId('send-holder')).toHaveCount(1);
+  await page.screenshot({ path: join(RESULTS, 'send-chooser-holder.png') });
+
+  await page.getByTestId('copy-prompt').click();
+  await expect(page.getByTestId('send-status')).toHaveText(/Copied the prompt/);
+  const [id] = bundles(cwd);
+  const dir = join(cwd, '.feedback', 'sketches', id);
+  const copied = await app.evaluate(() => globalThis.__companion.clipboard());
+  expect(copied).toContain(`@${dir}/sketch.png`);
+  expect(copied).not.toContain('@.feedback/');
+  expect((await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=mine&wait=0')).body.deliveries).toEqual([]);
+  const history = await app.evaluate(() => globalThis.__companion.history.list());
+  expect(history[0]).toMatchObject({ id, target: 'the clipboard' });
+});
+
 test('POST /open shows the board and the prompt and picks the session', async () => {
   const { app, page } = ctx;
   await app.evaluate(() => globalThis.__companion.panel.hide());

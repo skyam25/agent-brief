@@ -30,6 +30,8 @@ export interface SessionInfo {
   pid?: number
   /** The user's latest typed prompt, trimmed. */
   summary?: string
+  /** Epoch ms when the session last finished a reply. Absent before its first one. */
+  activeAt?: number
   /** Where the session runs, for its label and for jumping back to it. */
   host?: SessionHost
   /** Set by the app. True when the user asked Claude to keep an items file for this session. */
