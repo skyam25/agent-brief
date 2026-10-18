@@ -32,6 +32,8 @@ export function SendTo(props: {
   onCopyPrompt: (cwd: string) => void;
   /** The session whose brief holds the open board or note. */
   holder?: string;
+  /** The holder's folder, kept in its brief after the session ends. */
+  holderCwd?: string;
   /** What the open item is, for the holder's tag. */
   holds: 'board' | 'note';
   loadOptions: () => Promise<LaunchOptions>;
@@ -87,7 +89,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const held = props.sessions.sessions.find((s) => s.sessionId === props.holder)?.cwd;
+    const held = props.sessions.sessions.find((s) => s.sessionId === props.holder)?.cwd ?? props.holderCwd;
     void props.loadOptions().then((o) => {
       setOptions(o);
       setFolder((f) => f || held || o.recentProjects[0] || '');

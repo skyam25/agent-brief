@@ -273,4 +273,10 @@ describe('boardHolder', () => {
     const briefs: SessionBriefs = { old: { board: 'login', at: NOW - DAY }, recent: { board: 'login', at: NOW }, mid: { board: 'login', at: NOW - 1 } };
     expect(boardHolder(briefs, 'login')).toBe('recent');
   });
+
+  it('prefers a live holder over a more recently used ended one', () => {
+    const briefs: SessionBriefs = { ended: { board: 'login', at: NOW }, live: { board: 'login', at: NOW - DAY }, alsoLive: { board: 'login', at: NOW - 2 * DAY } };
+    const isLive = (id: string) => id !== 'ended';
+    expect(boardHolder(briefs, 'login', isLive)).toBe('live');
+  });
 });

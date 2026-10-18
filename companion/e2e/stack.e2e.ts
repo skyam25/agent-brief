@@ -245,6 +245,11 @@ test('a new board can start as a Stack, and the board list marks it', async () =
   await page.evaluate(() => window.__board.flush());
   expect(JSON.parse(readFileSync(join(dataDir, 'boards', 'flows.excalidraw'), 'utf8')).agentBrief).toEqual({ layout: 'stack' });
 
+  // The sidebar and, with the sidebar hidden, the board menu mark the Stack board.
+  const listed = page.getByTestId('brief-board');
+  await expect(listed.filter({ hasText: 'flows' }).getByTestId('board-stack-mark')).toBeVisible();
+  await expect(listed.filter({ hasText: 'scratch' }).getByTestId('board-stack-mark')).toHaveCount(0);
+  await page.getByTestId('sidebar-toggle').click();
   await page.getByTestId('board-picker').click();
   const rows = page.getByTestId('board-item');
   await expect(rows.filter({ hasText: 'flows' }).getByTestId('board-stack-mark')).toBeVisible();

@@ -5,6 +5,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildDraft, cleanSourcePath, freeId, rewriteImages, writeBundle } from '../server/bundle';
 import type { CompanionServer, DeliveryInput } from '../server/contract';
+import { feedbackDir, pruneBundles } from '../server/feedback-dir';
 import { isTextPayload, type Launcher, type Outgoing, type SendPayload, type SendResult } from '../shared/ipc';
 import { cleanBoardComments } from '../shared/board-comments';
 import { cleanReview } from '../shared/review';
@@ -152,10 +153,11 @@ export class Sender {
   private async saveBundle(payload: Outgoing, cwd: string) {
     if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error(`No folder at ${cwd}`);
     const { input, warnings } = await this.compose(payload);
-    const sketches = join(cwd, '.feedback', 'sketches');
+    const sketches = join(feedbackDir(cwd), 'sketches');
     const id = freeId(sketches, Date.now());
     const dir = join(sketches, id);
     await writeBundle(dir, input);
+    pruneBundles(sketches, Date.now());
     const draft = buildDraft(id, input);
     const promptPath = join(dir, 'prompt.md');
     await writeFile(promptPath, draft);

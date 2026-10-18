@@ -124,12 +124,15 @@ export function detachBoard(briefs: SessionBriefs, sessionId: string, board: str
 
 /**
  * The session whose brief holds a board. Ended sessions count until their brief goes.
- * When two briefs hold it, the most recently used one wins.
+ * When two briefs hold it, a live session beats an ended one, then the most recently used wins.
  */
-export function boardHolder(briefs: SessionBriefs, board: string): string | undefined {
-  let holder: { id: string; at: number } | undefined;
+export function boardHolder(briefs: SessionBriefs, board: string, isLive: (sessionId: string) => boolean = () => false): string | undefined {
+  let holder: { id: string; live: boolean; at: number } | undefined;
   for (const [id, b] of Object.entries(briefs)) {
-    if (heldBoards(b).includes(board) && (!holder || b.at > holder.at)) holder = { id, at: b.at };
+    if (!heldBoards(b).includes(board)) continue;
+    const live = isLive(id);
+    const beats = !holder || (live !== holder.live ? live : b.at > holder.at);
+    if (beats) holder = { id, live, at: b.at };
   }
   return holder?.id;
 }

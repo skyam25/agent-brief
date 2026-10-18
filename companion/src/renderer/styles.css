@@ -858,6 +858,17 @@ button.stop-talk:hover {
   color: inherit;
 }
 
+/* With the sidebar open, the menu opens on its actions. */
+.board-menu .menu-foot:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.board-menu .menu-foot button.delete-current:hover,
+.popover-panel.board-menu .menu-foot button.delete-current.confirm {
+  color: var(--error);
+}
+
 /* History */
 
 .history {
@@ -1146,8 +1157,13 @@ button.stop-talk:hover {
   color: var(--fg);
 }
 
-.sessions button.child > .icon {
+.sessions button.child > .icon,
+.sessions button.child > .layout-mark {
   color: var(--muted);
+}
+
+.sessions button.child > .layout-mark {
+  display: flex;
 }
 
 .sessions button.child[aria-current='true'] {
@@ -1155,7 +1171,8 @@ button.stop-talk:hover {
   font-weight: 500;
 }
 
-.sessions button.child[aria-current='true'] > .icon {
+.sessions button.child[aria-current='true'] > .icon,
+.sessions button.child[aria-current='true'] > .layout-mark {
   color: var(--accent);
 }
 

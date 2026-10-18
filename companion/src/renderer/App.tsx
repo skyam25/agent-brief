@@ -355,6 +355,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   const reviewError = useCallback((message: string) => notify(message, 'error'), [notify]);
   const [reviewProps] = useState(() => ({ host, voice: reviewVoice, onError: reviewError }));
 
+  const holder = mode === 'sketch' ? boardList.boards.find((b) => b.name === board)?.sessionId : book.selected?.sessionId;
   const sendBar = (
     <SendTo
       sessions={sessions}
@@ -365,7 +366,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
       onSendTo={(id) => void sendTo(id)}
       onSendNew={(cwd, via) => void sendNew(cwd, via)}
       onCopyPrompt={(cwd) => void copyPrompt(cwd)}
-      holder={mode === 'sketch' ? boardList.boards.find((b) => b.name === board)?.sessionId : book.selected?.sessionId}
+      holder={holder}
+      holderCwd={briefs.find((b) => b.sessionId === holder)?.cwd}
       holds={mode === 'sketch' ? 'board' : 'note'}
       loadOptions={() => host.launchOptions()}
       loadPlaces={() => host.sessionPlaces()}
@@ -431,6 +433,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
                     board={board}
                     sessionId={activeBrief}
                     canAttach={!!active?.isLive}
+                    listed={sidebar.open}
                     newRequest={newBoardRequest}
                     onSwitch={(name) => void controller.switchTo(name).catch(report('switch boards'))}
                     onCreate={(name, layout) => void controller.createBoard(name, layout).catch(report('create the board'))}

@@ -4,7 +4,7 @@ import { modeLabel, shortPath } from '../shared/sessions';
 import { childrenOf } from './boardScope';
 import type { DraftBook } from './drafts';
 import { useStore } from './hooks';
-import { BoardIcon, ChevronIcon, CloseIcon, NotesIcon } from './Icons';
+import { BoardIcon, ChevronIcon, CloseIcon, NotesIcon, StackIcon } from './Icons';
 import { ago } from './WriteView';
 
 /** Below this width the sidebar opens over the work instead of beside it. */
@@ -201,12 +201,18 @@ function Children(props: ChildProps & { sessionId?: string; tabs: string[] }) {
         <li key={b.name}>
           <button
             className="ghost child"
-            title={`${b.name}\nOpen in Sketch`}
+            title={`${b.name}${b.layout === 'stack' ? ' · Stack board' : ''}\nOpen in Sketch`}
             aria-current={props.mode === 'sketch' && b.name === props.board}
             onClick={() => props.onOpenBoard(b.name)}
             data-testid="brief-board"
           >
-            <BoardIcon />
+            {b.layout === 'stack' ? (
+              <span className="layout-mark" data-testid="board-stack-mark">
+                <StackIcon />
+              </span>
+            ) : (
+              <BoardIcon />
+            )}
             <span className="title">{b.name}</span>
           </button>
         </li>

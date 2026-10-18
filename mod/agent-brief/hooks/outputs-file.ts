@@ -55,6 +55,7 @@ function changeOutputs($: EngineInterface, change: (file: OutputsFile) => Output
   const run = outputsQueue.then(async () => {
     const { path, file } = await readOutputs($)
     const changed = change(file)
+    await keepFeedbackIgnored($, path)
     await $.fs.write(path, `${JSON.stringify(changed, null, 2)}\n`)
     await update($, outputsRef, () => changed.outputs).catch(err => log($, `outputs state failed: ${String(err)}`))
     return changed
@@ -72,6 +73,22 @@ async function declareOutput($: EngineInterface, input: unknown): Promise<string
   const record = file.outputs.find(o => o.ref === request.ref)
   return record === undefined ? DECLARE_USAGE : declareResultText(record)
 }
+
+/**
+ * Makes the outputs file's folder. A `.gitignore` of `*` in `.feedback` keeps it out of git.
+ * Best effort, since the write that follows reports its own failure.
+ */
+async function keepFeedbackIgnored($: EngineInterface, outputsPath: string): Promise<void> {
+  const feedback = outputsPath.replace(/\/outputs\/[^/]+$/, '')
+  if (feedback === preparedFeedback) return
+  const r = await $.process
+    .run(['sh', '-c', `mkdir -p "$0/outputs" && { [ -e "$0/.gitignore" ] || printf '*\\n' > "$0/.gitignore"; }`, feedback])
+    .catch(() => undefined)
+  if (r?.exitCode === 0) preparedFeedback = feedback
+}
+
+/** The `.feedback` folder this module already made ready. */
+let preparedFeedback: string | undefined
 
 // The engine follows $ only into functions of the same file, so each hooks file keeps its own log.
 function log($: EngineInterface, text: string): void {

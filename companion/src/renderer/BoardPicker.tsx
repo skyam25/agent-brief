@@ -39,6 +39,9 @@ export function LayoutSwitch(props: { layout: BoardLayout; onChange: (layout: Bo
  * Rename at its foot. Each row can be deleted. A live session also lists the
  * unfiled boards it can attach. On a session tab each row can also detach,
  * which moves the board to Unfiled.
+ *
+ * While the sidebar lists the container's boards, the menu drops its own list.
+ * It keeps New, then Rename, Detach and Delete for the open board, and Attach.
  */
 export function BoardPicker(props: {
   boards: BoardEntry[];
@@ -49,6 +52,8 @@ export function BoardPicker(props: {
   sessionId?: string;
   /** The active session is live, so it can take an unfiled board. */
   canAttach: boolean;
+  /** The sidebar lists the container's boards, so the menu holds only actions. */
+  listed?: boolean;
   /** Bumped to open the new-board field, as the tray and File menu do. */
   newRequest?: number;
   onSwitch: (name: string) => void;
@@ -152,50 +157,90 @@ export function BoardPicker(props: {
       </button>
       {open && (
         <BoardMenu onClose={close}>
-          <ul role="menu" aria-label="Boards">
-            {own.map((n) => (
-              <li key={n} className="board-row" onMouseLeave={() => confirming === n && setConfirming(undefined)}>
+          {props.listed ? (
+            <div className="menu-foot" role="menu" aria-label="Board actions">
+              <button className="ghost" role="menuitem" onClick={() => start('new')} data-testid="board-new">
+                <PlusIcon /> New board
+              </button>
+              <button className="ghost" role="menuitem" onClick={() => start('rename')} data-testid="board-rename">
+                <PencilIcon /> <span className="name">Rename “{props.board}”</span>
+              </button>
+              {props.sessionId && (
                 <button
                   className="ghost"
-                  role="menuitemradio"
-                  aria-checked={n === props.board}
+                  role="menuitem"
+                  title="Move to Unfiled"
                   onClick={() => {
                     setOpen(false);
-                    if (n !== props.board) props.onSwitch(n);
+                    void props.onDetach(props.board).then(props.onRefresh);
                   }}
-                  data-testid="board-item"
+                  data-testid="board-detach"
                 >
-                  <span className="name">{n}</span>
-                  {stackMark(n)}
-                  {n === props.board && <CheckIcon />}
+                  <DetachIcon /> <span className="name">Detach “{props.board}”</span>
                 </button>
-                {props.sessionId && confirming !== n && (
+              )}
+              <button
+                className={confirming === props.board ? 'ghost delete-current confirm' : 'ghost delete-current'}
+                role="menuitem"
+                aria-label={confirming === props.board ? `Confirm delete ${props.board}` : `Delete ${props.board}`}
+                title={confirming === props.board ? undefined : 'Move to the Trash'}
+                onClick={() => {
+                  if (confirming !== props.board) return setConfirming(props.board);
+                  close();
+                  void props.onDelete(props.board).then(props.onRefresh);
+                }}
+                data-testid="board-delete"
+              >
+                <TrashIcon />{' '}
+                <span className="name">{confirming === props.board ? 'Click again to delete' : `Delete “${props.board}”`}</span>
+              </button>
+            </div>
+          ) : (
+            <ul role="menu" aria-label="Boards">
+              {own.map((n) => (
+                <li key={n} className="board-row" onMouseLeave={() => confirming === n && setConfirming(undefined)}>
                   <button
-                    className="ghost icon-button small detach"
-                    aria-label={`Detach ${n}`}
-                    title="Move to Unfiled"
-                    onClick={() => void props.onDetach(n).then(props.onRefresh)}
-                    data-testid="board-detach"
+                    className="ghost"
+                    role="menuitemradio"
+                    aria-checked={n === props.board}
+                    onClick={() => {
+                      setOpen(false);
+                      if (n !== props.board) props.onSwitch(n);
+                    }}
+                    data-testid="board-item"
                   >
-                    <DetachIcon />
+                    <span className="name">{n}</span>
+                    {stackMark(n)}
+                    {n === props.board && <CheckIcon />}
                   </button>
-                )}
-                <button
-                  className={confirming === n ? 'ghost delete confirm' : 'ghost icon-button small delete'}
-                  aria-label={confirming === n ? `Confirm delete ${n}` : `Delete ${n}`}
-                  title={confirming === n ? undefined : 'Move to the Trash'}
-                  onClick={() => {
-                    if (confirming !== n) return setConfirming(n);
-                    setConfirming(undefined);
-                    void props.onDelete(n).then(props.onRefresh);
-                  }}
-                  data-testid="board-delete"
-                >
-                  {confirming === n ? 'Delete' : <TrashIcon />}
-                </button>
-              </li>
-            ))}
-          </ul>
+                  {props.sessionId && confirming !== n && (
+                    <button
+                      className="ghost icon-button small detach"
+                      aria-label={`Detach ${n}`}
+                      title="Move to Unfiled"
+                      onClick={() => void props.onDetach(n).then(props.onRefresh)}
+                      data-testid="board-detach"
+                    >
+                      <DetachIcon />
+                    </button>
+                  )}
+                  <button
+                    className={confirming === n ? 'ghost delete confirm' : 'ghost icon-button small delete'}
+                    aria-label={confirming === n ? `Confirm delete ${n}` : `Delete ${n}`}
+                    title={confirming === n ? undefined : 'Move to the Trash'}
+                    onClick={() => {
+                      if (confirming !== n) return setConfirming(n);
+                      setConfirming(undefined);
+                      void props.onDelete(n).then(props.onRefresh);
+                    }}
+                    data-testid="board-delete"
+                  >
+                    {confirming === n ? 'Delete' : <TrashIcon />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {attach.length > 0 && (
             <div className="attach">
               <h3>Attach an unfiled board</h3>
@@ -219,14 +264,16 @@ export function BoardPicker(props: {
               </ul>
             </div>
           )}
-          <div className="menu-foot">
-            <button className="ghost" onClick={() => start('new')} data-testid="board-new">
-              <PlusIcon /> New board
-            </button>
-            <button className="ghost" onClick={() => start('rename')} data-testid="board-rename">
-              <PencilIcon /> Rename “{props.board}”
-            </button>
-          </div>
+          {!props.listed && (
+            <div className="menu-foot">
+              <button className="ghost" onClick={() => start('new')} data-testid="board-new">
+                <PlusIcon /> New board
+              </button>
+              <button className="ghost" onClick={() => start('rename')} data-testid="board-rename">
+                <PencilIcon /> Rename “{props.board}”
+              </button>
+            </div>
+          )}
         </BoardMenu>
       )}
     </div>

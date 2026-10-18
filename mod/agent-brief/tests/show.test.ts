@@ -160,7 +160,9 @@ describe('show_image', () => {
     expect(shown?.items[0]).toMatchObject({ source: SHOT, width: 1440, height: 900, title: 'Pricing page' })
     expect(shown?.items[0]?.path.startsWith(`${STORE}/page-`)).toBe(true)
     expect(world.files.has(shown!.items[0]!.path)).toBe(true)
-    expect(world.runs.some(r => r.argv[0] === 'mkdir' && r.argv[2] === STORE)).toBe(true)
+    const made = world.runs.find(r => r.argv[0] === 'sh' && r.argv[3] === `${CWD}/.feedback`)
+    expect(made?.argv[2]).toContain('mkdir -p "$0/shown"')
+    expect(made?.argv[2]).toContain(`printf '*\\n' > "$0/.gitignore"`)
   })
 
   test('converts a jpeg with sips', async ($, on) => {

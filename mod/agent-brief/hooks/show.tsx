@@ -108,17 +108,28 @@ const isGone = ($: EngineInterface, file: string) =>
     (e: unknown) => /ENOENT|not found|no such file/i.test(String((e as Error)?.message ?? e)),
   )
 
-/** The project's folder for kept copies, or undefined when it cannot be made. */
+/**
+ * The project's folder for kept copies, or undefined when it cannot be made.
+ * A `.gitignore` of `*` in `.feedback` keeps the folder out of git.
+ */
 async function storeDir($: EngineInterface): Promise<string | undefined> {
   const dir = `${cwd}/.feedback/shown`
-  const r = await $.process.run(['mkdir', '-p', dir]).catch(() => undefined)
+  const r = await $.process
+    .run(['sh', '-c', `mkdir -p "$0/shown" && { [ -e "$0/.gitignore" ] || printf '*\\n' > "$0/.gitignore"; }`, `${cwd}/.feedback`])
+    .catch(() => undefined)
   return r && r.exitCode === 0 ? dir : undefined
 }
 
-/** Drops the oldest copies past STORE_KEEP. Best effort. */
+/** Drops the oldest copies of each kind past STORE_KEEP. Best effort. */
 function trimStore($: EngineInterface, dir: string): Promise<unknown> {
   return $.process
-    .run(['sh', '-c', `ls -t "$0"/*.png 2>/dev/null | tail -n +$(( $1 + 1 )) | while read -r f; do rm -f "$f"; done; true`, dir, String(STORE_KEEP)])
+    .run([
+      'sh',
+      '-c',
+      `for ext in png svg wireframe; do ls -t "$0"/*.$ext 2>/dev/null | tail -n +$(( $1 + 1 )) | while read -r f; do rm -f "$f"; done; done; true`,
+      dir,
+      String(STORE_KEEP),
+    ])
     .catch(() => undefined)
 }
 

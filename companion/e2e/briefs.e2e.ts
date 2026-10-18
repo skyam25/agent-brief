@@ -270,13 +270,17 @@ test("a session's board menu lists its own boards, never another session's", asy
   await openFor({ sessionId: 's2' });
   await expect(crumb(page)).toHaveText('Beta');
 
+  // The menu lists boards only while the sidebar is hidden.
+  await page.getByTestId('sidebar-toggle').click();
   const rows = page.getByTestId('board-item');
   await page.getByTestId('board-picker').click();
   await expect(rows).toHaveText([TODAY]);
   await expect(page.getByTestId('board-attach')).toHaveCount(0);
   await page.keyboard.press('Escape');
 
+  await page.getByTestId('sidebar-toggle').click();
   await briefTab(page, 'Alpha').getByRole('tab').click();
+  await page.getByTestId('sidebar-toggle').click();
   await expect(page.getByTestId('board-picker')).toHaveText('scratch');
   await page.getByTestId('board-picker').click();
   await expect(rows).toHaveText(['scratch']);
@@ -290,19 +294,17 @@ test('attaching an unfiled board adds it to the session, which keeps its other b
   const children = page.getByTestId('brief-children');
   await expect(children.getByTestId('brief-board')).toHaveText(['scratch']);
 
-  // A live session's menu offers the unfiled board under Attach, not among its own.
+  // A live session's menu offers the unfiled board under Attach. The sidebar lists the session's own.
   await page.getByTestId('board-picker').click();
-  await expect(page.getByTestId('board-item')).toHaveText(['scratch']);
+  await expect(page.getByTestId('board-item')).toHaveCount(0);
   await page.getByTestId('board-attach').filter({ hasText: 'loose' }).click();
   await expect(page.getByTestId('board-picker')).toHaveText('loose');
   await expect.poll(async () => (await briefs(page)).find((b) => b.sessionId === 's1')?.board).toBe('loose');
 
-  // Both boards now show under the session, and the menu lists both as its own.
+  // Both boards now show under the session, and the menu has nothing left to attach.
   await expect(children.getByTestId('brief-board').filter({ hasText: 'loose' })).toHaveAttribute('aria-current', 'true');
   await expect(children.getByTestId('brief-board').filter({ hasText: 'scratch' })).toHaveCount(1);
   await page.getByTestId('board-picker').click();
-  await expect(page.getByTestId('board-item').filter({ hasText: 'loose' })).toHaveCount(1);
-  await expect(page.getByTestId('board-item').filter({ hasText: 'scratch' })).toHaveCount(1);
   await expect(page.getByTestId('board-attach')).toHaveCount(0);
 });
 
@@ -314,17 +316,16 @@ test('detaching a board moves it to Unfiled and opens the session\'s other board
   await page.getByTestId('board-name').fill('second');
   await page.getByTestId('board-name').press('Enter');
   await expect(page.getByTestId('board-picker')).toHaveText('second');
-  const rows = page.getByTestId('board-item');
-  await page.getByTestId('board-picker').click();
-  await expect(rows).toHaveCount(2);
+  const children = page.getByTestId('brief-children').getByTestId('brief-board');
+  await expect(children).toHaveCount(2);
 
-  const row = page.getByRole('listitem').filter({ has: rows.filter({ hasText: /^second$/ }) });
-  await row.hover();
-  await expect(row.getByTestId('board-detach')).toHaveAttribute('title', 'Move to Unfiled');
-  await row.getByTestId('board-detach').click();
+  // The menu detaches the open board.
+  await page.getByTestId('board-picker').click();
+  await expect(page.getByTestId('board-detach')).toHaveText('Detach “second”');
+  await expect(page.getByTestId('board-detach')).toHaveAttribute('title', 'Move to Unfiled');
+  await page.getByTestId('board-detach').click();
   await expect(page.getByTestId('board-picker')).toHaveText('scratch');
-  await expect(rows).toHaveText(['scratch']);
-  await page.keyboard.press('Escape');
+  await expect(children).toHaveText(['scratch']);
 
   await page.getByTestId('notes-tab').getByRole('tab').click();
   await expect(page.getByTestId('brief-children').getByTestId('brief-board')).toHaveText(['second']);
@@ -360,9 +361,7 @@ test('switching to Unfiled opens an unfiled board, never one a session holds', a
   await page.getByTestId('notes-tab').getByRole('tab').click();
   await expect(crumb(page)).toHaveText('Unfiled');
   await expect(page.getByTestId('board-picker')).toHaveText('scratch 2');
-  await page.getByTestId('board-picker').click();
-  await expect(page.getByTestId('board-item')).toHaveText(['scratch 2']);
-  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('brief-children').getByTestId('brief-board')).toHaveText(['scratch 2']);
 
   // Back and forth, each side reopens its own board.
   await briefTab(page, 'Alpha').getByRole('tab').click();

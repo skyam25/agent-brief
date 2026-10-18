@@ -139,7 +139,41 @@ test('renaming a board onto a taken name is refused and says why', async () => {
   await app.close();
 });
 
-test('a board deletes from the board menu after a second click, and deleting the open one opens another', async () => {
+test('with the sidebar open, the board menu holds only actions for the open board', async () => {
+  const { app, page } = await launch(tempDataDir());
+  await showPanel(app, page);
+  const names = () => app.evaluate(() => globalThis.__companion.store.list().map((b) => b.name));
+  for (const name of ['second', 'third']) {
+    await boardMenu(page, 'board-new');
+    await page.getByTestId('board-name').fill(name);
+    await page.getByTestId('board-name').press('Enter');
+    await expect(page.getByTestId('board-picker')).toHaveText(name);
+  }
+
+  // The sidebar lists the boards, so the menu lists none.
+  await expect(page.getByTestId('brief-children').getByTestId('brief-board')).toHaveText(['scratch', 'second', 'third']);
+  await page.getByTestId('board-picker').click();
+  await expect(page.getByTestId('board-item')).toHaveCount(0);
+  await expect(page.getByTestId('board-menu').getByRole('menuitem')).toHaveText(['New board', 'Rename “third”', 'Delete “third”']);
+
+  // Delete asks first. Closing the menu takes the question back.
+  const del = page.getByTestId('board-delete');
+  await del.click();
+  await expect(del).toHaveText('Click again to delete');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('board-picker').click();
+  await expect(del).toHaveText('Delete “third”');
+
+  // The second click deletes the open board and opens another.
+  await del.click();
+  await del.click();
+  await expect.poll(names).toEqual(['scratch', 'second']);
+  await expect(page.getByTestId('board-picker')).not.toHaveText('third');
+  await expect(page.getByTestId('board-menu')).toHaveCount(0);
+  await app.close();
+});
+
+test('with the sidebar hidden, a board deletes from the board menu after a second click, and deleting the open one opens another', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
   const names = () => app.evaluate(() => globalThis.__companion.store.list().map((b) => b.name));
@@ -150,6 +184,7 @@ test('a board deletes from the board menu after a second click, and deleting the
     await page.getByTestId('board-name').press('Enter');
     await expect(page.getByTestId('board-picker')).toHaveText(name);
   }
+  await page.getByTestId('sidebar-toggle').click();
 
   // The first click only asks; leaving the row takes the question back.
   await page.getByTestId('board-picker').click();

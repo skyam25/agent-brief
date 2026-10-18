@@ -1,6 +1,7 @@
 /** Each Claude Code session's latest board and note, so /sketch, /write and the tabs reopen them. */
 
-import type { SessionInfo, SessionsResponse } from '../protocol';
+import { rmSync } from 'node:fs';
+import { outputsFile, type SessionInfo, type SessionsResponse } from '../protocol';
 import { newDraftId } from '../shared/drafts';
 import { CH, type BoardEntry, type NewNote, type OpenDraft, type SessionBriefEntry } from '../shared/ipc';
 import type { DraftStore } from './drafts';
@@ -137,9 +138,9 @@ export class Briefs {
     this.publish();
   }
 
-  /** The session whose brief holds a board, live or ended. */
+  /** The session whose brief holds a board, live or ended. A live holder comes first. */
   holderOf(board: string): string | undefined {
-    return boardHolder(this.all(), board);
+    return boardHolder(this.all(), board, (id) => !!this.live(id));
   }
 
   /** Every board, each with the session that holds it. */
@@ -188,6 +189,19 @@ export class Briefs {
   }
 
   private save(sessionBriefs: SessionBriefs): void {
+    const before = this.all();
     this.deps.state.update({ sessionBriefs });
+    for (const [id, b] of Object.entries(before)) {
+      if (!(id in sessionBriefs) && b.cwd && !this.live(id)) dropOutputsFile(b.cwd, id);
+    }
+  }
+}
+
+/** Deletes an ended session's outputs record once its brief goes. The outputs themselves stay. */
+function dropOutputsFile(cwd: string, sessionId: string): void {
+  try {
+    rmSync(outputsFile(cwd, sessionId), { force: true });
+  } catch {
+    // A record left behind does no harm.
   }
 }

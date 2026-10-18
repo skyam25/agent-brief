@@ -16,6 +16,7 @@ import {
   type SessionsResponse,
 } from '../protocol';
 import { buildDraft, freeId, writeBundle } from './bundle';
+import { feedbackDir, pruneBundles } from './feedback-dir';
 import type { CompanionServer, CompanionServerOptions, DeliveryInput } from './contract';
 import {
   BadRequest,
@@ -254,10 +255,11 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
     const session = sessionMap.get(sessionId);
     if (!session) throw new Error(`unknown session ${sessionId}`);
 
-    const sketches = join(session.cwd, '.feedback', 'sketches');
+    const sketches = join(feedbackDir(session.cwd), 'sketches');
     const id = freeId(sketches, now());
     const dir = join(sketches, id);
     await writeBundle(dir, input);
+    pruneBundles(sketches, now());
 
     const delivery: Delivery = {
       id,

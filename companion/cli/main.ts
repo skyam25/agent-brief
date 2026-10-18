@@ -18,6 +18,7 @@ import {
   type Skeleton,
   bashRequestLine,
 } from '../src/protocol';
+import { BOARD_PNG_KEEP, feedbackDir, trimPngs } from '../src/server/feedback-dir';
 import { formatBoards, formatElement, formatRead, formatSessions, formatStatus } from './format';
 import { commandHelp, DOCS, topHelp } from './help';
 import { apply, FORCE_VAR, isOn, shellFiles } from './herdr';
@@ -387,9 +388,11 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const board = str(ctx.args, 'board') ?? CURRENT_BOARD;
     const stamp = (ctx.io.now?.() ?? new Date()).toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
     const safe = board.replace(/[^\w.-]+/g, '_');
-    const file = path.resolve(cwd, str(ctx.args, 'out') ?? `.feedback/boards/${safe}-${stamp}.png`);
+    const out = str(ctx.args, 'out');
+    const file = out ? path.resolve(cwd, out) : path.join(feedbackDir(cwd), 'boards', `${safe}-${stamp}.png`);
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, reply.body);
+    if (!out) trimPngs(path.dirname(file), BOARD_PNG_KEEP);
     show(ctx, { path: file, bytes: reply.body.length }, (r) => r.path);
   },
 

@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -56,6 +56,9 @@ import { BoardStore, cleanName, migrateData, StateFile } from './store';
 import { transcribeClip } from '../voice/compose';
 
 const testMode = process.env.COMPANION_TEST === '1';
+
+/** The release feed, as `publish` in electron-builder.yml names it. */
+const RELEASES = { provider: 'github', owner: 'skyam25', repo: 'agent-brief' } as const;
 
 // The review pane loads project HTML over its own scheme, so it needs standard URL rules and fetch.
 protocol.registerSchemesAsPrivileged([{ scheme: REVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -257,8 +260,10 @@ async function start(): Promise<void> {
   const installs = createInstalls(testMode);
 
   // COMPANION_UPDATE_URL points a packaged build at a local feed, also in test runs.
+  // A `pnpm dist` build has no app-update.yml, so it reads the GitHub releases directly.
   const updateUrl = process.env.COMPANION_UPDATE_URL;
   if (app.isPackaged && updateUrl) autoUpdater.setFeedURL({ provider: 'generic', url: updateUrl });
+  else if (app.isPackaged && !existsSync(join(process.resourcesPath, 'app-update.yml'))) autoUpdater.setFeedURL(RELEASES);
   const updater = new Updater({
     version: app.getVersion(),
     source: app.isPackaged && (!testMode || updateUrl) ? autoUpdater : undefined,

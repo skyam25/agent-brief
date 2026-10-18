@@ -27,9 +27,11 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 | Drafts | `<data>/drafts/<id>.json`, pasted pictures inline as data URLs under `attachments` |
 | Data folder | `~/Library/Application Support/Agent Brief`, or `COMPANION_DATA_DIR` |
 | Socket | `~/Library/Application Support/AgentBrief/agent-brief.sock` (mode 0600), or `COMPANION_SOCKET` |
-| Deliveries | `<session cwd>/.feedback/sketches/<id>/` |
+| Deliveries | `<session cwd>/.feedback/sketches/<id>/`. Each new bundle prunes ones older than 14 days past the newest 20 (`pruneBundles`) |
 | Items | `<session cwd>/.feedback/items/<session id>.md`, written by Claude, appended to by Send in Review mode |
-| Outputs | `<session cwd>/.feedback/outputs/<session id>.json`, written by the mod, read by the app |
+| Outputs | `<session cwd>/.feedback/outputs/<session id>.json`, written by the mod, read by the app, deleted with an ended session's brief |
+| Board PNGs | `<cwd>/.feedback/boards/`, from `agent-brief png` without `--out`. The newest 20 stay |
+| `.feedback/.gitignore` | `*`, written by whichever writer makes `.feedback` first, so the folder stays out of git |
 
 ## Sending
 

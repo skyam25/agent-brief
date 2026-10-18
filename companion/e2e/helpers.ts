@@ -77,10 +77,13 @@ export async function boardMenu(page: Page, action: 'board-new' | 'board-rename'
   await page.getByTestId(action).click();
 }
 
-/** Switches boards through the board menu. */
+/** Switches boards from the sidebar, or from the board menu while the sidebar is hidden. */
 export async function pickBoard(page: Page, name: string): Promise<void> {
+  const exact = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+  const listed = page.getByTestId('brief-children').getByTestId('brief-board').filter({ hasText: exact });
+  if (await listed.count()) return listed.click();
   await page.getByTestId('board-picker').click();
-  await page.getByTestId('board-item').filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }).click();
+  await page.getByTestId('board-item').filter({ hasText: exact }).click();
 }
 
 /** Opens Send's chooser and sends to the running session whose row shows `title`. */
