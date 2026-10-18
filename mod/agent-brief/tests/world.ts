@@ -76,6 +76,8 @@ export type World = {
   runs: Run[]
   toasts: string[]
   submitted: string[]
+  /** What each submitted prompt carried for the model beside its text, in order. */
+  contexts: (readonly string[])[]
   tools: string[]
   commands: string[]
   /** True makes every `fs.write` fail. */
@@ -97,6 +99,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
     runs: [],
     toasts: [],
     submitted: [],
+    contexts: [],
     tools: [],
     commands: [],
     isWriteRefused: false,
@@ -173,7 +176,8 @@ export function worldOf(on: On, files: Readonly<Record<string, string>> = {}, cw
   })
   on('prompt.submit', ($, e) => {
     world.submitted.push(e.text)
-    return { text: e.text }
+    world.contexts.push(e.context ?? [])
+    return { text: e.text, ...(e.context ? { context: e.context } : {}) }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('ui.render', () => ({ type: 'Text', children: ['engine band'] }))

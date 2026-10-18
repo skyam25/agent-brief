@@ -3,6 +3,7 @@ import { mock } from 'claude-code/testing'
 import type { MockClock, TestBody } from 'claude-code/testing'
 
 import type { Delivery } from '../hooks/companion-protocol'
+import type { InitiativeSnapshot } from '../hooks/initiative-types'
 import { SESSION, worldOf } from './world'
 
 export const SESSION_ID = 's1'
@@ -25,6 +26,10 @@ export type FakeCompanion = {
   isPreOutputsApp: boolean
   /** Set, a POST /open with `output` answers 400 with this reason. */
   outputRefusal: string | undefined
+  /** Initiatives the app knows, by id, most recent first. */
+  initiatives: Map<string, Omit<InitiativeSnapshot, 'attachmentRevision'>>
+  /** Which initiative each session is attached to, with its attachment revision. */
+  attachments: Map<string, { id: string; attachmentRevision: number }>
   /** Sessions the app knows, by id, with their item tracking and the mode the mod mirrored. */
   sessions: Map<string, { cwd: string; trackItems: boolean; mode?: string; fidelity?: string }>
   /** The prompt box. */
@@ -73,6 +78,8 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
     isPreTrackingApp: false,
     isPreOutputsApp: false,
     outputRefusal: undefined,
+    initiatives: new Map(),
+    attachments: new Map(),
     sessions: new Map(),
     box: { text: '', cursor: 0 },
     fills: [],
@@ -136,6 +143,33 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
       const known = fake.sessions.get(info.sessionId)
       fake.sessions.set(info.sessionId, { ...known, cwd: info.cwd, trackItems: known?.trackItems ?? false })
       return reply(200, { sessions: [] })
+    }
+    if (path === '/initiatives/recent') {
+      const limit = Number(url.searchParams.get('limit') ?? 3)
+      return reply(200, [...fake.initiatives.values()].slice(0, limit).map(i => ({
+        id: i.id,
+        title: i.title,
+        line: i.understanding.split('. ')[0] ?? '',
+        lastActiveAt: '2026-10-17T00:00:00Z',
+      })))
+    }
+    const attachedTo = /^\/sessions\/([^/]+)\/initiative$/.exec(path)?.[1]
+    if (attachedTo !== undefined) {
+      const id = decodeURIComponent(attachedTo)
+      const snapshotOf = () => {
+        const held = fake.attachments.get(id)
+        const initiative = held && fake.initiatives.get(held.id)
+        return held && initiative ? { ...initiative, attachmentRevision: held.attachmentRevision } : undefined
+      }
+      if (method === 'PUT') {
+        const { initiativeId } = JSON.parse(text!) as { initiativeId: string }
+        if (!fake.sessions.has(id) || !fake.initiatives.has(initiativeId)) return reply(404, { error: 'not found', code: 'not_found' })
+        fake.attachments.set(id, { id: initiativeId, attachmentRevision: (fake.attachments.get(id)?.attachmentRevision ?? 0) + 1 })
+        return reply(200, snapshotOf())
+      }
+      if (method === 'DELETE') return reply(200, { detached: fake.attachments.delete(id) })
+      const snapshot = snapshotOf()
+      return snapshot ? reply(200, snapshot) : { value: { status: 204, ok: true, headers: {}, text: '' } }
     }
     const sessionId = /^\/sessions\/([^/]+)$/.exec(path)?.[1]
     if (sessionId !== undefined && (method === 'GET' || method === 'PATCH')) {
