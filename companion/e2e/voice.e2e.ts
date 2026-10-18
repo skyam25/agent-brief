@@ -20,7 +20,11 @@ test('C3.1 recorded speech is transcribed into the bundle next to the strokes dr
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));
   await sock(socketPath, 'POST', '/sessions', { sessionId: 'v1', cwd, title: 'Pricing' });
 
+  // Talk turns the comment tool on. Turning it off hands the mic to plain sketch voice, so the pen draws.
   await page.getByTestId('mic').click();
+  await expect(page.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('c');
+  await expect(page.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('mic-clock')).toHaveText('00:00');
 
   const cdp = await page.context().newCDPSession(page);
@@ -67,9 +71,14 @@ test('Talk records into a take that Send carries and Discard drops', async () =>
   const { app, page } = await launch(tempDataDir(), { COMPANION_TEST_AUDIO: SPEECH });
   await showPanel(app, page);
   const mic = page.getByTestId('mic');
-  await expect(mic).toContainText('Talk');
+  await expect(mic).toContainText('Talk and annotate');
+  const plainTalk = async () => {
+    await page.keyboard.press('Alt+KeyT');
+    await expect(page.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('c');
+  };
 
-  await page.keyboard.press('Alt+KeyT');
+  await plainTalk();
   await expect(mic).toHaveText('Stop');
   await expect(page.getByTestId('voice-strip')).toContainText('Listening');
   await expect(page.getByTestId('level-meter').locator('span')).toHaveCount(28);
@@ -78,18 +87,18 @@ test('Talk records into a take that Send carries and Discard drops', async () =>
 
   await mic.click();
   await expect(page.getByTestId('voice-take')).toHaveText(/^00:0[1-2] recorded$/);
-  await expect(mic).toContainText('Talk more');
+  await expect(mic).toContainText('Talk and annotate');
   await page.screenshot({ path: join(RESULTS, 'voice-take.png') });
 
   // Talking more adds to the same take, and Discard while recording drops all of it.
-  await mic.click();
+  await plainTalk();
   await expect(page.getByTestId('mic-clock')).toHaveText(/^00:0[1-2]$/);
   await page.getByTestId('voice-discard').click();
   await expect(page.getByTestId('voice-take')).toHaveCount(0);
-  await expect(mic).toContainText('Talk');
+  await expect(mic).toContainText('Talk and annotate');
   expect(await page.evaluate(() => window.__board.recorder.segments.length)).toBe(0);
 
-  await page.keyboard.press('Alt+KeyT');
+  await plainTalk();
   await page.waitForTimeout(1200);
   await page.keyboard.press('Alt+KeyT');
   await page.getByTestId('voice-take-discard').click();
@@ -117,10 +126,10 @@ test('a click on the board while talking points the words at that element', asyn
       return { x: (e.x + e.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (e.y + e.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop };
     }, id);
 
-  // Talk starts as plain sketch voice; turning on Comment hands the mic to the pins.
+  // Talk turns the comment tool on, so clicks pin while the mic listens.
+  await expect(page.getByTestId('mic')).toHaveText(/Talk and annotate/);
   await page.getByTestId('mic').click();
-  await expect(page.getByTestId('mic-clock')).toBeVisible();
-  await page.keyboard.press('c');
+  await expect(page.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('board-comments')).toBeVisible();
   await expect(page.getByTestId('mic')).toHaveText(/Stop/);
 

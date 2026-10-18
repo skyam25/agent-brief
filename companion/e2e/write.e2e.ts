@@ -262,5 +262,6 @@ test('switching to Write stops a recording', async () => {
   await page.getByTestId('mic').click();
   await expect(page.getByTestId('mic')).toHaveAttribute('aria-pressed', 'true');
   await page.getByTestId('mode-write').click();
-  await expect.poll(() => page.evaluate(() => window.__board.recorder.recording)).toBe(false);
+  await page.getByTestId('mode-sketch').click();
+  await expect(page.getByTestId('mic')).toHaveAttribute('aria-pressed', 'false');
 });

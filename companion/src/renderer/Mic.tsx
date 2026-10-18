@@ -7,12 +7,10 @@ export const TALK_KEY = '⌥T';
 
 const BARS = 28;
 
-/** The composer's voice button: Talk while off, Discard and Stop while recording. */
+/** The composer's voice button: Talk and annotate on the board, Talk through page in a review, Discard and Stop while recording. */
 export function Mic(props: {
   recording?: boolean;
-  hasVoice?: boolean;
-  reviewing?: boolean;
-  /** The pins are on the board, not on a page. */
+  /** The mic talks to the board's pins, not a page's. */
   board?: boolean;
   onMicrophone: () => void;
   onDiscard?: () => void;
@@ -33,9 +31,10 @@ export function Mic(props: {
       </>
     );
   }
-  const surface = props.board ? 'board' : 'page';
-  const label = props.reviewing ? `Talk through ${surface}` : props.hasVoice ? 'Talk more' : 'Talk';
-  const title = props.reviewing ? `Talk through the ${surface}. Each pin gets what you say after it.` : 'Talk while you sketch. Send includes what you say.';
+  const label = props.board ? 'Talk and annotate' : 'Talk through page';
+  const title = props.board
+    ? 'Talk and click the board to pin comments. Each pin gets what you say after it.'
+    : 'Talk through the page. Each pin gets what you say after it.';
   return (
     <button className="talk" title={`${title} (${TALK_KEY})`} aria-pressed="false" onClick={props.onMicrophone} data-testid="mic">
       <MicIcon />

@@ -186,7 +186,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
 
   const [comments] = useState(() => new BoardCommentsStore());
   useCommentKeys(comments, mode === 'sketch');
-  const { reviewVoice, reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, toggleRecording, discardVoice } = useVoice({
+  const { reviewVoice, reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, discardVoice } = useVoice({
     host,
     book,
     controller,
@@ -197,8 +197,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     notify,
   });
 
-  /** Sketch has a mic, which talks to the board's pins while they show. Review mode has one while a review is open. */
-  const onMicrophone = reviewing ? () => void toggleReviewVoice() : mode === 'sketch' ? () => void toggleRecording() : undefined;
+  /** Sketch has a mic, which talks to the board's pins. Review mode has one while a review is open. */
+  const onMicrophone = reviewing || mode === 'sketch' ? () => void toggleReviewVoice() : undefined;
 
   /** Switches modes. Write opens the first draft, or a new note when there is none. */
   const changeMode = useCallback(
@@ -370,9 +370,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
         onMicrophone && (
           <Mic
             recording={recording}
-            hasVoice={hasVoice}
-            reviewing={reviewing}
-            board={commenting}
+            board={mode === 'sketch'}
             onMicrophone={onMicrophone}
             onDiscard={reviewing ? undefined : () => void discardVoice()}
           />

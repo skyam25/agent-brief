@@ -38,8 +38,8 @@ export interface PanelVoice {
   voiceMs: number;
   /** The open microphone, while recording. */
   input: MediaStream | undefined;
+  /** Talks to the pins: the board's in Sketch, the page's in a review. */
   toggleReviewVoice: () => Promise<void>;
-  toggleRecording: () => Promise<void>;
   /** Drops the sketch voice, recording or not. */
   discardVoice: () => Promise<void>;
 }
@@ -113,7 +113,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     if (commenting && voiceDraft.current?.startsWith(BOARD)) reviewVoice.aim(selectedPin ?? OVERALL);
   }, [commenting, selectedPin, reviewVoice]);
 
-  // Opening the comments while sketch voice records hands the mic to the pins. Closing them ends it.
+  // Opening the comments while sketch voice records hands the mic to the pins. Closing them hands it back.
   const wasCommenting = useRef(commenting);
   useEffect(() => {
     const was = wasCommenting.current;
@@ -125,13 +125,23 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
         await reviewVoice.start(comments.selected ?? OVERALL).catch((err: Error) => notify(`Could not start the microphone: ${err.message}`, 'error'));
       })();
     }
-    if (!commenting && was && reviewVoice.recording && voiceDraft.current?.startsWith(BOARD)) void reviewVoice.stop();
-  }, [commenting, controller, reviewVoice, comments, board, notify]);
+    if (!commenting && was && reviewVoice.recording && voiceDraft.current?.startsWith(BOARD)) {
+      void (async () => {
+        await reviewVoice.stop();
+        if (modeRef.current !== 'sketch') return;
+        await controller.recorder.start().catch((err: Error) => notify(`Could not start the microphone: ${err.message}`, 'error'));
+      })();
+    }
+  }, [commenting, controller, reviewVoice, comments, board, modeRef, notify]);
 
-  // In a review the mic talks to the pins: what you say goes to the selected comment.
+  // The mic talks to the pins. In Sketch it turns the comment tool on, so you talk and pin at once.
   const toggleReviewVoice = async () => {
     if (reviewVoice.recording) {
       await reviewVoice.stop();
+      return;
+    }
+    if (controller.recorder.recording) {
+      await controller.recorder.stop();
       return;
     }
     const access = await host.requestMicrophone();
@@ -139,11 +149,14 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
       notify(MIC_DENIED, 'error');
       return;
     }
-    if (commenting) {
+    if (mode === 'sketch') {
       if (modeRef.current !== 'sketch') return;
       voiceDraft.current = `${BOARD}${board}`;
       try {
         await reviewVoice.start(comments.selected ?? OVERALL);
+
+        // The tool turns on once the mic is open, so turning it straight back off hands the mic to sketch voice.
+        comments.setTool(true);
       } catch (err) {
         notify(`Could not start the microphone: ${(err as Error).message}`, 'error');
       }
@@ -159,28 +172,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     }
   };
 
-  // The mic button records voice for the next Send. It asks macOS first and says why when refused.
-  const toggleRecording = async () => {
-    if (controller.recorder.recording) {
-      await controller.recorder.stop();
-      return;
-    }
-    const access = await host.requestMicrophone();
-    if (!access.granted) {
-      notify(MIC_DENIED, 'error');
-      return;
-    }
-    // Leaving Sketch while macOS asked about the mic cancels the start.
-    if (modeRef.current !== 'sketch') return;
-    try {
-      await controller.recorder.start();
-      if (modeRef.current !== 'sketch') await controller.recorder.stop();
-    } catch (err) {
-      notify(`Could not start the microphone: ${(err as Error).message}`, 'error');
-    }
-  };
-
   const discardVoice = () => controller.recorder.discard();
 
-  return { reviewVoice, reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, toggleRecording, discardVoice };
+  return { reviewVoice, reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, discardVoice };
 }
