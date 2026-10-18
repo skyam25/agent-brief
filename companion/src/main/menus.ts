@@ -24,7 +24,7 @@ export interface MenuActions {
 /**
  * The update status and its action. Checks run in the background, so the
  * menu reports progress itself and never opens the panel. A check from the
- * menu downloads and restarts without a second click. Nothing in development.
+ * menu downloads, then asks before it restarts. Nothing in development.
  */
 export function updateItems(a: MenuActions): MenuItemConstructorOptions[] {
   const { state, available, percent, restart } = a.update;
@@ -38,8 +38,8 @@ export function updateItems(a: MenuActions): MenuItemConstructorOptions[] {
     case 'downloading': {
       const progress = `${available ?? 'Update'}${percent ? ` (${percent}%)` : ''}`;
       return restart
-        ? [status(`Downloading ${progress}, Then Restarting…`)]
-        : [status(`Downloading ${progress}…`), { label: 'Restart When Downloaded', click: a.updateNow }];
+        ? [status(`Downloading ${progress}…`)]
+        : [status(`Downloading ${progress}…`), { label: 'Update When Downloaded', click: a.updateNow }];
     }
     case 'ready':
       return [{ label: `Restart to Update to ${available}`, click: a.installUpdate }];

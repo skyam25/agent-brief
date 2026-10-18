@@ -28,14 +28,20 @@ class FakeSource extends EventEmitter implements UpdateSource {
   }
 }
 
+const quiet = { onStatus: () => {}, beforeInstall: async () => {}, confirmRestart: async () => true };
+
 function setup(source = new FakeSource()) {
   const seen: UpdateStatus[] = [];
   const order: string[] = [];
+  /** The user's answer to the restart question. */
+  const answer = { now: true };
+  const asked: string[] = [];
   const updater = new Updater({
     version: '0.1.1',
     source,
     onStatus: (s) => seen.push(s),
     beforeInstall: async () => void order.push('flush'),
+    confirmRestart: async (version) => (asked.push(version), answer.now),
     now: () => 1000,
   });
   const install = source.quitAndInstall.bind(source);
@@ -43,12 +49,12 @@ function setup(source = new FakeSource()) {
     order.push('install');
     install();
   };
-  return { updater, source, seen, order };
+  return { updater, source, seen, order, answer, asked };
 }
 
 describe('Updater', () => {
   it('is off without a source and never checks', async () => {
-    const updater = new Updater({ version: '0.1.1', onStatus: () => {}, beforeInstall: async () => {} });
+    const updater = new Updater({ version: '0.1.1', ...quiet });
     expect(updater.current()).toEqual({ version: '0.1.1', state: 'off' });
     expect(await updater.check()).toEqual({ version: '0.1.1', state: 'off' });
   });
@@ -102,17 +108,30 @@ describe('Updater', () => {
     expect(order).toEqual(['flush', 'install']);
   });
 
-  it('updates in one step when the user asks: check, download, restart', async () => {
-    const { updater, source, order } = setup();
+  it('checks and downloads when the user asks, then restarts once they agree', async () => {
+    const { updater, source, order, asked } = setup();
     source.next = 'available';
     expect(await updater.update()).toMatchObject({ state: 'downloading', restart: true });
     expect(source.installs).toBe(0);
     source.emit('update-downloaded', { version: '0.2.0' });
     await vi.waitFor(() => expect(order).toEqual(['flush', 'install']));
+    expect(asked).toEqual(['0.2.0']);
   });
 
-  it('restarts after a background download the user asks for', async () => {
-    const { updater, source } = setup();
+  it('keeps the update ready for quit when the user picks Later', async () => {
+    const { updater, source, answer, asked } = setup();
+    answer.now = false;
+    source.next = 'available';
+    await updater.update();
+    source.emit('update-downloaded', { version: '0.2.0' });
+    await vi.waitFor(() => expect(asked).toEqual(['0.2.0']));
+    expect(source.installs).toBe(0);
+    expect(source.autoInstallOnAppQuit).toBe(true);
+    expect(updater.current()).toMatchObject({ state: 'ready', available: '0.2.0', restart: undefined });
+  });
+
+  it('asks after a background download the user asks for', async () => {
+    const { updater, source, asked } = setup();
     source.next = 'available';
     await updater.check();
     expect(updater.current().restart).toBeUndefined();
@@ -120,14 +139,42 @@ describe('Updater', () => {
     expect(source.checks).toBe(1);
     source.emit('update-downloaded', { version: '0.2.0' });
     await vi.waitFor(() => expect(source.installs).toBe(1));
+    expect(asked).toEqual(['0.2.0']);
   });
 
-  it('installs a ready update at once', async () => {
-    const { updater, source } = setup();
+  it('asks before it installs a ready update the user checks for', async () => {
+    const { updater, source, answer, asked } = setup();
     source.emit('update-downloaded', { version: '0.2.0' });
+    answer.now = false;
     await updater.update();
     expect(source.checks).toBe(0);
+    expect(source.installs).toBe(0);
+    answer.now = true;
+    await updater.update();
+    expect(asked).toEqual(['0.2.0', '0.2.0']);
     expect(source.installs).toBe(1);
+  });
+
+  it('never stacks a second question while one is open', async () => {
+    const source = new FakeSource();
+    let agree: (yes: boolean) => void = () => {};
+    const confirmRestart = vi.fn(() => new Promise<boolean>((resolve) => (agree = resolve)));
+    const updater = new Updater({ version: '0.1.1', source, ...quiet, confirmRestart });
+    source.emit('update-downloaded', { version: '0.2.0' });
+    const first = updater.update();
+    await updater.update();
+    expect(confirmRestart).toHaveBeenCalledTimes(1);
+    agree(true);
+    await first;
+    expect(source.installs).toBe(1);
+  });
+
+  it('never asks after a background download nobody asked for', async () => {
+    const { source, asked } = setup();
+    source.emit('update-downloaded', { version: '0.2.0' });
+    await Promise.resolve();
+    expect(asked).toEqual([]);
+    expect(source.installs).toBe(0);
   });
 
   it('waits for the next background download after nothing new or an error', async () => {
@@ -147,8 +194,7 @@ describe('Updater', () => {
     const updater = new Updater({
       version: '0.1.1',
       source,
-      onStatus: () => {},
-      beforeInstall: async () => {},
+      ...quiet,
       setTimer: (fn, ms) => (timers.push({ fn, ms }), {}),
     });
     updater.schedule();
@@ -160,7 +206,7 @@ describe('Updater', () => {
 
   it('does not schedule without a source', () => {
     const setTimer = vi.fn();
-    new Updater({ version: '0.1.1', onStatus: () => {}, beforeInstall: async () => {}, setTimer }).schedule();
+    new Updater({ version: '0.1.1', ...quiet, setTimer }).schedule();
     expect(setTimer).not.toHaveBeenCalled();
   });
 });

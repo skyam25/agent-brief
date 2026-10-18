@@ -304,6 +304,19 @@ async function start(): Promise<void> {
       await flushAll();
       panel.prepareQuit();
     },
+    confirmRestart: async (version) => {
+      app.focus({ steal: true });
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+        message: `Agent Brief ${version} is ready`,
+        detail:
+          'Restart now to update. Agent Brief saves your boards and notes first.\n\nChoose Later to keep working. The update installs the next time Agent Brief quits, or when you pick Restart to Update.',
+      });
+      return response === 0;
+    },
   });
 
   const controls = createControls({ testMode, state, panel, server, installs, updater, send, setPrompt });

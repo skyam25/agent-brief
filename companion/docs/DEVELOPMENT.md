@@ -190,7 +190,7 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 
 ## Releases and updates
 
-Installed copies update themselves from GitHub releases with electron-updater. They check 10 s after launch and every 6 hours, download a newer build in the background, and install it when the app quits. Check for Updates in Settings and the menus does it all in one step. It checks, downloads, and restarts into the new build. A background download offers Restart When Downloaded, and a finished one offers Restart to Update. Development and test runs never update.
+Installed copies update themselves from GitHub releases with electron-updater. They check 10 s after launch and every 6 hours, download a newer build in the background, and install it when the app quits. Check for Updates in Settings and the menus checks and downloads in one step. When the build is ready, a dialog offers Restart Now or Later. Later leaves the update to install on quit. A background download offers Update When Downloaded, which asks the same way, and a finished one offers Restart to Update. Development and test runs never update.
 
 To release:
 

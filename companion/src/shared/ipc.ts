@@ -196,7 +196,7 @@ export interface UpdateStatus {
   percent?: number;
   error?: string;
   checkedAt?: number;
-  /** The user asked to update, so the app restarts once the download finishes. */
+  /** The user asked to update, so the app asks to restart once the download finishes. */
   restart?: boolean;
 }
 

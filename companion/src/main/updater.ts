@@ -1,8 +1,8 @@
 /**
  * Updates from GitHub releases. Background checks run at launch and every
  * few hours, download a newer build, and install it on quit or when the user
- * picks Restart to Update. A check the user asks for checks, downloads and
- * restarts in one step.
+ * picks Restart to Update. A check the user asks for checks and downloads,
+ * then asks before it restarts.
  */
 
 import type { UpdateStatus } from '../shared/ipc';
@@ -26,6 +26,8 @@ export interface UpdaterOptions {
   onStatus: (status: UpdateStatus) => void;
   /** Saves boards and lets windows close before the app quits for the install. */
   beforeInstall: () => Promise<void>;
+  /** Asks whether to restart into `version` now. False leaves it to install on quit. */
+  confirmRestart: (version: string) => Promise<boolean>;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => { unref?(): void };
 }
@@ -36,6 +38,7 @@ export const CHECK_EVERY_MS = 6 * 3600_000;
 export class Updater {
   private status: UpdateStatus;
   private checking?: Promise<UpdateStatus>;
+  private asking = false;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.status = { version: opts.version, state: opts.source ? 'idle' : 'off' };
@@ -52,8 +55,9 @@ export class Updater {
     );
     source.on('download-progress', (p) => this.publish({ state: 'downloading', percent: Math.round(p.percent) }));
     source.on('update-downloaded', (info) => {
-      this.publish({ state: 'ready', available: info.version, percent: undefined });
-      if (this.status.restart) void this.install();
+      const asked = this.status.restart;
+      this.publish({ state: 'ready', available: info.version, percent: undefined, restart: undefined });
+      if (asked) void this.offerRestart();
     });
     source.on('error', (err) =>
       this.publish({ state: 'error', error: err.message, percent: undefined, restart: undefined }),
@@ -90,12 +94,12 @@ export class Updater {
   }
 
   /**
-   * Updates now, as the user asked. A ready update installs at once. Otherwise
-   * it checks, and the app restarts as soon as a newer build finishes downloading.
+   * Updates as the user asked. A ready update asks to restart now. Otherwise it
+   * checks, and asks once a newer build finishes downloading.
    */
   update(): Promise<UpdateStatus> {
     if (!this.opts.source) return Promise.resolve(this.status);
-    if (this.status.state === 'ready') return this.install().then(() => this.status);
+    if (this.status.state === 'ready') return this.offerRestart().then(() => this.status);
     this.publish({ restart: true });
     if (this.status.state === 'downloading') return Promise.resolve(this.status);
     return this.check();
@@ -105,6 +109,17 @@ export class Updater {
     if (!this.opts.source || this.status.state !== 'ready') return;
     await this.opts.beforeInstall();
     this.opts.source.quitAndInstall();
+  }
+
+  /** One question at a time, so a second click never stacks dialogs. */
+  private async offerRestart(): Promise<void> {
+    if (this.asking || this.status.state !== 'ready') return;
+    this.asking = true;
+    try {
+      if (await this.opts.confirmRestart(this.status.available ?? '')) await this.install();
+    } finally {
+      this.asking = false;
+    }
   }
 
   private now(): number {

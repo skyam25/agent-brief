@@ -12,7 +12,7 @@ function updateText(u: UpdateStatus): string | undefined {
       return 'Up to date.';
     case 'downloading':
       return `Downloading ${u.available ?? 'the update'}${u.percent ? ` · ${u.percent}%` : ''}…${
-        u.restart ? ' Agent Brief restarts when it finishes.' : ''
+        u.restart ? ' Agent Brief asks to restart when it finishes.' : ''
       }`;
     case 'ready':
       return `Version ${u.available} is ready. It installs when Agent Brief quits.`;
@@ -116,7 +116,7 @@ export function SettingsPopover(props: {
                   disabled={update.state === 'checking' || (update.state === 'downloading' && update.restart)}
                   data-testid="settings-update-check"
                 >
-                  {update.state === 'downloading' ? 'Restart When Downloaded' : 'Check for Updates'}
+                  {update.state === 'downloading' ? 'Update When Downloaded' : 'Check for Updates'}
                 </button>
               )
             )}
