@@ -70,6 +70,13 @@ const api: CompanionApi = {
   openOutput: (sessionId, ref) => ipcRenderer.invoke(CH.openOutput, sessionId, ref),
   dismissOutput: (sessionId, ref) => ipcRenderer.invoke(CH.dismissOutput, sessionId, ref),
   openOutputElsewhere: (sessionId, ref) => ipcRenderer.invoke(CH.openOutputElsewhere, sessionId, ref),
+  readBehavior: (sessionId, path) => ipcRenderer.invoke(CH.readBehavior, sessionId, path),
+  decideBehavior: (sessionId, path, decision) => ipcRenderer.invoke(CH.decideBehavior, sessionId, path, decision),
+  onBehaviorChanged: (fn) => {
+    const listener = () => fn();
+    ipcRenderer.on(CH.behaviorChanged, listener);
+    return () => { ipcRenderer.removeListener(CH.behaviorChanged, listener); };
+  },
   reviewUrl: (sessionId, path) => ipcRenderer.invoke(CH.reviewUrl, sessionId, path),
   reviewEdit: (sessionId, path, version, edit) => ipcRenderer.invoke(CH.reviewEdit, sessionId, path, version, edit),
   reviewUndo: (sessionId, path) => ipcRenderer.invoke(CH.reviewUndo, sessionId, path),

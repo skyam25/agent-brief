@@ -247,6 +247,7 @@ Declare it with status \`drafting\` when you start the deliverable. Declare it a
 Declare one primary output per request, usually. Pick the one the user will read first.
 Never declare code, config, tests or files that serve the code.
 Never declare the items file or anything under .feedback.
+For interactive HTML prototypes, use the behavior-review skill to keep sourced behavior rules, open assumptions and simulated actions beside the prototype.
 The panel already lists every document-type file you write as touched. Do not declare files to be thorough.
 
 When the user asks for text they will paste somewhere else, such as a message, an email or a post, write it to an Agent Brief note instead of printing it.

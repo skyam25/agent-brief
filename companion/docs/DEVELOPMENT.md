@@ -104,6 +104,17 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
   Review of <path> from Agent Brief, <n> comments pinned to the page. Make the changes in <path>, then say what changed.
   ```
 
+## Behavior specifications
+
+- `<prototype.html>.behavior.json` holds rules, limitations and the last 100 changes. It is a project file, shared across sessions; review drafts hold only a handoff snapshot. Nothing is deleted at implementation time.
+- `src/main/behavior.ts` serializes panel and socket writes, checks a SHA-256 content version (including hand edits), and atomically replaces the file. It refuses paths outside the project, dot folders and sidecar symlinks. Corrupt files produce an error rather than an empty replacement.
+- `GET /sessions/:id/behavior?path=<relative HTML path>` reads a document; `PUT` applies `BehaviorUpdate`. Both require a live session. Panel IPC can read an ended session's project and uses `BehaviorDecision` to confirm or reopen a rule. Protocol changes are mirrored in the plugin copy.
+- `agent-brief behavior show|update|export <prototype.html>` uses `--session` or `CLAUDE_CODE_SESSION_ID`. Updates read JSON from stdin or `--file`; exports write Markdown to `--out`, or stdout. The version returned by show is required for updates.
+- Agent upserts preserve unmentioned rules. A new confirmed requirement requires a non-assumption source; existing proposals must be confirmed in the panel. Changed text or targets reset confirmation and delivery evidence. Verified delivery requires evidence.
+- Store writes emit `behavior:changed`. Review reloads the current document; Refresh also reads direct file edits. Unsaved edits keep their original version and text, and require explicit rebasing after a concurrent change. Send is blocked while the Behavior editor is open.
+- `review.md` includes the reviewed specification revision, confirmed criteria, open assumptions, provenance and prototype limitations. The behavior-review skill tells the agent to read the current document before updating it. Stable `data-ui` selectors support element highlighting; hidden or missing targets produce a message without guessing another element.
+- Coverage: `src/main/behavior.test.ts`, `src/server/behavior.test.ts` (real CLI/socket integration), and `e2e/behavior.e2e.ts` (off-screen Electron review, handoff, restart and conflicts).
+
 ## Initiatives
 
 - `src/main/initiatives.ts` keeps the index, `<data>/initiatives.json`. Each row holds the id, title, brief path, `createdAt`, `lastActiveAt`, the current `revision`, `updatedAt` and `updatedBy`, the sha256 of the brief as last seen, and up to 200 revisions. `attachments` maps a session id to `{ initiativeId?, attachmentRevision, at }`, at most 500, latest first.

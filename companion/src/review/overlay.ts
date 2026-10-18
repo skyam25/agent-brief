@@ -112,6 +112,11 @@ function start(): void {
 
   /** A selector that names `el` alone: ids where the page has them, tags and nth-of-type elsewhere. */
   function selectorFor(el: Element): string {
+    const stable = el.getAttribute('data-ui');
+    if (stable) {
+      const selector = `[data-ui="${CSS.escape(stable)}"]`;
+      if (unique(selector)) return selector;
+    }
     const parts: string[] = [];
     let cur: Element | null = el;
     while (cur && cur !== document.documentElement) {
@@ -310,6 +315,14 @@ function start(): void {
       selectionPinned = false;
     }
     if (m.type === 'show') show(m.id);
+    if (m.type === 'show-behavior') {
+      let element: Element | null = null;
+      try { if (document.querySelectorAll(m.selector).length === 1) element = document.querySelector(m.selector); } catch { /* stale or invalid target */ }
+      if (element && element.getBoundingClientRect().width && element.getBoundingClientRect().height) {
+        element.scrollIntoView({ block: 'center', behavior: 'instant' });
+        element.animate([{ outline: '3px solid #8b5cf6', outlineOffset: '3px' }, { outline: '3px solid transparent', outlineOffset: '3px' }], { duration: 1300 });
+      } else window.parent.postMessage({ source: REVIEW_SOURCE, type: 'behavior-missing' }, '*');
+    }
     if (m.type === 'editing') {
       if (m.on) setCommenting(false);
       edit?.setEditing(m.on);

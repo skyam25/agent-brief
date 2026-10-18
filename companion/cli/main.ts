@@ -1,3 +1,5 @@
+import type { BehaviorDocument } from '../src/protocol';
+import { behaviorMarkdown } from '../src/shared/behavior';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -454,6 +456,21 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const run = verb ? INITIATIVE_VERBS[verb] : undefined;
     if (!run) throw new UsageError(`initiative takes ${Object.keys(INITIATIVE_VERBS).join(', ')}. Run "agent-brief initiative --help".`);
     await run(ctx, words);
+  },
+
+  async behavior(ctx) {
+    const [verb, html] = ctx.positional;
+    if (!['show', 'update', 'export'].includes(verb) || !html) throw new UsageError('behavior needs show|update|export and a project-relative HTML path');
+    const session = str(ctx.args, 'session') ?? ctx.io.env[SESSION_ID_ENV];
+    if (!session) throw new UsageError('behavior needs --session or CLAUDE_CODE_SESSION_ID');
+    const route = `/sessions/${encodeURIComponent(session)}/behavior?path=${encodeURIComponent(html)}`;
+    const doc = await callJson<BehaviorDocument>(ctx.socket, verb === 'update' ? 'PUT' : 'GET', route, verb === 'update' ? await readInput(ctx) : undefined);
+    if (verb === 'export') {
+      const markdown = behaviorMarkdown(doc) + '\n';
+      const dest = str(ctx.args, 'out');
+      if (dest) { await writeFile(path.resolve(ctx.io.cwd ?? process.cwd(), dest), markdown); ctx.out(dest); }
+      else ctx.out(markdown);
+    } else show(ctx, doc, (d) => `${d.path} · revision ${d.revision} · version ${d.version}\n${d.rules.map((r) => `[${r.status}] ${r.id}: ${r.text}`).join('\n')}`);
   },
 
   async status(ctx) {

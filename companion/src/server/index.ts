@@ -312,6 +312,13 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       return { json: health };
     }
 
+    if (root === 'sessions' && parts.length === 3 && sub === 'behavior') {
+      const session = liveSession(id);
+      if (!opts.behaviors) throw new HttpError(503, 'unavailable', 'this app does not keep behavior specifications');
+      if (method === 'GET') return { json: opts.behaviors.read(session.cwd, q.get('path')) };
+      if (method === 'PUT') return { json: opts.behaviors.update(session.cwd, q.get('path'), await readJson(req), `Agent · ${id}`) };
+    }
+
     if (root === 'sessions') {
       if (parts.length === 1 && method === 'POST') {
         register(parseSession(await readJson(req)));

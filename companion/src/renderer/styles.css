@@ -3449,3 +3449,23 @@ button.stop-talk:hover {
 .initiative-new input {
   padding: 0 10px;
 }
+
+/* Behavior shares Review's existing detail pane. */
+.behavior-tabs, .behavior-heading, .behavior-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.behavior-tabs { padding: 6px 0; }
+.behavior-heading { justify-content: space-between; }
+.behavior-panel { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; padding-bottom: 12px; }
+.behavior-panel p { margin: 7px 0; }
+.behavior-rule { border-top: 1px solid var(--line); padding: 12px 0; }
+.behavior-rule label { display: block; margin-top: 8px; }
+.behavior-status { font-weight: 600; color: var(--accent); }
+.behavior-status.proposed { color: var(--fg); }
+.behavior-source { font-size: 12px; }
+.behavior-actions { margin-top: 8px; }
+.behavior-error { color: var(--error); }
+.behavior-history { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }

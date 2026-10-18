@@ -95,6 +95,15 @@ A send of item decisions from Review mode is text alone, such as `Decisions on 2
 - Hide hides a row until Claude writes or declares it again.
 - The mod keeps the list in `<project>/.feedback/outputs/<session>.json`. The app only reads it.
 
+## Behavior review
+
+- An interactive prototype can carry a behavior specification beside its HTML file. Review's **Behavior** tab shows proposed and confirmed rules, their sources, implementation evidence, and simulated actions.
+- **Confirm** records your decision. **Edit** lets you change the wording or leave a question open. Decisions save immediately; **Send** hands the rules and your comments to Claude. Save or cancel an open edit before sending.
+- **Show element** highlights a rule's control when it is visible. Rules can also describe a whole flow. A state label tells you where a hidden control appears.
+- Rules belong to the prototype, so they survive restarts and new sessions. Decision history keeps previous wording and sources. Concurrent changes require reviewing the latest revision before saving your edit.
+- Confirmation means agreement, not implementation. Changing a rule's meaning returns it to proposed and clears implementation evidence. Simulated actions stay listed separately.
+- Ask Claude to add behavior rules to a prototype, or use `agent-brief behavior show|update|export <prototype.html>`. Export produces acceptance criteria with open assumptions and limitations for the engineering handoff.
+
 ## Initiatives
 
 - Work that runs for weeks gets a short standing brief, its initiative, so a new session starts from where things stand instead of from cold.

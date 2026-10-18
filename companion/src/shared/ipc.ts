@@ -1,3 +1,4 @@
+import type { BehaviorDocument, BehaviorDecision } from '../protocol';
 /** IPC between the main process and the panel renderer. */
 
 import type { BoardComments } from './board-comments';
@@ -450,6 +451,9 @@ export interface CompanionApi extends BoardHost {
   /** Opens an output file in its default app, even one the panel can open itself. */
   openOutputElsewhere(sessionId: string, ref: string): Promise<void>;
   /** The address the review pane loads a session's HTML file from. */
+  readBehavior(sessionId: string, path: string): Promise<BehaviorDocument>;
+  decideBehavior(sessionId: string, path: string, decision: BehaviorDecision): Promise<BehaviorDocument>;
+  onBehaviorChanged(fn: () => void): () => void;
   reviewUrl(sessionId: string, path: string): Promise<string>;
   /** Applies a review pane edit to the HTML file. `version` is the file's as the page loaded it. */
   reviewEdit(sessionId: string, path: string, version: string, edit: ReviewEdit): Promise<EditResult>;
@@ -539,6 +543,9 @@ export const CH = {
   openOutput: 'outputs:open',
   dismissOutput: 'outputs:dismiss',
   openOutputElsewhere: 'outputs:open-elsewhere',
+  readBehavior: 'behavior:read',
+  decideBehavior: 'behavior:decide',
+  behaviorChanged: 'behavior:changed',
   reviewUrl: 'review:url',
   reviewEdit: 'review:edit',
   reviewUndo: 'review:undo',

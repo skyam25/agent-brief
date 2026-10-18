@@ -1,3 +1,4 @@
+import { BehaviorStore } from './behavior';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -179,6 +180,12 @@ async function start(): Promise<void> {
   };
 
   const briefs = new Briefs({ state, store, drafts, sessions: () => server.sessions(), send, onPublish: () => files.sync() });
+  const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
+  const behaviorRoot = (sessionId: string) => {
+    const cwd = briefs.cwdOf(sessionId);
+    if (!cwd) throw new Error('Unknown session');
+    return cwd;
+  };
   const files = new SessionFiles({ briefs, drafts, send, opener, reviewUrlFor: (cwd, path) => reviewRoots.urlFor(cwd, path) });
   const terminals = new Terminals({ testMode, writeClipboard: (text) => clipboard.writeText(text) });
   // Each live session's mode. The mod sets it over PATCH /sessions/:id; the app only shows it.
@@ -243,7 +250,7 @@ async function start(): Promise<void> {
 
   // The socket server: sessions, deliveries and the board API for the CLI and the mod.
   // POST /open runs backend.open, which shows the panel and sets the prompt.
-  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives });
+  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors });
 
   // Initiatives: a change from the socket, the panel or a brief edited by hand reaches the panel as a push.
   // Each brief's folder is watched, and reading a changed brief records the PM's revision.
@@ -473,6 +480,8 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.openOutput, (_e, sessionId: string, ref: unknown) => files.openOutput(sessionId, ref));
   ipcMain.handle(CH.dismissOutput, (_e, sessionId: string, ref: unknown) => files.dismissOutput(sessionId, ref));
   ipcMain.handle(CH.openOutputElsewhere, (_e, sessionId: string, ref: unknown) => files.openElsewhere(sessionId, ref));
+  ipcMain.handle(CH.readBehavior, (_e, sessionId: string, path: unknown) => behaviors.read(behaviorRoot(sessionId), path));
+  ipcMain.handle(CH.decideBehavior, (_e, sessionId: string, path: unknown, decision: unknown) => behaviors.decide(behaviorRoot(sessionId), path, decision));
   ipcMain.handle(CH.reviewUrl, (_e, sessionId: string, path: unknown) => files.reviewUrl(sessionId, path));
   ipcMain.handle(CH.reviewEdit, (_e, sessionId: string, path: unknown, version: unknown, edit: unknown) => files.reviewEdit(sessionId, path, version, edit));
   ipcMain.handle(CH.reviewUndo, (_e, sessionId: string, path: unknown) => files.reviewUndo(sessionId, path));

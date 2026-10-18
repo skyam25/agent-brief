@@ -1,3 +1,5 @@
+import type { BehaviorDocument, BehaviorDecision } from '../protocol';
+import { BehaviorPanel } from './BehaviorPanel';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { CompanionApi, Draft } from '../shared/ipc';
 import { anchorLabel, baseName, commentCount, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
@@ -10,7 +12,7 @@ import { CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIc
 import { Inspector } from './Inspector';
 import { OVERALL, type ReviewVoice } from './review-voice';
 
-export type ReviewHost = Pick<CompanionApi, 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
+export type ReviewHost = Pick<CompanionApi, 'readBehavior' | 'decideBehavior' | 'onBehaviorChanged' | 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
 
 export type ReviewDraft = Draft & { review: DraftReview };
 
@@ -54,6 +56,46 @@ export function ReviewView(props: {
   const { book, draft, host } = props;
   const voice = useStore(props.voice);
   const { review } = draft;
+  const [side, setSide] = useState<'comments' | 'behavior'>('comments');
+  const [behavior, setBehavior] = useState<BehaviorDocument>();
+  const [behaviorError, setBehaviorError] = useState<string>();
+  const behaviorRequest = useRef(0);
+  const loadBehavior = useCallback(async () => {
+    if (!draft.sessionId) return;
+    const request = ++behaviorRequest.current;
+    try {
+      const doc = await host.readBehavior(draft.sessionId, review.path);
+      if (request !== behaviorRequest.current) return;
+      setBehavior(doc);
+      setBehaviorError(undefined);
+      book.setBehavior(draft.id, doc);
+    } catch (err) { if (request === behaviorRequest.current) setBehaviorError((err as Error).message); }
+  }, [host, book, draft.id, draft.sessionId, review.path]);
+  useEffect(() => {
+    setBehavior(undefined);
+    void loadBehavior();
+    const off = host.onBehaviorChanged(() => void loadBehavior());
+    return () => { ++behaviorRequest.current; off(); };
+  }, [loadBehavior, host]);
+  const decideBehavior = useCallback(async (decision: BehaviorDecision) => {
+    if (!draft.sessionId) return false;
+    try {
+      const doc = await host.decideBehavior(draft.sessionId, review.path, decision);
+      ++behaviorRequest.current;
+      setBehavior(doc);
+      setBehaviorError(undefined);
+      book.setBehavior(draft.id, doc);
+      return true;
+    } catch (err) {
+      await loadBehavior();
+      setBehaviorError((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+      return false;
+    }
+  }, [host, book, draft.id, draft.sessionId, review.path, loadBehavior]);
+  const behaviorBusy = useCallback((busy: boolean) => {
+    if (busy) book.behaviorEditing.add(draft.id);
+    else book.behaviorEditing.delete(draft.id);
+  }, [book, draft.id]);
   const frame = useRef<HTMLIFrameElement>(null);
   const [url, setUrl] = useState<string>();
   const [failed, setFailed] = useState<string>();
@@ -127,7 +169,8 @@ export function ReviewView(props: {
     setPagePath(undefined);
     setSelected(null);
     setReloads((n) => n + 1);
-  }, []);
+    void loadBehavior();
+  }, [loadBehavior]);
 
   /** Saves one page edit and hands main's answer back to the page. A refused edit reloads the page. */
   const saveEdit = useCallback(
@@ -169,6 +212,7 @@ export function ReviewView(props: {
       const picture = room ? await host.capturePanel(cropRect(box, view)).catch(() => undefined) : undefined;
       const comment: ReviewComment = { id: newCommentId(), text: '', anchor, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}) };
       book.addComment(current.id, comment, picture);
+      setSide('comments');
       select(comment.id, true);
     },
     [book, host, select],
@@ -191,6 +235,7 @@ export function ReviewView(props: {
       if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
       if (m.type === 'pin' && live.current.onPage) void addPin(m.anchor, m.view);
       if (m.type === 'open-pin') select(m.id, true);
+      if (m.type === 'behavior-missing') props.onError('That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');
       if (m.type === 'missing') setMissing(m.ids);
       if (m.type === 'link') void host.openLink(m.href).catch(() => props.onError('Could not open that link.'));
       if (m.type === 'key' && m.key === 'c') setCommenting((on) => !on);
@@ -363,7 +408,13 @@ export function ReviewView(props: {
           onInsert={(what) => post({ type: 'insert', what })}
         />
       ) : (
-        <aside className="review-notes" aria-label="Comments">
+        <aside className="review-notes" aria-label="Review details">
+          <div className="behavior-tabs" role="tablist" aria-label="Review details">
+            <button className={side === 'comments' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'comments'} onClick={() => setSide('comments')}>Comments</button>
+            <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { setSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
+          </div>
+          {side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
+
           <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
             <span className="section-head">Overall</span>
             <textarea
@@ -407,6 +458,7 @@ export function ReviewView(props: {
           <footer className="muted review-foot">
             {count > 0 ? `${commentCount(count)} · ⌘↩ sends with pictures` : 'Send hands Claude each comment with a picture of its element.'}
           </footer>
+          </>}
         </aside>
       )}
     </div>

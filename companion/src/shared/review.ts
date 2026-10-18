@@ -1,3 +1,5 @@
+import type { BehaviorDocument } from '../protocol';
+import { behaviorMarkdown, parseBehavior } from './behavior';
 /** Review drafts: comments pinned to elements of a project's HTML file, and the review.md a Send writes. */
 
 import { ATTACHMENT_ID } from './attachments';
@@ -43,6 +45,8 @@ export interface DraftReview {
   /** The HTML file under review, relative to the session's project. */
   path: string;
   comments: ReviewComment[];
+  /** Specification snapshot captured for this handoff; canonical rules live beside the prototype. */
+  behavior?: BehaviorDocument;
   /** Edits made in the pane's edit mode, already saved in the file, as one line each. */
   edits?: string[];
 }
@@ -113,7 +117,11 @@ export function cleanReview(raw: unknown): DraftReview | undefined {
   const edits = Array.isArray(raw.edits)
     ? raw.edits.filter((e): e is string => typeof e === 'string' && !!e.trim()).slice(-MAX_EDITS).map((e) => e.slice(0, 300))
     : [];
-  return { path, comments, ...(edits.length ? { edits } : {}) };
+  let behavior: BehaviorDocument | undefined;
+  if (isRecord(raw.behavior) && typeof raw.behavior.path === 'string' && typeof raw.behavior.version === 'string') {
+    try { behavior = { ...parseBehavior(JSON.stringify(raw.behavior)), path: raw.behavior.path, version: raw.behavior.version, history: [] }; } catch { /* Invalid snapshots are not sent. */ }
+  }
+  return { path, comments, ...(edits.length ? { edits } : {}), ...(behavior ? { behavior } : {}) };
 }
 
 /** The attachment ids a review's comments use, in order. */
@@ -136,7 +144,7 @@ export const commentCount = (n: number) => `${n} comment${n === 1 ? '' : 's'}`;
 export const editCount = (n: number) => `${n} edit${n === 1 ? '' : 's'}`;
 
 /** True when a review holds something to send: a comment, an edit or an overall note. */
-export const hasReviewContent = (review: DraftReview, body: string) => review.comments.length > 0 || (review.edits?.length ?? 0) > 0 || !!body.trim();
+export const hasReviewContent = (review: DraftReview, body: string) => (review.behavior?.rules.length ?? 0) > 0 || (review.behavior?.limitations.length ?? 0) > 0 || review.comments.length > 0 || (review.edits?.length ?? 0) > 0 || !!body.trim();
 
 /** A file name from a project path. */
 export const baseName = (path: string) => path.split('/').filter(Boolean).at(-1) ?? path;
@@ -172,11 +180,13 @@ export function reviewMarkdown(review: ReviewPayload, picturePath: (id: string) 
     lines.push('', '## Edited in the pane', '', `These edits are already saved in ${review.path}, in this order.`, '');
     for (const e of edits) lines.push(`- ${oneLine(e)}`);
   }
+  if (review.behavior) lines.push('', behaviorMarkdown(review.behavior));
   return `${lines.join('\n')}\n`;
 }
 
 /** The prompt line after the `@review.md` line. */
 export function reviewAsk(review: ReviewPayload): string {
+  if (review.behavior) return `Review of ${review.path} from Agent Brief, including behavior decisions. Use the behavior-review skill: apply confirmed behaviors within the requested scope, keep assumptions open, and update the specification through agent-brief behavior. Confirmation does not mean implementation or verification.`;
   const n = review.comments.length;
   const e = review.edits?.length ?? 0;
   if (e && !n && !review.body?.trim()) {

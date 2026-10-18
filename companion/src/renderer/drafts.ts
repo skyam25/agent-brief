@@ -1,3 +1,5 @@
+import type { BehaviorDocument } from '../protocol';
+import { hasReviewContent } from '../shared/review';
 /** Holds the drafts Write mode shows, with the open one and debounced saves. */
 
 import { keptImages, newDraftId, sortDrafts } from '../shared/drafts';
@@ -16,7 +18,7 @@ type DraftHost = Pick<CompanionApi, 'listDrafts' | 'saveDraft' | 'deleteDraft'>;
  * A draft with nothing in it stays in memory, so leaving it leaves nothing behind.
  * Its attachments need no check, because `edit` keeps only the ones the body and comments use.
  */
-const isEmpty = (d: Draft) => !d.body.trim() && !d.board && !d.review?.comments.length;
+const isEmpty = (d: Draft) => !d.body.trim() && !d.board && !(d.review && hasReviewContent(d.review, d.body));
 
 /**
  * Whether a draft belongs on a tab: a session tab holds the notes filed under it,
@@ -35,6 +37,8 @@ export interface SentRevision {
 }
 
 export class DraftBook {
+  /** Unsaved rule edits must be saved or cancelled before Send. */
+  readonly behaviorEditing = new Set<string>();
   /** Sorted as the list shows them. Replaced on every change, for React. */
   drafts: Draft[] = [];
   selectedId?: string;
@@ -147,6 +151,13 @@ export class DraftBook {
     }
     for (const [imageId, data] of Object.entries(had)) if (!attachments[imageId]) this.keepLoose(imageId, data);
     return attachments;
+  }
+
+  setBehavior(id: string, doc: BehaviorDocument): void {
+    const draft = this.get(id);
+    if (!draft?.review || draft.review.behavior?.version === doc.version) return;
+    if (!doc.rules.length && !doc.limitations.length && !draft.review.behavior) return;
+    this.patch(id, { review: { ...draft.review, behavior: { ...doc, history: [] } } });
   }
 
   /** Adds a pin to a review, with the picture of its element when there is one. */

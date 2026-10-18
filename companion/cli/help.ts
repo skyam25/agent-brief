@@ -16,6 +16,11 @@ Options:
   --json           Print the raw JSON response.`;
 
 export const DOCS: Record<string, Doc> = {
+  behavior: {
+    usage: 'agent-brief behavior show|update|export <prototype.html> [--session <id>] [--file <patch.json>] [--out <acceptance.md>] [--json]',
+    about: 'Reads or updates behavior rules beside a prototype. Update reads a version-checked patch from stdin or --file. Export prints acceptance criteria and open assumptions. Requires the app and a registered session.',
+    example: 'agent-brief behavior show prototypes/onboarding.html --json',
+  },
   status: {
     usage: 'agent-brief status [--json]',
     about: 'Shows whether the app runs. Exits 3 when it does not.',

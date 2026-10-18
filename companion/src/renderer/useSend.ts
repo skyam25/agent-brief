@@ -82,6 +82,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     if (modeRef.current === 'review') {
       const open = book.selected;
       if (open?.review) {
+        if (book.behaviorEditing.has(open.id)) return 'Save or cancel the behavior edit before sending.';
         if (!hasReviewContent(open.review, open.body)) return 'Pin a comment first.';
         // Words still turning into text land before the Send reads the draft.
         await reviewVoice.stop();

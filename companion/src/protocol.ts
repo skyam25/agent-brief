@@ -530,3 +530,55 @@ export interface SessionInitiativeRequest {
 export interface DetachInitiativeResponse {
   detached: boolean;
 }
+/** Behavior specifications live beside an HTML prototype, across sessions.
+ * GET/PUT /sessions/:id/behavior?path=<project-relative HTML path>.
+ * PUT takes BehaviorUpdate. The socket is the agent; PM decisions use panel IPC.
+ */
+export interface BehaviorRule {
+  id: string;
+  text: string;
+  status: 'proposed' | 'confirmed';
+  source: { kind: 'brief' | 'comment' | 'decision' | 'assumption'; ref: string };
+  target?: { selector: string; state?: string };
+  note?: string;
+  delivery: 'planned' | 'implemented' | 'verified';
+  evidence?: string;
+}
+
+export interface BehaviorChange {
+  revision: number;
+  at: string;
+  by: string;
+  before: BehaviorRule[];
+  after: BehaviorRule[];
+  limitationsBefore: string[];
+  limitationsAfter: string[];
+}
+
+export interface BehaviorSpec {
+  schema: 1;
+  revision: number;
+  rules: BehaviorRule[];
+  limitations: string[];
+  history: BehaviorChange[];
+}
+
+export interface BehaviorDocument extends BehaviorSpec {
+  path: string;
+  /** Content hash; detects hand edits even if revision was not incremented. */
+  version: string;
+}
+
+export interface BehaviorUpdate {
+  version: string;
+  upsert?: BehaviorRule[];
+  limitations?: string[];
+}
+
+export interface BehaviorDecision {
+  version: string;
+  id: string;
+  text: string;
+  status: 'proposed' | 'confirmed';
+  note?: string;
+}

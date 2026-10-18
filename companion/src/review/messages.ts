@@ -18,6 +18,7 @@ export interface PagePin {
 
 /** From the page to the pane. */
 export type FromPage =
+  | { type: 'behavior-missing' }
   /** `version` is the file's as served. `editable` is true when the page has elements edit mode can change. */
   | { type: 'ready'; path: string; title: string; version?: string; editable?: boolean }
   /** A new pin. `view` is the box to crop, in the frame's viewport pixels. */
@@ -39,6 +40,7 @@ export type FromPage =
 
 /** From the pane to the page. */
 export type ToPage =
+  | { type: 'show-behavior'; selector: string }
   | { type: 'commenting'; on: boolean }
   | { type: 'pins'; pins: PagePin[] }
   /** Scrolls a pin's element into view and flashes it. */
