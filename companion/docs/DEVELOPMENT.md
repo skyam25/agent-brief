@@ -137,7 +137,9 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - `GET`/`POST /sessions/:id/feedback?path=<output>` and `GET /sessions/:id/feedback/project`. Store writes emit `feedback:changed`.
 - `agent-brief feedback list|show|round|add|log|done|related`. Writes read the version first and retry once on a conflict.
 - Review shows a Feedback tab for HTML outputs. Other outputs open `FeedbackView` full width from their row. Send decisions sends the You lines since each item's last `You: … · sent`, then appends `sent`.
-- Coverage: `src/shared/feedback.test.ts`, `src/main/feedback.test.ts`, `src/server/feedback.test.ts` (CLI over a real socket), `e2e/feedback.e2e.ts`.
+- `POST /sessions/:id/feedback/snap?path=<html>` (`agent-brief feedback snap`) loads the output over the review scheme in a hidden offscreen window, crops to the `Where:` element or the visible page, writes `<output>.feedback/<n>-r<round>-<side>.png`, and appends `Before:` or `After:`. The panel reads pictures over IPC as data URLs and shows each round's pair as a slider.
+- `project()` also returns a graph built by `src/shared/feedback-graph.ts`. Rounds with a source share one node across outputs. Graph in the panel heading draws it; `agent-brief feedback graph` prints it.
+- Coverage: `src/shared/feedback.test.ts`, `src/main/feedback.test.ts`, `src/server/feedback.test.ts` (CLI over a real socket), `e2e/feedback.e2e.ts`. Snapshots and graph: `src/shared/feedback-{graph,pictures}.test.ts`, `src/main/feedback-snap.test.ts`, `src/server/feedback-graph.test.ts`, `e2e/feedback-graph.e2e.ts`.
 
 ## Initiatives
 

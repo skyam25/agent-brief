@@ -60,6 +60,8 @@ export function ReviewMode(props: {
   const [itemsPicked, setItemsPicked] = useState(false);
   /** An output whose Feedback view fills the pane. */
   const [feedbackFor, setFeedbackFor] = useState<string>();
+  /** The item the graph opened in that view. */
+  const [feedbackItem, setFeedbackItem] = useState<number>();
   const sessionId = props.brief?.sessionId;
   const feedbackFiles = useFeedbackFiles(props.review.host, sessionId);
   const tracking = !!props.brief?.trackItems;
@@ -118,9 +120,10 @@ export function ReviewMode(props: {
     setFeedbackFor(undefined);
     if (sessionId) props.onOpenOutput(sessionId, ref);
   };
-  const openFeedback = (ref: string) => {
+  const openFeedback = (ref: string, n?: number) => {
     setItemsPicked(false);
     setFeedbackFor(ref);
+    setFeedbackItem(n);
     if (open) book.select(undefined);
   };
 
@@ -136,7 +139,7 @@ export function ReviewMode(props: {
               onOpen={openOutput}
               onDismiss={(ref) => props.onDismissOutput(sessionId, ref)}
               feedback={feedbackFiles}
-              onFeedback={openFeedback}
+              onFeedback={(ref) => openFeedback(ref)}
             />
           )}
           {reviews.length > 0 && (
@@ -206,11 +209,12 @@ export function ReviewMode(props: {
           onSendFeedback={props.onSendFeedback}
           canSend={!!props.brief?.isLive}
           onError={props.review.onError}
+          onOpenFeedbackItem={openFeedback}
         />
       ) : feedbackFor && sessionId ? (
         <div className="review-side">
           <FeedbackView
-            key={feedbackFor}
+            key={`${feedbackFor}#${feedbackItem ?? ''}`}
             host={props.review.host}
             sessionId={sessionId}
             path={feedbackFor}
@@ -218,6 +222,8 @@ export function ReviewMode(props: {
             onSend={props.onSendFeedback}
             onOpenFile={() => props.onOpenOutput(sessionId, feedbackFor)}
             onError={props.review.onError}
+            focus={feedbackItem}
+            onOpenItem={openFeedback}
           />
         </div>
       ) : (

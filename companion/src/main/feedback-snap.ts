@@ -95,6 +95,7 @@ function measure(selector: string | null, pad: number): Promise<Measured> {
       try { el = document.querySelector(selector); } catch { return { error: 'invalid' as const }; }
       if (!el) return { error: 'missing' as const };
       el.scrollIntoView({ block: 'start', inline: 'nearest' });
+      scrollBy(0, -pad);
     }
     await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
     if (!el) return null;

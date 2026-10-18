@@ -4,15 +4,17 @@
  * once as a dated You line. Send decisions hands Claude what you said since the last send.
  */
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackItem, FeedbackOp } from '../protocol';
 import { decisionsPrompt, pendingDecisions } from '../shared/feedback';
 import type { CompanionApi } from '../shared/ipc';
+import { BeforeAfter, type PictureHost } from './BeforeAfter';
+import { FeedbackGraph } from './FeedbackGraph';
 import { ExternalIcon, MicIcon } from './Icons';
 import { ReviewVoice } from './review-voice';
 import { VoiceState } from './ReviewView';
 
-export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'requestMicrophone'>;
+export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'requestMicrophone'> & PictureHost;
 
 /** Hands Claude the decisions text. `onSent` runs once it went out. */
 export type SendFeedback = (sessionId: string, text: string, onSent: () => Promise<void>) => void;
@@ -122,8 +124,24 @@ export function FeedbackPanel(props: {
   /** Runs before an item's mic opens, so only one recording holds the microphone. */
   beforeRecord?: () => Promise<void>;
   onError: (message: string) => void;
+  /** The item to scroll to and mark when the panel opens. */
+  focus?: number;
+  /** Opens an item of another output, from the graph. */
+  onOpenItem?: (output: string, n: number) => void;
 }) {
   const { doc, error, apply } = props.feedback;
+  const [graphShown, setGraphShown] = useState(false);
+  const [focus, setFocus] = useState(props.focus);
+  const root = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (graphShown || focus === undefined || !doc) return;
+    root.current?.querySelector(`[data-testid="feedback-item-${focus}"]`)?.scrollIntoView({ block: 'center' });
+  }, [graphShown, focus, doc?.path]);
+  const openItem = (output: string, n: number) => {
+    if (doc && output !== doc.output) return props.onOpenItem?.(output, n);
+    setGraphShown(false);
+    setFocus(n);
+  };
   const applyRef = useRef(apply);
   applyRef.current = apply;
   const [voice] = useState(
@@ -170,24 +188,31 @@ export function FeedbackPanel(props: {
   const rounds = [...(doc?.rounds ?? [])].sort((a, b) => b.n - a.n);
   const known = new Set(rounds.map((r) => r.n));
   const loose = items.filter((i) => i.round === undefined || !known.has(i.round));
+  const pictures = (item: FeedbackItem) => doc && <BeforeAfter host={props.host} sessionId={props.sessionId} output={doc.output} item={item} />;
 
   return (
-    <section className="feedback-panel" aria-label="Feedback" data-testid="feedback-panel">
+    <section className="feedback-panel" aria-label="Feedback" data-testid="feedback-panel" ref={root}>
       <div className="behavior-heading">
         <h3>Feedback{items.length > 0 ? ` · ${openCount(doc)} open` : ''}</h3>
-        <button className="ghost" onClick={props.feedback.refresh}>
-          Refresh
-        </button>
+        <span className="feedback-heading-actions">
+          <button className="ghost" aria-pressed={graphShown} title="How this project's sources, items, outputs and workspaces link" onClick={() => setGraphShown(!graphShown)} data-testid="feedback-graph-toggle">
+            Graph
+          </button>
+          <button className="ghost" onClick={props.feedback.refresh}>
+            Refresh
+          </button>
+        </span>
       </div>
       {doc && <p className="muted feedback-path" title={doc.path}>{doc.path}</p>}
       {error && <p role="alert" className="behavior-error">{error}</p>}
       {!doc && !error && <p>Loading feedback…</p>}
-      {doc && !items.length && (
+      {graphShown && <FeedbackGraph host={props.host} sessionId={props.sessionId} output={doc?.output} onOpenItem={openItem} />}
+      {!graphShown && doc && !items.length && (
         <p className="muted" data-testid="feedback-empty">
           No feedback yet. Hand Claude a transcript and ask it to catalog the points against this output.
         </p>
       )}
-      {rounds.map((r) => {
+      {!graphShown && rounds.map((r) => {
         const group = items.filter((i) => i.round === r.n);
         if (!group.length) return null;
         return (
@@ -198,20 +223,20 @@ export function FeedbackPanel(props: {
             </h4>
             <ol className="review-cards">
               {group.map((item) => (
-                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} />
+                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} />
               ))}
             </ol>
           </div>
         );
       })}
-      {loose.length > 0 && (
+      {!graphShown && loose.length > 0 && (
         <ol className="review-cards">
           {loose.map((item) => (
-            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} />
+            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} />
           ))}
         </ol>
       )}
-      {items.length > 0 && (
+      {!graphShown && items.length > 0 && (
         <footer className="feedback-foot">
           <button
             className="chip"
@@ -237,6 +262,10 @@ function ItemCard(props: {
   onApply: (ops: FeedbackOp[]) => Promise<boolean>;
   onShow?: (selector: string) => void;
   onVoice: () => void;
+  /** The item's before and after pictures. */
+  pictures?: ReactNode;
+  /** The graph opened this item. */
+  focused?: boolean;
 }) {
   const { item } = props;
   const [note, setNote] = useState('');
@@ -255,7 +284,7 @@ function ItemCard(props: {
   const history = item.lines.filter((l) => l.key !== 'Round');
 
   return (
-    <li className={`review-card feedback-item ${item.state}${listening ? ' listening' : ''}`} data-testid={`feedback-item-${item.n}`}>
+    <li className={`review-card feedback-item ${item.state}${listening ? ' listening' : ''}${props.focused ? ' focused' : ''}`} data-testid={`feedback-item-${item.n}`}>
       <div className="review-card-head">
         <span className="num">#{item.n}</span>
         <span className="feedback-title">{item.title}</span>
@@ -295,6 +324,7 @@ function ItemCard(props: {
           )}
         </p>
       )}
+      {props.pictures}
       <div className="behavior-actions">
         <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => item.state !== 'accepted' && void say('accept')} data-testid="feedback-accept">
           Accept
@@ -359,6 +389,8 @@ export function FeedbackView(props: {
   onSend: SendFeedback;
   onOpenFile: () => void;
   onError: (message: string) => void;
+  focus?: number;
+  onOpenItem?: (output: string, n: number) => void;
 }) {
   const feedback = useFeedbackDoc(props.host, props.sessionId, props.path);
   return (
@@ -375,7 +407,7 @@ export function FeedbackView(props: {
         </button>
       </header>
       <div className="items-body">
-        <FeedbackPanel host={props.host} sessionId={props.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSend} onError={props.onError} />
+        <FeedbackPanel host={props.host} sessionId={props.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSend} onError={props.onError} focus={props.focus} onOpenItem={props.onOpenItem} />
       </div>
     </div>
   );
