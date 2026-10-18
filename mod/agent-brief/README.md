@@ -240,7 +240,7 @@ An organization policy can refuse plugin tools, which removes `show_image`, `dec
 - A wireframe needs no file. Claude passes a wireframe DSL block as `wireframe` (or SVG text as `svg`, or a `.svg` or `.wireframe` path). The mod renders it with `bin/wireframe-render.mjs`, rasterizes the SVG with `rsvg-convert` (`brew install librsvg`) or, without it, a QuickLook thumbnail cropped to the SVG's shape, and keeps the `.wireframe`, `.svg` and `.png` together in `.feedback/shown/`. A block that fails to parse comes back to Claude as an error naming the line. `options` take wireframes too, so a choice of directions draws as tabs with Pick.
 - `/show <path>` opens a picture in a pane without asking Claude.
 
-The renderer and the `wireframe` skill are copies from [wireframe-dsl](../../../wireframe-dsl) (`helpers/wireframe-render.mjs` and `skills/wireframe/`, commit ea2b72e). To refresh them, run `npm run build` there and copy both over; the skill's only edits are the renderer path (`bin/`) and the "Show it in the chat first" section.
+The renderer and the `wireframe` skill are copies from [wireframe-dsl](../../../wireframe-dsl) (`helpers/wireframe-render.mjs` and `skills/wireframe/`, commit ec57f61). To refresh them, run `npm run build` there and copy both over; the skill's only edits are the renderer path (`bin/`) and the "Show it in the chat first" section.
 
 ### Skills
 

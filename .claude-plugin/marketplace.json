@@ -2,7 +2,8 @@
   "name": "agent-brief",
   "description": "Claude Code plugin for Agent Brief: /sketch, /write, their buttons, delivery and the browser feedback inbox.",
   "owner": {
-    "name": "skyam25"
+    "name": "skyam25",
+    "url": "https://github.com/skyam25"
   },
   "plugins": [
     {
