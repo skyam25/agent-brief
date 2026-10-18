@@ -31,9 +31,11 @@ try {
 
 // A plugin change ships inside the app, so it needs its own version bump.
 run('git', ['fetch', '--tags', '--quiet', 'origin']);
-const last = out('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*']);
+// The first release has no earlier tag to compare against.
+const hasTag = out('git', ['tag', '--list', 'v*', '--merged', 'HEAD']) !== '';
+const last = hasTag ? out('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*']) : undefined;
 const pluginJson = '../mod/agent-brief/.claude-plugin/plugin.json';
-const pluginChanged = out('git', ['diff', '--name-only', last, 'HEAD', '--', '../mod/agent-brief', ':(exclude)../mod/agent-brief/tests']);
+const pluginChanged = last && out('git', ['diff', '--name-only', last, 'HEAD', '--', '../mod/agent-brief', ':(exclude)../mod/agent-brief/tests']);
 const pluginVersion = rev => JSON.parse(out('git', ['show', `${rev}:mod/agent-brief/.claude-plugin/plugin.json`])).version;
 if (pluginChanged && pluginVersion(last) === pluginVersion('HEAD')) {
   throw new Error(`mod/agent-brief changed since ${last}. Bump version in ${pluginJson}.`);
