@@ -1,6 +1,6 @@
 # agent-brief
 
-The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or the board in its Stack layout for screenshots with `/stack`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. With `/track` it has Claude keep a list of items you answer in the panel. With `/mode` it sets how Claude works in this session. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
+The Agent Brief plugin for Claude Code. It opens the sketch board for a session with `/sketch`, or the board in its Stack layout for screenshots with `/stack`, or a new note with `/write`, or the matching button above the prompt, and delivers what you send. With `/track` it has Claude keep a list of items you answer in the panel. With `/mode` it sets how Claude works in this session. With `/initiative` it attaches the session to an initiative whose brief Claude reads and keeps current. It also picks up feedback sessions exported by the companion Chrome extension. It transcribes them on this machine, writes them into the project, and hands them to Claude.
 
 ## How it works
 
@@ -95,7 +95,7 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane.
+The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While the session is attached to an initiative, the band ends with **Attached Pricing · change**.
 
 ### Dictation
 
@@ -188,6 +188,45 @@ The panel lists each session's deliverables under that session. The mod records 
 - Each system prompt carries a short section that tells Claude when to declare. Claude declares the thing you asked for, one primary output per request, and never code, config or tests.
 - `/outputs` prints the declared outputs, newest first, then the touched ones.
 
+### Initiatives and `/initiative`
+
+An initiative is work that runs across many sessions, such as a pricing change. Its brief is a Markdown file in the initiative's folder, `<Title> brief.md`, which the app indexes. Claude keeps the brief current and you edit it in the app's Initiative tab. Nothing reaches Claude until the session is attached.
+
+| Command | Does |
+|---|---|
+| `/initiative` | Claude drafts an initiative from this session: a title, Understanding, Working rows from the Ready outputs and a folder map. It creates the brief, then attaches the session. |
+| `/initiative <name>` | Claude attaches the session to the initiative you name. Your choice wins over its own match. |
+| `/initiative off` | Detaches the session, and tells Claude to stop maintaining the brief. No model turn. |
+| `/initiative refresh` | Hands Claude the current snapshot now, without a model turn. |
+| `/initiative discover` | Claude surveys this folder and lists likely initiatives. It creates nothing until you pick. |
+
+- `/initiative` never starts the app. Every form but `discover` needs it running, and says so otherwise.
+- When the session registers, the mod reads the three initiatives touched most recently. While the session has none attached, its first prompt carries one line after your text: `Agent Brief · recent initiatives: Pricing, Onboarding, Checkout. If this work belongs to one, run agent-brief initiative attach <name>.` Claude attaches when the work clearly belongs to one. The line comes once per session, and not in a resumed one.
+- Once attached, a typed prompt carries the initiative's snapshot after your text, between `--- Agent Brief initiative ---` lines: Understanding (at most 2,400 characters), Decisions, Open and the folder map. It goes only when the token `attachmentRevision:id:revision` changed since the last one, so an unchanged brief costs nothing. It never goes in the system prompt, and slash commands carry none.
+- A compaction drops the snapshot, so the next prompt carries it again. Where an organization manages Claude Code, the compaction event passes over plugins a person installs; run `/initiative refresh` after a compaction there.
+- A detach, from the band, the app or the CLI, gets one note to Claude with the next prompt.
+- **change** on the band (hotkey `i`) swaps the row for a pick among the recent initiatives, with **Detach** and **Cancel**. A pick attaches the session at once.
+- The Brief pane opens on an **Initiative** line with the title and revision, or **Initiative · none**.
+- When Claude runs an `agent-brief initiative` command, the band reads the attachment again.
+- The `initiative` skill tells Claude when to attach, how to keep the brief short and current, how to draft one and how to run Discover. In the brief and in its replies, Claude names folders by role (Sources, Decisions, Working, Grounding, Outputs), not by their names.
+
+Claude works through these CLI verbs:
+
+```sh
+agent-brief initiative list
+agent-brief initiative recent [--limit 3]
+agent-brief initiative find <words>
+agent-brief initiative show <id or title>
+agent-brief initiative attach <id or title> [--session <id>]
+agent-brief initiative detach [--session <id>]
+agent-brief initiative create <title> --folder <path> [--file draft.json]
+agent-brief initiative update <id> --file <json>
+```
+
+Reads work with the app closed. Writes exit 3 while it is down.
+
+The mod's socket calls: `GET /initiatives/recent?limit=3` at registration and when **change** opens, `GET /sessions/<id>/initiative` on each typed prompt while the app is up, `PUT /sessions/<id>/initiative` with `{ initiativeId }` from **change**, and `DELETE /sessions/<id>/initiative` from **Detach** and `/initiative off`. Every failure is silent, and the prompt goes in as typed. The types are in `hooks/initiative-types.ts` until they move into `hooks/companion-protocol.ts`. Initiatives need an Agent Brief app with the Initiative tab; an older app answers 404 and the mod adds nothing.
+
 ### Pictures in the chat
 
 The `show_image` tool draws a picture inline in the transcript, where the terminal can (Ghostty, kitty). Claude uses it after visual work: a Playwright screenshot of a page it changed, a board it drew on, a design it made. The picture goes to the screen, not to Claude, so it costs no tokens.
@@ -203,7 +242,9 @@ An organization policy can refuse plugin tools, which removes `show_image`, `dec
 
 The renderer and the `wireframe` skill are copies from [wireframe-dsl](../../../wireframe-dsl) (`helpers/wireframe-render.mjs` and `skills/wireframe/`, commit ea2b72e). To refresh them, run `npm run build` there and copy both over; the skill's only edits are the renderer path (`bin/`) and the "Show it in the chat first" section.
 
-### Skill
+### Skills
+
+`skills/initiative/SKILL.md` teaches Claude to attach a session to an initiative and keep its brief, as above.
 
 `skills/sketch-board/SKILL.md` teaches Claude to draw on and read the board with the `agent-brief` CLI, and to post a browser session it drives as numbered screenshots with `agent-brief snap`, which needs Agent Brief 0.2.5 or newer.
 
