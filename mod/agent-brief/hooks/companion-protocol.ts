@@ -583,3 +583,117 @@ export interface BehaviorDecision {
   status: 'proposed' | 'confirmed';
   note?: string;
 }
+
+/** Feedback items live beside any output, across sessions, in `<output>.feedback.md`.
+ * GET /sessions/:id/feedback?path=<project-relative output path> answers FeedbackDocument.
+ * POST takes FeedbackUpdate and answers FeedbackUpdateResult; 409 on a stale version.
+ * GET /sessions/:id/feedback/project answers FeedbackProject.
+ * The socket writes as Claude; the panel writes as You through IPC.
+ */
+export type FeedbackState = 'open' | 'accepted' | 'rejected' | 'done';
+
+/** `## Round N · label · date · source`, newest first in the file. */
+export interface FeedbackRound {
+  n: number;
+  label: string;
+  date: string;
+  source?: string;
+}
+
+/** One indented line under an item, in file order. `key` is empty for a note. */
+export interface FeedbackLine {
+  key: string;
+  text: string;
+}
+
+/** `Src: <round> · <speaker> · <time> · "<quote>"`. */
+export interface FeedbackSource {
+  round: number;
+  speaker: string;
+  time: string;
+  quote: string;
+}
+
+/** A dated `Claude:`, `You:`, `Workspace:` or `Review:` line. `detail` is everything after the verb. */
+export interface FeedbackEvent {
+  key: string;
+  date: string;
+  verb: string;
+  detail: string;
+}
+
+export interface FeedbackItem {
+  n: number;
+  title: string;
+  /** The `- [x]` checkbox. Mirrors the closed states. */
+  checked: boolean;
+  /** From the last state verb. */
+  state: FeedbackState;
+  /** The `Round:` line, the round it first came up in. */
+  round?: number;
+  /** Every round the item came up in: its first round, then `Src:` rounds, ascending. */
+  rounds: number[];
+  sources: FeedbackSource[];
+  /** The last `Change:` and `Where:` lines. */
+  change?: string;
+  where?: string;
+  related: { path: string; n: number }[];
+  before: string[];
+  after: string[];
+  events: FeedbackEvent[];
+  notes: string[];
+  lines: FeedbackLine[];
+}
+
+export interface FeedbackDoc {
+  title: string;
+  rounds: FeedbackRound[];
+  items: FeedbackItem[];
+}
+
+export interface FeedbackDocument extends FeedbackDoc {
+  /** The feedback file, relative to the project. */
+  path: string;
+  /** The output it belongs to, relative to the project. */
+  output: string;
+  /** Content hash, or `missing` before the file exists. */
+  version: string;
+}
+
+export type FeedbackOp =
+  | { op: 'addRound'; label: string; source?: string }
+  /** Numbered after the highest item. `round` defaults to the newest round. */
+  | { op: 'addItem'; title: string; round?: number; lines?: FeedbackLine[] }
+  /** Event keys take `verb · detail` and get the date in front. */
+  | { op: 'append'; item: number; key: string; text: string }
+  | { op: 'close'; item: number }
+  | { op: 'open'; item: number };
+
+export interface FeedbackUpdate {
+  version: string;
+  ops: FeedbackOp[];
+}
+
+export interface FeedbackUpdateResult extends FeedbackDocument {
+  /** Numbers the update gave new rounds and items, in op order. */
+  added: { rounds: number[]; items: number[] };
+}
+
+export interface FeedbackFileSummary {
+  path: string;
+  output: string;
+  outputExists: boolean;
+  title: string;
+  rounds: number;
+  items: number;
+  open: number;
+  accepted: number;
+  rejected: number;
+  done: number;
+}
+
+export interface FeedbackProject {
+  files: FeedbackFileSummary[];
+  /** The scan stopped at its file or folder limit. */
+  truncated?: boolean;
+}
