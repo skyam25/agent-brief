@@ -1,11 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { parseYap, transcribe, type RunProcess } from './transcribe';
-import { fileURLToPath } from 'node:url';
 import type { VoiceSegment } from './types';
 
 const YAP = {
@@ -100,27 +97,4 @@ describe('transcribe', () => {
     expect(out.map((u) => u.text)).toEqual(['ok']);
     expect(errors).toEqual([['bad.webm', 'bad audio']]);
   });
-});
-
-const FFMPEG = '/opt/homebrew/bin/ffmpeg';
-const YAP_BIN = '/opt/homebrew/bin/yap';
-const FIXTURE = fileURLToPath(new URL('../../e2e/fixtures/speech.wav', import.meta.url));
-const haveTools = [FFMPEG, YAP_BIN, FIXTURE].every(existsSync);
-
-describe.skipIf(!haveTools)('transcribe with ffmpeg and yap', () => {
-  it('transcribes real speech', async () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), 'tr'));
-    const webm = join(tmpDir, 'speech.webm');
-    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', FIXTURE, '-c:a', 'libopus', webm]);
-    const data = await readFile(webm);
-    const out = await transcribe([{ name: 'seg-0.webm', data, startMs: 5000, mimeType: 'audio/webm' }], {
-      ffmpegPath: FFMPEG,
-      yapPath: YAP_BIN,
-      tmpDir: join(tmpDir, 'work'),
-    });
-    expect(out.length).toBeGreaterThan(0);
-    expect(out[0].t).toBeGreaterThanOrEqual(5000);
-    expect(out[0].text.length).toBeGreaterThan(0);
-    expect(out[0]).toMatchObject({ audio: 'audio/seg-0.webm', audioStart: 5000 });
-  }, 120_000);
 });

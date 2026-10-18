@@ -83,7 +83,12 @@ test('a note stays on the tab it was written on', async () => {
   await expect(rows(page)).toHaveText([/loose idea/]);
   await expect(page.getByTestId('draft-body')).toHaveText('loose idea');
 
+  // Initiative mode stays open across a switch to a session tab.
+  await page.getByTestId('mode-initiative').click();
   await briefTab(page, 'Alpha').getByRole('tab').click();
+  await expect(crumb(page)).toHaveText('Alpha');
+  await expect(page.getByTestId('mode-initiative')).toHaveAttribute('aria-selected', 'true');
+  await page.getByTestId('mode-write').click();
   await expect(rows(page)).toHaveText([/hi/]);
   await expect(page.getByTestId('draft-body')).toHaveText('hi');
 

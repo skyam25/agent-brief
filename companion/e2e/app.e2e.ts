@@ -23,27 +23,6 @@ test('a second launch exits and shows the running panel', async () => {
   await app.close();
 });
 
-test('the app menu has About, Settings, Quit, the Edit roles and a Window menu', async () => {
-  const { app } = await launch(tempDataDir());
-  const menu = await app.evaluate(({ Menu }) =>
-    Menu.getApplicationMenu()!.items.map((i) => ({
-      label: i.label,
-      role: i.role,
-      items: i.submenu?.items.map((s) => s.role ?? s.label).filter(Boolean),
-    })),
-  );
-  const edit = menu.find((m) => m.role?.toLowerCase() === 'editmenu')!;
-  expect(edit.items!.map((r) => r!.toLowerCase())).toEqual(expect.arrayContaining(['undo', 'redo', 'cut', 'copy', 'paste', 'selectall']));
-  const appMenu = menu.find((m) => m.role?.toLowerCase() === 'appmenu')!;
-  expect(appMenu.items!.map((r) => r!.toLowerCase())).toEqual(
-    expect.arrayContaining(['about', 'settings…', 'install command line tool…', 'quit']),
-  );
-  expect(menu.some((m) => m.role?.toLowerCase() === 'windowmenu')).toBe(true);
-  const about = await app.evaluate(({ app }) => app.name);
-  expect(about).toBe('Agent Brief');
-  await app.close();
-});
-
 test('the panel follows macOS light and dark, and PNGs for Claude stay light', async () => {
   const { app, page } = await launch(tempDataDir());
   await showPanel(app, page);
@@ -196,8 +175,13 @@ test('Escape hides the panel unless something on it wants the key', async () => 
   await app.close();
 });
 
-test('File > New Board opens the name field; the CLI installs into a temp home', async () => {
-  const { app, page } = await launch(tempDataDir());
+test('File > New Board opens the name field; the CLI installs into a temp home and the plugin through claude', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'claude-'));
+  const log = join(dir, 'calls.log');
+  const claude = join(dir, 'claude');
+  writeFileSync(claude, `#!/bin/sh\necho "$*" >> '${log}'\ncase "$*" in *--json) echo '[]' ;; esac\n`, { mode: 0o755 });
+
+  const { app, page } = await launch(tempDataDir(), { COMPANION_TEST_CLAUDE: claude });
   await app.evaluate(({ Menu }) => {
     const file = Menu.getApplicationMenu()!.items.find((i) => i.label === 'File')!;
     file.submenu!.items.find((i) => i.label === 'New Board')!.click();
@@ -209,18 +193,10 @@ test('File > New Board opens the name field; the CLI installs into a temp home',
   const result = (await app.evaluate((_e, home) => globalThis.__companion.installCli(home), home))!;
   expect(result.link).toBe(join(home, '.local/bin/agent-brief'));
   expect(readlinkSync(result.link)).toBe(join(ROOT, 'bin/agent-brief'));
-  await app.close();
-});
 
-test('the plugin installs through claude from the repo marketplace', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'claude-'));
-  const log = join(dir, 'calls.log');
-  const claude = join(dir, 'claude');
-  writeFileSync(claude, `#!/bin/sh\necho "$*" >> '${log}'\ncase "$*" in *--json) echo '[]' ;; esac\n`, { mode: 0o755 });
-
-  const { app } = await launch(tempDataDir(), { COMPANION_TEST_CLAUDE: claude });
-  const result = await app.evaluate(() => globalThis.__companion.installPlugin());
-  expect(result).toEqual({ installed: true });
+  // The plugin installs from the repo marketplace.
+  const plugin = await app.evaluate(() => globalThis.__companion.installPlugin());
+  expect(plugin).toEqual({ installed: true });
   expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
     `plugin marketplace add ${resolve(ROOT, '..')}`,
     'plugin list --json',
@@ -229,8 +205,25 @@ test('the plugin installs through claude from the repo marketplace', async () =>
   await app.close();
 });
 
-test('⌘N makes a new board in Sketch mode and a new note in Write mode', async () => {
+test('the app menu has About, Settings, Quit, Edit roles and a Window menu; ⌘N makes a board or a note by mode', async () => {
   const { app, page } = await launch(tempDataDir());
+  const menu = await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()!.items.map((i) => ({
+      label: i.label,
+      role: i.role,
+      items: i.submenu?.items.map((s) => s.role ?? s.label).filter(Boolean),
+    })),
+  );
+  const edit = menu.find((m) => m.role?.toLowerCase() === 'editmenu')!;
+  expect(edit.items!.map((r) => r!.toLowerCase())).toEqual(expect.arrayContaining(['undo', 'redo', 'cut', 'copy', 'paste', 'selectall']));
+  const appMenu = menu.find((m) => m.role?.toLowerCase() === 'appmenu')!;
+  expect(appMenu.items!.map((r) => r!.toLowerCase())).toEqual(
+    expect.arrayContaining(['about', 'settings…', 'install command line tool…', 'quit']),
+  );
+  expect(menu.some((m) => m.role?.toLowerCase() === 'windowmenu')).toBe(true);
+  const about = await app.evaluate(({ app }) => app.name);
+  expect(about).toBe('Agent Brief');
+
   await showPanel(app, page);
 
   // The item that holds ⌘N follows the mode, and clicking it is what the key does.

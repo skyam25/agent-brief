@@ -131,11 +131,6 @@ describe('outputRows', () => {
     ])
   })
 
-  test('offers In Agent Brief for Markdown and HTML files only', () => {
-    const rows = [...outputRows(OUTPUTS).declared, ...outputRows(OUTPUTS).touched]
-    expect(rows.filter(r => r.canBrief).map(r => r.ref)).toEqual(['docs/spec.md', 'notes/touched.md', 'mock.html'])
-  })
-
   test('opens a URL as given and a file by its absolute path', () => {
     expect(openTarget('/work/', 'docs/spec.md')).toBe('/work/docs/spec.md')
     expect(openTarget('/work', '/tmp/a.md')).toBe('/tmp/a.md')

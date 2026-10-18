@@ -106,18 +106,38 @@ describe('edits outside the app', () => {
     const folder = join(root, 'Pricing');
     const i = s.create({ title: 'Pricing', folder });
     // Wired the way main wires them.
-    const watch = new ItemsWatcher((id) => s.refresh(id), { debounceMs: 30, pollMs: 40 });
+    let reports = 0;
+    const watch = new ItemsWatcher(
+      (id) => {
+        reports++;
+        s.refresh(id);
+      },
+      { debounceMs: 30, pollMs: 40 },
+    );
     const heard: string[] = [];
     s.onChange(() => {
       heard.push(s.files().get(i.id)!);
       watch.sync(s.files());
     });
+
+    // fs.watch misses events right after it starts. Rewriting the file unchanged until the watch reports it proves the watch is live.
+    const live = async (path: string) => {
+      const seen = reports;
+      const text = readFileSync(path, 'utf8');
+      await vi.waitFor(() => {
+        writeFileSync(path, text);
+        expect(reports).toBeGreaterThan(seen);
+      }, { timeout: 2000, interval: 60 });
+    };
+
     watch.sync(s.files());
     try {
+      await live(i.path);
       const renamed = join(folder, 'Pricing v2 brief.md');
       renameSync(i.path, renamed);
       await vi.waitFor(() => expect(heard).toContain(renamed), { timeout: 2000 });
       expect(watch.watched().get(i.id)).toBe(renamed);
+      await live(renamed);
       writeFileSync(renamed, readFileSync(renamed, 'utf8').replace('## Open\n', '## Open\n- By hand\n'));
       await vi.waitFor(() => expect(s.get(i.id)).toMatchObject({ revision: 2, updatedBy: 'PM', open: ['By hand'] }), { timeout: 2000 });
     } finally {

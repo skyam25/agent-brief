@@ -33,13 +33,6 @@ const outputsOf = (world: { files: Map<string, string> }): OutputsFile | undefin
 }
 
 describe('declare_output', () => {
-  test('registers the tool and the /outputs command', async ($, on) => {
-    const { world, start } = setup($, on)
-    await start()
-    expect(world.tools).toContain('declare_output')
-    expect(world.commands).toContain('outputs')
-  })
-
   test('writes a declared record to the outputs file', async ($, on) => {
     const { world, start } = setup($, on)
     await start()

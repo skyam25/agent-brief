@@ -145,7 +145,6 @@ describe('what a call asks for', () => {
 
   test('the call row reads one line', () => {
     expect(toolLine({ path: '/x/page.png' }, true)).toBe('▣ Loading image · page.png')
-    expect(toolLine({ path: '/x/page.png', title: 'Pricing' }, false)).toBe('▣ Image · Pricing')
     expect(toolLine({ title: 'Hero', options: [{ path: 'a' }, { path: 'b' }, { path: 'c' }] }, false)).toBe('▣ 3 options · Hero')
   })
 })

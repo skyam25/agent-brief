@@ -99,6 +99,38 @@ test('Ready drafts queue in order and Send uses one up', async () => {
   await expect.poll(() => draftBody(page)).toBe('Third task');
 });
 
+/** Write mode shows one footer with one Send bar, and the breadcrumb names the session once. */
+async function expectOneFooter(page: Page, bound: boolean): Promise<void> {
+  await expect(page.locator('footer:not(.excalidraw footer):visible')).toHaveCount(1);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.locator('.send-to')).toHaveCount(1);
+  await expect(page.getByTestId('send')).toHaveCount(1);
+  await expect(page.getByTestId('send-menu')).toHaveCount(bound ? 0 : 1);
+  await expect(page.getByTestId('crumb-session')).toHaveCount(1);
+}
+
+test('Write mode shows one footer and one Send, bound or standalone', async () => {
+  const { app, page } = ctx;
+  await page.getByTestId('mode-write').click();
+  await expectOneFooter(page, false);
+  await writeNote(page, 'A standalone note');
+  await expectOneFooter(page, false);
+
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project(), title: 'Login work' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1', mode: 'write' });
+  await showPanel(app, page);
+  await expectOneFooter(page, true);
+  await writeNote(page, 'A session note');
+  await expectOneFooter(page, true);
+  await expect(page.locator('.crumb').getByText('Login work')).toHaveCount(1);
+
+  // Leaving for the board and coming back keeps it single.
+  await page.getByTestId('mode-sketch').click();
+  await expect(page.getByTestId('composer')).toHaveCount(1);
+  await page.getByTestId('mode-write').click();
+  await expectOneFooter(page, true);
+});
+
 test('right-clicking a draft row marks it Ready or deletes it', async () => {
   const { page } = ctx;
   await page.getByTestId('mode-write').click();

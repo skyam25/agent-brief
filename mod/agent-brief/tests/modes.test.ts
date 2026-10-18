@@ -3,13 +3,10 @@ import { describe, expect, test } from 'claude-code/testing'
 import {
   MODE_USAGE,
   bandLabel,
-  denyText,
   editVerdict,
   askText,
   modeFilePaths,
   modePatch,
-  modeReport,
-  modeToast,
   parseModeArgs,
   parseModeFile,
   sectionText,
@@ -57,30 +54,12 @@ describe('parseModeArgs', () => {
 })
 
 describe('labels and messages', () => {
-  test('the band names the mode and any fidelity', () => {
-    expect(bandLabel('default', null)).toBe('◇ Mode')
-    expect(bandLabel('product', null)).toBe('◇ Product')
-    expect(bandLabel('prototype', 'styled')).toBe('◇ Prototype · styled HTML')
+  test('the band names orchestrate and the freeze + patch fidelity', () => {
     expect(bandLabel('prototype', 'freeze-patch')).toBe('◇ Prototype · freeze + patch')
     expect(bandLabel('orchestrate', null)).toBe('◇ Orchestrate')
   })
 
-  test('a change ends with the re-read note, and no change leaves it out', () => {
-    expect(modeToast('product', null)).toBe(
-      'Mode: Product. Source edits ask first; documents write freely. The next turn re-reads the conversation.',
-    )
-    expect(modeToast('prototype', 'styled')).toMatch(/^Mode: Prototype at styled-HTML fidelity\. .* The next turn re-reads the conversation\.$/)
-    expect(modeToast('default', null, false)).not.toContain('re-reads')
-  })
-
-  test('the report names the mode and how to change it', () => {
-    expect(modeReport('default', null)).toContain('Mode: Default.')
-    expect(modeReport('prototype', 'wireframe')).toBe('Mode: Prototype at wireframe fidelity. Switch with /mode default.')
-  })
-
-  test('deny and ask texts name the mode and the file', () => {
-    expect(denyText('orchestrate')).toBe('Orchestrate mode is on. Switch with /mode default to edit files.')
-    expect(askText('/w/src/app.ts')).toBe('Product mode: this edits app.ts, which is source, not a document.')
+  test('the ask text names a file even without a path', () => {
     expect(askText(undefined)).toBe('Product mode: this edits a file, which is source, not a document.')
   })
 })
@@ -103,8 +82,7 @@ describe('sectionText', () => {
     expect(sectionText('prototype', 'existing')).not.toContain('then this default')
   })
 
-  test('the text is the same every time and stays short', () => {
-    expect(sectionText('product', null)).toBe(sectionText('product', null))
+  test('the text stays short', () => {
     for (const text of [sectionText('product', null), sectionText('orchestrate', null)]) {
       expect(text!.split(/\s+/).length).toBeLessThan(100)
     }

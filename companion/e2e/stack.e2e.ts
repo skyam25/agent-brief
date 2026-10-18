@@ -19,8 +19,11 @@ test.afterEach(async () => {
 
 type Shot = { width: number; height: number; color: string };
 
-/** Drops or pastes solid-colour screenshots made in the page. `at` is a point on the canvas, in screen pixels. */
-function deliver(page: Page, how: 'drop' | 'paste', shots: Shot[], at?: { x: number; y: number }): Promise<void> {
+/** A drop point: a point on the canvas in screen pixels, or a spot inside an element, found as the drop fires. */
+type DropAt = { x: number; y: number } | { over: string };
+
+/** Drops or pastes solid-colour screenshots made in the page. */
+function deliver(page: Page, how: 'drop' | 'paste', shots: Shot[], at?: DropAt): Promise<void> {
   return page.evaluate(
     async ({ how, shots, at }) => {
       const data = new DataTransfer();
@@ -39,8 +42,16 @@ function deliver(page: Page, how: 'drop' | 'paste', shots: Shot[], at?: { x: num
         document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
         return;
       }
+      // An element's spot maps to the screen in the same task as the drop, so a moving view cannot shift it.
+      let point = at as { x: number; y: number };
+      if ('over' in at!) {
+        const api = window.__excalidraw;
+        const s = api.getAppState();
+        const e = api.getSceneElements().find((x) => x.id === (at as { over: string }).over)!;
+        point = { x: (e.x + 10 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (e.y + 10 + s.scrollY) * s.zoom.value + s.offsetTop };
+      }
       const canvas = document.querySelector('canvas.excalidraw__canvas.interactive')!;
-      canvas.dispatchEvent(new DragEvent('drop', { dataTransfer: data, clientX: at!.x, clientY: at!.y, bubbles: true, cancelable: true }));
+      canvas.dispatchEvent(new DragEvent('drop', { dataTransfer: data, clientX: point.x, clientY: point.y, bubbles: true, cancelable: true }));
     },
     { how, shots, at },
   );
@@ -69,35 +80,6 @@ async function groups(page: Page): Promise<Group[]> {
 }
 
 const shape = async (page: Page) => (await groups(page)).map((g) => `${g.name}:${g.images.length}`);
-
-/** A point on screen over a scene point. */
-function onScreen(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
-  return page.evaluate(
-    ({ x, y }) => {
-      const s = window.__excalidraw.getAppState();
-      return { x: (x + s.scrollX) * s.zoom.value + s.offsetLeft, y: (y + s.scrollY) * s.zoom.value + s.offsetTop };
-    },
-    { x, y },
-  );
-}
-
-/** Waits until the view stops moving, so screen points map to the scene it settles on. */
-async function settled(page: Page): Promise<void> {
-  const view = () =>
-    page.evaluate(() => {
-      const s = window.__excalidraw.getAppState();
-      return `${s.scrollX},${s.scrollY},${s.zoom.value}`;
-    });
-  let last = '';
-  await expect
-    .poll(async () => {
-      const now = await view();
-      const still = now === last;
-      last = now;
-      return still;
-    }, { intervals: [150] })
-    .toBe(true);
-}
 
 /** True when a frame and its name show inside the canvas viewport. */
 function inView(page: Page, id: string): Promise<boolean> {
@@ -145,9 +127,7 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
 
   // A drop on a group joins it.
   const second = (await groups(page))[1];
-  const pic = second.images[0];
-  await settled(page);
-  await deliver(page, 'drop', [{ width: 200, height: 200, color: '#3ae' }], await onScreen(page, pic.x + 10, pic.y + 10));
+  await deliver(page, 'drop', [{ width: 200, height: 200, color: '#3ae' }], { over: second.images[0].id });
   await expect.poll(() => shape(page)).toEqual(['1:3', '2:2']);
 
   // A picture dragged out to empty space gets its own group at the end.
@@ -203,31 +183,6 @@ test('a Stack board files each drop or paste as a numbered group', async () => {
   for (const [id, at] of Object.entries(before)) expect(after[id]).toBe(at);
   await page.evaluate(() => window.__board.flush());
   expect(JSON.parse(readFileSync(join(dataDir, 'boards', 'shots.excalidraw'), 'utf8')).agentBrief).toBeUndefined();
-});
-
-test('marks drawn on a screenshot move with it', async () => {
-  const { app, page } = ctx;
-  await backend(app, 'open', { board: 'marks', layout: 'stack' });
-  await deliver(page, 'paste', [{ width: 400, height: 300, color: '#e66' }]);
-  await deliver(page, 'paste', [{ width: 400, height: 300, color: '#6a6' }]);
-  await expect.poll(() => shape(page)).toEqual(['1:1', '2:1']);
-  const [one, two] = await groups(page);
-  // A mark on picture 2, inside its group.
-  await backend(app, 'draw', 'marks', {
-    elements: [{ type: 'rectangle', x: two.images[0].x + 20, y: two.images[0].y + 20, width: 60, height: 40, frameId: two.id }],
-  });
-  // Deleting group 1's picture moves group 2 up, mark and all.
-  await page.evaluate((id) => {
-    const api = window.__excalidraw;
-    const els = api.getSceneElementsIncludingDeleted().map((e) => (e.id === id ? { ...e, isDeleted: true, version: e.version + 1 } : e));
-    api.updateScene({ elements: els, captureUpdate: 'IMMEDIATELY' });
-  }, one.images[0].id);
-  await expect.poll(() => shape(page)).toEqual(['1:1']);
-  const [moved] = await groups(page);
-  const mark = (await sceneElements(page)).find((e) => e.type === 'rectangle' && !e.isDeleted)!;
-  expect(mark.x - moved.images[0].x).toBeCloseTo(20);
-  expect(mark.y - moved.images[0].y).toBeCloseTo(20);
-  expect(mark.frameId).toBe(moved.id);
 });
 
 test('a new board can start as a Stack, and the board list marks it', async () => {

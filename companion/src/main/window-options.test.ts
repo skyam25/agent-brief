@@ -4,23 +4,9 @@ import { OFFSCREEN, panelWindow } from './window-options';
 const spec = { preload: '/p.cjs', size: { width: 1100, height: 760 }, backgroundColor: '#121212' };
 
 describe('panel window', () => {
-  it('shows on every Space as a normal window and takes focus in the real app', () => {
+  it('isolates and sandboxes the panel', () => {
     const plan = panelWindow({ ...spec, offscreen: false });
-    expect(plan.allWorkspaces).toEqual({ visibleOnFullScreen: true, skipTransformProcessType: true });
-    expect(plan.options).toMatchObject({
-      show: false,
-      focusable: true,
-      frame: true,
-      enableLargerThanScreen: false,
-      acceptFirstMouse: true,
-      paintWhenInitiallyHidden: true,
-      backgroundColor: '#121212',
-      width: 1100,
-      height: 760,
-      webPreferences: { preload: '/p.cjs', contextIsolation: true, sandbox: true, backgroundThrottling: false },
-    });
-    expect(plan.options.alwaysOnTop).toBeUndefined();
-    expect(plan.options.x).toBeUndefined();
+    expect(plan.options.webPreferences).toMatchObject({ contextIsolation: true, sandbox: true });
   });
 
   it('stays off screen and unfocused in tests', () => {

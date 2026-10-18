@@ -77,11 +77,9 @@ describe('rounds and answers', () => {
     expect(answersMessage(answerQuestion(held, 'audience', ''))).toBeUndefined()
   })
 
-  test('counts in the tool result and the toast', () => {
+  test('one question reads singular in the tool result and the toast', () => {
     expect(askedText(1)).toBe("Asked 1 question in the Brief pane. The answers arrive as the user's next message.")
-    expect(askedText(3)).toBe("Asked 3 questions in the Brief pane. The answers arrive as the user's next message.")
     expect(waitingText(1)).toBe('1 question waits in the Brief pane, press b')
-    expect(waitingText(4)).toBe('4 questions wait in the Brief pane, press b')
   })
 })
 

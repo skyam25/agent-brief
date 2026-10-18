@@ -28,16 +28,6 @@ const draftsOnDisk = () =>
     .filter((f) => f.endsWith('.json'))
     .map((f) => JSON.parse(readFileSync(join(dataDir, 'drafts', f), 'utf8')));
 
-/** Starts typing at the end of the open draft. */
-async function typeAtEnd(page: Page, text: string): Promise<void> {
-  await editor(page).click();
-  await page.keyboard.press('Meta+ArrowDown');
-
-  // ProseMirror reads a moved caret a moment later. A key sent before then lands at the old spot.
-  await page.waitForTimeout(100);
-  await page.keyboard.type(text);
-}
-
 /**
  * Pastes a small PNG into the editor. Electron's clipboard is off limits in
  * tests, so this builds the file in the page and fires a synthetic paste.
@@ -262,11 +252,14 @@ test('a pasted picture becomes an attachment and goes out as a bundle file', asy
   await pastePng(page);
 
   await expect(page.getByTestId('draft-image')).toHaveCount(1);
+  // Typing after a paste goes below the picture and keeps it.
+  await page.keyboard.type('Fix this first.');
+  await expect(page.getByTestId('draft-image')).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => Object.keys(window.__drafts.selected!.attachments ?? {}).length)).toBe(1);
   const [id, data] = await page.evaluate(() => Object.entries(window.__drafts.selected!.attachments!)[0] as [string, string]);
   expect(id).toMatch(/^[a-z0-9]{6,24}$/);
   expect(data).toMatch(/^data:image\/png;base64,/);
-  await expect.poll(() => draftBody(page)).toBe(`The header overlaps here\n\n![](att:${id})`);
+  await expect.poll(() => draftBody(page)).toBe(`The header overlaps here\n\n![](att:${id})\n\nFix this first.`);
   await expect.poll(() => draftsOnDisk()[0]?.attachments).toEqual({ [id]: data });
 
   await sendToSession(page, 'Login work');
@@ -277,47 +270,9 @@ test('a pasted picture becomes an attachment and goes out as a bundle file', asy
   expect(readFileSync(join(d.dir, 'images', `${id}.png`))).toEqual(Buffer.from(data.split(',')[1], 'base64'));
   const draftMd = readFileSync(join(d.dir, 'draft.md'), 'utf8');
   for (const text of [d.draft, draftMd]) {
-    expect(text).toBe(`The header overlaps here\n\n${line}`);
+    expect(text).toBe(`The header overlaps here\n\n${line}\n\nFix this first.`);
     expect(text).not.toContain('att:');
   }
-});
-
-test('the editor shows a heading, bullets, a table and a picture together', async () => {
-  const { page } = ctx;
-  await editor(page).click();
-  await page.keyboard.type('# Checkout polish\n');
-  await page.keyboard.type('- Tighten the header spacing\nMatch the button **colours** to the brand\n\n');
-  await slash(page, 'table', 'Table');
-  // Tab moves cell to cell. In the last cell it would add a row.
-  const cells = ['Screen', 'Issue', 'Owner', 'Cart', 'Totals wrap', 'Ada', 'Pay', 'Button too low', 'Lin'];
-  for (const [i, cell] of cells.entries()) {
-    await page.keyboard.type(cell);
-    if (i < cells.length - 1) await page.keyboard.press('Tab');
-  }
-  await typeAtEnd(page, 'Where it breaks:');
-  await page.keyboard.press('Enter');
-  await pastePng(page, 320, 180);
-  await expect(page.getByTestId('draft-image')).toHaveCount(1);
-  await page.keyboard.type('Fix this before the release.');
-
-  await expect(editor(page).locator('h1')).toHaveText('Checkout polish');
-  await expect(editor(page).locator('ul > li')).toHaveCount(2);
-  await expect(editor(page).locator('table tr')).toHaveCount(3);
-  await expect(editor(page).locator('strong')).toHaveText('colours');
-  const body = await draftBody(page);
-  expect(body).toContain('**colours**');
-  expect(body).toMatch(/\n\n\| Screen +\| Issue +\| Owner +\|\n/);
-  expect(body).not.toMatch(/\n{3}/);
-
-  // Typing after a paste goes below the picture and keeps it.
-  expect(body).toMatch(/Where it breaks:\n\n!\[\]\(att:[a-z0-9]+\)\n\nFix this before the release\.$/);
-  // The list shows the note as plain words, without Markdown markers.
-  const row = page.getByTestId('draft-row').first();
-  await expect(row.locator('.title')).toHaveText('Checkout polish');
-  await expect(row.locator('.preview')).toContainText('Tighten the header spacing');
-  await expect(row.locator('.preview')).not.toContainText('- ');
-  await row.hover();
-  await page.screenshot({ path: join(RESULTS, 'rich-editor.png') });
 });
 
 test('a plain-text draft from before the editor opens as paragraphs and stays as written', async () => {

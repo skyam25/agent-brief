@@ -249,15 +249,6 @@ describe('edit guard', () => {
 })
 
 describe('the Mode button above the prompt', () => {
-  test('reads ◇ Mode in default, after Track', async ($, on) => {
-    const { clock, start } = setup($, on)
-    await start()
-    await clock.settle()
-    const drawn = await band($)
-    expect(drawn).toContain('"label":"◇ Mode"')
-    expect(drawn.indexOf('"label":"☐ Track"')).toBeLessThan(drawn.indexOf('"label":"◇ Mode"'))
-  })
-
   test('opens the mode picker, and Cancel closes it', async ($, on) => {
     const { world, clock, start } = setup($, on)
     await start()

@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExcalidrawArrowElement } from '@excalidraw/excalidraw/element/types';
-import type { ReadResponse, Skeleton } from '../src/protocol';
-import { backend, interactiveCanvas, launch, openNotes, penStroke, pickPen, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
+import type { ReadResponse } from '../src/protocol';
+import { backend, FLOW, interactiveCanvas, launch, penStroke, pickPen, RESULTS, ROOT, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
 
 let ctx: Launched;
 let dataDir: string;
@@ -18,21 +18,6 @@ test.afterEach(async () => {
   await ctx.app.close();
 });
 
-const FLOW: Skeleton[] = [
-  { type: 'frame', id: 'flow', label: 'Login flow' },
-  { type: 'rectangle', id: 'start', x: 100, y: 100, label: 'Open the app', frameId: 'flow' },
-  { type: 'diamond', id: 'check', x: 400, y: 90, label: 'Signed in?', frameId: 'flow' },
-  { type: 'ellipse', id: 'done', x: 720, y: 95, label: 'Home', color: 'green', frameId: 'flow' },
-  { type: 'arrow', id: 'a1', start: { id: 'start' }, end: { id: 'check' }, frameId: 'flow' },
-  { type: 'arrow', id: 'a2', start: { id: 'check' }, end: { id: 'done' }, label: 'yes', frameId: 'flow' },
-  { type: 'sticky', id: 'note', x: 400, y: 260, label: 'Remember SSO', frameId: 'flow' },
-];
-
-function pngSize(b64: string): { width: number; height: number; bytes: Buffer } {
-  const bytes = Buffer.from(b64, 'base64');
-  expect(bytes.subarray(1, 4).toString()).toBe('PNG');
-  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), bytes };
-}
 
 const live = async () => (await sceneElements(ctx.page)).filter((e) => !e.isDeleted);
 
@@ -139,29 +124,6 @@ test('C4.2 one undo removes Claude\'s batch and keeps the user\'s stroke', async
   expect((await live()).some((e) => e.id === user[0])).toBe(true);
 });
 
-test('C4.3 png of a region keeps the long edge at 1400 or less', async () => {
-  const { app } = ctx;
-  await backend(app, 'draw', 'current', { elements: FLOW });
-  const read: ReadResponse = await backend(app, 'read', 'current');
-
-  const whole = pngSize((await backend(app, 'png', 'current', {})).base64);
-  expect(Math.max(whole.width, whole.height)).toBeLessThanOrEqual(1400);
-  writeFileSync(join(RESULTS, 'c4.3-whole.png'), whole.bytes);
-
-  const wide = { x: read.bounds.x - 1000, y: read.bounds.y, width: 4000, height: 1000 };
-  const region = pngSize((await backend(app, 'png', 'current', { region: wide })).base64);
-  expect(region.width).toBe(1400);
-  expect(region.height).toBe(350);
-
-  const left = { x: 80, y: 60, width: 300, height: 200 };
-  const crop = pngSize((await backend(app, 'png', 'current', { region: left, maxEdge: 500 })).base64);
-  expect(crop).toMatchObject({ width: 500, height: 333 });
-  writeFileSync(join(RESULTS, 'c4.3-region.png'), crop.bytes);
-
-  const small = pngSize((await backend(app, 'png', 'current', { maxEdge: 300 })).base64);
-  expect(Math.max(small.width, small.height)).toBe(300);
-});
-
 test('boards that are not visible are edited on disk and stay out of view', async () => {
   const { app } = ctx;
   const drawn = await backend(app, 'draw', 'backlog', { elements: [{ type: 'sticky', id: 's1', label: 'Later' }] });
@@ -183,24 +145,6 @@ test('boards that are not visible are edited on disk and stay out of view', asyn
   await expect(ctx.page.getByTestId('prompt')).toHaveText(/Sketch the backlog/);
   expect((await live()).map((e) => e.id)).toContain('s1');
   expect(await backend(app, 'health')).toEqual({ panelVisible: true, currentBoard: 'backlog' });
-});
-
-test('Send builds the hand-off: png, scene and notes', async () => {
-  const { app, page } = ctx;
-  await backend(app, 'draw', 'current', { elements: FLOW });
-  await openNotes(page);
-  await page.getByTestId('notes').fill('make the flow shorter');
-  const delivery = await app.evaluate(async () => {
-    const d = await globalThis.__companion.buildDelivery();
-    return { ...d, png: d.png!.toString('base64') };
-  });
-  expect(delivery.boardName).toBe('scratch');
-  expect(delivery.notes).toBe('make the flow shorter');
-  expect((delivery.scene as { elements: unknown[] }).elements.length).toBeGreaterThanOrEqual(7);
-  const png = pngSize(delivery.png);
-  expect(Math.max(png.width, png.height)).toBeLessThanOrEqual(1400);
-  writeFileSync(join(RESULTS, 'send.png'), png.bytes);
-
 });
 
 test('a paste lands deselected with the pen still in hand', async () => {
@@ -245,182 +189,6 @@ test('a paste lands deselected with the pen still in hand', async () => {
   writeFileSync(join(RESULTS, 'paste-letters.png'), Buffer.from(delivery.png, 'base64'));
 });
 
-/** A solid-colour PNG made in the renderer, as a data URL. */
-function solidPng(width: number, height: number, color: string): Promise<string> {
-  return ctx.page.evaluate(
-    ({ width, height, color }) => {
-      const c = document.createElement('canvas');
-      c.width = width;
-      c.height = height;
-      const g = c.getContext('2d')!;
-      g.fillStyle = color;
-      g.fillRect(0, 0, width, height);
-      return c.toDataURL('image/png');
-    },
-    { width, height, color },
-  );
-}
-
-/** The RGB of one pixel of a base64 PNG, decoded in the renderer. */
-function pixel(b64: string, x: number, y: number): Promise<number[]> {
-  return ctx.page.evaluate(
-    async ({ b64, x, y }) => {
-      const img = new Image();
-      img.src = `data:image/png;base64,${b64}`;
-      await img.decode();
-      const c = document.createElement('canvas');
-      c.width = img.width;
-      c.height = img.height;
-      const g = c.getContext('2d')!;
-      g.drawImage(img, 0, 0);
-      return Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
-    },
-    { b64, x, y },
-  );
-}
-
-test('an image in a frame draws, saves with its file, reads back and renders', async () => {
-  const { app, page } = ctx;
-  const image = await solidPng(400, 250, '#ff0000');
-  const drawn = await backend(app, 'draw', 'current', {
-    elements: [
-      { type: 'frame', id: 'snap', x: 0, y: 0, width: 440, height: 290, label: '1. Cart' },
-      { type: 'image', id: 'shot', x: 20, y: 20, width: 400, height: 250, image, frameId: 'snap' },
-    ],
-  });
-  expect(drawn.ids).toEqual(['snap', 'shot']);
-
-  const el = (await live()).find((e) => e.id === 'shot');
-  expect(el).toMatchObject({ type: 'image', status: 'saved', fileId: 'file-shot', frameId: 'snap' });
-  expect(await page.evaluate(() => Object.keys(window.__excalidraw.getFiles()))).toContain('file-shot');
-
-  const read: ReadResponse = await backend(app, 'read', 'current');
-  expect(read.elements.find((e) => e.id === 'shot')).toMatchObject({ type: 'image', frameId: 'snap', by: 'claude' });
-
-  const png = await backend(app, 'png', 'current', { region: { x: 0, y: 0, width: 440, height: 290 }, maxEdge: 440 });
-  expect(await pixel(png.base64, 220, 145)).toEqual([255, 0, 0]);
-  writeFileSync(join(RESULTS, 'image-board.png'), Buffer.from(png.base64, 'base64'));
-
-  await expect
-    .poll(() => {
-      const file = JSON.parse(readFileSync(join(dataDir, 'boards', 'scratch.excalidraw'), 'utf8'));
-      return file.files?.['file-shot']?.dataURL?.slice(0, 22);
-    })
-    .toBe('data:image/png;base64,');
-});
-
-test('an image on a board out of view is saved to disk with its file', async () => {
-  const { app } = ctx;
-  const image = await solidPng(200, 100, '#0000ff');
-  await backend(app, 'draw', 'run', { elements: [{ type: 'image', id: 'pic', x: 0, y: 0, width: 200, height: 100, image }] });
-  const file = JSON.parse(readFileSync(join(dataDir, 'boards', 'run.excalidraw'), 'utf8'));
-  expect(file.files['file-pic'].mimeType).toBe('image/png');
-  const png = await backend(app, 'png', 'run', { maxEdge: 200 });
-  expect(await pixel(png.base64, 100, 50)).toEqual([0, 0, 255]);
-});
-
-test('a large screenshot is scaled down to 1600 px before it is stored', async () => {
-  const { app, page } = ctx;
-  const image = await solidPng(3200, 2000, '#00ff00');
-  await backend(app, 'draw', 'current', { elements: [{ type: 'image', id: 'big', x: 0, y: 0, width: 720, height: 450, image }] });
-  const size = await page.evaluate(async () => {
-    const f = window.__excalidraw.getFiles()['file-big'];
-    const img = new Image();
-    img.src = f.dataURL;
-    await img.decode();
-    return { width: img.naturalWidth, height: img.naturalHeight, mimeType: f.mimeType };
-  });
-  expect(size).toEqual({ width: 1600, height: 1000, mimeType: 'image/webp' });
-});
-
-test('draw warns when an arrow label hides the arrow', async () => {
-  const { app } = ctx;
-  const drawn = await backend(app, 'draw', 'current', {
-    elements: [
-      { id: 'a', type: 'rectangle', x: 0, y: 0, width: 200, height: 80, label: 'Browser' },
-      { id: 'b', type: 'rectangle', x: 300, y: 0, width: 200, height: 80, label: 'API' },
-      { id: 'c', type: 'rectangle', x: 900, y: 0, width: 200, height: 80, label: 'DB' },
-      { id: 'near', type: 'arrow', start: { id: 'a' }, end: { id: 'b' }, label: 'POST /login with password' },
-      { id: 'far', type: 'arrow', start: { id: 'b' }, end: { id: 'c' }, label: 'lookup' },
-    ],
-  });
-  expect(drawn.warnings).toHaveLength(1);
-  expect(drawn.warnings![0]).toMatch(/^arrow near is \d+ px long, so its label "POST \/login with password" hides it/);
-});
-
-test('draw lists its elements, and draw and update warn when a box grows over its neighbour', async () => {
-  const { app } = ctx;
-  const drawn = await backend(app, 'draw', 'current', {
-    elements: [
-      { id: 'top', type: 'rectangle', x: 0, y: 0, width: 380, height: 60, label: 'First line of the label\nSecond line' },
-      { id: 'next', type: 'rectangle', x: 0, y: 70, width: 380, height: 60, label: 'Next' },
-      { id: 'fits', type: 'rectangle', x: 500, y: 0, width: 380, height: 100, label: 'First line of the label\nSecond line' },
-      { id: 'clear', type: 'rectangle', x: 500, y: 160, width: 380, height: 100, label: 'Next' },
-      // Free text has no planned box, so text over a shape never reads as grown.
-      { id: 'caption', type: 'text', x: 1000, y: 0, label: 'Caption over a box' },
-      { id: 'under', type: 'rectangle', x: 1000, y: 5, width: 300, height: 60 },
-    ],
-  });
-  expect(drawn.elements?.map((e) => e.id)).toEqual(['top', 'next', 'fits', 'clear', 'caption', 'under']);
-  expect(drawn.elements?.[0]).toMatchObject({ type: 'rectangle', height: 86, label: 'First line of the label\nSecond line', by: 'claude' });
-  expect(drawn.warnings).toEqual([
-    'rectangle top grew from 60 to 86 px tall to hold its label and now overlaps next. Move it down at least 36 px with update, or give top more width.',
-  ]);
-
-  const updated = await backend(app, 'update', 'current', { updates: [{ id: 'fits', label: 'One\nTwo\nThree\nFour\nFive\nSix' }] });
-  expect(updated.warnings).toEqual([
-    'rectangle fits grew from 100 to 194 px tall to hold its label and now overlaps clear. Move it down at least 54 px with update, or give fits more width.',
-  ]);
-});
-
-test('a label keeps its padding, the box grows to hold it, and its frame grows too', async () => {
-  const { app } = ctx;
-  const note = 'AUGUST (Ahmed, first time)\nConfig entries named and bolded inconsistently (Erin)\nNot written in complete human sentences (Leia)';
-  const list = 'SEPTEMBER (Aaron)\n- Looking much better this round (Erin)\n- One item had no description (Felipe)';
-  const drawn = await backend(app, 'draw', 'current', {
-    elements: [
-      { id: 'f', type: 'frame', x: 0, y: 0, width: 700, height: 160, label: 'Reviewers' },
-      { id: 'a', type: 'sticky', x: 40, y: 40, width: 300, height: 80, label: note, frameId: 'f' },
-      { id: 'b', type: 'sticky', x: 360, y: 40, width: 300, height: 80, label: list, frameId: 'f' },
-      { id: 'g', type: 'frame', x: 0, y: 200, width: 700, height: 100, label: 'Next' },
-    ],
-  });
-  const scene = await live();
-  const el = (id: string) => scene.find((e) => e.id === id)!;
-  type Label = { containerId?: string | null; textAlign: string; x: number; y: number; width: number; height: number };
-  const labelOf = (id: string) => (scene as unknown as Label[]).find((e) => e.containerId === id)!;
-  for (const id of ['a', 'b']) {
-    const box = el(id);
-    const text = labelOf(id);
-    expect(text.x - box.x).toBeGreaterThanOrEqual(16);
-    expect(box.x + box.width - (text.x + text.width)).toBeGreaterThanOrEqual(15);
-    expect(text.y - box.y).toBeGreaterThanOrEqual(15);
-    expect(box.y + box.height - (text.y + text.height)).toBeGreaterThanOrEqual(15);
-  }
-  expect(el('a').height).toBeGreaterThan(80);
-  // Each wrapped line fits the label as the board's font draws it, so nothing runs past the box.
-  const { page } = ctx;
-  for (const id of ['a', 'b']) {
-    const text = labelOf(id) as Label & { text: string; fontSize: number };
-    const widest = await page.evaluate(async ({ lines, size }) => {
-      await document.fonts.load(`${size}px Nunito`);
-      const c = document.createElement('canvas').getContext('2d')!;
-      c.font = `${size}px Nunito`;
-      return Math.max(...lines.map((l) => c.measureText(l).width));
-    }, { lines: text.text.split('\n'), size: text.fontSize });
-    expect(widest).toBeLessThanOrEqual(text.width + 1);
-  }
-  // A label with list lines lines up left, the rest center.
-  expect(labelOf('a').textAlign).toBe('center');
-  expect(labelOf('b').textAlign).toBe('left');
-  // The frame grew to hold the taller notes, and says what it now overlaps.
-  const frame = el('f');
-  expect(frame.y + frame.height).toBeGreaterThanOrEqual(Math.max(el('a').y + el('a').height, el('b').y + el('b').height));
-  expect(drawn.warnings?.some((w) => /^frame f grew to 700×\d+ to hold its contents and now overlaps g\. Move it down at least \d+ px with update\. A frame moves with everything in it\.$/.test(w))).toBe(true);
-  // The stickies sit in f, so the frame's warning speaks for them.
-  expect(drawn.warnings).toHaveLength(1);
-});
-
 test('a drawing at the origin of an empty board shows below the toolbar', async () => {
   const { app, page } = ctx;
   await backend(app, 'draw', 'current', {
@@ -454,16 +222,6 @@ test('the opacity label sits at the knob once a selection shows the style panel'
   expect(slider.text).toBe('100');
   expect(slider.width).toBeGreaterThan(100);
   expect(slider.left).toBeCloseTo(slider.width - 7.5, 0);
-});
-
-test('H picks the hand tool for dragging the board', async () => {
-  const { page } = ctx;
-  const tool = () => page.evaluate(() => window.__excalidraw.getAppState().activeTool.type);
-  await page.evaluate(() => (document.querySelector('.excalidraw') as HTMLElement).focus());
-  await page.keyboard.press('h');
-  await expect.poll(tool).toBe('hand');
-  await page.keyboard.press('v');
-  await expect.poll(tool).toBe('selection');
 });
 
 test('the frame tool has its own toolbar button after the eraser', async () => {

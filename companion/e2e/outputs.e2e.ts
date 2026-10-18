@@ -107,14 +107,15 @@ test('Review mode lists a session\'s outputs, opens them, and sends an edited co
   expect(existsSync(join(delivery!.dir, 'draft.md'))).toBe(true);
 
   // An HTML output opens in the review pane, which can still hand it to the browser.
+  // A standalone show clears the target. The switch then sets it, and Review needs it.
   await showPanel(app, page);
+  const crumb = page.getByTestId('crumb-session');
+  await expect(crumb).toHaveText('Unfiled');
   await page.getByTestId('brief-tab').filter({ hasText: 'Pricing' }).getByRole('tab').click();
-  // The tab switch can land Sketch after a first check, so retry until Review holds.
+  await expect(crumb).toHaveText('Pricing');
+  await page.getByTestId('mode-review').click();
   const touched = page.getByTestId('outputs-touched-toggle');
-  await expect(async () => {
-    if ((await page.getByTestId('mode-review').getAttribute('aria-selected')) !== 'true') await page.getByTestId('mode-review').click();
-    await expect(touched).toBeVisible({ timeout: 1000 });
-  }).toPass();
+  await expect(touched).toBeVisible();
   if ((await touched.getAttribute('aria-expanded')) !== 'true') await touched.click();
   const opened = () => app.evaluate(() => [...globalThis.__companion.openedOutputs]);
   await page.getByTestId('output-row-1').click();

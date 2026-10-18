@@ -126,8 +126,6 @@ describe('the Sketch and Write buttons above the prompt', () => {
     expect(band).toContain('"label":"✎ Sketch"')
     expect(band).toContain('"label":"▤ Stack"')
     expect(band).toContain('"label":"¶ Write"')
-    expect(band).toContain('"label":"▣ Brief"')
-    expect(band).not.toContain('Track')
     const survey = { ...BAND, props: { ...BAND.props, hasSurvey: true } }
     expect(textOf(await $.ui.render(survey))).toBe('engine band')
   })

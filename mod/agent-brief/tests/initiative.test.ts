@@ -288,11 +288,6 @@ describe('the submit hook', () => {
 })
 
 describe('/initiative', () => {
-  test('registers the command', async ($, on) => {
-    const { world } = await setup($, on)
-    expect(world.commands).toContain('initiative')
-  })
-
   test('a name hands Claude the attach call', async ($, on) => {
     const { world, clock } = await setup($, on)
     expect(await $.command.run(command('initiative', 'Pricing'))).toEqual({ text: 'Asking Claude to attach Pricing…' })

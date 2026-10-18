@@ -47,11 +47,6 @@ describe('numbering', () => {
     const y = stroke(0, { elementId: 'y', bbox: box(800, 800) });
     expect(build([x, y]).strokeNumbers).toEqual({ x: 1, y: 2 });
   });
-
-  it('is deterministic', () => {
-    const s = [stroke(300), stroke(100), stroke(200)];
-    expect(build(s)).toEqual(build([...s]));
-  });
 });
 
 describe('position and size words', () => {

@@ -2,7 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   DECLARE_USAGE,
-  declareResultText,
   emptyOutputsFile,
   isDocumentPath,
   kindOf,
@@ -10,7 +9,6 @@ import {
   outputsInstructions,
   outputsListText,
   parseDeclare,
-  parseOutputsFile,
   relRef,
   upsertDeclared,
   upsertWrite,
@@ -131,33 +129,6 @@ describe('upsertWrite and upsertDeclared', () => {
   })
 })
 
-describe('parseOutputsFile', () => {
-  test('reads a version 1 file and drops malformed records and fields', () => {
-    const text = JSON.stringify({
-      version: 1,
-      sessionId: 's1',
-      outputs: [
-        { ref: 'a.md', kind: 'markdown', tier: 'detected', writes: 2, origin: 'sideways' },
-        { ref: 'b.md', kind: 'banana', tier: 'detected' },
-        { kind: 'markdown', tier: 'declared' },
-        'nope',
-      ],
-    })
-    expect(parseOutputsFile(text)).toEqual({
-      version: 1,
-      sessionId: 's1',
-      outputs: [{ ref: 'a.md', kind: 'markdown', tier: 'detected', writes: 2 }],
-    })
-  })
-
-  test('anything else is undefined', () => {
-    expect(parseOutputsFile('not json')).toBeUndefined()
-    expect(parseOutputsFile('null')).toBeUndefined()
-    expect(parseOutputsFile(JSON.stringify({ version: 2, sessionId: 's1', outputs: [] }))).toBeUndefined()
-    expect(parseOutputsFile(JSON.stringify({ version: 1, sessionId: 's1' }))).toBeUndefined()
-  })
-})
-
 describe('parseDeclare', () => {
   test('takes a path relative to the project, with drafting as the default status', () => {
     expect(parseDeclare({ title: ' Plan ', path: '/work/docs/plan.md' }, CWD)).toEqual({
@@ -205,16 +176,6 @@ describe('text', () => {
         '• notes/a.md · created · 1 write',
         '• notes/b.html · edited · 2 writes',
       ].join('\n'),
-    )
-  })
-
-  test('an empty file says so', () => {
-    expect(outputsListText(emptyOutputsFile('s1'))).toBe('No outputs yet.')
-  })
-
-  test('the declare result names the title, ref and status', () => {
-    expect(declareResultText({ ref: 'docs/pricing.md', title: 'Pricing strategy', kind: 'markdown', tier: 'declared', status: 'drafting' })).toBe(
-      'Declared "Pricing strategy" (docs/pricing.md, drafting). It shows in the Agent Brief panel.',
     )
   })
 

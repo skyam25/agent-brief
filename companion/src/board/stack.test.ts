@@ -107,6 +107,21 @@ describe('planStack', () => {
     expect(live(next, 'm').frameId).toBe(nb.frameId);
   });
 
+  it('moves a group up when the picture above it is deleted, with the marks drawn on it', () => {
+    const out = settle([image('a', 0, 0), image('b', 500, 500)]);
+    const [one, two] = frames(out);
+    const b = live(out, 'b');
+    const mark: StackElement = { id: 'm', type: 'rectangle', x: b.x + 20, y: b.y + 20, width: 60, height: 40, frameId: two.id };
+    const next = settle([...out.map((e) => (e.id === 'a' ? { ...e, isDeleted: true } : e)), mark]);
+    expect(live(next, one.id).isDeleted).toBe(true);
+    expect(frames(next).map((f) => [f.id, f.name])).toEqual([[two.id, '1']]);
+    const nb = live(next, 'b');
+    expect(nb.y).toBeLessThan(b.y);
+    expect(live(next, 'm').x - nb.x).toBeCloseTo(20);
+    expect(live(next, 'm').y - nb.y).toBeCloseTo(20);
+    expect(live(next, 'm').frameId).toBe(two.id);
+  });
+
   it('leaves pictures inside other frames alone', () => {
     const step: StackElement = { id: 'f', type: 'frame', x: 1000, y: 0, width: 400, height: 300 };
     const plan = planStack([step, image('a', 1050, 50, { frameId: 'f' })], { newId: ids() });

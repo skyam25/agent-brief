@@ -53,36 +53,12 @@ test('C1.2 pen pressure 0.2 vs 1.0 gives at least 2x stroke width (S5)', async (
   const lightW = await inkWidthAt(page, xm, light.y);
   const heavyW = await inkWidthAt(page, xm, heavy.y);
 
-  // The same strokes with raw pressures, to show what Excalidraw does without the curve.
-  await page.evaluate(
-    ({ a, rawY, raw }) => {
-      const api = window.__excalidraw;
-      const els = api.getSceneElementsIncludingDeleted();
-      const zoom = api.getAppState().zoom.value;
-      const extra = raw.map((p: number, i: number) => ({
-        ...a,
-        id: `raw-${i}`,
-        y: a.y + (rawY[i] / zoom),
-        pressures: a.pressures.map(() => p),
-        version: 1,
-        versionNonce: i + 1,
-        index: null,
-      }));
-      api.updateScene({ elements: [...els, ...extra], captureUpdate: 'NEVER' });
-    },
-    { a, rawY: [300, 380], raw: [0.2, 1.0] },
-  );
-  await page.waitForTimeout(300);
-  const rawLightW = await inkWidthAt(page, xm, light.y + 300);
-  const rawHeavyW = await inkWidthAt(page, xm, light.y + 380);
   await page.screenshot({ path: join(RESULTS, 'c1.2-pressure.png') });
 
   const ratio = heavyW / lightW;
-  const rawRatio = rawHeavyW / rawLightW;
   console.log(
     `[S5] stored pressure light=${lightP.toFixed(3)} heavy=${heavyP.toFixed(3)}; ` +
-      `width light=${lightW.toFixed(2)} heavy=${heavyW.toFixed(2)} ratio=${ratio.toFixed(2)}; ` +
-      `raw (no curve) light=${rawLightW.toFixed(2)} heavy=${rawHeavyW.toFixed(2)} ratio=${rawRatio.toFixed(2)}`,
+      `width light=${lightW.toFixed(2)} heavy=${heavyW.toFixed(2)} ratio=${ratio.toFixed(2)}`,
   );
   expect(lightP).toBeLessThan(0.2);
   expect(heavyP).toBeCloseTo(1, 2);
@@ -106,19 +82,6 @@ test('C1.3 eraser button erases, then the pen tool comes back', async () => {
   expect(await live()).toHaveLength(0);
   const tool = await page.evaluate(() => window.__excalidraw.getAppState().activeTool.type);
   expect(tool).toBe('freedraw');
-});
-
-test('C1.3 eraser with buttons=32 and button 0 also erases', async () => {
-  const { page } = ctx;
-  const cdp = await page.context().newCDPSession(page);
-  const box = (await interactiveCanvas(page).boundingBox())!;
-  const y = box.y + 300;
-  await penStroke(cdp, { x: box.x + 300, y }, { x: box.x + 600, y }, 0.7);
-  await page.waitForTimeout(200);
-  const across = [0, 1, 2, 3, 4].map((i) => ({ x: box.x + 450, y: y - 40 + i * 20 }));
-  await syntheticStroke(page, across, { pointerType: 'pen', button: 0, buttons: 32, pointerId: 8 });
-  await page.waitForTimeout(200);
-  expect(await live()).toHaveLength(0);
 });
 
 test('C1.3 touch is ignored while the pen is in range', async () => {

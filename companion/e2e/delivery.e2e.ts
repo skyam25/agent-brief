@@ -5,16 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { DeliveriesResponse, SessionsResponse } from '../src/protocol';
-import { backend, launch, type Launched, launchShown, openNotes, RESULTS, ROOT, sceneElements, sendToSession, showPanel, sock, tempDataDir } from './helpers';
+import { backend, type Launched, launchShown, openNotes, RESULTS, ROOT, sceneElements, sendToSession, settled, showPanel, sock } from './helpers';
 
 const run = promisify(execFile);
 
 let ctx: Launched;
 let socketPath: string;
-let dataDir: string;
 
 test.beforeEach(async () => {
-  ({ ctx, socketPath, dataDir } = await launchShown());
+  ({ ctx, socketPath } = await launchShown());
 });
 
 test.afterEach(async () => {
@@ -29,14 +28,15 @@ const bundles = (cwd: string) => {
   return existsSync(dir) ? readdirSync(dir) : [];
 };
 
-test('C2.4 the socket file is owner-only (0600)', async () => {
+test('C2.4 opened standalone on an owner-only socket, Send asks where to go and never picks a session itself', async () => {
+  const { page } = ctx;
   expect(statSync(socketPath).mode & 0o777).toBe(0o600);
   const health = await sock(socketPath, 'GET', '/health');
   expect(health.body).toMatchObject({ ok: true, panelVisible: true, currentBoard: 'scratch' });
-});
+  // The notes pane starts collapsed.
+  await expect(page.getByTestId('notes-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('notes')).toHaveCount(0);
 
-test('opened standalone, Send asks where to go and never picks a session itself', async () => {
-  const { page } = ctx;
   await expect(page.getByTestId('send-menu')).toHaveText('Send to…');
   await page.getByTestId('send').click();
   await expect(page.getByTestId('send-chooser')).toContainText('No Claude Code session has the companion open');
@@ -50,11 +50,6 @@ test('opened standalone, Send asks where to go and never picks a session itself'
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
   await expect(page.getByTestId('brief-tab')).toHaveCount(0);
   expect(await panelVisible()).toBe(true);
-});
-
-test('the notes pane starts collapsed', async () => {
-  await expect(ctx.page.getByTestId('notes-toggle')).toHaveAttribute('aria-pressed', 'false');
-  await expect(ctx.page.getByTestId('notes')).toHaveCount(0);
 });
 
 test('C2.2 Send writes the bundle into the project and queues the delivery', async () => {
@@ -86,50 +81,21 @@ test('C2.2 Send writes the bundle into the project and queues the delivery', asy
   expect(d.draft).toContain(`@.feedback/sketches/${id}/sketch.png`);
   expect(d.draft).toContain('Notes: the header is too tall');
 
-  // The next sketch starts blank; History brings the sent one back with its notes.
+  const history = await app.evaluate(() => globalThis.__companion.history.list());
+  expect(history[0]).toMatchObject({ id, board: 'scratch', target: 'Login work' });
+
+  // The next sketch starts blank; History brings the sent one back on a new board, with its notes.
   await showPanel(app, page);
   expect((await sceneElements(page)).filter((e) => !e.isDeleted)).toHaveLength(0);
   await openNotes(page);
   await expect(page.getByTestId('notes')).toHaveValue('');
   await page.getByTestId('history-toggle').click();
-  await page.getByTestId('history-open').first().click();
-  await expect(page.getByTestId('notes')).toHaveValue('the header is too tall');
-  expect((await sceneElements(page)).filter((e) => !e.isDeleted).length).toBeGreaterThan(0);
-});
-
-test('the history keeps the last 10 sends and opens one on a new board', async () => {
-  const { app, page } = ctx;
-  const cwd = project();
-  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Login work' });
-
-  for (let n = 1; n <= 11; n++) {
-    await backend(app, 'draw', 'current', { elements: [{ type: 'sticky', id: `n${n}`, x: n * 10, y: 0, label: `Send ${n}` }] });
-    await showPanel(app, page);
-    await sendToSession(page, 'Login work');
-    await expect.poll(panelVisible).toBe(false);
-  }
-
-  const history = await app.evaluate(() => globalThis.__companion.history.list());
-  expect(history).toHaveLength(10);
-  expect(history[0]).toMatchObject({ board: 'scratch', target: 'Login work' });
-  expect(history[0].draft).toContain(`@.feedback/sketches/${history[0].id}/sketch.png`);
-  expect(readdirSync(join(dataDir, 'history')).filter((f) => f !== 'index.json')).toHaveLength(10);
-  // Project bundles are Claude's record and stay put.
-  expect(bundles(cwd)).toHaveLength(11);
-
-  await showPanel(app, page);
-  await page.getByTestId('history-toggle').click();
-  await expect(page.getByTestId('history-item')).toHaveCount(10);
   await expect(page.getByTestId('history-item').first().locator('img')).toBeVisible();
   await page.screenshot({ path: join(RESULTS, 'history.png') });
-  await page.getByTestId('history-item').last().getByTestId('history-open').click();
+  await page.getByTestId('history-open').first().click();
   await expect(page.getByTestId('board-picker')).toHaveText(/^scratch \d{2}\.\d{2}$/);
-  const restored = await page.evaluate(() =>
-    window.__excalidraw.getSceneElements().filter((e) => e.type === 'text').map((e) => e.text),
-  );
-  // The oldest kept send is the second one.
-  expect(restored).toContain('Send 2');
-  expect(restored).not.toContain('Send 3');
+  await expect(page.getByTestId('notes')).toHaveValue('the header is too tall');
+  expect((await sceneElements(page)).filter((e) => !e.isDeleted).length).toBeGreaterThan(0);
 });
 
 test('C2.3 with two sessions the delivery reaches only the picked one', async () => {
@@ -225,6 +191,7 @@ test('a session opened by /sketch is the named Send and the active tab until it 
   await sock(socketPath, 'POST', '/open', { sessionId: 's2' });
   await expect(page.getByTestId('send-menu')).toHaveCount(0);
   await app.evaluate(() => globalThis.__companion.toggle());
+  await expect.poll(panelVisible).toBe(false);
   await showPanel(app, page);
   await expect(page.getByTestId('send-menu')).toHaveText('Send to…');
   expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
@@ -267,7 +234,20 @@ test('Send to a new session writes the bundle into the folder and starts Claude 
   expect(copied).toMatch(new RegExp(`^cd '${cwd}' && claude "\\$\\(cat '${cwd}/\\.feedback/sketches/[^']+/prompt\\.md'\\)"$`));
 });
 
-test('C4.1 through the CLI: draw, read and png against the running app', async () => {
+/** Runs the CLI and returns its exit code and output, without throwing on failure. */
+async function companion(socket: string, args: string[], input?: string) {
+  const env: NodeJS.ProcessEnv = { ...process.env, COMPANION_SOCKET: socket };
+  // Playwright forces color; a runner's NO_COLOR would make Node prefix stderr with a warning.
+  delete env.FORCE_COLOR;
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = execFile('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { env }, (err, stdout, stderr) =>
+      resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout, stderr }),
+    );
+    child.stdin!.end(input ?? '');
+  });
+}
+
+test('C4.1 through the CLI: draw, read and png against the running app, and C4.4 its exit codes', async () => {
   const env = { ...process.env, COMPANION_SOCKET: socketPath };
   const cli = (args: string[], input?: string) => {
     const p = run('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { env, cwd: project() });
@@ -300,22 +280,8 @@ test('C4.1 through the CLI: draw, read and png against the running app', async (
   const bytes = readFileSync(out);
   expect(bytes.subarray(1, 4).toString()).toBe('PNG');
   expect(Math.max(bytes.readUInt32BE(16), bytes.readUInt32BE(20))).toBeLessThanOrEqual(1400);
-});
 
-/** Runs the CLI and returns its exit code and output, without throwing on failure. */
-async function companion(socket: string, args: string[], input?: string) {
-  const env: NodeJS.ProcessEnv = { ...process.env, COMPANION_SOCKET: socket };
-  // Playwright forces color; a runner's NO_COLOR would make Node prefix stderr with a warning.
-  delete env.FORCE_COLOR;
-  return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
-    const child = execFile('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { env }, (err, stdout, stderr) =>
-      resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout, stderr }),
-    );
-    child.stdin!.end(input ?? '');
-  });
-}
-
-test('C4.4 the CLI exits 1 for app errors and 2 for bad input, with the reason', async () => {
+  // C4.4 exits 1 for app errors and 2 for bad input, with the reason.
   const missing = await companion(socketPath, ['read', '--board', 'nope']);
   expect(missing.code).toBe(1);
   expect(missing.stderr).toMatch(/^error \(not_found\): no board named "nope"/);
@@ -327,15 +293,6 @@ test('C4.4 the CLI exits 1 for app errors and 2 for bad input, with the reason',
   const badRef = await companion(socketPath, ['draw'], JSON.stringify({ elements: [{ type: 'arrow', start: { id: 'ghost' }, end: { x: 1, y: 1 } }] }));
   expect(badRef.code).toBe(1);
   expect(badRef.stderr).toMatch(/^error \(bad_request\): elements\[0\]\.start: no element with id "ghost"/);
-});
-
-test('C4.4 the CLI exits 3 when the app is not running', async () => {
-  await ctx.app.close();
-  const down = await companion(socketPath, ['read']);
-  expect(down.code).toBe(3);
-  expect(down.stderr).toMatch(/not running/i);
-  // afterEach closes again; relaunch so it has something to close.
-  ctx = await launch(tempDataDir());
 });
 
 test('pinned comments on the board go out as comments.md, and the board stays while the pins clear', async () => {
@@ -353,6 +310,7 @@ test('pinned comments on the board go out as comments.md, and the board stays wh
   await page.locator('.excalidraw').focus();
   await page.keyboard.press('c');
   await expect(page.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'true');
+  await settled(page);
   const spot = await page.evaluate(() => {
     const s = window.__excalidraw.getAppState();
     const e = window.__excalidraw.getSceneElements().find((x) => x.id === 'start')!;

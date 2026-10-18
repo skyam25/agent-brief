@@ -3,7 +3,7 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test';
-import type { DeliveriesResponse, OpenResponse } from '../src/protocol';
+import type { DeliveriesResponse, OpenResponse, Skeleton } from '../src/protocol';
 import type { BoardBackend } from '../src/server/contract';
 import type { Draft } from '../src/shared/ipc';
 
@@ -14,6 +14,17 @@ mkdirSync(RESULTS, { recursive: true });
 export function tempDataDir(): string {
   return mkdtempSync(join(tmpdir(), 'companion-e2e-'));
 }
+
+/** A login flow in a frame: shapes, bound arrows and a sticky. */
+export const FLOW: Skeleton[] = [
+  { type: 'frame', id: 'flow', label: 'Login flow' },
+  { type: 'rectangle', id: 'start', x: 100, y: 100, label: 'Open the app', frameId: 'flow' },
+  { type: 'diamond', id: 'check', x: 400, y: 90, label: 'Signed in?', frameId: 'flow' },
+  { type: 'ellipse', id: 'done', x: 720, y: 95, label: 'Home', color: 'green', frameId: 'flow' },
+  { type: 'arrow', id: 'a1', start: { id: 'start' }, end: { id: 'check' }, frameId: 'flow' },
+  { type: 'arrow', id: 'a2', start: { id: 'check' }, end: { id: 'done' }, label: 'yes', frameId: 'flow' },
+  { type: 'sticky', id: 'note', x: 400, y: 260, label: 'Remember SSO', frameId: 'flow' },
+];
 
 export interface Launched {
   app: ElectronApplication;
@@ -139,6 +150,24 @@ export function backend<K extends BackendMethod>(
 /** Scene elements in the renderer, including deleted ones. */
 export function sceneElements(page: Page) {
   return page.evaluate(() => window.__excalidraw.getSceneElementsIncludingDeleted());
+}
+
+/** Waits until the board view stops moving, so screen points map to the scene it settles on. */
+export async function settled(page: Page): Promise<void> {
+  const view = () =>
+    page.evaluate(() => {
+      const s = window.__excalidraw.getAppState();
+      return `${s.scrollX},${s.scrollY},${s.zoom.value}`;
+    });
+  let last = '';
+  await expect
+    .poll(async () => {
+      const now = await view();
+      const still = now === last;
+      last = now;
+      return still;
+    }, { intervals: [150] })
+    .toBe(true);
 }
 
 /** The canvas Excalidraw draws on and takes input from. */

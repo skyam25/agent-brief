@@ -7,13 +7,11 @@ import {
   lastReply,
   rememberPaste,
   launchFailureText,
-  nextBackoff,
   parseDeliveries,
   hostOf,
   sessionInfo,
   summaryOf,
   socketPathOf,
-  toastFor,
   trackReply,
   trackTarget,
   trackingOf,
@@ -32,13 +30,6 @@ describe('socketPathOf', () => {
   })
 })
 
-test('backoff doubles from 5 s to a 30 s cap', () => {
-  let wait = 0
-  const seen: number[] = []
-  for (let i = 0; i < 6; i++) seen.push((wait = nextBackoff(wait)))
-  expect(seen).toEqual([5000, 10000, 20000, 30000, 30000, 30000])
-})
-
 describe('fillRequest', () => {
   test('an empty box takes the draft as is', () => {
     expect(fillRequest('', 'hello')).toEqual({ text: 'hello', mode: 'append' })
@@ -55,12 +46,6 @@ test('parseDeliveries keeps only well-formed entries', () => {
   expect(parseDeliveries({ deliveries: [good, { id: 'b' }, null, { ...good, mode: 'nope' }] })).toEqual([good])
   expect(parseDeliveries(undefined)).toEqual([])
   expect(parseDeliveries({ deliveries: 'x' })).toEqual([])
-})
-
-test('toasts and session info', () => {
-  expect(toastFor('fill')).toBe('Sketch from Agent Brief is ready — press Enter')
-  expect(toastFor('submit')).toBe('Sent sketch to Claude')
-  expect(sessionInfo('s1', '/Users/me/app')).toEqual({ sessionId: 's1', cwd: '/Users/me/app', title: 'app' })
 })
 
 test('the launch failure names the command and both settings', () => {

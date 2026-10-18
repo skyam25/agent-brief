@@ -137,7 +137,7 @@ const SHOTS = process.env.UI_SHOTS;
 const tabs = (page: Page) => page.getByTestId('brief-tab');
 const crumb = (page: Page) => page.getByTestId('crumb-session');
 
-test('the tab row: one tab per session, a click switches board and Send, close keeps the board', async () => {
+test('the sidebar: one tab per session, a click switches board and Send, close keeps the board', async () => {
   const { app, page } = ctx;
   await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
   await expect(tabs(page)).toHaveCount(0);
