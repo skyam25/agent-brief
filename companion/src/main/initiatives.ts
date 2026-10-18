@@ -320,14 +320,15 @@ export class InitiativeStore {
     return [...row.revisions].reverse();
   }
 
-  /** The brief files, for watching. */
-  paths(): string[] {
-    return this.index.initiatives.map((r) => r.path);
+  /** Each brief file by initiative id, for watching. */
+  files(): Map<string, string> {
+    return new Map(this.index.initiatives.map((r) => [r.id, r.path]));
   }
 
-  /** Reads every brief, which records edits made outside the app. */
-  refresh(): void {
-    for (const row of this.index.initiatives) this.read(row);
+  /** Reads one brief, which records an edit made outside the app. */
+  refresh(id: string): void {
+    const row = this.index.initiatives.find((r) => r.id === id);
+    if (row) this.read(row);
   }
 
   create(req: InitiativeCreateRequest): Initiative {

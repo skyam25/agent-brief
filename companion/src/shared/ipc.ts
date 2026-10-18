@@ -10,6 +10,10 @@ import type {
   DeleteRequest,
   DrawRequest,
   DrawResponse,
+  Initiative,
+  InitiativeFolder,
+  InitiativeRevision,
+  InitiativeSummary,
   MutateResponse,
   OutputRecord,
   PrototypeFidelity,
@@ -106,8 +110,26 @@ export type Outgoing = SendPayload | TextPayload;
 
 export const isTextPayload = (p: Outgoing): p is TextPayload => !('png' in p);
 
-/** The panel shows the board, the drafts, or the active session's items. */
-export type Mode = 'sketch' | 'write' | 'review';
+/** The panel shows the board, the drafts, the active session's items, or the initiatives. */
+export type Mode = 'sketch' | 'write' | 'review' | 'initiative';
+
+/** An initiative with its revisions, newest first, as the Initiative view shows it. */
+export interface InitiativeDetail {
+  initiative: Initiative;
+  history: InitiativeRevision[];
+}
+
+/** What the panel changes in a brief. Main records it as the PM's revision. */
+export interface InitiativePatch {
+  revision: number;
+  understanding?: string;
+  decisions?: string[];
+  open?: string[];
+  folders?: InitiativeFolder[];
+}
+
+/** A conflict carries the brief as it is now, so the view can show it. */
+export type InitiativeSaveResult = { ok: true; detail: InitiativeDetail } | { ok: false; message: string; detail?: InitiativeDetail };
 
 /** Notes wait until you send them; Ready drafts form the queue. */
 export type DraftStatus = 'note' | 'ready';
@@ -436,6 +458,17 @@ export interface CompanionApi extends BoardHost {
   transcribeClip(clip: { data: Uint8Array; mimeType: string }): Promise<{ text: string } | { error: string }>;
   /** Opens an http or https link in the browser. */
   openLink(url: string): Promise<void>;
+  /** Every initiative, latest lastActiveAt first. */
+  listInitiatives(): Promise<InitiativeSummary[]>;
+  getInitiative(id: string): Promise<InitiativeDetail>;
+  /** Writes an empty brief, `<title> brief.md`, in `folder`. */
+  createInitiative(req: { title: string; folder: string }): Promise<InitiativeDetail>;
+  /** Saves the PM's change against `patch.revision`. A stale revision answers `ok: false`. */
+  updateInitiative(id: string, patch: InitiativePatch): Promise<InitiativeSaveResult>;
+  /** Shows a file or folder in Finder. `~/` is allowed. */
+  revealPath(path: string): Promise<void>;
+  /** Fires when an initiative, its brief file or a session binding changes. */
+  onInitiativesChanged(fn: (list: InitiativeSummary[]) => void): void;
 }
 
 export const CH = {
@@ -510,4 +543,10 @@ export const CH = {
   capturePanel: 'review:capture',
   transcribeClip: 'review:transcribe',
   openLink: 'review:open-link',
+  listInitiatives: 'initiatives:list',
+  getInitiative: 'initiatives:get',
+  createInitiative: 'initiatives:create',
+  updateInitiative: 'initiatives:update',
+  revealPath: 'initiatives:reveal',
+  initiativesChanged: 'initiatives:changed',
 } as const;

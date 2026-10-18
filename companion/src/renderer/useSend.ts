@@ -10,6 +10,7 @@ import type { BoardCommentsStore } from './board-comments';
 import type { BoardController } from './controller';
 import type { DraftBook, SentRevision } from './drafts';
 import { focusFirstSlot } from './editor/RichEditor';
+import { DISCOVER_PROMPT } from './initiatives';
 import type { ItemsStore } from './items';
 import type { ReviewVoice } from './review-voice';
 import type { ToastKind } from './Toast';
@@ -72,10 +73,12 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
    * What Send hands over. Sketch mode sends the board with any draft pulled in.
    * Write mode sends the open draft with the board it carries, if any.
    * Review mode sends the open review, or the decisions on the session's items.
+   * Initiative mode sends the discover prompt.
    */
   const outgoing = async (): Promise<
     { payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided; pinned?: string } | string
   > => {
+    if (modeRef.current === 'initiative') return { payload: { text: DISCOVER_PROMPT }, clearsBoard: false };
     if (modeRef.current === 'review') {
       const open = book.selected;
       if (open?.review) {

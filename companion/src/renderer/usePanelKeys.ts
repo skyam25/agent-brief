@@ -1,4 +1,4 @@
-/** Panel shortcuts: ⌃Tab and ⌃1–9 switch tabs, ⌘1–3 switch modes, ⌥T talks, and Escape closes what is open, then hides. */
+/** Panel shortcuts: ⌃Tab and ⌃1–9 switch tabs, ⌘1–4 switch modes, ⌥T talks, and Escape closes what is open, then hides. */
 
 import { useEffect, useRef } from 'react';
 import type { Mode } from '../shared/ipc';
@@ -18,7 +18,7 @@ export interface PanelKeys {
   onEscape: () => void;
 }
 
-const BY_KEY: Record<string, Mode> = { '1': 'sketch', '2': 'write', '3': 'review' };
+const BY_KEY: Record<string, Mode> = { '1': 'sketch', '2': 'write', '3': 'review', '4': 'initiative' };
 
 /** Listens once. `keys` is read at each press, so it may change every render. */
 export function usePanelKeys(keys: PanelKeys): void {

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { InitiativeSummary } from '../protocol';
 import { CH, type BoardRequest, type CompanionApi, type ItemsDocInfo, type NewNote, type OpenDraft, type OutputsInfo, type SessionBriefEntry } from '../shared/ipc';
 
 const api: CompanionApi = {
@@ -76,6 +77,12 @@ const api: CompanionApi = {
   capturePanel: (rect) => ipcRenderer.invoke(CH.capturePanel, rect),
   transcribeClip: (clip) => ipcRenderer.invoke(CH.transcribeClip, clip),
   openLink: (url) => ipcRenderer.invoke(CH.openLink, url),
+  listInitiatives: () => ipcRenderer.invoke(CH.listInitiatives),
+  getInitiative: (id) => ipcRenderer.invoke(CH.getInitiative, id),
+  createInitiative: (req) => ipcRenderer.invoke(CH.createInitiative, req),
+  updateInitiative: (id, patch) => ipcRenderer.invoke(CH.updateInitiative, id, patch),
+  revealPath: (path) => ipcRenderer.invoke(CH.revealPath, path),
+  onInitiativesChanged: (fn) => ipcRenderer.on(CH.initiativesChanged, (_e, list: InitiativeSummary[]) => fn(list)),
 };
 
 contextBridge.exposeInMainWorld('companion', api);
