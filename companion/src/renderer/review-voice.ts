@@ -71,6 +71,8 @@ export class ReviewVoice {
   readonly pending = new Map<string, number>();
   private stream?: MediaStream;
   private clip?: { recorder: ClipRecorder; target: string; startedAt: number };
+  /** Finished clips still turning into text. */
+  private readonly inflight = new Set<Promise<void>>();
   private readonly listeners = new Set<() => void>();
   private readonly media: VoiceMedia;
   private readonly now: () => number;
@@ -113,21 +115,28 @@ export class ReviewVoice {
     if (target === this.target) return;
     this.target = target;
     if (this.stream) {
-      this.finish();
+      this.track(this.finish());
       this.begin();
     }
     this.emit();
   }
 
-  /** Closes the microphone. The last clip still turns into text. */
+  /** Closes the microphone, if open, and waits until every clip has turned into text. */
   async stop(): Promise<void> {
-    if (!this.stream) return;
-    const done = this.finish();
-    this.media.close(this.stream);
-    this.stream = undefined;
-    this.since = undefined;
-    this.emit();
-    await done;
+    if (this.stream) {
+      this.track(this.finish());
+      this.media.close(this.stream);
+      this.stream = undefined;
+      this.since = undefined;
+      this.emit();
+    }
+    await Promise.all([...this.inflight]);
+  }
+
+  private track(done: Promise<void>): void {
+    this.inflight.add(done);
+    const drop = () => this.inflight.delete(done);
+    done.then(drop, drop);
   }
 
   private begin(): void {

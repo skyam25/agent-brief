@@ -149,3 +149,81 @@ test('a click on the board while talking points the words at that element', asyn
   await page.screenshot({ path: join(RESULTS, 'board-comments-voice.png') });
   await app.close();
 });
+
+test('Send while talking carries the words for every pin and the overall note', async () => {
+  test.skip(!existsSync(SPEECH), 'speech fixture missing');
+  test.setTimeout(150_000);
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  const { app, page } = await launch(dataDir, { COMPANION_TEST_AUDIO: SPEECH });
+  await showPanel(app, page);
+  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'v2', cwd, title: 'Pricing' });
+  await backend(app, 'draw', 'current', {
+    elements: [
+      { type: 'rectangle', id: 'a', x: 100, y: 100, label: 'Header' },
+      { type: 'rectangle', id: 'b', x: 400, y: 100, label: 'Footer' },
+    ],
+  });
+  const centre = (id: string) =>
+    page.evaluate((id) => {
+      const s = window.__excalidraw.getAppState();
+      const e = window.__excalidraw.getSceneElements().find((x) => x.id === id)!;
+      return { x: (e.x + e.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (e.y + e.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop };
+    }, id);
+
+  // Words before the first pin go to the overall note. Send goes out with the mic still on.
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('mic')).toHaveText(/Stop/);
+  await page.waitForTimeout(4000);
+  const a = await centre('a');
+  await page.mouse.click(a.x, a.y);
+  await page.waitForTimeout(8000);
+  const b = await centre('b');
+  await page.mouse.click(b.x, b.y);
+  await page.waitForTimeout(4000);
+  await sendToSession(page, 'Pricing');
+  await expect(page.getByTestId('send-status')).toHaveText(/^Sent to Pricing$/, { timeout: 60_000 });
+  await expect(page.getByTestId('mic')).toHaveAttribute('aria-pressed', 'false');
+
+  const [id] = readdirSync(join(cwd, '.feedback', 'sketches'));
+  const md = readFileSync(join(cwd, '.feedback', 'sketches', id, 'comments.md'), 'utf8');
+  copyFileSync(join(cwd, '.feedback', 'sketches', id, 'comments.md'), join(RESULTS, 'send-while-talking-comments.md'));
+  const section = (heading: RegExp) => md.split(/\n## /).find((s) => heading.test(s)) ?? '';
+  expect(section(/^Overall/)).toMatch(/pricing table/i);
+  expect(section(/^1\. /)).toMatch(/pricing table/i);
+  expect(section(/^2\. /)).toMatch(/pricing table/i);
+  expect(md).not.toContain('(No words.');
+
+  // Nothing lands on the board after the Send.
+  await page.waitForTimeout(3000);
+  await expect(page.getByTestId('board-comments')).toHaveCount(0);
+  await app.close();
+});
+
+test('Send while talking with no pin yet sends the words as the overall note', async () => {
+  test.skip(!existsSync(SPEECH), 'speech fixture missing');
+  test.setTimeout(120_000);
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  const { app, page } = await launch(dataDir, { COMPANION_TEST_AUDIO: SPEECH });
+  await showPanel(app, page);
+  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'v3', cwd, title: 'Pricing' });
+
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('mic')).toHaveText(/Stop/);
+  await page.waitForTimeout(4000);
+  await sendToSession(page, 'Pricing');
+  await expect(page.getByTestId('send-status')).toHaveText(/^Sent to Pricing$/, { timeout: 60_000 });
+  await expect(page.getByTestId('mic')).toHaveAttribute('aria-pressed', 'false');
+
+  const [id] = readdirSync(join(cwd, '.feedback', 'sketches'));
+  const md = readFileSync(join(cwd, '.feedback', 'sketches', id, 'comments.md'), 'utf8');
+  expect(md).toMatch(/## Overall\n\n.*pricing table/i);
+  await page.waitForTimeout(3000);
+  await expect(page.getByTestId('board-comments')).toHaveCount(0);
+  await app.close();
+});

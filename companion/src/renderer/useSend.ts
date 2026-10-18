@@ -102,9 +102,11 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       const unfilled = linked && checkSlots(linked.body);
       if (unfilled) return unfilled;
       await book.flush();
+      // Words still turning into text land on their pins before the Send reads them.
+      await reviewVoice.stop();
+
       // Comments review the board, so a Send with them keeps the board and clears only the pins.
       const board = controller.board;
-      if (hasBoardComments(comments.of(board))) await reviewVoice.stop();
       const pinned = comments.of(board);
       const reviewed = hasBoardComments(pinned);
       const payload = { ...(await controller.payload(reviewed ? pinned.pins : undefined)), ...(reviewed ? { comments: pinned } : {}) };
