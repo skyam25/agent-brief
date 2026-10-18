@@ -307,3 +307,4 @@ It prints one JSON line, either `{ ok: true, name, dir, reportPath, screenshots,
 - `claude plugin validate .` checks the mod.
 - `claude plugin test .` runs the tests in `tests/`.
 - `node tests/live/run-live.mjs` runs a live check. It starts a real companion server and an interactive Claude Code in tmux, and checks registration, fill delivery, typed-text safety, `/sketch` and exit. It needs tmux and the companion repo's esbuild, and it sends nothing to the model. It uses a temp inbox so it never touches `~/Downloads/feedback-inbox`.
+- `node tests/live/initiative.mjs` checks the band's **Attached · change**, the pick row, the Brief pane's Initiative line and `/initiative off` and `refresh` against a stub app, then stops the stub and checks `/initiative` still answers. `COLS=110` sets the width. It sends nothing to the model, and stops a model turn if one starts.
