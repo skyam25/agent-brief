@@ -129,6 +129,16 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - `review.md` includes the reviewed specification revision, confirmed criteria, open assumptions, provenance and prototype limitations. The behavior-review skill tells the agent to read the current document before updating it. Stable `data-ui` selectors support element highlighting; hidden or missing targets produce a message without guessing another element.
 - Coverage: `src/main/behavior.test.ts`, `src/server/behavior.test.ts` (real CLI/socket integration), and `e2e/behavior.e2e.ts` (off-screen Electron review, handoff, restart and conflicts).
 
+## Feedback items
+
+- `<output>.feedback.md` holds rounds and items for any project file. Pictures go in the sibling `<output>.feedback/`. The format is in `src/shared/feedback.ts`.
+- Writes only add. `applyFeedbackOps` inserts lines and flips checkboxes and leaves every other byte as it was. A state verb moves the checkbox with it.
+- `src/main/feedback.ts` checks paths like behavior, version-checks each write by content hash, and writes atomically. The socket writes as Claude, panel IPC as You, and neither can write the other's lines.
+- `GET`/`POST /sessions/:id/feedback?path=<output>` and `GET /sessions/:id/feedback/project`. Store writes emit `feedback:changed`.
+- `agent-brief feedback list|show|round|add|log|done|related`. Writes read the version first and retry once on a conflict.
+- Review shows a Feedback tab for HTML outputs. Other outputs open `FeedbackView` full width from their row. Send decisions sends the You lines since each item's last `You: … · sent`, then appends `sent`.
+- Coverage: `src/shared/feedback.test.ts`, `src/main/feedback.test.ts`, `src/server/feedback.test.ts` (CLI over a real socket), `e2e/feedback.e2e.ts`.
+
 ## Initiatives
 
 - `src/main/initiatives.ts` keeps the index, `<data>/initiatives.json`. Each row holds the id, title, brief path, `createdAt`, `lastActiveAt`, the current `revision`, `updatedAt` and `updatedBy`, the sha256 of the brief as last seen, and up to 200 revisions. `attachments` maps a session id to `{ initiativeId?, attachmentRevision, at }`, at most 500, latest first.
