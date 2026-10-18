@@ -1,4 +1,5 @@
 import type { BehaviorDocument, FeedbackDocument, FeedbackOp, FeedbackProject, FeedbackUpdateResult } from '../src/protocol';
+import type { FeedbackWorkspace } from '../src/protocol';
 import { behaviorMarkdown } from '../src/shared/behavior';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -34,6 +35,7 @@ import { apply, FORCE_VAR, isOn, shellFiles } from './herdr';
 import { ApiError, call, callJson, NotRunningError } from './http';
 import { fitSize, loadImage } from './image';
 import { formatFeedback, formatProject, formatRelated, itemHead, relatedView } from './feedback';
+import { formatWorkspace } from './feedback';
 import { DATA_DIR_ENV, defaultDataDir, formatInitiative, formatSummaries } from './initiative';
 import { InputError, parseRegion, validateDraw, validateUpdates } from './validate';
 import { InitiativeStore, resolveInitiative } from '../src/main/initiatives';
@@ -456,6 +458,13 @@ const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[])
     if (!docs.some((d) => d.output === own.output)) docs.push(own);
     if (n !== undefined && !own.items.some((i) => i.n === n)) throw new ApiError('not_found', `${own.path} has no item #${n}`);
     show(ctx, relatedView(docs, own.output, { n, text }), (v) => formatRelated(v, own.output));
+  },
+
+  async workspace(ctx, output, [rawN]) {
+    const n = itemNumber(rawN, 'workspace');
+    const route = `/sessions/${encodeURIComponent(feedbackSession(ctx))}/feedback/workspace?path=${encodeURIComponent(output)}&item=${n}`;
+    const res = await callJson<FeedbackWorkspace>(ctx.socket, 'POST', route);
+    show(ctx, res, formatWorkspace);
   },
 };
 

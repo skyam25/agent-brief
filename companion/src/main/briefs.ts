@@ -3,6 +3,7 @@
 import { rmSync } from 'node:fs';
 import { outputsFile, type SessionInfo, type SessionsResponse } from '../protocol';
 import { newDraftId } from '../shared/drafts';
+import { isWorkspaceBoard } from '../shared/feedback-workspace';
 import { CH, type BoardEntry, type NewNote, type OpenDraft, type SessionBriefEntry } from '../shared/ipc';
 import type { DraftStore } from './drafts';
 import { resumeCommand } from './launch';
@@ -152,7 +153,8 @@ export class Briefs {
 
   /** Every board, each with the session that holds it. */
   boardsWithHolders(): BoardEntry[] {
-    return this.deps.store.list().map((b) => {
+    // Feedback workspace boards open from their item, never from a board list.
+    return this.deps.store.list().filter((b) => !isWorkspaceBoard(b.name)).map((b) => {
       const sessionId = this.holderOf(b.name);
       return sessionId ? { ...b, sessionId } : b;
     });

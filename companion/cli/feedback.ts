@@ -3,6 +3,8 @@
 import path from 'node:path';
 import type { FeedbackDocument, FeedbackItem, FeedbackProject } from '../src/protocol';
 import { feedbackItemText, relatedCandidates } from '../src/shared/feedback';
+import type { FeedbackWorkspace } from '../src/protocol';
+import { frameTitle } from '../src/shared/feedback-workspace';
 
 const roundsOf = (item: FeedbackItem) => {
   const [first, ...later] = item.rounds;
@@ -73,4 +75,10 @@ export function formatRelated(view: RelatedView, output: string): string {
   lines.push(view.similar.length ? 'Similar:' : 'No similar items.');
   for (const h of view.similar) lines.push(`  ${h.output} ${itemHead(h.item)} · shares ${h.shared.join(', ')}`);
   return lines.join('\n');
+}
+
+/** The board name first, so a script can take the first line. */
+export function formatWorkspace(ws: FeedbackWorkspace): string {
+  const what = ws.created ? `new board with a ${frameTitle(ws.round)} frame` : ws.framed ? `added a ${frameTitle(ws.round)} frame` : `${frameTitle(ws.round)} frame is there`;
+  return `${ws.board}\n${what}. Draw with: agent-brief draw --board ${ws.board}`;
 }

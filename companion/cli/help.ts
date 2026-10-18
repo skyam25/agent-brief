@@ -29,10 +29,11 @@ export const DOCS: Record<string, Doc> = {
   add <output> --title <t> [--src "<round> · <speaker> · <time> · \\"<quote>\\""]... [--change <text>] [--where <selector or heading>] [--related "<output> #N"]... [--round N]
   log <output> <n> <key> <text>          appends one line, such as Claude "note · asked about mobile" or Src "2 · Maya · 00:14 · \\"...\\""
   done <output> <n> [text] [--commit <sha>]
-  related <output> (<n> | --text <point>) links and look-alike items across the project`,
+  related <output> (<n> | --text <point>) links and look-alike items across the project
+  workspace <output> <n>                 prints the item's board, fb-<stem>-<n>, after making it or adding a frame for its newest round`,
     about:
       'Keeps feedback items beside an output in <output>.feedback.md. Every write only adds: a round, an item, a line, or a closed checkbox. Dates are added for you. Claude writes Claude lines; You lines come from the panel. Requires the app and a registered session.',
-    example: `agent-brief feedback round prototype/checkout.html --label customers --source transcripts/cust-1.md\nagent-brief feedback add prototype/checkout.html --title "Hard to find the filters" --src '1 · Ana · 03:02 · "Where do I filter?"' --where '#filters'\nagent-brief feedback done prototype/checkout.html 6 --commit 3f2a91c`,
+    example: `agent-brief feedback round prototype/checkout.html --label customers --source transcripts/cust-1.md\nagent-brief feedback add prototype/checkout.html --title "Hard to find the filters" --src '1 · Ana · 03:02 · "Where do I filter?"' --where '#filters'\nagent-brief feedback done prototype/checkout.html 6 --commit 3f2a91c\nagent-brief feedback workspace prototype/checkout.html 6`,
   },
   status: {
     usage: 'agent-brief status [--json]',

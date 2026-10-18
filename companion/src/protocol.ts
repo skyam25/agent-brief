@@ -696,3 +696,16 @@ export interface FeedbackProject {
   /** The scan stopped at its file or folder limit. */
   truncated?: boolean;
 }
+
+/** An item's workspace board, as POST /sessions/:id/feedback/workspace?path=<output>&item=<n> answers it.
+ * The call makes the board when missing and adds a `Round N` frame for the item's newest round.
+ */
+export interface FeedbackWorkspace {
+  board: string;
+  /** The round the newest frame is for. */
+  round: number;
+  /** This call made the board. */
+  created: boolean;
+  /** This call added the round's frame. */
+  framed: boolean;
+}

@@ -319,6 +319,14 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       if (method === 'PUT') return { json: opts.behaviors.update(session.cwd, q.get('path'), await readJson(req), `Agent · ${id}`) };
     }
 
+    if (root === 'sessions' && sub === 'feedback' && parts.length === 4 && parts[3] === 'workspace' && method === 'POST') {
+      const session = liveSession(id);
+      if (!opts.workspaces) throw new HttpError(503, 'unavailable', 'this app does not keep feedback workspaces');
+      const n = Number(q.get('item'));
+      if (!Number.isInteger(n) || n < 1) throw new BadRequest('workspace needs ?item=<n>');
+      return { json: await opts.workspaces.open(session.cwd, q.get('path'), n) };
+    }
+
     if (root === 'sessions' && sub === 'feedback' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'project'))) {
       const session = liveSession(id);
       if (!opts.feedback) throw new HttpError(503, 'unavailable', 'this app does not keep feedback items');
