@@ -16,8 +16,8 @@ import {
   summariesOf,
   tokenOf,
 } from '../hooks/initiative'
-import { INITIATIVE_UNDERSTANDING_CAP } from '../hooks/initiative-types'
-import type { InitiativeSnapshot } from '../hooks/initiative-types'
+import { INITIATIVE_UNDERSTANDING_CAP } from '../hooks/companion-protocol'
+import type { InitiativeSnapshot } from '../hooks/companion-protocol'
 import { SESSION_ID, setupCompanion } from './companion-world'
 import { BAND, CWD, briefPane, command } from './world'
 

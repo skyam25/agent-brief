@@ -64,10 +64,10 @@ export type BriefQuestion = { id: string; text: string; kind: QuestionKind; opti
 /** What the Brief pane has folded open, and whether its Mode Select waits on a fidelity. */
 export type BriefView = { isPrototypePending: boolean; isTouchedOpen: boolean; isDoneOpen: boolean }
 
-/** The initiative this session is attached to, as the band and the Brief pane show it. As `InitiativeSnapshot` in hooks/initiative-types.ts. */
+/** The initiative this session is attached to, as the band and the Brief pane show it. As `InitiativeSnapshot` in hooks/companion-protocol.ts. */
 export type AttachedInitiative = { id: string; title: string; revision: number; attachmentRevision: number }
 
-/** A recent initiative, as `InitiativeSummary` in hooks/initiative-types.ts. */
+/** A recent initiative, as `InitiativeSummary` in hooks/companion-protocol.ts. */
 export type InitiativeChoice = { id: string; title: string; line: string }
 
 declare module 'claude-code' {

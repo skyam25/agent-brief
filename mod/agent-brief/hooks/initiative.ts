@@ -1,6 +1,6 @@
 import type { AttachedInitiative, BriefOutput, InitiativeChoice } from '../types'
-import { INITIATIVE_ROLES, INITIATIVE_UNDERSTANDING_CAP } from './initiative-types'
-import type { InitiativeFolder, InitiativeRole, InitiativeSnapshot, InitiativeSummary } from './initiative-types'
+import { INITIATIVE_ROLES, INITIATIVE_UNDERSTANDING_CAP } from './companion-protocol'
+import type { InitiativeFolder, InitiativeRole, InitiativeSnapshot, InitiativeSummary } from './companion-protocol'
 
 /** Opens and closes the snapshot appended after the user's prompt. */
 export const INITIATIVE_MARK = '--- Agent Brief initiative ---'

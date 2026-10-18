@@ -3,7 +3,7 @@ import { mock } from 'claude-code/testing'
 import type { MockClock, TestBody } from 'claude-code/testing'
 
 import type { Delivery } from '../hooks/companion-protocol'
-import type { InitiativeSnapshot } from '../hooks/initiative-types'
+import type { InitiativeSnapshot } from '../hooks/companion-protocol'
 import { SESSION, worldOf } from './world'
 
 export const SESSION_ID = 's1'

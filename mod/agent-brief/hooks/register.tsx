@@ -50,7 +50,7 @@ import {
   summariesOf,
   tokenOf,
 } from './initiative'
-import type { InitiativeSnapshot, SessionInitiativeRequest } from './initiative-types'
+import type { InitiativeSnapshot, SessionInitiativeRequest } from './companion-protocol'
 import { decisionsDraft, itemsFile, itemsRelPath, parseItems, withDecisions } from './items-file'
 import {
   countEvents,
