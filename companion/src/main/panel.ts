@@ -61,6 +61,11 @@ export class Panel {
       this.quitting = true;
     });
 
+    // A page's beforeunload handler would cancel the quit.
+    this.win.webContents.on('will-prevent-unload', (e) => {
+      if (this.quitting) e.preventDefault();
+    });
+
     if (opts.url) void this.win.loadURL(opts.url);
     else void this.win.loadFile(opts.file);
   }

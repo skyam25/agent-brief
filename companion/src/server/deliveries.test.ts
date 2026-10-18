@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import net from 'node:net';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeServers, start } from './server-testkit';
@@ -66,6 +67,22 @@ describe('deliveries', () => {
     const r = await held.catch(() => ({ body: { deliveries: [] } }));
     expect(Date.now() - t0).toBeLessThan(2000);
     expect(r.body.deliveries).toEqual([]);
+  });
+
+  it('closes promptly with a held poll, an idle socket and a half-sent request open', async () => {
+    const h = await start();
+    await withSession(h);
+    const held = h.call('GET', '/deliveries?session=a&wait=30').catch(() => undefined);
+    const idle = net.connect(h.socketPath).on('error', () => {});
+    const partial = net.connect(h.socketPath).on('error', () => {});
+    partial.write('GET /sessions HTTP/1.1\r\nHost: x\r\n');
+    await new Promise((r) => setTimeout(r, 100));
+    const t0 = Date.now();
+    await h.server.close();
+    await held;
+    expect(Date.now() - t0).toBeLessThan(500);
+    idle.destroy();
+    partial.destroy();
   });
 
   it('keeps deliveries until acked, then removes them', async () => {

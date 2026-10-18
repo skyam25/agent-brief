@@ -49,6 +49,7 @@ import { createInstalls } from './installs';
 import { ItemsWatcher } from './items-watch';
 import { trayMenuTemplate } from './menus';
 import { Panel } from './panel';
+import { Quitter } from './quit';
 import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './review-protocol';
 import { rememberProjects, Sender } from './sender';
 import { unfiledBoardChoice } from './session-briefs';
@@ -254,6 +255,14 @@ async function start(): Promise<void> {
   // POST /open runs backend.open, which shows the panel and sets the prompt.
   const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors });
 
+  // Writes pending saves and closes the socket once before quitting.
+  const quitter = new Quitter({
+    flush: () => bridge.request('flush', {}, 2000),
+    closeServer: () => server.close(),
+    quit: () => app.quit(),
+    exit: () => app.exit(0),
+  });
+
   // Initiatives: a change from the socket, the panel or a brief edited by hand reaches the panel as a push.
   // Each brief's folder is watched, and reading a changed brief records the PM's revision.
   const briefWatch = new ItemsWatcher((id) => initiatives.refresh(id));
@@ -303,7 +312,7 @@ async function start(): Promise<void> {
       controls.buildMenus();
     },
     beforeInstall: async () => {
-      await flushAll();
+      await quitter.prepare();
       panel.prepareQuit();
     },
     confirmRestart: async (version) => {
@@ -548,22 +557,7 @@ async function start(): Promise<void> {
     return picked.canceled ? undefined : picked.filePaths[0];
   });
 
-  // Write pending saves and close the socket once before quitting.
-  let flushed = false;
-  async function flushAll(): Promise<void> {
-    if (flushed) return;
-    await bridge
-      .request('flush', {}, 2000)
-      .catch(() => undefined)
-      .then(() => server.close())
-      .catch(() => undefined);
-    flushed = true;
-  }
-  app.on('before-quit', (e) => {
-    if (flushed) return;
-    e.preventDefault();
-    void flushAll().finally(() => app.quit());
-  });
+  app.on('before-quit', (e) => quitter.beforeQuit(e));
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     files.close();
