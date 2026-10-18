@@ -523,7 +523,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
                     <SettingsPopover
                       settings={settings}
                       update={update}
-                      onCheckUpdate={() => void host.checkForUpdate().then(setUpdate)}
+                      onUpdateNow={() => void host.updateNow().then(setUpdate)}
                       onInstallUpdate={() => void host.installUpdate()}
                       onChange={async (patch) => {
                         // Show toggles at once; the reply corrects them if main refuses.

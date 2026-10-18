@@ -332,7 +332,7 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.setSettings, (_e, patch: Partial<Settings>) => controls.applySettings(patch ?? {}));
   ipcMain.handle(CH.mic, () => microphoneAccess());
   ipcMain.handle(CH.updateGet, () => updater.current());
-  ipcMain.handle(CH.updateCheck, () => updater.check());
+  ipcMain.handle(CH.updateCheck, () => updater.update());
   ipcMain.handle(CH.updateInstall, () => updater.install());
   ipcMain.handle(CH.capturePanel, (_e, rect: unknown) => panel.capture(rect));
   ipcMain.handle(CH.transcribeClip, (_e, clip: { data?: unknown; mimeType?: unknown }) => transcribeClip(clip, voiceDir));

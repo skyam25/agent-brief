@@ -14,7 +14,7 @@ const actions = (update: Partial<UpdateStatus>): MenuActions => ({
   installCli: vi.fn(),
   installPlugin: vi.fn(),
   update: { version: '0.2.8', state: 'idle', ...update },
-  checkForUpdates: vi.fn(),
+  updateNow: vi.fn(),
   installUpdate: vi.fn(),
 });
 
@@ -32,9 +32,20 @@ describe('updateItems', () => {
 
   it('reports progress as disabled lines', () => {
     expect(labels({ state: 'checking' })).toEqual([['Checking for Updates…', false]]);
-    expect(labels({ state: 'downloading', available: '0.2.9', percent: 42 })).toEqual([
-      ['Downloading 0.2.9 (42%)…', false],
+    expect(labels({ state: 'downloading', available: '0.2.9', percent: 42, restart: true })).toEqual([
+      ['Downloading 0.2.9 (42%), Then Restarting…', false],
     ]);
+  });
+
+  it('offers to restart after a background download', () => {
+    const a = actions({ state: 'downloading', available: '0.2.9', percent: 42 });
+    const items = updateItems(a);
+    expect(items.map((i) => [i.label, i.enabled !== false])).toEqual([
+      ['Downloading 0.2.9 (42%)…', false],
+      ['Restart When Downloaded', true],
+    ]);
+    (items[1].click as () => void)();
+    expect(a.updateNow).toHaveBeenCalled();
   });
 
   it('says the app is current and offers another check', () => {
@@ -62,7 +73,7 @@ describe('updateItems', () => {
   it('checks without opening the panel', () => {
     const a = actions({ state: 'idle' });
     (updateItems(a)[0].click as () => void)();
-    expect(a.checkForUpdates).toHaveBeenCalled();
+    expect(a.updateNow).toHaveBeenCalled();
     expect(a.openSettings).not.toHaveBeenCalled();
     expect(a.showPanel).not.toHaveBeenCalled();
   });

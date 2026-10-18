@@ -195,6 +195,8 @@ export interface UpdateStatus {
   percent?: number;
   error?: string;
   checkedAt?: number;
+  /** The user asked to update, so the app restarts once the download finishes. */
+  restart?: boolean;
 }
 
 /** Where Send can start a new Claude Code session. `copy` puts a start command on the clipboard. */
@@ -387,7 +389,8 @@ export interface CompanionApi extends BoardHost {
   /** Brings a session's terminal forward. */
   focusSession(sessionId: string): Promise<void>;
   getUpdate(): Promise<UpdateStatus>;
-  checkForUpdate(): Promise<UpdateStatus>;
+  /** Checks, downloads and restarts into a newer build in one step. */
+  updateNow(): Promise<UpdateStatus>;
   /** Quits and installs a downloaded update. */
   installUpdate(): Promise<void>;
   onUpdate(fn: (status: UpdateStatus) => void): void;

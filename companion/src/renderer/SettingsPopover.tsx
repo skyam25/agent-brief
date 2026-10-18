@@ -11,7 +11,9 @@ function updateText(u: UpdateStatus): string | undefined {
     case 'current':
       return 'Up to date.';
     case 'downloading':
-      return `Downloading ${u.available ?? 'the update'}${u.percent ? ` · ${u.percent}%` : ''}…`;
+      return `Downloading ${u.available ?? 'the update'}${u.percent ? ` · ${u.percent}%` : ''}…${
+        u.restart ? ' Agent Brief restarts when it finishes.' : ''
+      }`;
     case 'ready':
       return `Version ${u.available} is ready. It installs when Agent Brief quits.`;
     case 'error':
@@ -26,7 +28,7 @@ export function SettingsPopover(props: {
   settings: Settings;
   update?: UpdateStatus;
   onChange: (patch: Partial<Settings>) => Promise<string | undefined>;
-  onCheckUpdate: () => void;
+  onUpdateNow: () => void;
   onInstallUpdate: () => void;
   onClose: () => void;
 }) {
@@ -110,11 +112,11 @@ export function SettingsPopover(props: {
             ) : (
               update.state !== 'off' && (
                 <button
-                  onClick={props.onCheckUpdate}
-                  disabled={update.state === 'checking' || update.state === 'downloading'}
+                  onClick={props.onUpdateNow}
+                  disabled={update.state === 'checking' || (update.state === 'downloading' && update.restart)}
                   data-testid="settings-update-check"
                 >
-                  Check for Updates
+                  {update.state === 'downloading' ? 'Restart When Downloaded' : 'Check for Updates'}
                 </button>
               )
             )}

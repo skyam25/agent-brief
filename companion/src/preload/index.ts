@@ -39,7 +39,7 @@ const api: CompanionApi = {
   sessionPlaces: () => ipcRenderer.invoke(CH.sessionPlaces),
   focusSession: (id) => ipcRenderer.invoke(CH.focusSession, id),
   getUpdate: () => ipcRenderer.invoke(CH.updateGet),
-  checkForUpdate: () => ipcRenderer.invoke(CH.updateCheck),
+  updateNow: () => ipcRenderer.invoke(CH.updateCheck),
   installUpdate: () => ipcRenderer.invoke(CH.updateInstall),
   onUpdate: (fn) => ipcRenderer.on(CH.update, (_e, status) => fn(status)),
   onVisibility: (fn) => ipcRenderer.on(CH.visibility, (_e, visible) => fn(visible)),

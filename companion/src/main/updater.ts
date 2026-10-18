@@ -1,7 +1,8 @@
 /**
- * Updates from GitHub releases. It checks at launch and every few hours,
- * downloads a newer build in the background, and installs it on quit or
- * when the user picks Restart to Update.
+ * Updates from GitHub releases. Background checks run at launch and every
+ * few hours, download a newer build, and install it on quit or when the user
+ * picks Restart to Update. A check the user asks for checks, downloads and
+ * restarts in one step.
  */
 
 import type { UpdateStatus } from '../shared/ipc';
@@ -43,15 +44,20 @@ export class Updater {
     source.autoDownload = true;
     source.autoInstallOnAppQuit = true;
     source.on('checking-for-update', () => this.publish({ state: 'checking', error: undefined }));
-    source.on('update-not-available', () => this.publish({ state: 'current', checkedAt: this.now() }));
+    source.on('update-not-available', () =>
+      this.publish({ state: 'current', checkedAt: this.now(), restart: undefined }),
+    );
     source.on('update-available', (info) =>
       this.publish({ state: 'downloading', available: info.version, percent: 0, checkedAt: this.now() }),
     );
     source.on('download-progress', (p) => this.publish({ state: 'downloading', percent: Math.round(p.percent) }));
-    source.on('update-downloaded', (info) =>
-      this.publish({ state: 'ready', available: info.version, percent: undefined }),
+    source.on('update-downloaded', (info) => {
+      this.publish({ state: 'ready', available: info.version, percent: undefined });
+      if (this.status.restart) void this.install();
+    });
+    source.on('error', (err) =>
+      this.publish({ state: 'error', error: err.message, percent: undefined, restart: undefined }),
     );
-    source.on('error', (err) => this.publish({ state: 'error', error: err.message, percent: undefined }));
   }
 
   current(): UpdateStatus {
@@ -81,6 +87,18 @@ export class Updater {
       .then(() => this.status)
       .finally(() => (this.checking = undefined));
     return this.checking;
+  }
+
+  /**
+   * Updates now, as the user asked. A ready update installs at once. Otherwise
+   * it checks, and the app restarts as soon as a newer build finishes downloading.
+   */
+  update(): Promise<UpdateStatus> {
+    if (!this.opts.source) return Promise.resolve(this.status);
+    if (this.status.state === 'ready') return this.install().then(() => this.status);
+    this.publish({ restart: true });
+    if (this.status.state === 'downloading') return Promise.resolve(this.status);
+    return this.check();
   }
 
   async install(): Promise<void> {

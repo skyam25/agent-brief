@@ -102,6 +102,45 @@ describe('Updater', () => {
     expect(order).toEqual(['flush', 'install']);
   });
 
+  it('updates in one step when the user asks: check, download, restart', async () => {
+    const { updater, source, order } = setup();
+    source.next = 'available';
+    expect(await updater.update()).toMatchObject({ state: 'downloading', restart: true });
+    expect(source.installs).toBe(0);
+    source.emit('update-downloaded', { version: '0.2.0' });
+    await vi.waitFor(() => expect(order).toEqual(['flush', 'install']));
+  });
+
+  it('restarts after a background download the user asks for', async () => {
+    const { updater, source } = setup();
+    source.next = 'available';
+    await updater.check();
+    expect(updater.current().restart).toBeUndefined();
+    await updater.update();
+    expect(source.checks).toBe(1);
+    source.emit('update-downloaded', { version: '0.2.0' });
+    await vi.waitFor(() => expect(source.installs).toBe(1));
+  });
+
+  it('installs a ready update at once', async () => {
+    const { updater, source } = setup();
+    source.emit('update-downloaded', { version: '0.2.0' });
+    await updater.update();
+    expect(source.checks).toBe(0);
+    expect(source.installs).toBe(1);
+  });
+
+  it('waits for the next background download after nothing new or an error', async () => {
+    const { updater, source } = setup();
+    expect(await updater.update()).toMatchObject({ state: 'current', restart: undefined });
+    source.next = 'fail';
+    expect(await updater.update()).toMatchObject({ state: 'error', restart: undefined });
+    source.next = 'available';
+    await updater.check();
+    source.emit('update-downloaded', { version: '0.2.0' });
+    expect(source.installs).toBe(0);
+  });
+
   it('checks soon after launch, then on an interval', () => {
     const source = new FakeSource();
     const timers: { fn: () => void; ms: number }[] = [];

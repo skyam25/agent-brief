@@ -92,7 +92,7 @@ export function createControls(opts: ControlsOptions): Controls {
     installCli: () => void installs.installCli({ confirm: true }),
     installPlugin: () => void installs.installPlugin({ confirm: true }),
     update: updater.current(),
-    checkForUpdates: () => void updater.check(),
+    updateNow: () => void updater.update(),
     installUpdate: () => void updater.install(),
   });
 
