@@ -110,6 +110,8 @@ declare module 'claude-code' {
       initiativeSent: { sessionId: string; token: string; title: string } | null
       /** True after a compaction, so the next prompt carries the snapshot again. */
       isInitiativeStale: boolean
+      /** True once the session needs no recent-initiatives line: initiative context went out, or the session resumed. */
+      isRecentLineDone: boolean
     }
   }
 }

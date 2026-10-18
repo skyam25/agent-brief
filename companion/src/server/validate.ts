@@ -23,6 +23,7 @@ import type {
   TrackingPatch,
   UpdateRequest,
 } from '../protocol';
+import { sectionBreak } from '../shared/brief-sections';
 import { isMarkdownRef } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import type { Region } from './contract';
@@ -310,7 +311,10 @@ function optFolders(o: Obj, where: string): InitiativeFolder[] | undefined {
 
 function optUnderstanding(o: Obj, where: string): string | undefined {
   const text = optString(o, 'understanding', where);
-  if (text !== undefined && text.length > MAX_NOTE) fail(`${where}.understanding must be under ${MAX_NOTE} characters`);
+  if (text === undefined) return undefined;
+  if (text.length > MAX_NOTE) fail(`${where}.understanding must be under ${MAX_NOTE} characters`);
+  const broken = sectionBreak(text);
+  if (broken) fail(`${where}.understanding cannot be saved. ${broken}`);
   return text;
 }
 

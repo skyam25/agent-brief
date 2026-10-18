@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { INITIATIVE_ROLES, type InitiativeFolder, type InitiativeRole } from '../protocol';
+import { sectionBreak } from '../shared/brief-sections';
 import type { InitiativeDetail, SessionBriefEntry } from '../shared/ipc';
 import { shortPath } from '../shared/sessions';
 import { SectionHeader } from './DraftList';
@@ -190,6 +191,8 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
   // A push that changed Understanding replaces the text unless the PM is mid-edit.
   const [base, setBase] = useState(i.understanding);
   const dirty = understanding !== base;
+  // Text that would split the brief into another section cannot be saved.
+  const broken = dirty ? sectionBreak(understanding) : undefined;
   useEffect(() => {
     if (!dirty || understanding.trim() === i.understanding) setUnderstanding(i.understanding);
     setBase(i.understanding);
@@ -234,19 +237,24 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
           placeholder="Where the work stands. Claude keeps this current; edit it whenever it drifts."
           onChange={(e) => setUnderstanding(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && e.metaKey && dirty) {
+            if (e.key === 'Enter' && e.metaKey && dirty && !broken) {
               e.preventDefault();
               void save({ understanding });
             }
           }}
           data-testid="initiative-understanding"
         />
+        {broken && (
+          <p className="error" data-testid="initiative-understanding-error">
+            {broken}
+          </p>
+        )}
         {dirty && (
           <div className="initiative-actions">
             <button className="ghost" onClick={() => setUnderstanding(base)}>
               Revert
             </button>
-            <button className="primary" disabled={saving} onClick={() => void save({ understanding })} data-testid="initiative-save">
+            <button className="primary" disabled={saving || !!broken} onClick={() => void save({ understanding })} data-testid="initiative-save">
               Save
             </button>
           </div>

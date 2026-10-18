@@ -116,6 +116,22 @@ describe('initiative routes', () => {
     expect((await h.call('GET', '/initiatives/missing')).status).toBe(404);
   });
 
+  it('rejects an Understanding that would split the brief', async () => {
+    const h = await startWithStore();
+    const create = await h.call('POST', '/initiatives', { title: 'Pricing', folder: h.dir, understanding: 'Monthly-first.\n## Risks\nLegal.' });
+    expect(create.status).toBe(400);
+    expect(create.body.error).toContain('"## Risks" would start a new section');
+    const { body } = await h.call('POST', '/initiatives', { title: 'Pricing', folder: h.dir });
+    const heading = await h.call('PUT', `/initiatives/${body.id}`, { revision: 1, understanding: 'Text\n##  Next', updatedBy: 'PM' });
+    expect(heading.status).toBe(400);
+    const fence = await h.call('PUT', `/initiatives/${body.id}`, { revision: 1, understanding: 'Text\n```\ncode', updatedBy: 'PM' });
+    expect(fence.status).toBe(400);
+    expect(fence.body.error).toContain('code fence is never closed');
+    const fine = await h.call('PUT', `/initiatives/${body.id}`, { revision: 1, understanding: '### Risks\n```\n## quoted\n```', updatedBy: 'PM' });
+    expect(fine.status).toBe(200);
+    expect(readFileSync(body.path, 'utf8')).toContain('## Understanding\n### Risks\n```\n## quoted\n```\n\n## Decisions');
+  });
+
   it('answers 503 when the app keeps no initiatives', async () => {
     const h = await start();
     expect((await h.call('GET', '/initiatives')).status).toBe(503);

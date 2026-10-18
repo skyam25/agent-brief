@@ -1,9 +1,10 @@
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INITIATIVE_UNDERSTANDING_CAP } from '../protocol';
 import { InitiativeStore, resolveInitiative, terms } from './initiatives';
+import { ItemsWatcher } from './items-watch';
 
 let root: string;
 let dataDir: string;
@@ -100,6 +101,30 @@ describe('edits outside the app', () => {
     expect(s.get(i.id).missing).toBeUndefined();
   });
 
+  it('tells listeners about a rename, so an edit after it reaches them through the file watch', async () => {
+    const s = store();
+    const folder = join(root, 'Pricing');
+    const i = s.create({ title: 'Pricing', folder });
+    // Wired the way main wires them.
+    const watch = new ItemsWatcher((id) => s.refresh(id), { debounceMs: 30, pollMs: 40 });
+    const heard: string[] = [];
+    s.onChange(() => {
+      heard.push(s.files().get(i.id)!);
+      watch.sync(s.files());
+    });
+    watch.sync(s.files());
+    try {
+      const renamed = join(folder, 'Pricing v2 brief.md');
+      renameSync(i.path, renamed);
+      await vi.waitFor(() => expect(heard).toContain(renamed), { timeout: 2000 });
+      expect(watch.watched().get(i.id)).toBe(renamed);
+      writeFileSync(renamed, readFileSync(renamed, 'utf8').replace('## Open\n', '## Open\n- By hand\n'));
+      await vi.waitFor(() => expect(s.get(i.id)).toMatchObject({ revision: 2, updatedBy: 'PM', open: ['By hand'] }), { timeout: 2000 });
+    } finally {
+      watch.close();
+    }
+  });
+
   it('marks a brief it cannot find as missing', () => {
     const s = store();
     const i = s.create({ title: 'Pricing', folder: join(root, 'a') });
@@ -131,6 +156,20 @@ describe('sessions', () => {
     const snap = s.snapshot('s1')!;
     expect(snap.understanding.length).toBeLessThanOrEqual(INITIATIVE_UNDERSTANDING_CAP);
     expect(snap.understanding.endsWith('…')).toBe(true);
+  });
+
+  it('lists only live sessions as attached when it knows them', () => {
+    let live = ['s1', 's2'];
+    const s = new InitiativeStore(dataDir, { now: tick, home: root, liveSessions: () => live });
+    const i = s.create({ title: 'Pricing', folder: root });
+    s.attach('s1', i.id);
+    s.attach('s2', i.id);
+    expect(s.get(i.id).sessions).toEqual(['s2', 's1']);
+    live = ['s2'];
+    expect(s.get(i.id).sessions).toEqual(['s2']);
+    live = [];
+    expect(s.get(i.id).sessions).toBeUndefined();
+    expect(s.snapshot('s1')).toMatchObject({ id: i.id });
   });
 
   it('keeps bindings across a restart', () => {

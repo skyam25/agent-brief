@@ -99,6 +99,33 @@ describe('formatBrief', () => {
     expect(end.endsWith('## Working\n- row\n\n## Folders\n- ~/x → working\n')).toBe(true);
   });
 
+  it('keeps sub-bullets and prose when a list changes', () => {
+    const b = parseBrief('# T\n\n## Decisions\n- D1\n  indented sub-bullet\na prose line\n\n## Open\n- q\n');
+    const text = formatBrief(b, { ...b, decisions: ['D1', 'D2'] });
+    expect(text).toBe('# T\n\n## Decisions\n- D1\n  indented sub-bullet\n- D2\na prose line\n\n## Open\n- q\n');
+    expect(parseBrief(text).decisions).toEqual(['D1', 'D2']);
+  });
+
+  it('edits an item in place with the lines under it, and drops a removed item with its own', () => {
+    const b = parseBrief('# T\n\n## Open\nIntro.\n* a\n  why a\n- b\n  why b\n- c\n');
+    const text = formatBrief(b, { ...b, open: ['a, sharper', 'c'] });
+    expect(text).toBe('# T\n\n## Open\nIntro.\n* a, sharper\n  why a\n- c\n');
+  });
+
+  it('keeps folder rows it cannot read when the map changes', () => {
+    const b = parseBrief('# T\n\n## Folders\n- ~/PM/work → working\n- ~/PM/archive → archive\nSee the shared drive too.\n');
+    expect(b.folders).toEqual([{ path: '~/PM/work', role: 'working' }]);
+    const text = formatBrief(b, { ...b, folders: [...b.folders, { path: '~/PM/evidence', role: 'sources' }] });
+    expect(text).toBe('# T\n\n## Folders\n- ~/PM/work → working\n- ~/PM/evidence → sources\n- ~/PM/archive → archive\nSee the shared drive too.\n');
+    const removed = formatBrief(parseBrief(text), { ...parseBrief(text), folders: [] });
+    expect(removed).toBe('# T\n\n## Folders\n- ~/PM/archive → archive\nSee the shared drive too.\n');
+  });
+
+  it('adds items after prose in a list section that had none', () => {
+    const b = parseBrief('# T\n\n## Decisions\nNone yet, see the log.\n\n## Open\n');
+    expect(formatBrief(b, { ...b, decisions: ['D1'] })).toBe('# T\n\n## Decisions\nNone yet, see the log.\n\n- D1\n\n## Open\n');
+  });
+
   it('adds sections to a brief that had none', () => {
     const b = parseBrief('# Hand made\nNotes.\n');
     expect(formatBrief(b, { ...b, understanding: 'Now.' })).toBe('# Hand made\nNotes.\n\n## Understanding\nNow.\n');

@@ -167,14 +167,24 @@ export function capUnderstanding(text: string): string {
   return trimmed.length <= cap ? trimmed : `${trimmed.slice(0, cap - 1).trimEnd()}…`
 }
 
+/** True when the app or the mod cut Understanding at the cap, so the snapshot holds only its start. */
+export function isUnderstandingCut(raw: string): boolean {
+  const capped = capUnderstanding(raw)
+  return capped.endsWith('…') || capped.length === INITIATIVE_UNDERSTANDING_CAP
+}
+
 /** The snapshot as appended after the user's prompt, between the markers, with a one-line pointer to the skill. */
 export function injectionText(s: InitiativeSnapshot): string {
   const list = (heading: string, rows: readonly string[]) => (rows.length === 0 ? [] : ['', `## ${heading}`, ...rows.map(r => `- ${r}`)])
   const understanding = capUnderstanding(s.understanding)
+  const cutNote = isUnderstandingCut(s.understanding)
+    ? [`Understanding below is cut short. Run \`agent-brief initiative show ${s.id}\` for the full text before you rewrite it.`]
+    : []
   return [
     INITIATIVE_MARK,
     `This session is attached to the initiative ${s.title} (id ${s.id}, revision ${s.revision}). This snapshot replaces any earlier one.`,
     `Keep its brief current as the initiative-brief skill says, with \`agent-brief initiative update ${s.id} --file <json>\` at revision ${s.revision}.`,
+    ...cutNote,
     '',
     '## Understanding',
     understanding === '' ? '(empty)' : understanding,

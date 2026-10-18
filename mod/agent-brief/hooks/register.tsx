@@ -191,6 +191,7 @@ const initiativeRef = atom({ plugin: 'agent-brief', key: 'initiative' } as const
 const recentRef = atom({ plugin: 'agent-brief', key: 'recentInitiatives' } as const, [])
 const sentRef = atom({ plugin: 'agent-brief', key: 'initiativeSent' } as const, null)
 const staleRef = atom({ plugin: 'agent-brief', key: 'isInitiativeStale' } as const, false)
+const recentDoneRef = atom({ plugin: 'agent-brief', key: 'isRecentLineDone' } as const, false)
 
 const INGEST_TIMEOUT_MS = 10 * 60_000
 
@@ -755,9 +756,9 @@ type Appended = { context: string[]; sent?: { token: string; title: string } | n
 
 /**
  * The snapshot when its token moved or a compaction dropped it. A detach since the last snapshot gets one note.
- * On the session's first prompt with nothing attached, one line naming the recent initiatives.
+ * With nothing attached and `wantsRecent` set, one line naming the recent initiatives.
  */
-async function initiativeContext($: EngineInterface, isFirst: boolean): Promise<Appended> {
+async function initiativeContext($: EngineInterface, wantsRecent: boolean): Promise<Appended> {
   const snapshot = isUp ? await fetchInitiative($) : undefined
   const sessionId = await $.session.id()
   const held = await read($, sentRef)
@@ -768,7 +769,7 @@ async function initiativeContext($: EngineInterface, isFirst: boolean): Promise<
     return { context: [injectionText(snapshot)], sent: { token, title: snapshot.title } }
   }
   if (snapshot === null && sent !== undefined) return { context: [detachedNote(sent.title)], sent: null }
-  if (snapshot === null && isFirst) {
+  if (snapshot === null && wantsRecent) {
     const line = recentLine(await read($, recentRef))
     if (line !== undefined) return { context: [line] }
   }
@@ -1122,10 +1123,13 @@ export const register: Register = (on, options) => {
     }
     // A reload ends yap with the old module, so a kept listening state is stale.
     if (dictation === undefined) await update($, voiceRef, () => null).catch(() => undefined)
-    // A resumed session already has prompts, so the band starts without its Mode button.
+    // A resumed session already has prompts, so the band starts without its Mode button and no recent line goes out.
     try {
       const messages = await $.session.messages().catch(() => [])
-      if (Array.isArray(messages) && hasUserPrompt(messages)) await update($, hasPromptedRef, () => true)
+      if (Array.isArray(messages) && hasUserPrompt(messages)) {
+        await update($, hasPromptedRef, () => true)
+        await update($, recentDoneRef, () => true)
+      }
       await loadBrief($)
     } catch (err) {
       log($, `brief start failed: ${String(err)}`)
@@ -1409,13 +1413,14 @@ export const register: Register = (on, options) => {
   })
 
   // The first prompt takes the Mode button off the band.
-  // A typed prompt carries the attached initiative's snapshot after the user's text whenever its token moved,
-  // and the session's first one names the recent initiatives while none is attached. Never the system prompt.
+  // A typed prompt carries the attached initiative's snapshot after the user's text whenever its token moved.
+  // While none is attached, the first typed prompt after the recent initiatives load names them, once per session.
+  // Never the system prompt.
   on('prompt.submit', async ($, e, next) => {
     let appended: Appended = { context: [] }
     if (e.isMeta === undefined && e.command === undefined) {
-      const isFirst = !(await read($, hasPromptedRef))
-      appended = await initiativeContext($, isFirst).catch((err: unknown) => {
+      const wantsRecent = !(await read($, recentDoneRef))
+      appended = await initiativeContext($, wantsRecent).catch((err: unknown) => {
         log($, `initiative context failed: ${String(err)}`)
         return { context: [] }
       })
@@ -1426,15 +1431,17 @@ export const register: Register = (on, options) => {
       // The Mode picker leaves the band with the Mode button.
       await update($, pickingRef, () => 'none').catch(() => undefined)
       if (appended.sent !== undefined) await recordSent($, appended.sent).catch(() => undefined)
+      if (appended.context.length > 0) await update($, recentDoneRef, () => true).catch(() => undefined)
     }
     return entered
   }).catch(($, e, next) => next(e))
 
   // A compaction drops the snapshot from the conversation, so the next prompt carries it again.
+  // A precompute only prepares a summary and leaves the conversation as it is.
   // Where an organization manages Claude Code this event passes over the mod, so there `/initiative refresh` resends it.
   on('session.compact', async ($, e, next) => {
     const compacted = await next(e)
-    if (e.agentId === undefined && compacted.skip === undefined) await update($, staleRef, () => true).catch(() => undefined)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && compacted.skip === undefined) await update($, staleRef, () => true).catch(() => undefined)
     return compacted
   }).catch(($, e, next) => next(e))
 

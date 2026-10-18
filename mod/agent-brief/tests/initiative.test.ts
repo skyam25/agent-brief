@@ -74,6 +74,16 @@ describe('initiative logic', () => {
     expect(injectionText({ ...PRICING, understanding: '' })).toContain('## Understanding\n(empty)')
   })
 
+  test('a cut Understanding tells Claude to read the full text before rewriting it', () => {
+    const NOTE = 'Understanding below is cut short. Run `agent-brief initiative show ini-pricing` for the full text before you rewrite it.'
+    const appCut = `${'x'.repeat(INITIATIVE_UNDERSTANDING_CAP - 1)}…`
+    expect(injectionText({ ...PRICING, understanding: 'x'.repeat(5000) }), 'cut by the mod').toContain(NOTE)
+    expect(injectionText({ ...PRICING, understanding: appCut }), 'cut by the app').toContain(NOTE)
+    expect(injectionText({ ...PRICING, understanding: 'x'.repeat(INITIATIVE_UNDERSTANDING_CAP) }), 'at the cap').toContain(NOTE)
+    expect(injectionText({ ...PRICING, understanding: 'x'.repeat(5000) }).split('\n')[3], 'beside the update line').toBe(NOTE)
+    expect(injectionText(PRICING)).not.toContain('cut short')
+  })
+
   test('the first-prompt line names up to three recent initiatives', () => {
     const titles = ['Pricing', 'Onboarding', 'Checkout', 'Search'].map(title => ({ title }))
     expect(recentLine(titles)).toBe(RECENT_LINE)
@@ -171,6 +181,34 @@ describe('the submit hook', () => {
     expect(world.contexts).toEqual([[RECENT_LINE], []])
   })
 
+  test('a first prompt that beats the initiatives load leaves the line for the next typed prompt', async ($, on) => {
+    const seated = await setupCompanion($, on)
+    const { attachmentRevision: _, ...pricing } = PRICING
+    seated.app.initiatives.set(pricing.id, pricing)
+    on('session.messages', () => ({ value: [] }))
+    await seated.start()
+    await $.prompt.submit(typed('do X'))
+    await seated.clock.settle()
+    await $.prompt.submit(typed('then Y'))
+    await $.prompt.submit(typed('and Z'))
+    expect(seated.world.contexts).toEqual([
+      [],
+      ['Agent Brief · recent initiatives: Pricing. If this work belongs to one, run agent-brief initiative attach <name>.'],
+      [],
+    ])
+  })
+
+  test('a resumed session names no recent initiatives', async ($, on) => {
+    const seated = await setupCompanion($, on)
+    const { attachmentRevision: _, ...pricing } = PRICING
+    seated.app.initiatives.set(pricing.id, pricing)
+    on('session.messages', () => ({ value: [{ role: 'user' as const, text: 'earlier work', toolUses: [] }] }))
+    await seated.start()
+    await seated.clock.settle()
+    await $.prompt.submit(typed('carry on'))
+    expect(seated.world.contexts).toEqual([[]])
+  })
+
   test('names nothing when the app knows no initiatives', async ($, on) => {
     const { world, clock, start } = await setupCompanion($, on)
     on('session.messages', () => ({ value: [] }))
@@ -209,13 +247,22 @@ describe('the submit hook', () => {
     expect(world.contexts.map(c => c.length)).toEqual([1, 0, 1, 0])
   })
 
-  test('a slash command carries nothing, and counts as the first prompt', async ($, on) => {
+  test('a precompute leaves the snapshot in place, so the next prompt carries nothing', async ($, on) => {
+    const { world, app } = await setup($, on)
+    attach(app)
+    await $.prompt.submit(typed('one'))
+    await $.session.compact({ trigger: 'precompute', messages: [{ role: 'user', text: 'one', toolUses: [] }] })
+    await $.prompt.submit(typed('two'))
+    expect(world.contexts.map(c => c.length)).toEqual([1, 0])
+  })
+
+  test('a slash command carries nothing, and leaves the recent line for the next typed prompt', async ($, on) => {
     const { world, app } = await setup($, on)
     await $.prompt.submit({ ...typed('/review'), command: { name: 'review', args: '' } })
     await $.prompt.submit(typed('go'))
     attach(app)
     await $.prompt.submit({ ...typed('/review'), command: { name: 'review', args: '' } })
-    expect(world.contexts).toEqual([[], [], []])
+    expect(world.contexts).toEqual([[], [RECENT_LINE], []])
   })
 
   test('with the app down the prompt enters as typed', async ($, on) => {

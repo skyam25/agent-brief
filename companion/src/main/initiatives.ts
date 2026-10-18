@@ -131,6 +131,8 @@ export interface InitiativeStoreOptions {
   /** Reads without recording edits, moves or anything else. */
   readOnly?: boolean;
   home?: string;
+  /** The live session ids. When set, an initiative lists only its live sessions as attached. */
+  liveSessions?: () => Iterable<string>;
 }
 
 export class InitiativeStore {
@@ -138,6 +140,7 @@ export class InitiativeStore {
   private readonly now: () => Date;
   private readonly readOnly: boolean;
   private readonly home: string;
+  private readonly liveSessions?: () => Iterable<string>;
   private index: IndexFile;
   private readonly listeners = new Set<() => void>();
 
@@ -146,6 +149,7 @@ export class InitiativeStore {
     this.now = opts.now ?? (() => new Date());
     this.readOnly = !!opts.readOnly;
     this.home = opts.home ?? homedir();
+    this.liveSessions = opts.liveSessions;
     this.index = this.loadIndex();
   }
 
@@ -232,9 +236,13 @@ export class InitiativeStore {
     return undefined;
   }
 
-  /** Reads a row's brief, following a move and recording an edit made outside the app. */
+  /**
+   * Reads a row's brief, following a move and recording an edit made outside the app.
+   * Either one emits, which pushes the panel and moves main's file watch to the new path.
+   */
   private read(row: IndexRow): Read {
     let text: string | undefined;
+    let changed = false;
     try {
       text = readFileSync(row.path, 'utf8');
     } catch {
@@ -242,7 +250,7 @@ export class InitiativeStore {
       if (moved) {
         text = readFileSync(moved, 'utf8');
         row.path = moved;
-        this.save();
+        changed = true;
       }
     }
     if (text === undefined) return { row };
@@ -252,6 +260,9 @@ export class InitiativeStore {
       row.hash = hash;
       if (brief.title) row.title = brief.title;
       this.addRevision(row, 'PM');
+      changed = true;
+    }
+    if (changed) {
       this.save();
       this.emit();
     }
@@ -259,8 +270,9 @@ export class InitiativeStore {
   }
 
   private initiative({ row, brief }: Read): Initiative {
+    const live = this.liveSessions && new Set(this.liveSessions());
     const sessions = Object.entries(this.index.attachments)
-      .filter(([, a]) => a.initiativeId === row.id)
+      .filter(([sessionId, a]) => a.initiativeId === row.id && (!live || live.has(sessionId)))
       .map(([sessionId]) => sessionId);
     return {
       id: row.id,

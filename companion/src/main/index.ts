@@ -94,7 +94,7 @@ const state = new StateFile(dataDir);
 const history = new SendHistory(dataDir);
 const drafts = new DraftStore(dataDir);
 const templates = new TemplateStore(dataDir);
-const initiatives = new InitiativeStore(dataDir);
+const initiatives = new InitiativeStore(dataDir, { liveSessions: () => sessions.sessions.map((s) => s.sessionId) });
 let prompt: string | undefined;
 let sessions: SessionsResponse = { sessions: [] };
 
@@ -254,12 +254,19 @@ async function start(): Promise<void> {
   });
   briefWatch.sync(initiatives.files());
   const initiativeDetail = (id: string): InitiativeDetail => ({ initiative: initiatives.get(id), history: initiatives.history(id) });
+  // An initiative lists its live sessions, so the panel rereads when the live set changes.
+  let liveKey = '';
   server.onSessionsChange((s) => {
     sessions = s;
     send(CH.sessions, s);
     rememberProjects(state, s.sessions.map((x) => x.cwd));
     briefs.refresh(s.sessions);
     const live = s.sessions.map((x) => x.sessionId);
+    const key = [...live].sort().join('\n');
+    if (key !== liveKey) {
+      liveKey = key;
+      send(CH.initiativesChanged, initiatives.list());
+    }
     terminals.keepOnly(live);
     modes.keepOnly(live);
   });
