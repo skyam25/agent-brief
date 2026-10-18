@@ -12,8 +12,10 @@ import { useStore } from './hooks';
 import { CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIcon } from './Icons';
 import { Inspector } from './Inspector';
 import { OVERALL, type ReviewVoice } from './review-voice';
+import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
+import type { WorkspaceSnapshot } from '../shared/feedback-workspace';
 
-export type ReviewHost = FeedbackHost & Pick<CompanionApi, 'readBehavior' | 'decideBehavior' | 'onBehaviorChanged' | 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
+export type ReviewHost = FeedbackHost & WorkspaceHost & Pick<CompanionApi, 'readBehavior' | 'decideBehavior' | 'onBehaviorChanged' | 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
 
 export type ReviewDraft = Draft & { review: DraftReview };
 
@@ -23,6 +25,8 @@ const MAX_PICTURES = 36;
 const CROP_PAD = 12;
 /** How long a page has to answer before the pane says it cannot add pins. */
 const READY_WAIT_MS = 2000;
+/** How long the page has to measure an element for a workspace snapshot. */
+const MEASURE_WAIT_MS = 1500;
 
 const newCommentId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -161,6 +165,33 @@ export function ReviewView(props: {
 
   const post = useCallback((m: ToPage) => frame.current?.contentWindow?.postMessage({ source: REVIEW_SOURCE, ...m }, '*'), []);
 
+  // Opening an item's workspace first crops its element from the page.
+  const measures = useRef(new Map<string, (view?: ReviewRect) => void>());
+  const capture = useCallback(
+    async (selector: string): Promise<WorkspaceSnapshot | undefined> => {
+      if (!live.current.onPage) return undefined;
+      const id = newCommentId();
+      const view = await new Promise<ReviewRect | undefined>((resolve) => {
+        const timer = setTimeout(() => measures.current.get(id)?.(), MEASURE_WAIT_MS);
+        measures.current.set(id, (v) => {
+          clearTimeout(timer);
+          measures.current.delete(id);
+          resolve(v);
+        });
+        post({ type: 'measure', id, selector });
+      });
+      const box = frame.current?.getBoundingClientRect();
+      if (!view || !box) return undefined;
+      const rect = cropRect(box, view);
+      const data = await host.capturePanel(rect);
+      return data ? { data, width: rect.width, height: rect.height } : undefined;
+    },
+    [host, post],
+  );
+  const workspace = useItemWorkspace({ host, sessionId: draft.sessionId, path: review.path, capture, onError: props.onError });
+  const layerOpen = useRef(false);
+  layerOpen.current = !!workspace.open;
+
   const select = useCallback(
     (id: string | undefined, focus = false) => {
       setActiveId(id);
@@ -244,6 +275,7 @@ export function ReviewView(props: {
       if (m.type === 'open-pin') select(m.id, true);
       if (m.type === 'behavior-missing') props.onError(sideRef.current === 'feedback' ? 'That element is not on the page now. Ask Claude to update the item\'s Where line.' : 'That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');
       if (m.type === 'missing') setMissing(m.ids);
+      if (m.type === 'measured') measures.current.get(m.id)?.(m.view);
       if (m.type === 'link') void host.openLink(m.href).catch(() => props.onError('Could not open that link.'));
       if (m.type === 'key' && m.key === 'c') setCommenting((on) => !on);
       if (m.type === 'key' && m.key === 'Escape') {
@@ -258,7 +290,8 @@ export function ReviewView(props: {
   // C toggles comment mode, E edit mode, and Escape leaves either, unless a field has the keys.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (editable(e.target)) return;
+      // The workspace board takes its own keys.
+      if (editable(e.target) || layerOpen.current) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && live.current.editing) {
         e.preventDefault();
         void history(e.shiftKey ? 'redo' : 'undo');
@@ -405,6 +438,20 @@ export function ReviewView(props: {
           </div>
         )}
       </div>
+      {/* An item's workspace covers the page and the list beside it. */}
+      {workspace.open && draft.sessionId && (
+        <WorkspaceLayer
+          key={workspace.open.board}
+          host={host}
+          sessionId={draft.sessionId}
+          path={review.path}
+          board={workspace.open.board}
+          n={workspace.open.n}
+          item={feedback.doc?.items.find((i) => i.n === workspace.open!.n)}
+          onBack={workspace.close}
+          onError={props.onError}
+        />
+      )}
       {isEditing ? (
         <Inspector
           selected={selected}
@@ -421,7 +468,7 @@ export function ReviewView(props: {
             <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { setSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
             <button className={side === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'feedback'} data-testid="feedback-tab" onClick={() => { setSide('feedback'); setCommenting(false); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>
           </div>
-          {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
+          {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} onWorkspace={(item) => { setCommenting(false); void workspace.openItem(item); }} workspaceOpening={workspace.opening} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
 
           <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
             <span className="section-head">Overall</span>

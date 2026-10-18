@@ -1,4 +1,6 @@
 import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
+import type { FeedbackWorkspace } from '../protocol';
+import type { WorkspaceSnapshot } from './feedback-workspace';
 /** IPC between the main process and the panel renderer. */
 
 import type { BoardComments } from './board-comments';
@@ -466,6 +468,10 @@ export interface CompanionApi extends BoardHost {
   /** Every feedback file in the session's project, with counts. */
   listFeedback(sessionId: string): Promise<FeedbackProject>;
   onFeedbackChanged(fn: () => void): () => void;
+  /** Makes an item's workspace board when missing and adds a frame for its newest round, seeded with `snapshot` when given. */
+  openFeedbackWorkspace(sessionId: string, path: string, n: number, snapshot?: WorkspaceSnapshot): Promise<FeedbackWorkspace>;
+  /** Exports the item's board beside the output and appends a Workspace line. Sends nothing. */
+  saveFeedbackWorkspace(sessionId: string, path: string, n: number): Promise<FeedbackUpdateResult>;
   reviewUrl(sessionId: string, path: string): Promise<string>;
   /** Applies a review pane edit to the HTML file. `version` is the file's as the page loaded it. */
   reviewEdit(sessionId: string, path: string, version: string, edit: ReviewEdit): Promise<EditResult>;
@@ -563,6 +569,8 @@ export const CH = {
   updateFeedback: 'feedback:update',
   listFeedback: 'feedback:list',
   feedbackChanged: 'feedback:changed',
+  openFeedbackWorkspace: 'feedback:workspace-open',
+  saveFeedbackWorkspace: 'feedback:workspace-save',
   reviewUrl: 'review:url',
   reviewEdit: 'review:edit',
   reviewUndo: 'review:undo',
@@ -637,6 +645,8 @@ export const IPC_INVOKE = {
   readFeedback: CH.readFeedback,
   updateFeedback: CH.updateFeedback,
   listFeedback: CH.listFeedback,
+  openFeedbackWorkspace: CH.openFeedbackWorkspace,
+  saveFeedbackWorkspace: CH.saveFeedbackWorkspace,
   reviewUrl: CH.reviewUrl,
   reviewEdit: CH.reviewEdit,
   reviewUndo: CH.reviewUndo,

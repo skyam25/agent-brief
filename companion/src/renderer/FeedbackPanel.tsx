@@ -7,10 +7,12 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackItem, FeedbackOp } from '../protocol';
 import { decisionsPrompt, pendingDecisions } from '../shared/feedback';
+import { workspaceSummary } from '../shared/feedback-workspace';
 import type { CompanionApi } from '../shared/ipc';
 import { ExternalIcon, MicIcon } from './Icons';
 import { ReviewVoice } from './review-voice';
 import { VoiceState } from './ReviewView';
+import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
 
 export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'requestMicrophone'>;
 
@@ -122,6 +124,10 @@ export function FeedbackPanel(props: {
   /** Runs before an item's mic opens, so only one recording holds the microphone. */
   beforeRecord?: () => Promise<void>;
   onError: (message: string) => void;
+  /** Opens an item's workspace layer. Absent where no layer can show. */
+  onWorkspace?: (item: FeedbackItem) => void;
+  /** The item whose workspace is opening. */
+  workspaceOpening?: number;
 }) {
   const { doc, error, apply } = props.feedback;
   const applyRef = useRef(apply);
@@ -198,7 +204,7 @@ export function FeedbackPanel(props: {
             </h4>
             <ol className="review-cards">
               {group.map((item) => (
-                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} />
+                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} />
               ))}
             </ol>
           </div>
@@ -207,7 +213,7 @@ export function FeedbackPanel(props: {
       {loose.length > 0 && (
         <ol className="review-cards">
           {loose.map((item) => (
-            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} />
+            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} />
           ))}
         </ol>
       )}
@@ -237,8 +243,11 @@ function ItemCard(props: {
   onApply: (ops: FeedbackOp[]) => Promise<boolean>;
   onShow?: (selector: string) => void;
   onVoice: () => void;
+  onWorkspace?: (item: FeedbackItem) => void;
+  opening?: boolean;
 }) {
   const { item } = props;
+  const workspace = workspaceSummary(item);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const listening = props.voice.recording && props.voice.target === String(item.n);
@@ -335,6 +344,20 @@ function ItemCard(props: {
         </button>
       </div>
       <VoiceState voice={props.voice} target={String(item.n)} />
+      {(props.onWorkspace || workspace) && (
+        <div className="feedback-workspace">
+          {props.onWorkspace && (
+            <button className="chip" disabled={props.opening} onClick={() => props.onWorkspace!(item)} data-testid="feedback-workspace-open">
+              {props.opening ? 'Opening…' : 'Open workspace'}
+            </button>
+          )}
+          {workspace && (
+            <span className="muted" data-testid="feedback-workspace-summary">
+              {workspace}
+            </span>
+          )}
+        </div>
+      )}
       {history.length > 0 && (
         <details className="feedback-history">
           <summary className="muted">History · {history.length}</summary>
@@ -352,7 +375,7 @@ function ItemCard(props: {
 
 /** The Feedback view for an output with no page to show, full width beside the list. */
 export function FeedbackView(props: {
-  host: FeedbackHost;
+  host: FeedbackHost & WorkspaceHost;
   sessionId: string;
   path: string;
   canSend: boolean;
@@ -361,6 +384,8 @@ export function FeedbackView(props: {
   onError: (message: string) => void;
 }) {
   const feedback = useFeedbackDoc(props.host, props.sessionId, props.path);
+  const workspace = useItemWorkspace({ host: props.host, sessionId: props.sessionId, path: props.path, onError: props.onError });
+  const open = workspace.open;
   return (
     <div className="items feedback-view" data-testid="feedback-view">
       <header className="items-head">
@@ -374,8 +399,13 @@ export function FeedbackView(props: {
           <ExternalIcon /> Open file
         </button>
       </header>
-      <div className="items-body">
-        <FeedbackPanel host={props.host} sessionId={props.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSend} onError={props.onError} />
+      <div className="workspace-host">
+        <div className="items-body">
+          <FeedbackPanel host={props.host} sessionId={props.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSend} onError={props.onError} onWorkspace={(item) => void workspace.openItem(item)} workspaceOpening={workspace.opening} />
+        </div>
+        {open && (
+          <WorkspaceLayer key={open.board} host={props.host} sessionId={props.sessionId} path={props.path} board={open.board} n={open.n} item={feedback.doc?.items.find((i) => i.n === open.n)} onBack={workspace.close} onError={props.onError} />
+        )}
       </div>
     </div>
   );

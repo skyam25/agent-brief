@@ -10,6 +10,7 @@ import type { TemplateShelf } from './templates';
 import type { ToastKind } from './Toast';
 import { useBriefTabs, type TabScope } from './useBriefTabs';
 import { useVoice } from './useVoice';
+import { flushWorkspaces, workspaceReply } from './workspace-boards';
 
 interface WorkspaceDeps {
   host: CompanionApi;
@@ -146,7 +147,10 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       requestSubscription.current?.();
       requestSubscription.current = host.onRequest(async (req) => {
         // Draft saves never block the board's own flush before quitting.
-        if (req.op === 'flush') await Promise.all([book.flush(), shelf.flush()]).catch(() => undefined);
+        if (req.op === 'flush') await Promise.all([book.flush(), shelf.flush(), flushWorkspaces()]).catch(() => undefined);
+        // A feedback workspace open in Review answers for its own board.
+        const held = workspaceReply(req);
+        if (held) return held;
         // /sketch shows a board, which brings Sketch mode forward. A tab switch picks its own mode.
         if (req.op === 'show' && !(req.args as { fromSwitch?: boolean }).fromSwitch) changeMode('sketch');
         return controller.reply(req);

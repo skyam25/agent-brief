@@ -1,5 +1,6 @@
 import { BehaviorStore } from './behavior';
 import { FeedbackStore } from './feedback';
+import { FeedbackWorkspaces } from './feedback-workspace';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -259,7 +260,8 @@ async function start(): Promise<void> {
 
   // The socket server: sessions, deliveries and the board API for the CLI and the mod.
   // POST /open runs backend.open, which shows the panel and sets the prompt.
-  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback });
+  const workspaces = new FeedbackWorkspaces({ feedback, store, boards: backend });
+  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, workspaces });
 
   // Writes pending saves and closes the socket once before quitting.
   const quitter = new Quitter({
@@ -520,6 +522,8 @@ async function start(): Promise<void> {
   ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path));
   ipc.handle('updateFeedback', (sessionId: string, path: unknown, update: unknown) => feedback.update(behaviorRoot(sessionId), path, update, 'You'));
   ipc.handle('listFeedback', (sessionId: string) => feedback.project(behaviorRoot(sessionId)));
+  ipc.handle('openFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, snapshot?: unknown) => workspaces.open(behaviorRoot(sessionId), path, n, snapshot));
+  ipc.handle('saveFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown) => workspaces.save(behaviorRoot(sessionId), path, n, 'You'));
   ipc.handle('reviewUrl', (sessionId: string, path: unknown) => files.reviewUrl(sessionId, path));
   ipc.handle('reviewEdit', (sessionId: string, path: unknown, version: unknown, edit: unknown) => files.reviewEdit(sessionId, path, version, edit));
   ipc.handle('reviewUndo', (sessionId: string, path: unknown) => files.reviewUndo(sessionId, path));

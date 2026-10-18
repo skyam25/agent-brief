@@ -323,6 +323,15 @@ function start(): void {
         element.animate([{ outline: '3px solid #8b5cf6', outlineOffset: '3px' }, { outline: '3px solid transparent', outlineOffset: '3px' }], { duration: 1300 });
       } else window.parent.postMessage({ source: REVIEW_SOURCE, type: 'behavior-missing' }, '*');
     }
+    if (m.type === 'measure') {
+      let element: Element | null = null;
+      try { if (document.querySelectorAll(m.selector).length === 1) element = document.querySelector(m.selector); } catch { /* stale or invalid target */ }
+      element?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+      afterPaint(() => {
+        const view = element ? visible(element.getBoundingClientRect()) : undefined;
+        post({ type: 'measured', id: m.id, ...(view?.width && view.height ? { view } : {}) });
+      });
+    }
     if (m.type === 'editing') {
       if (m.on) setCommenting(false);
       edit?.setEditing(m.on);

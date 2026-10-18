@@ -36,7 +36,9 @@ export type FromPage =
   /** What edit mode has selected, or null. */
   | { type: 'selected'; element: SelectedElement | null }
   /** The page's elements no longer match the file, so the pane should reload it. */
-  | { type: 'reload' };
+  | { type: 'reload' }
+  /** The answer to `measure`: the element's visible box, or none when the page lacks it. */
+  | { type: 'measured'; id: string; view?: ReviewRect };
 
 /** From the pane to the page. */
 export type ToPage =
@@ -52,7 +54,9 @@ export type ToPage =
   | { type: 'style'; set: StyleSet }
   | { type: 'text'; text: string }
   | { type: 'act'; act: 'parent' | 'duplicate' | 'remove' | 'deselect' }
-  | { type: 'insert'; what: InsertKind };
+  | { type: 'insert'; what: InsertKind }
+  /** Scrolls the element into view and answers `measured` once it painted. */
+  | { type: 'measure'; id: string; selector: string };
 
 export type Tagged<T> = T & { source: typeof REVIEW_SOURCE };
 
