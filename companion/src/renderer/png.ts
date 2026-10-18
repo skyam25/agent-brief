@@ -20,25 +20,28 @@ const EXPORT_PADDING = 24;
  * `maxEdge`. Exports for Claude are always light with a white background,
  * whatever theme the panel shows. `numbers` writes small stroke numbers and
  * image letters next to those elements, matching the labels in timeline.md.
+ * `pins` draws comment pins at scene points, numbered from 1, matching comments.md.
  */
 export async function renderPng(
   elements: readonly El[],
   files: BinaryFiles,
-  opts: { region?: Region; maxEdge: number; numbers?: Record<string, number | string> },
+  opts: { region?: Region; maxEdge: number; numbers?: Record<string, number | string>; pins?: readonly Point[] },
 ): Promise<Uint8Array> {
   const els = elements.filter((e) => !e.isDeleted);
   const appState = { exportBackground: true, viewBackgroundColor: '#ffffff', exportWithDarkMode: false };
   const numbered = opts.numbers && Object.keys(opts.numbers).length > 0 ? opts.numbers : undefined;
-  // Numbers need a known origin, so a numbered whole-board export crops to the padded scene box.
+  const pins = opts.pins?.length ? opts.pins : undefined;
+  // Badges need a known origin, so a badged whole-board export crops to the padded box of the scene and its pins.
+  const boxes = [...els.map((e) => boxOf(e as unknown as Shaped)), ...(pins ?? []).map(([x, y]) => ({ x, y, width: 0, height: 0 }))];
   const region =
     opts.region ??
-    (numbered && els.length > 0
-      ? pad(union(els.map((e) => boxOf(e as unknown as Shaped))), BADGE_ROOM, BADGE_ROOM + FRAME_NAME_ROOM)
-      : undefined);
+    ((numbered || pins) && boxes.length > 0 ? pad(union(boxes), BADGE_ROOM, BADGE_ROOM + FRAME_NAME_ROOM) : undefined);
   let canvas: HTMLCanvasElement;
   if (region) {
     canvas = await renderRegion(els, files, region, opts.maxEdge);
-    if (numbered) drawNumbers(canvas, els, numbered, region, fitScale(region.width, region.height, opts.maxEdge));
+    const scale = fitScale(region.width, region.height, opts.maxEdge);
+    if (numbered) drawNumbers(canvas, els, numbered, region, scale);
+    if (pins) drawPins(canvas, pins, region, scale);
   } else if (els.length === 0) {
     canvas = whiteCanvas(Math.min(400, opts.maxEdge), Math.min(300, opts.maxEdge));
   } else {
@@ -109,6 +112,36 @@ function drawNumbers(
     ctx.fillStyle = '#ffffff';
     ctx.fillText(label, cx, cy + 0.5);
   }
+}
+
+/** Pin size in output pixels. */
+const PIN_PX = 22;
+
+/** The panel's accent, so pins on the PNG look like pins on the board. */
+const PIN_COLOR = '#6965db';
+
+/**
+ * Draws each comment pin as the board shows it: a violet badge with its number,
+ * whose square corner sits on the pinned spot. Sizes are in output pixels.
+ */
+function drawPins(canvas: HTMLCanvasElement, pins: readonly Point[], region: Region, scale: number): void {
+  const ctx = canvas.getContext('2d')!;
+  ctx.font = `700 ${BADGE_FONT_PX}px -apple-system, Helvetica, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  pins.forEach(([x, y], i) => {
+    const left = (x - region.x) * scale;
+    const top = (y - region.y) * scale - PIN_PX;
+    ctx.beginPath();
+    ctx.roundRect(left, top, PIN_PX, PIN_PX, [PIN_PX / 2, PIN_PX / 2, PIN_PX / 2, 2]);
+    ctx.fillStyle = PIN_COLOR;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(String(i + 1), left + PIN_PX / 2, top + PIN_PX / 2 + 0.5);
+  });
 }
 
 function whiteCanvas(width: number, height: number): HTMLCanvasElement {

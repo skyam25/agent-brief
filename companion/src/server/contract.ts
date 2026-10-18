@@ -19,6 +19,7 @@ import type {
   SessionsResponse,
   UpdateRequest,
 } from '../protocol';
+import type { BoardComments } from '../shared/board-comments';
 import type { ReviewPayload } from '../shared/review';
 
 export interface Region {
@@ -81,6 +82,8 @@ export interface DeliveryInput {
   sourcePath?: string;
   /** Comments pinned to an HTML file, written as review.md. Their pictures are among `images`. */
   review?: ReviewPayload;
+  /** Comments pinned to the board, written as comments.md. Present with `png`. */
+  comments?: BoardComments;
 }
 
 export interface CompanionServerOptions {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { DeliveriesResponse } from '../src/protocol';
 import { joinSpeech } from '../src/voice/timeline';
 import type { Utterance } from '../src/voice/types';
-import { interactiveCanvas, launch, penStroke, pickPen, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir } from './helpers';
+import { backend, interactiveCanvas, launch, penStroke, pickPen, RESULTS, ROOT, sendToSession, showPanel, sock, tempDataDir } from './helpers';
 
 const SPEECH = join(ROOT, 'e2e/fixtures/speech.wav');
 
@@ -95,5 +95,48 @@ test('Talk records into a take that Send carries and Discard drops', async () =>
   await page.getByTestId('voice-take-discard').click();
   await expect(page.getByTestId('voice-take')).toHaveCount(0);
   await page.screenshot({ path: join(RESULTS, 'voice-idle.png') });
+  await app.close();
+});
+
+test('a click on the board while talking points the words at that element', async () => {
+  test.skip(!existsSync(SPEECH), 'speech fixture missing');
+  test.setTimeout(120_000);
+  const ctx = await launch(tempDataDir(), { COMPANION_TEST_AUDIO: SPEECH });
+  const { app, page } = ctx;
+  await showPanel(app, page);
+  await backend(app, 'draw', 'current', {
+    elements: [
+      { type: 'rectangle', id: 'a', x: 100, y: 100, label: 'Header' },
+      { type: 'rectangle', id: 'b', x: 400, y: 100, label: 'Footer' },
+    ],
+  });
+  const centre = (id: string) =>
+    page.evaluate((id) => {
+      const s = window.__excalidraw.getAppState();
+      const e = window.__excalidraw.getSceneElements().find((x) => x.id === id)!;
+      return { x: (e.x + e.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (e.y + e.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop };
+    }, id);
+
+  // Talk starts as plain sketch voice; turning on Comment hands the mic to the pins.
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('mic-clock')).toBeVisible();
+  await page.keyboard.press('c');
+  await expect(page.getByTestId('board-comments')).toBeVisible();
+  await expect(page.getByTestId('mic')).toHaveText(/Stop/);
+
+  const a = await centre('a');
+  await page.mouse.click(a.x, a.y);
+  await page.waitForTimeout(5500);
+  const b = await centre('b');
+  await page.mouse.click(b.x, b.y);
+  await page.waitForTimeout(5500);
+  await page.getByTestId('mic').click();
+
+  const cards = page.getByTestId('board-comment-text');
+  await expect(cards).toHaveCount(2);
+  await expect(page.getByTestId('board-comment-card').nth(0)).toContainText('“Header”');
+  await expect(cards.nth(0)).toHaveValue(/pricing table/i, { timeout: 60_000 });
+  await expect(cards.nth(1)).toHaveValue(/pricing table/i, { timeout: 60_000 });
+  await page.screenshot({ path: join(RESULTS, 'board-comments-voice.png') });
   await app.close();
 });

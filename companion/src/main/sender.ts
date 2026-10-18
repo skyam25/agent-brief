@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { buildDraft, cleanSourcePath, freeId, rewriteImages, writeBundle } from '../server/bundle';
 import type { CompanionServer, DeliveryInput } from '../server/contract';
 import { isTextPayload, type Launcher, type Outgoing, type SendPayload, type SendResult } from '../shared/ipc';
+import { cleanBoardComments } from '../shared/board-comments';
 import { cleanReview } from '../shared/review';
 import { composeDelivery, findTool } from '../voice/compose';
 import type { Briefs } from './briefs';
@@ -98,7 +99,8 @@ export class Sender {
         },
       },
     });
-    return { input: { ...input, ...draftFields(p) }, warnings };
+    const comments = cleanBoardComments(p.comments);
+    return { input: { ...input, ...draftFields(p), ...(comments ? { comments } : {}) }, warnings };
   }
 
   /** Delivers to the target session and records the send in the history. */

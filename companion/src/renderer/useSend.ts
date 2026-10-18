@@ -1,10 +1,12 @@
 /** Send: builds what each mode hands over, delivers it, and clears what went out. */
 
 import { useRef, type RefObject } from 'react';
+import { hasBoardComments } from '../shared/board-comments';
 import { draftImages } from '../shared/drafts';
 import { hasReviewContent } from '../shared/review';
 import type { CompanionApi, Decision, Draft, Launcher, Mode, Outgoing, SendResult } from '../shared/ipc';
 import { findSlots } from '../shared/slots';
+import type { BoardCommentsStore } from './board-comments';
 import type { BoardController } from './controller';
 import type { DraftBook, SentRevision } from './drafts';
 import { focusFirstSlot } from './editor/RichEditor';
@@ -22,6 +24,7 @@ export interface SendDeps {
   host: CompanionApi;
   book: DraftBook;
   controller: BoardController;
+  comments: BoardCommentsStore;
   items: ItemsStore;
   reviewVoice: ReviewVoice;
   modeRef: RefObject<Mode>;
@@ -44,7 +47,7 @@ const fromDraft = (draft: Draft) => {
   return { ...(images.length ? { images } : {}), ...(draft.source ? { sourcePath: draft.source.path } : {}) };
 };
 
-export function useSend({ host, book, controller, items, reviewVoice, modeRef, activeBrief, notify, setChooserOpen }: SendDeps): PanelSend {
+export function useSend({ host, book, controller, comments, items, reviewVoice, modeRef, activeBrief, notify, setChooserOpen }: SendDeps): PanelSend {
   /** The text whose empty slots were already pointed out, so a second Send goes through. */
   const slotsWarned = useRef<string>(undefined);
   /** True from the press of Send until main answers, so a second press cannot send twice. */
@@ -69,7 +72,9 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
    * Write mode sends the open draft with the board it carries, if any.
    * Review mode sends the open review, or the decisions on the session's items.
    */
-  const outgoing = async (): Promise<{ payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided } | string> => {
+  const outgoing = async (): Promise<
+    { payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided; pinned?: string } | string
+  > => {
     if (modeRef.current === 'review') {
       const open = book.selected;
       if (open?.review) {
@@ -92,11 +97,17 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
       const unfilled = linked && checkSlots(linked.body);
       if (unfilled) return unfilled;
       await book.flush();
-      const payload = await controller.payload();
-      if (!linked) return { payload, clearsBoard: true };
+      // Comments review the board, so a Send with them keeps the board and clears only the pins.
+      const board = controller.board;
+      if (hasBoardComments(comments.of(board))) await reviewVoice.stop();
+      const pinned = comments.of(board);
+      const reviewed = hasBoardComments(pinned);
+      const payload = { ...(await controller.payload(reviewed ? pinned.pins : undefined)), ...(reviewed ? { comments: pinned } : {}) };
+      const kept = reviewed ? { clearsBoard: false, pinned: board } : { clearsBoard: true };
+      if (!linked) return { payload, ...kept };
       return {
         payload: { ...payload, text: linked.body, draftId: linked.id, ...fromDraft(linked) },
-        clearsBoard: true,
+        ...kept,
         sent: { body: linked.body, board: linked.board },
       };
     }
@@ -130,6 +141,10 @@ export function useSend({ host, book, controller, items, reviewVoice, modeRef, a
       notify(result.message, result.ok ? 'sent' : 'error');
       if (result.ok) {
         if (out.clearsBoard) controller.clearBoard();
+        if (out.pinned) {
+          comments.clear(out.pinned);
+          controller.resetSession();
+        }
         if (out.payload.draftId && out.sent) book.consume(out.payload.draftId, out.sent);
         if (out.decided) {
           items.clear(out.decided.sessionId, out.decided.decisions);

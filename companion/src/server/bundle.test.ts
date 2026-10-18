@@ -169,3 +169,23 @@ describe('a review of an HTML file', () => {
     expect(md).toContain('- Picture: .feedback/sketches/b1/images/abcdef12.jpg');
   });
 });
+
+describe('a sketch with comments pinned to the board', () => {
+  const comments = { overall: '', pins: [{ id: 'p1', elementId: 'start', x: 10, y: 20, type: 'rectangle', label: 'Open the app', text: 'Say what opens.', createdAt: 1 }] };
+
+  it('leads with comments.md and its ask, then the sketch lines', () => {
+    expect(buildDraft('id1', { ...sketch, comments }).split('\n')).toEqual([
+      '@.feedback/sketches/id1/comments.md',
+      'Feedback on the board "flow" from Agent Brief, 1 comment pinned to the board. Make the changes, on the board where they belong, then say what changed.',
+      '',
+      '@.feedback/sketches/id1/sketch.png',
+      'Sketch from the Agent Brief board "flow".',
+    ]);
+  });
+
+  it('writes comments.md beside the sketch', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'b1');
+    await writeBundle(dir, { ...sketch, comments });
+    expect(readFileSync(join(dir, 'comments.md'), 'utf8')).toContain('## 1. rectangle “Open the app”\n\nSay what opens.\n\n- Element: `start`');
+  });
+});

@@ -547,3 +547,14 @@ test('a paste lands on the board while focus and the pointer sit on the panel co
   await paste({ png });
   await expect.poll(kinds, { timeout: 5000 }).toEqual(['image', 'text']);
 });
+
+test('the wheel scrolls the board while a frame name sits under the pointer', async () => {
+  const { app, page } = ctx;
+  await backend(app, 'draw', 'current', { elements: [{ type: 'frame', id: 'f', label: 'Login flow' }, { type: 'rectangle', id: 'r', x: 100, y: 100, frameId: 'f' }] });
+  const label = page.locator('[id$="-frame-name-f"]');
+  await label.hover();
+  const scrollY = () => page.evaluate(() => window.__excalidraw.getAppState().scrollY);
+  const before = await scrollY();
+  await page.mouse.wheel(0, 40);
+  await expect.poll(scrollY).toBe(before - 40);
+});

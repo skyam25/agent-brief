@@ -471,7 +471,7 @@ function CommentCard(props: {
 }
 
 /** Says when the mic is on this target, or its words are still turning into text. */
-function VoiceState(props: { voice: ReviewVoice; target: string }) {
+export function VoiceState(props: { voice: ReviewVoice; target: string }) {
   const listening = props.voice.recording && props.voice.target === props.target;
   const pending = props.voice.pending.has(props.target);
   if (!listening && !pending) return null;

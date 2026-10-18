@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -299,4 +299,52 @@ test('C4.4 the CLI exits 3 when the app is not running', async () => {
   expect(down.stderr).toMatch(/not running/i);
   // afterEach closes again; relaunch so it has something to close.
   ctx = await launch(tempDataDir());
+});
+
+test('pinned comments on the board go out as comments.md, and the board stays while the pins clear', async () => {
+  const { app, page } = ctx;
+  const cwd = project();
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Login work' });
+  await backend(app, 'draw', 'current', {
+    elements: [
+      { type: 'frame', id: 'flow', label: 'Login flow' },
+      { type: 'rectangle', id: 'start', x: 100, y: 100, label: 'Open the app', frameId: 'flow' },
+    ],
+  });
+
+  // C turns the tool on; a click on the shape pins it and focuses its card.
+  await page.locator('.excalidraw').focus();
+  await page.keyboard.press('c');
+  await expect(page.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'true');
+  const spot = await page.evaluate(() => {
+    const s = window.__excalidraw.getAppState();
+    const e = window.__excalidraw.getSceneElements().find((x) => x.id === 'start')!;
+    return { x: (e.x + 20 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (e.y + 20 + s.scrollY) * s.zoom.value + s.offsetTop };
+  });
+  await page.mouse.click(spot.x, spot.y);
+  await expect(page.getByTestId('board-pin')).toHaveCount(1);
+  await expect(page.getByTestId('board-comment-card')).toContainText('rectangle “Open the app”');
+  await expect(page.getByTestId('board-comment-text')).toBeFocused();
+  await page.keyboard.type('Say what opens first.');
+  expect((await sceneElements(page)).filter((e) => !e.isDeleted).map((e) => e.id).sort()).toEqual(expect.arrayContaining(['flow', 'start']));
+  await page.screenshot({ path: join(RESULTS, 'board-comments.png') });
+
+  await sendToSession(page, 'Login work');
+  await expect(page.getByTestId('send-status')).toHaveText('Sent to Login work');
+  const [id] = bundles(cwd);
+  const dir = join(cwd, '.feedback', 'sketches', id);
+  copyFileSync(join(dir, 'sketch.png'), join(RESULTS, 'board-comments-sent.png'));
+  const md = readFileSync(join(dir, 'comments.md'), 'utf8');
+  expect(md).toContain('## 1. rectangle “Open the app”\n\nSay what opens first.\n\n- Element: `start`\n- In frame: “Login flow”');
+  const delivered = (await sock<DeliveriesResponse>(socketPath, 'GET', '/deliveries?session=s1&wait=0')).body.deliveries[0];
+  expect(delivered.draft.split('\n').slice(0, 2)).toEqual([
+    `@.feedback/sketches/${id}/comments.md`,
+    'Feedback on the board "scratch" from Agent Brief, 1 comment pinned to the board. Make the changes, on the board where they belong, then say what changed.',
+  ]);
+
+  // The board stays for Claude to revise; the pins and the column go.
+  expect((await sceneElements(page)).filter((e) => !e.isDeleted).length).toBeGreaterThan(0);
+  await showPanel(app, page);
+  await expect(page.getByTestId('board-pin')).toHaveCount(0);
+  await expect(page.getByTestId('board-comments')).toHaveCount(0);
 });

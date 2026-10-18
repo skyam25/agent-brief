@@ -4,8 +4,10 @@ import { CaptureUpdateAction, getSceneVersion, newElementWith, restore, serializ
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import type { BoardLayout } from '../protocol';
+import type { BoardPin } from '../shared/board-comments';
 import type { BoardHost, BoardReply, BoardRequest, SendPayload } from '../shared/ipc';
 import { boxOf, union, type Shaped } from '../board/geometry';
+import { pinSpot, type Pinnable } from '../board/pin';
 import { TEXT_FONT_NAME } from '../board/palette';
 import { isStackFrame, layoutOfScene, planIsEmpty, stackNames, withLayout, type StackElement } from '../board/stack';
 import type { StrokeEvent } from '../voice/types';
@@ -337,8 +339,8 @@ export class BoardController {
     };
   }
 
-  /** Builds the hand-off. Stops recording first so the last clip is complete. */
-  async payload(): Promise<SendPayload> {
+  /** Builds the hand-off. Stops recording first so the last clip is complete. Comment `pins` show on the PNG as numbered badges. */
+  async payload(pins?: readonly BoardPin[]): Promise<SendPayload> {
     await this.flush();
     if (this.recorder.recording) await this.recorder.stop();
     const api = this.api!;
@@ -348,11 +350,14 @@ export class BoardController {
     const bounds = union(liveBoxes);
     const imageNames = stackNames(asStack(elements));
     const { strokeNumbers, imageLetters } = buildTimeline({ strokes, utterances: [], bounds, imageNames });
+    const byId = new Map((elements as unknown as Pinnable[]).map((e) => [e.id, e]));
+    const pinSpots = pins?.map((p) => pinSpot(p, byId).at);
     return {
       boardName: this.board,
       png: await renderPng(elements, api.getFiles(), {
         maxEdge: SEND_MAX_EDGE,
         numbers: { ...strokeNumbers, ...imageLetters },
+        ...(pinSpots?.length ? { pins: pinSpots } : {}),
       }),
       scene: JSON.parse(this.serializeVisible()),
       notes: this.notes,

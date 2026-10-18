@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type { SessionsResponse } from '../protocol';
 import type { CompanionApi, InitInfo, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
+import { BoardCommentsStore } from './board-comments';
+import { CommentColumn, CommentToggle, useCommentKeys } from './BoardComments';
 import { BoardPicker, LayoutSwitch } from './BoardPicker';
 import { fallbackBoard } from './boardScope';
 import { BoardController, parseScene, type LoadedScene } from './controller';
@@ -182,24 +184,29 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
   modeRef.current = mode;
   const tabScope = useRef<TabScope>({ tabs: [] });
 
-  const { reviewVoice, reviewing, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, toggleRecording, discardVoice } = useVoice({
+  const [comments] = useState(() => new BoardCommentsStore());
+  useCommentKeys(comments, mode === 'sketch');
+  const { reviewVoice, reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, toggleRecording, discardVoice } = useVoice({
     host,
     book,
     controller,
+    comments,
+    board,
     mode,
     modeRef,
     notify,
   });
 
-  /** Sketch has a mic, and Review mode has one while a review is open. */
-  const onMicrophone = mode === 'sketch' ? () => void toggleRecording() : reviewing ? () => void toggleReviewVoice() : undefined;
+  /** Sketch has a mic, which talks to the board's pins while they show. Review mode has one while a review is open. */
+  const onMicrophone = reviewing ? () => void toggleReviewVoice() : mode === 'sketch' ? () => void toggleRecording() : undefined;
 
   /** Switches modes. Write opens the first draft, or a new note when there is none. */
   const changeMode = useCallback(
     (next: Mode) => {
       setModeState(next);
       host.setMode(next);
-      if (next !== 'review') void reviewVoice.stop();
+      // Pins belong to their mode, so the mic on them stops when the mode changes.
+      if (next !== modeRef.current) void reviewVoice.stop();
       if (next === 'sketch') return;
       // Only Sketch has a mic button, so a recording stops here and waits for the next sketch Send.
       if (controller.recorder.recording) void controller.recorder.stop();
@@ -257,6 +264,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
     host,
     book,
     controller,
+    comments,
     items,
     reviewVoice,
     modeRef,
@@ -364,6 +372,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
             recording={recording}
             hasVoice={hasVoice}
             reviewing={reviewing}
+            board={commenting}
             onMicrophone={onMicrophone}
             onDiscard={reviewing ? undefined : () => void discardVoice()}
           />
@@ -541,6 +550,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               <div className="board-bar" data-testid="board-bar">
                 <LayoutSwitch layout={layout} onChange={(l) => void controller.setLayout(l).catch(report('change the layout'))} />
                 <PullIn book={book} board={board} onOpen={openDraft} />
+                <CommentToggle comments={comments} />
                 <div className="cluster end">
                   <button
                     className="ghost icon-button"
@@ -556,8 +566,21 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               </div>
             )}
             {/* The canvas stays mounted under Write and Review, so a view switch keeps its scene and undo. */}
-            <BoardCanvas controller={controller} scene={scene} theme={theme} active={mode === 'sketch'} onReady={onReady} />
+            <BoardCanvas controller={controller} scene={scene} theme={theme} active={mode === 'sketch'} onReady={onReady} comments={comments} board={board} />
           </div>
+          {commenting && (
+            <CommentColumn
+              comments={comments}
+              board={board}
+              voice={reviewVoice}
+              onSendKeys={(e) => {
+                if (e.key === 'Enter' && e.metaKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+            />
+          )}
           {mode === 'write' && (
             <WriteView
               book={book}

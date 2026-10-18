@@ -1,5 +1,6 @@
 /** IPC between the main process and the panel renderer. */
 
+import type { BoardComments } from './board-comments';
 import type { DraftReview, ReviewPayload, ReviewRect } from './review';
 import type { EditResult, HistoryResult, ReviewEdit } from './review-edit';
 import type {
@@ -77,6 +78,8 @@ export interface SendPayload {
   sourcePath?: string;
   /** Comments pinned to an HTML file. The prompt points Claude at review.md. */
   review?: ReviewPayload;
+  /** Comments pinned to the board. The prompt points Claude at comments.md. */
+  comments?: BoardComments;
 }
 
 /** A picture a draft carries, as the Send hands it over. */

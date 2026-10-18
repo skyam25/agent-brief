@@ -2,6 +2,8 @@ import { Excalidraw } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Theme } from '../shared/ipc';
+import type { BoardCommentsStore } from './board-comments';
+import { PinLayer } from './BoardComments';
 import type { BoardController, LoadedScene } from './controller';
 import { FrameTool } from './FrameTool';
 import { installPen } from './pen';
@@ -18,6 +20,8 @@ export function BoardCanvas(props: {
   /** False while another view covers the board, so pastes there are not the board's. */
   active: boolean;
   onReady: (api: ExcalidrawImperativeAPI) => void;
+  comments: BoardCommentsStore;
+  board: string;
 }) {
   const { controller, onReady } = props;
   const ref = useRef<HTMLDivElement>(null);
@@ -86,9 +90,22 @@ export function BoardCanvas(props: {
       const at = { x: (e.clientX - offsetLeft) / zoom.value - scrollX, y: (e.clientY - offsetTop) / zoom.value - scrollY };
       void controller.addScreenshots(files, at);
     };
+
+    // Excalidraw ignores wheel events whose target is not the canvas, and frame names and comment pins sit above it.
+    // Without this, scrolling stops whenever one passes under the pointer.
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.target instanceof HTMLElement) || !e.target.closest('[id*="-frame-name-"], .pin-layer')) return;
+      const canvas = ref.current?.querySelector('canvas.interactive');
+      if (!canvas) return;
+      e.preventDefault();
+      e.stopPropagation();
+      canvas.dispatchEvent(new WheelEvent('wheel', e));
+    };
+
     document.addEventListener('pointermove', onPointerMove, { capture: true, passive: true });
     document.addEventListener('paste', onPaste, { capture: true });
     ref.current?.addEventListener('drop', onDrop, { capture: true });
+    ref.current?.addEventListener('wheel', onWheel, { capture: true, passive: false });
     const root = ref.current;
     return () => {
       pen.dispose();
@@ -97,6 +114,7 @@ export function BoardCanvas(props: {
       document.removeEventListener('pointermove', onPointerMove, { capture: true });
       document.removeEventListener('paste', onPaste, { capture: true });
       root?.removeEventListener('drop', onDrop, { capture: true });
+      root?.removeEventListener('wheel', onWheel, { capture: true });
     };
   }, [controller]);
 
@@ -139,6 +157,7 @@ export function BoardCanvas(props: {
         UIOptions={{ canvasActions: { loadScene: false, export: false, saveToActiveFile: false, toggleTheme: false } }}
       />
       {api && ref.current && <FrameTool api={api} root={ref.current} />}
+      {api && ref.current && <PinLayer api={api} root={ref.current} comments={props.comments} board={props.board} />}
     </div>
   );
 }

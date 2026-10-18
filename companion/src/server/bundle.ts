@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
+import { boardCommentsAsk, boardCommentsMarkdown } from '../shared/board-comments';
 import { imageRefs } from '../shared/drafts';
 import { reviewAsk, reviewMarkdown } from '../shared/review';
 import type { DeliveryInput } from './contract';
@@ -96,6 +97,7 @@ export function buildDraft(id: string, input: DeliveryInput): string {
   const text = sourceLines ? sourceLines.join('\n') : input.text && rewriteImages(input.text, id, input.images ?? []).trim();
   if (!input.png) return text ?? '';
   const lines = [`@${rel}/sketch.png`, `Sketch from the Agent Brief board "${input.boardName}".`];
+  if (input.comments) lines.unshift(`@${rel}/comments.md`, boardCommentsAsk(input.boardName, input.comments), '');
   if (text) lines.unshift(text, '');
   if (input.speech) lines.push(`Said while drawing: "${input.speech}"`);
   if (input.notes) {
@@ -123,6 +125,7 @@ export async function writeBundle(dir: string, input: DeliveryInput): Promise<vo
   } else if (input.text || cleanSourcePath(input.sourcePath)) {
     writes.push(writeFile(join(dir, 'draft.md'), rewriteImages(input.text ?? '', basename(dir), input.images ?? [])));
   }
+  if (input.comments && input.png) writes.push(writeFile(join(dir, 'comments.md'), boardCommentsMarkdown(input.boardName, input.comments)));
   if (input.notes) writes.push(writeFile(join(dir, 'notes.md'), input.notes));
   if (input.timelineMd) writes.push(writeFile(join(dir, 'timeline.md'), input.timelineMd));
   if (input.transcript !== undefined) {
