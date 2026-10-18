@@ -59,8 +59,8 @@ export function useBriefTabs({ host, book, controller, sessions, modeRef, tabSco
       .switchBrief(sessionId)
       .then(async (opened) => {
         if ('draftId' in opened) await showDraft(opened.draftId);
-        // Review stays open across a switch; otherwise the tab shows what it opened.
-        if (modeRef.current !== 'review') changeMode('draftId' in opened ? 'write' : 'sketch');
+        // Review and Initiative stay open across a switch; otherwise the tab shows what it opened.
+        if (modeRef.current !== 'review' && modeRef.current !== 'initiative') changeMode('draftId' in opened ? 'write' : 'sketch');
       })
       .catch(report('open that brief'));
   };

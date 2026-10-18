@@ -3280,3 +3280,172 @@ button.stop-talk:hover {
 .pin-layer .review-hint {
   bottom: 72px;
 }
+
+/* Initiative mode shares Write's list. The pane is one reading column. */
+
+.initiative-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.initiative,
+.initiative-empty,
+.initiative-new {
+  max-width: 720px;
+  padding: 16px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.initiative-pane h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.initiative-pane p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.initiative-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.initiative section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.initiative h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.initiative h3 button {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.initiative-understanding {
+  min-height: 140px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.initiative-understanding:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.initiative-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.initiative-actions .spacer {
+  flex: 1;
+}
+
+.initiative-lines,
+.initiative-map,
+.initiative-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.initiative-lines li {
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+  line-height: 1.45;
+}
+
+.initiative-map li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.initiative-map .role {
+  flex: none;
+  width: 80px;
+  font-weight: 500;
+}
+
+.initiative-map .path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.initiative-map.editing input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.initiative-history li {
+  font-size: 12px;
+}
+
+.initiative-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.initiative-foot button,
+.initiative-map button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.initiative-foot .path,
+.initiative-new .path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.initiative-new label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.initiative-new input {
+  padding: 0 10px;
+}

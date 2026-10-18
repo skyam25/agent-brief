@@ -86,10 +86,24 @@ export const DOCS: Record<string, Doc> = {
     about: 'Lets Claude Code draw pictures in Herdr panes. "on" adds a marked block to your zsh and bash startup files, and a fish conf.d file, that sets CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1 only when HERDR_ENV is set. "off" removes it. "status" shows each file and this shell.',
     example: 'agent-brief herdr-pictures on',
   },
+  initiative: {
+    usage: `agent-brief initiative <verb> [--json]
+  list                                  every initiative
+  recent [--limit 3]                    the ones touched last, one line each
+  find <words>                          the top 3 by overlap with title, Understanding and decisions
+  show <id or title>                    the brief, its folders and recent history
+  attach <id or title> [--session <id>] binds the initiative to this session
+  detach [--session <id>]               unbinds it
+  create <title> --folder <path> [--file draft.json]
+  update <id or title> [--file patch.json]`,
+    about:
+      'Reads and changes initiatives, the standing briefs above sessions. Reads work with the app closed. attach, detach, create and update need the app and exit 3 without it. --session defaults to the Claude Code session that runs the command. A create draft may hold understanding, decisions, open, working and folders. An update patch needs the revision you read, plus any of understanding, decisions, open and folders; a stale revision is a conflict.',
+    example: `agent-brief initiative recent\nagent-brief initiative attach Pricing\necho '{"revision":3,"open":["Legal review of trial terms"]}' | agent-brief initiative update Pricing`,
+  },
 };
 
 /** Commands that use no board and print no JSON. */
-const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output', 'note']);
+const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output', 'note', 'initiative']);
 
 export function commandHelp(name: string): string {
   const d = DOCS[name];

@@ -14,7 +14,7 @@ const NOTES_EXT = '.notes.md';
 export const DEFAULT_BOARD = 'scratch';
 
 /** What the app keeps in its data folder, as opposed to Chromium's caches. */
-const DATA_ENTRIES = ['boards', 'drafts', 'templates', 'history', 'state.json', 'devices.json'];
+const DATA_ENTRIES = ['boards', 'drafts', 'templates', 'history', 'state.json', 'devices.json', 'initiatives.json'];
 
 /**
  * Moves the app's data from the folder it used under an earlier name. Runs

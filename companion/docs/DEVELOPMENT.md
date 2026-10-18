@@ -32,12 +32,13 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
 | Outputs | `<session cwd>/.feedback/outputs/<session id>.json`, written by the mod, read by the app, deleted with an ended session's brief |
 | Board PNGs | `<cwd>/.feedback/boards/`, from `agent-brief png` without `--out`. The newest 20 stay |
 | `.feedback/.gitignore` | `*`, written by whichever writer makes `.feedback` first, so the folder stays out of git |
+| Initiatives | `<data>/initiatives.json` indexes them. Each brief is `<Title> brief.md` in the initiative's own folder |
 
 ## Sending
 
 - `/sketch` in Claude Code opens the panel bound to that session. The breadcrumb names the session, and Send's tooltip reads "Send to <session>". The session's tab is active; clicking it, or its name in the breadcrumb, brings its terminal forward.
 - Main remembers each session's boards (`boards`), its latest board and its latest note in `state.json` (`sessionBriefs`, 30 days, at most 100). `/sketch` reopens the latest board. The first time, it takes the current board if it is empty and no other session holds it, else it makes a board named by the date (`Oct 16`, then `Oct 16 2`). `/write` without text reopens the session's note until it is sent. A board switch in the panel adds the board to the Send target's session and makes it the latest; a History restore does not. The board list carries each board's holder as `sessionId`, so the board picker lists only the active session's boards, or the unfiled ones on Unfiled. New board in a session adds to its boards. A running session's picker offers unfiled boards under Attach, which is a switch that adds the board to the session. Detach on a session's row (`detachBoard`) moves a board to Unfiled; when it was open, the panel switches to the session's newest remaining board, or stays put when none remains.
-- The session sidebar (`SessionSidebar.tsx`) starts with a fixed Unfiled tab, then one tab per record, newest first: running sessions, then ended ones in an Ended group that folds away. A filled dot marks a running session, a hollow one an ended session, and • unsent content. Each tab's second line shows its folder, cut to the last two folders when long. The folded group still shows the active ended session. The active tab lists its boards underneath (`brief-children`), then one line counting its notes, such as "3 notes", that opens Write. Below 720px the sidebar opens as a drawer over the work. Unfiled is active when no session is the target. Clicking it, or ⌃1, calls `openUnfiled`, which clears the target and opens the board Unfiled last used (`unfiledBoard` in `state.json`), else the newest unfiled board, else a new `scratch` (`scratch 2` when a session holds `scratch`). Closing a session tab forgets the record and keeps its boards and notes. The sidebar's hidden state and the Ended group's fold persist in `localStorage`. ⌃1 is Unfiled, ⌃2 onward are sessions in sidebar order, ⌃Tab cycles; ⌘1, ⌘2 and ⌘3 stay on Sketch, Write and Review.
+- The session sidebar (`SessionSidebar.tsx`) starts with a fixed Unfiled tab, then one tab per record, newest first: running sessions, then ended ones in an Ended group that folds away. A filled dot marks a running session, a hollow one an ended session, and • unsent content. Each tab's second line shows its folder, cut to the last two folders when long. The folded group still shows the active ended session. The active tab lists its boards underneath (`brief-children`), then one line counting its notes, such as "3 notes", that opens Write. Below 720px the sidebar opens as a drawer over the work. Unfiled is active when no session is the target. Clicking it, or ⌃1, calls `openUnfiled`, which clears the target and opens the board Unfiled last used (`unfiledBoard` in `state.json`), else the newest unfiled board, else a new `scratch` (`scratch 2` when a session holds `scratch`). Closing a session tab forgets the record and keeps its boards and notes. The sidebar's hidden state and the Ended group's fold persist in `localStorage`. ⌃1 is Unfiled, ⌃2 onward are sessions in sidebar order, ⌃Tab cycles; ⌘1 to ⌘4 stay on Sketch, Write, Review and Initiative.
 - A draft carries `sessionId` when it is filed under a session. Write lists the active tab's drafts only; Unfiled lists the unfiled ones, plus drafts whose session tab was closed. `/write` files the note it opens, and File under…, the first item in the note's ⋯ menu, moves one between tabs. In Write the breadcrumb reads session › note title.
 - An ended session's brief keeps its `cwd` and `host`. The tab shows `cd <cwd> && claude --resume <id>` with Copy and Open in Ghostty, Terminal or herdr (`resumeSession` in `launch.ts`). Resuming re-registers the same session id, so the tab goes live without a new record.
 - Opening the panel any other way (hotkey, tray, Dock) binds no session. The composer shows a "Send to…" chip, which renders only when no running session is active, and Send lists the running sessions or starts a new one in a project folder.
@@ -102,6 +103,33 @@ On a fresh checkout, Electron fetches its binary on first use. `node node_module
   @.feedback/sketches/<id>/review.md
   Review of <path> from Agent Brief, <n> comments pinned to the page. Make the changes in <path>, then say what changed.
   ```
+
+## Initiatives
+
+- `src/main/initiatives.ts` keeps the index, `<data>/initiatives.json`. Each row holds the id, title, brief path, `createdAt`, `lastActiveAt`, the current `revision`, `updatedAt` and `updatedBy`, the sha256 of the brief as last seen, and up to 200 revisions. `attachments` maps a session id to `{ initiativeId?, attachmentRevision, at }`, at most 500, latest first.
+- `src/main/initiative-markdown.ts` reads and writes the brief. Front matter holds `agent_brief_id`. It parses the title, Understanding, Decisions, Open and Folders (`- <path> → <role>`, with an optional ` · <note>`). Every other section, and any text before the first, stays raw and goes back unchanged. A write replaces only the sections whose field changed, and a section the file lacks goes in at its place in the template order.
+- Reading a brief whose hash changed records a revision by `PM`, with no `changed` list. So a write against the revision read before a hand edit is a 409. Main watches each brief's folder with the `ItemsWatcher` and reads a changed brief at once, so the panel hears of hand edits without a request.
+- A brief that is gone is looked for by id beside its old path, then among `*brief.md` files in the folders next to its folder. A hit updates the path; a miss answers `missing: true` with empty fields.
+- Every change, from the socket, the panel or a hand edit, pushes `initiatives:changed` with the summary list. The panel reloads the shown initiative. It never polls.
+- The panel's writes go through IPC as the PM. The socket's carry `updatedBy`, which the CLI fills as `Claude · <session id>` inside Claude Code.
+- Routes, all in `src/protocol.ts`:
+
+  | Route | Answers |
+  |---|---|
+  | `GET /initiatives` | `InitiativeSummary[]`, latest `lastActiveAt` first |
+  | `GET /initiatives/recent?limit=3` | The same, cut to `limit` (1 to 50) |
+  | `GET /initiatives/find?q=<words>` | The top 3 with `score`: a title term counts 3, an Understanding or decision term 1, ties by `lastActiveAt` |
+  | `POST /initiatives` | `InitiativeCreateRequest` → `Initiative`. 409 when the brief file exists |
+  | `GET /initiatives/:id` | `Initiative` |
+  | `PUT /initiatives/:id` | `InitiativeUpdateRequest` → `Initiative`. 409 on a stale revision |
+  | `GET /initiatives/:id/history` | `InitiativeRevision[]`, newest first |
+  | `GET /sessions/:id/initiative` | `InitiativeSnapshot`, Understanding capped at 2,400 characters, or 204 |
+  | `PUT /sessions/:id/initiative` | `{ initiativeId }` → the snapshot. The session must be live |
+  | `DELETE /sessions/:id/initiative` | `{ detached }` |
+
+- Creating, attaching and updating bump `lastActiveAt`. Each attach bumps the session's `attachmentRevision`, so the mod re-sends the snapshot.
+- `agent-brief initiative list | recent | find | show` asks the socket, else reads the index and briefs through a read-only store, which records nothing. `create`, `update`, `attach` and `detach` need the app and exit 3 without it. The CLI finds the data folder through `COMPANION_DATA_DIR`, as the app does.
+- Discover in the Initiative tab sends `/initiative discover` the way Send does: straight to a running session on show, else through Send's picker. Send in Initiative mode sends the same text.
 
 ## Session mode
 

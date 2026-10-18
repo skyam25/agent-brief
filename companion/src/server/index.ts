@@ -17,21 +17,25 @@ import {
 } from '../protocol';
 import { buildDraft, freeId, writeBundle } from './bundle';
 import { feedbackDir, pruneBundles } from './feedback-dir';
-import type { CompanionServer, CompanionServerOptions, DeliveryInput } from './contract';
+import type { CompanionServer, CompanionServerOptions, DeliveryInput, InitiativeBackend } from './contract';
 import {
   BadRequest,
   parseDelete,
   parseDraw,
+  parseInitiativeCreate,
+  parseInitiativeUpdate,
+  parseLimit,
   parseMaxEdge,
   parseNote,
   parseOpen,
   parseRegion,
   parseSession,
+  parseSessionInitiative,
   parseSessionPatch,
   parseUpdate,
 } from './validate';
 
-export type { CompanionServer, CompanionServerOptions, DeliveryInput } from './contract';
+export type { CompanionServer, CompanionServerOptions, DeliveryInput, InitiativeBackend } from './contract';
 
 const SESSION_TTL_MS = 90_000;
 const SWEEP_INTERVAL_MS = 15_000;
@@ -95,6 +99,12 @@ async function readJson(req: http.IncomingMessage): Promise<unknown> {
 export function createCompanionServer(opts: CompanionServerOptions): CompanionServer {
   const { socketPath, backend } = opts;
   const now = opts.now ?? Date.now;
+
+  /** The app's initiative store, or 503. */
+  function initiatives(): InitiativeBackend {
+    if (!opts.initiatives) throw new HttpError(503, 'unavailable', 'this app keeps no initiatives');
+    return opts.initiatives;
+  }
 
   const sessionMap = new Map<string, SessionInfo>();
   const queues = new Map<string, Delivery[]>();
@@ -327,6 +337,34 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
         emitSessions();
         return { json: withAppState(s) };
       }
+      // A binding outlives the session's registration, so reads and detaches take any id.
+      if (parts.length === 3 && sub === 'initiative') {
+        if (method === 'GET') {
+          const snap = initiatives().snapshot(id);
+          return snap ? { json: snap } : { status: 204 };
+        }
+        if (method === 'PUT') {
+          const body = parseSessionInitiative(await readJson(req));
+          liveSession(id);
+          return { json: initiatives().attach(id, body.initiativeId) };
+        }
+        if (method === 'DELETE') return { json: { detached: initiatives().detach(id) } };
+      }
+    }
+
+    if (root === 'initiatives') {
+      const store = initiatives();
+      if (parts.length === 1 && method === 'GET') return { json: store.list() };
+      if (parts.length === 1 && method === 'POST') return { json: store.create(parseInitiativeCreate(await readJson(req))) };
+      if (parts.length === 2 && id === 'recent' && method === 'GET') return { json: store.recent(parseLimit(q.get('limit'))) };
+      if (parts.length === 2 && id === 'find' && method === 'GET') {
+        const words = q.get('q')?.trim();
+        if (!words) throw new BadRequest('q is required');
+        return { json: store.find(words) };
+      }
+      if (parts.length === 2 && method === 'GET') return { json: store.get(id) };
+      if (parts.length === 2 && method === 'PUT') return { json: store.update(id, parseInitiativeUpdate(await readJson(req))) };
+      if (parts.length === 3 && sub === 'history' && method === 'GET') return { json: store.history(id) };
     }
 
     if (root === 'open' && parts.length === 1 && method === 'POST') {
@@ -417,6 +455,11 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
           'Content-Length': reply.png.length,
         });
         res.end(reply.png);
+        return;
+      }
+      if (reply.status === 204) {
+        res.writeHead(204);
+        res.end();
         return;
       }
       const payload = JSON.stringify(reply.json ?? {});

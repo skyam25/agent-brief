@@ -95,6 +95,13 @@ A send of item decisions from Review mode is text alone, such as `Decisions on 2
 - Hide hides a row until Claude writes or declares it again.
 - The mod keeps the list in `<project>/.feedback/outputs/<session>.json`. The app only reads it.
 
+## Initiatives
+
+- Work that runs for weeks gets a short standing brief, its initiative, so a new session starts from where things stand instead of from cold.
+- The brief is a plain Markdown file in the initiative's own folder. Edit it in any editor, and the panel picks up the change.
+- The Initiative tab (⌘4) shows the brief, the sessions working on it, its decisions and open questions, and a map of your folders with Reveal in Finder on each. Edit the Understanding in place, and the history shows who changed what.
+- Nothing starts on its own. With no initiatives yet, Discover asks a session to look through its folder and suggest some, and New initiative starts an empty brief in a folder you pick.
+
 ## Choose where it goes
 
 - Opened from Claude Code, the board is bound to that session. Its tab is selected, and clicking the tab again brings its terminal forward.

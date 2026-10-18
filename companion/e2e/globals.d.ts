@@ -2,6 +2,7 @@ import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import type { SendHistory } from '../src/main/history';
 import type { DraftStore } from '../src/main/drafts';
 import type { FakeRegistrar, Hotkey } from '../src/main/hotkey';
+import type { InitiativeStore } from '../src/main/initiatives';
 import type { Installs } from '../src/main/installs';
 import type { Panel } from '../src/main/panel';
 import type { BoardStore, StateFile } from '../src/main/store';
@@ -21,6 +22,7 @@ interface CompanionTestHooks {
   hotkey: Hotkey;
   newNote(): void;
   drafts: DraftStore;
+  initiatives: InitiativeStore;
   registrar: FakeRegistrar;
   toggle(): void;
   buildDelivery(): Promise<DeliveryInput>;

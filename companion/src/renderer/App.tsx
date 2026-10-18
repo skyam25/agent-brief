@@ -15,6 +15,8 @@ import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
 import { CloseIcon, GearIcon, HistoryIcon, NotesIcon, SidebarIcon } from './Icons';
 import { useStore } from './hooks';
+import { InitiativesStore } from './initiatives';
+import { InitiativeView } from './InitiativeView';
 import { ItemsStore } from './items';
 import { Mic, VoiceStrip } from './Mic';
 import { OutputsStore } from './outputs';
@@ -41,6 +43,7 @@ interface Boot {
   shelf: TemplateShelf;
   items: ItemsStore;
   outputs: OutputsStore;
+  initiatives: InitiativesStore;
 }
 
 async function boot(host: CompanionApi): Promise<Boot> {
@@ -52,11 +55,12 @@ async function boot(host: CompanionApi): Promise<Boot> {
   const shelf = new TemplateShelf(host);
   const items = new ItemsStore(host);
   const outputs = new OutputsStore(host);
+  const initiatives = new InitiativesStore(host);
   await Promise.all([book.load(), shelf.load()]);
   // A launch in Write mode opens on the Notes tab, at the top of its list.
   const first = book.drafts.find((d) => !d.sessionId);
   if (info.mode === 'write' && first) book.select(first.id);
-  return { info, controller, scene: loaded, book, shelf, items, outputs };
+  return { info, controller, scene: loaded, book, shelf, items, outputs, initiatives };
 }
 
 export function App({ host }: { host: CompanionApi }) {
@@ -74,7 +78,7 @@ function errorText(err: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
 
-/** The view tabs, Sketch, Write and Review, in the middle of the strip. Review needs a session tab. */
+/** The view tabs, Sketch, Write, Review and Initiative, in the middle of the strip. Review needs a session tab. */
 function ModeSwitch(props: { mode: Mode; hasReview: boolean; onChange: (mode: Mode) => void }) {
   const tab = (mode: Mode, label: string, key: string) => (
     <button
@@ -93,6 +97,7 @@ function ModeSwitch(props: { mode: Mode; hasReview: boolean; onChange: (mode: Mo
       {tab('sketch', 'Sketch', '⌘1')}
       {tab('write', 'Write', '⌘2')}
       {props.hasReview && tab('review', 'Review', '⌘3')}
+      {tab('initiative', 'Initiative', '⌘4')}
     </div>
   );
 }
@@ -150,7 +155,7 @@ function NoteCrumb(props: { book: DraftBook }) {
   );
 }
 
-function Panel({ host, info, controller, scene, book, shelf, items, outputs }: Boot & { host: CompanionApi }) {
+function Panel({ host, info, controller, scene, book, shelf, items, outputs, initiatives }: Boot & { host: CompanionApi }) {
   const board = useSyncExternalStore(
     (fn) => controller.subscribe(fn),
     () => controller.board,
@@ -292,8 +297,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
         host.hidePanel();
         return;
       }
-      // Unsent decisions stay in memory while the app runs, and reviews save as you go.
-      if (modeRef.current === 'review') {
+      // Unsent decisions stay in memory while the app runs, reviews save as you go, and briefs save on Save.
+      if (modeRef.current === 'review' || modeRef.current === 'initiative') {
         host.hidePanel();
         return;
       }
@@ -615,6 +620,21 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs }: B
               onTrack={(sessionId, on) => void host.setTracking(sessionId, on).catch(report('change item tracking'))}
               onOpenItemOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
               onSend={() => void send()}
+            />
+          )}
+          {mode === 'initiative' && (
+            <InitiativeView
+              store={initiatives}
+              briefs={briefs}
+              home={info.home}
+              onDiscover={() => {
+                // A running session on show takes the prompt at once. Otherwise Send's picker asks which one.
+                if (active?.isLive) void send();
+                else openChooser(true);
+              }}
+              chooseFolder={() => host.chooseFolder()}
+              onReveal={(path) => void host.revealPath(path).catch(report('show that in Finder'))}
+              onError={reviewError}
             />
           )}
           {mode === 'sketch' && notesOpen && (

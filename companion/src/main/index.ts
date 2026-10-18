@@ -18,10 +18,12 @@ import { autoUpdater } from 'electron-updater';
 import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protocol';
 import type { BoardBackend } from '../server/contract';
 import { createCompanionServer, type CompanionServer } from '../server/index';
-import { BadRequest } from '../server/validate';
+import { BadRequest, parseInitiativeCreate, parseInitiativeUpdate } from '../server/validate';
 import {
   CH,
   type BoardReply,
+  type InitiativeDetail,
+  type InitiativeSaveResult,
   type InitInfo,
   type Launcher,
   type LaunchOptions,
@@ -41,7 +43,9 @@ import { isTranslocated } from './cli-install';
 import { createControls } from './controls';
 import { DraftStore } from './drafts';
 import { restoredBoardName, SendHistory } from './history';
+import { expandHome, InitiativeStore } from './initiatives';
 import { createInstalls } from './installs';
+import { ItemsWatcher } from './items-watch';
 import { trayMenuTemplate } from './menus';
 import { Panel } from './panel';
 import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './review-protocol';
@@ -90,6 +94,7 @@ const state = new StateFile(dataDir);
 const history = new SendHistory(dataDir);
 const drafts = new DraftStore(dataDir);
 const templates = new TemplateStore(dataDir);
+const initiatives = new InitiativeStore(dataDir);
 let prompt: string | undefined;
 let sessions: SessionsResponse = { sessions: [] };
 
@@ -238,7 +243,17 @@ async function start(): Promise<void> {
 
   // The socket server: sessions, deliveries and the board API for the CLI and the mod.
   // POST /open runs backend.open, which shows the panel and sets the prompt.
-  const server: CompanionServer = createCompanionServer({ socketPath, backend });
+  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives });
+
+  // Initiatives: a change from the socket, the panel or a brief edited by hand reaches the panel as a push.
+  // Each brief's folder is watched, and reading a changed brief records the PM's revision.
+  const briefWatch = new ItemsWatcher((id) => initiatives.refresh(id));
+  initiatives.onChange(() => {
+    send(CH.initiativesChanged, initiatives.list());
+    briefWatch.sync(initiatives.files());
+  });
+  briefWatch.sync(initiatives.files());
+  const initiativeDetail = (id: string): InitiativeDetail => ({ initiative: initiatives.get(id), history: initiatives.history(id) });
   server.onSessionsChange((s) => {
     sessions = s;
     send(CH.sessions, s);
@@ -302,7 +317,7 @@ async function start(): Promise<void> {
   ipcMain.on(CH.reply, (_e, reply: BoardReply) => bridge.handleReply(reply));
   ipcMain.on(CH.hide, () => panel.hide());
   ipcMain.on(CH.setMode, (_e, mode: Mode) => {
-    if (mode !== 'sketch' && mode !== 'write' && mode !== 'review') return;
+    if (mode !== 'sketch' && mode !== 'write' && mode !== 'review' && mode !== 'initiative') return;
     state.update({ mode });
     controls.buildMenus();
   });
@@ -456,6 +471,29 @@ async function start(): Promise<void> {
   ipcMain.handle(CH.reviewUndo, (_e, sessionId: string, path: unknown) => files.reviewUndo(sessionId, path));
   ipcMain.handle(CH.reviewRedo, (_e, sessionId: string, path: unknown) => files.reviewRedo(sessionId, path));
 
+  // Initiatives. The panel's changes are the PM's revisions.
+  ipcMain.handle(CH.listInitiatives, () => initiatives.list());
+  ipcMain.handle(CH.getInitiative, (_e, id: string) => initiativeDetail(String(id)));
+  ipcMain.handle(CH.createInitiative, (_e, raw: unknown) => {
+    const created = initiatives.create({ ...parseInitiativeCreate(raw), updatedBy: 'PM' });
+    return initiativeDetail(created.id);
+  });
+  ipcMain.handle(CH.updateInitiative, (_e, id: string, raw: unknown): InitiativeSaveResult => {
+    const patch = parseInitiativeUpdate({ ...(raw as object), updatedBy: 'PM' });
+    try {
+      initiatives.update(String(id), patch);
+      return { ok: true, detail: initiativeDetail(String(id)) };
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'conflict') throw err;
+      return { ok: false, message: (err as Error).message, detail: initiativeDetail(String(id)) };
+    }
+  });
+  ipcMain.handle(CH.revealPath, (_e, raw: unknown) => {
+    const target = expandHome(String(raw));
+    if (testMode) openedOutputs.push(`reveal:${target}`);
+    else shell.showItemInFolder(target);
+  });
+
   // Send.
   ipcMain.handle(CH.send, (_e, payload: Outgoing) => sender.send(payload));
   ipcMain.handle(CH.sendNew, (_e, payload: Outgoing, target: { cwd: string; via: Launcher }) => sender.sendNew(payload, target));
@@ -493,6 +531,7 @@ async function start(): Promise<void> {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     files.close();
+    briefWatch.close();
   });
   app.on('activate', controls.openStandalone);
   app.on('second-instance', controls.openStandalone);
@@ -507,6 +546,7 @@ async function start(): Promise<void> {
         hotkey: controls.hotkey,
         newNote: controls.newNote,
         drafts,
+        initiatives,
         registrar: controls.registrar,
         toggle: controls.togglePanel,
         buildDelivery: async () => (await sender.composeSketch(await bridge.request('payload', {}))).input,
