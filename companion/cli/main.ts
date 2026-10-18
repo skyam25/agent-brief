@@ -1,4 +1,4 @@
-import type { BehaviorDocument } from '../src/protocol';
+import type { BehaviorDocument, FeedbackDocument, FeedbackOp, FeedbackProject, FeedbackUpdateResult } from '../src/protocol';
 import { behaviorMarkdown } from '../src/shared/behavior';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -33,6 +33,7 @@ import { commandHelp, DOCS, topHelp } from './help';
 import { apply, FORCE_VAR, isOn, shellFiles } from './herdr';
 import { ApiError, call, callJson, NotRunningError } from './http';
 import { fitSize, loadImage } from './image';
+import { formatFeedback, formatProject, formatRelated, itemHead, relatedView } from './feedback';
 import { DATA_DIR_ENV, defaultDataDir, formatInitiative, formatSummaries } from './initiative';
 import { InputError, parseRegion, validateDraw, validateUpdates } from './validate';
 import { InitiativeStore, resolveInitiative } from '../src/main/initiatives';
@@ -67,17 +68,23 @@ class UsageError extends Error {}
 
 interface Args {
   flags: Map<string, string | true>;
+  /** Every value of a flag that may repeat, in order. */
+  lists: Map<string, string[]>;
   rest: string[];
 }
 
 const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
   'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
+  'label', 'source', 'change', 'where', 'round', 'commit',
 ]);
+/** Value flags that may repeat. */
+const LIST_FLAGS = new Set(['src', 'related']);
 const BOOL_FLAGS = new Set(['json', 'help']);
 
 function parseArgs(argv: string[]): Args {
   const flags = new Map<string, string | true>();
+  const lists = new Map<string, string[]>();
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -87,6 +94,10 @@ function parseArgs(argv: string[]): Args {
       const [name, inline] = arg.slice(2).split(/=(.*)/s, 2);
       if (BOOL_FLAGS.has(name)) {
         flags.set(name, true);
+      } else if (LIST_FLAGS.has(name)) {
+        const value = inline ?? argv[++i];
+        if (value === undefined) throw new UsageError(`--${name} needs a value`);
+        lists.set(name, [...(lists.get(name) ?? []), value]);
       } else if (VALUE_FLAGS.has(name)) {
         const value = inline ?? argv[++i];
         if (value === undefined) throw new UsageError(`--${name} needs a value`);
@@ -98,7 +109,7 @@ function parseArgs(argv: string[]): Args {
       rest.push(arg);
     }
   }
-  return { flags, rest };
+  return { flags, lists, rest };
 }
 
 function str(args: Args, name: string): string | undefined {
@@ -350,6 +361,104 @@ const INITIATIVE_VERBS: Record<string, (ctx: Ctx, words: string[]) => Promise<vo
   },
 };
 
+// ── Feedback ──────────────────────────────────────────────────────────────
+
+/** --session, else the Claude Code session running the command. */
+function feedbackSession(ctx: Ctx): string {
+  const id = str(ctx.args, 'session') ?? ctx.io.env[SESSION_ID_ENV];
+  if (!id) throw new UsageError('feedback needs --session <id>, or run it from Claude Code');
+  return id;
+}
+
+const feedbackRoute = (ctx: Ctx, output?: string) =>
+  `/sessions/${encodeURIComponent(feedbackSession(ctx))}/feedback${output === undefined ? '' : `?path=${encodeURIComponent(output)}`}`;
+
+const readFeedbackDoc = (ctx: Ctx, output: string) => callJson<FeedbackDocument>(ctx.socket, 'GET', feedbackRoute(ctx, output));
+
+/** Reads the version and applies the ops. Ops only add, so a write that lost a race reads again and retries once. */
+async function writeFeedback(ctx: Ctx, output: string, ops: FeedbackOp[]): Promise<FeedbackUpdateResult> {
+  for (let attempt = 0; ; attempt++) {
+    const { version } = await readFeedbackDoc(ctx, output);
+    try {
+      return await callJson<FeedbackUpdateResult>(ctx.socket, 'POST', feedbackRoute(ctx, output), { version, ops });
+    } catch (e) {
+      if (!(e instanceof ApiError && e.code === 'conflict') || attempt > 0) throw e;
+    }
+  }
+}
+
+function itemNumber(raw: string | undefined, verb: string): number {
+  const n = Number(raw?.replace(/^#/, ''));
+  if (!Number.isInteger(n) || n < 1) throw new UsageError(`${verb} needs an item number, got "${raw ?? ''}"`);
+  return n;
+}
+
+/** Every readable feedback document in the project. */
+async function projectDocs(ctx: Ctx): Promise<FeedbackDocument[]> {
+  const project = await callJson<FeedbackProject>(ctx.socket, 'GET', `${feedbackRoute(ctx)}/project`);
+  const docs = await Promise.all(project.files.filter((f) => f.outputExists).map((f) => readFeedbackDoc(ctx, f.output).catch(() => undefined)));
+  return docs.filter((d): d is FeedbackDocument => !!d);
+}
+
+const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[]) => Promise<void>> = {
+  async show(ctx, output) {
+    show(ctx, await readFeedbackDoc(ctx, output), formatFeedback);
+  },
+
+  async round(ctx, output) {
+    const label = str(ctx.args, 'label');
+    if (!label) throw new UsageError('round needs --label, such as "SME" or "customers"');
+    const source = str(ctx.args, 'source');
+    const res = await writeFeedback(ctx, output, [{ op: 'addRound', label, ...(source ? { source } : {}) }]);
+    show(ctx, res, (d) => `added round ${d.added.rounds[0]} to ${d.path}`);
+  },
+
+  async add(ctx, output) {
+    const title = str(ctx.args, 'title');
+    if (!title) throw new UsageError('add needs --title');
+    const rawRound = str(ctx.args, 'round');
+    const round = rawRound === undefined ? undefined : Number(rawRound);
+    if (round !== undefined && !Number.isInteger(round)) throw new UsageError(`--round must be a round number, got "${rawRound}"`);
+    const one = (key: string, flag: string) => { const v = str(ctx.args, flag); return v === undefined ? [] : [{ key, text: v }]; };
+    const lines = [
+      ...(ctx.args.lists.get('src') ?? []).map((text) => ({ key: 'Src', text })),
+      ...one('Change', 'change'),
+      ...one('Where', 'where'),
+      ...(ctx.args.lists.get('related') ?? []).map((text) => ({ key: 'Related', text })),
+    ];
+    const res = await writeFeedback(ctx, output, [{ op: 'addItem', title, ...(round !== undefined ? { round } : {}), ...(lines.length ? { lines } : {}) }]);
+    const n = res.added.items[0];
+    show(ctx, res, (d) => `added ${itemHead(d.items.find((i) => i.n === n)!)} to ${d.path}`);
+  },
+
+  async log(ctx, output, [rawN, key, ...words]) {
+    const n = itemNumber(rawN, 'log');
+    const text = words.join(' ').trim();
+    if (!key || !text) throw new UsageError('log needs <n> <key> <text>, such as: log page.html 6 Claude "note · asked about mobile"');
+    const res = await writeFeedback(ctx, output, [{ op: 'append', item: n, key, text }]);
+    show(ctx, res, (d) => `logged ${key} on ${itemHead(d.items.find((i) => i.n === n)!)}`);
+  },
+
+  async done(ctx, output, [rawN, ...words]) {
+    const n = itemNumber(rawN, 'done');
+    const commit = str(ctx.args, 'commit');
+    const text = ['done', words.join(' ').trim(), commit ? `commit ${commit}` : ''].filter(Boolean).join(' · ');
+    const res = await writeFeedback(ctx, output, [{ op: 'append', item: n, key: 'Claude', text }, { op: 'close', item: n }]);
+    show(ctx, res, (d) => `closed ${itemHead(d.items.find((i) => i.n === n)!)}`);
+  },
+
+  async related(ctx, output, [rawN]) {
+    const text = str(ctx.args, 'text');
+    if ((rawN === undefined) === (text === undefined)) throw new UsageError('related needs an item number or --text <the point>');
+    const n = rawN === undefined ? undefined : itemNumber(rawN, 'related');
+    const docs = await projectDocs(ctx);
+    const own = await readFeedbackDoc(ctx, output);
+    if (!docs.some((d) => d.output === own.output)) docs.push(own);
+    if (n !== undefined && !own.items.some((i) => i.n === n)) throw new ApiError('not_found', `${own.path} has no item #${n}`);
+    show(ctx, relatedView(docs, own.output, { n, text }), (v) => formatRelated(v, own.output));
+  },
+};
+
 const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
   // `show` and `output` print a request line for the mod's Bash hook, which draws or records it.
   // They need no app, so they work where a policy stops the mod's own tools.
@@ -471,6 +580,19 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
       if (dest) { await writeFile(path.resolve(ctx.io.cwd ?? process.cwd(), dest), markdown); ctx.out(dest); }
       else ctx.out(markdown);
     } else show(ctx, doc, (d) => `${d.path} · revision ${d.revision} · version ${d.version}\n${d.rules.map((r) => `[${r.status}] ${r.id}: ${r.text}`).join('\n')}`);
+  },
+
+  async feedback(ctx) {
+    const [verb, output, ...words] = ctx.positional;
+    if (verb === 'list') {
+      const res = await callJson<FeedbackProject>(ctx.socket, 'GET', `${feedbackRoute(ctx)}/project`);
+      show(ctx, res, formatProject);
+      return;
+    }
+    const run = verb ? FEEDBACK_VERBS[verb] : undefined;
+    if (!run) throw new UsageError(`feedback takes list, ${Object.keys(FEEDBACK_VERBS).join(', ')}. Run "agent-brief feedback --help".`);
+    if (!output) throw new UsageError(`feedback ${verb} needs a project-relative output path`);
+    await run(ctx, output, words);
   },
 
   async status(ctx) {

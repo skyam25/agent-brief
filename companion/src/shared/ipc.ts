@@ -1,4 +1,4 @@
-import type { BehaviorDocument, BehaviorDecision } from '../protocol';
+import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
 /** IPC between the main process and the panel renderer. */
 
 import type { BoardComments } from './board-comments';
@@ -459,6 +459,13 @@ export interface CompanionApi extends BoardHost {
   readBehavior(sessionId: string, path: string): Promise<BehaviorDocument>;
   decideBehavior(sessionId: string, path: string, decision: BehaviorDecision): Promise<BehaviorDocument>;
   onBehaviorChanged(fn: () => void): () => void;
+  /** An output's feedback file, parsed. The output may be any file in the session's project. */
+  readFeedback(sessionId: string, path: string): Promise<FeedbackDocument>;
+  /** Applies ops as the user. Rejects a stale `version`. */
+  updateFeedback(sessionId: string, path: string, update: FeedbackUpdate): Promise<FeedbackUpdateResult>;
+  /** Every feedback file in the session's project, with counts. */
+  listFeedback(sessionId: string): Promise<FeedbackProject>;
+  onFeedbackChanged(fn: () => void): () => void;
   reviewUrl(sessionId: string, path: string): Promise<string>;
   /** Applies a review pane edit to the HTML file. `version` is the file's as the page loaded it. */
   reviewEdit(sessionId: string, path: string, version: string, edit: ReviewEdit): Promise<EditResult>;
@@ -552,6 +559,10 @@ export const CH = {
   readBehavior: 'behavior:read',
   decideBehavior: 'behavior:decide',
   behaviorChanged: 'behavior:changed',
+  readFeedback: 'feedback:read',
+  updateFeedback: 'feedback:update',
+  listFeedback: 'feedback:list',
+  feedbackChanged: 'feedback:changed',
   reviewUrl: 'review:url',
   reviewEdit: 'review:edit',
   reviewUndo: 'review:undo',
@@ -623,6 +634,9 @@ export const IPC_INVOKE = {
   openOutputElsewhere: CH.openOutputElsewhere,
   readBehavior: CH.readBehavior,
   decideBehavior: CH.decideBehavior,
+  readFeedback: CH.readFeedback,
+  updateFeedback: CH.updateFeedback,
+  listFeedback: CH.listFeedback,
   reviewUrl: CH.reviewUrl,
   reviewEdit: CH.reviewEdit,
   reviewUndo: CH.reviewUndo,
@@ -659,4 +673,5 @@ export const IPC_EVENT = {
   onOutputs: CH.outputs,
   onInitiativesChanged: CH.initiativesChanged,
   onBehaviorChanged: CH.behaviorChanged,
+  onFeedbackChanged: CH.feedbackChanged,
 } as const satisfies Record<Exclude<EventMethod, 'onRequest'>, string>;

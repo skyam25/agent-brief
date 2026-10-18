@@ -21,6 +21,19 @@ export const DOCS: Record<string, Doc> = {
     about: 'Reads or updates behavior rules beside a prototype. Update reads a version-checked patch from stdin or --file. Export prints acceptance criteria and open assumptions. Requires the app and a registered session.',
     example: 'agent-brief behavior show prototypes/onboarding.html --json',
   },
+  feedback: {
+    usage: `agent-brief feedback <verb> [--session <id>] [--json]
+  list                                   feedback files in the project, with open counts
+  show <output>                          rounds and items, with every line
+  round <output> --label <l> [--source <transcript>]
+  add <output> --title <t> [--src "<round> · <speaker> · <time> · \\"<quote>\\""]... [--change <text>] [--where <selector or heading>] [--related "<output> #N"]... [--round N]
+  log <output> <n> <key> <text>          appends one line, such as Claude "note · asked about mobile" or Src "2 · Maya · 00:14 · \\"...\\""
+  done <output> <n> [text] [--commit <sha>]
+  related <output> (<n> | --text <point>) links and look-alike items across the project`,
+    about:
+      'Keeps feedback items beside an output in <output>.feedback.md. Every write only adds: a round, an item, a line, or a closed checkbox. Dates are added for you. Claude writes Claude lines; You lines come from the panel. Requires the app and a registered session.',
+    example: `agent-brief feedback round prototype/checkout.html --label customers --source transcripts/cust-1.md\nagent-brief feedback add prototype/checkout.html --title "Hard to find the filters" --src '1 · Ana · 03:02 · "Where do I filter?"' --where '#filters'\nagent-brief feedback done prototype/checkout.html 6 --commit 3f2a91c`,
+  },
   status: {
     usage: 'agent-brief status [--json]',
     about: 'Shows whether the app runs. Exits 3 when it does not.',
@@ -108,7 +121,7 @@ export const DOCS: Record<string, Doc> = {
 };
 
 /** Commands that use no board and print no JSON. */
-const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output', 'note', 'initiative']);
+const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output', 'note', 'initiative', 'feedback']);
 
 export function commandHelp(name: string): string {
   const d = DOCS[name];

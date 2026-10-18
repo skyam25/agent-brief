@@ -1,4 +1,5 @@
 import type { BehaviorStore } from '../main/behavior';
+import type { FeedbackStore } from '../main/feedback';
 /**
  * Seams between the socket server (src/server) and the Electron app (src/main).
  * The server owns sessions, deliveries and routing. The app owns the board.
@@ -119,6 +120,7 @@ export interface CompanionServerOptions {
   /** Absent, the initiative routes answer 503. */
   initiatives?: InitiativeBackend;
   behaviors?: Pick<BehaviorStore, 'read' | 'update'>;
+  feedback?: Pick<FeedbackStore, 'read' | 'update' | 'project'>;
   now?: () => number;
 }
 
