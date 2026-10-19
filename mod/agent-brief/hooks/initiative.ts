@@ -6,6 +6,8 @@ import type { InitiativeFolder, InitiativeRole, InitiativeSnapshot, InitiativeSu
 export const INITIATIVE_MARK = '--- Agent Brief initiative ---'
 
 export const RECENT_LIMIT = 3
+/** How many initiatives the Brief pane's Select lists. */
+export const LISTED_LIMIT = 20
 /** The band's change row cuts titles past this. */
 const TITLE_COLUMNS = 24
 
@@ -206,11 +208,11 @@ export function recentLine(recent: readonly Pick<InitiativeChoice, 'title'>[]): 
 
 export const bandTitle = (title: string) => (title.length <= TITLE_COLUMNS ? title : `${title.slice(0, TITLE_COLUMNS - 1).trimEnd()}…`)
 
-/** The change row's choices: the attached initiative first, then the recent ones. */
-export function pickChoices(attached: AttachedInitiative | null, recent: readonly InitiativeChoice[]): { id: string; title: string }[] {
+/** The attached initiative first, then the recent ones, up to `limit`. The band's picker takes four. */
+export function pickChoices(attached: AttachedInitiative | null, recent: readonly InitiativeChoice[], limit = RECENT_LIMIT + 1): { id: string; title: string }[] {
   const rows = attached === null ? [] : [{ id: attached.id, title: attached.title }]
   for (const r of recent) if (!rows.some(row => row.id === r.id)) rows.push({ id: r.id, title: r.title })
-  return rows.slice(0, RECENT_LIMIT + 1)
+  return rows.slice(0, limit)
 }
 
 /** True for a shell command that runs an `agent-brief initiative` verb, after which the band reads the attachment again. */

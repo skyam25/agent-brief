@@ -106,7 +106,7 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While the session is attached to an initiative, the band ends with **Attached Pricing · change**.
+The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While the session is attached to an initiative, the band ends with **Attached Pricing · change**. Without one, it ends with **attach initiative** whenever there are initiatives to pick.
 
 ### Dictation
 
@@ -216,8 +216,8 @@ An initiative is work that runs across many sessions, such as a pricing change. 
 - Once attached, a typed prompt carries the initiative's snapshot after your text, between `--- Agent Brief initiative ---` lines: Understanding (at most 2,400 characters), Decisions, Open and the folder map. It goes only when the token `attachmentRevision:id:revision` changed since the last one, so an unchanged brief costs nothing. It never goes in the system prompt, and slash commands carry none.
 - A compaction drops the snapshot, so the next prompt carries it again. Where an organization manages Claude Code, the compaction event passes over plugins a person installs; run `/initiative refresh` after a compaction there.
 - A detach, from the band, the app or the CLI, gets one note to Claude with the next prompt.
-- **change** on the band (hotkey `i`) swaps the row for a pick among the recent initiatives, with **Detach** and **Cancel**. A pick attaches the session at once.
-- The Brief pane opens on an **Initiative** line with the title and revision, or **Initiative · none**.
+- **change** or **attach initiative** on the band (hotkey `i`) swaps the row for a pick among the recent initiatives, with **Detach** while one is attached, and **Cancel**. A pick attaches the session at once.
+- The Brief pane's header has an **Initiative** Select that lists **None** and up to 20 initiatives, most recent first. A pick attaches the session, and **None** detaches it. Opening the pane reads the list again. On a surface without fields, or with no initiatives, the line reads the title and revision, or **Initiative · none**.
 - When Claude runs an `agent-brief initiative` command, the band reads the attachment again.
 - The `initiative-brief` skill tells Claude when to attach, how to keep the brief short and current, how to draft one and how to run Discover. In the brief and in its replies, Claude names folders by role (Sources, Decisions, Working, Grounding, Outputs), not by their names.
 
@@ -236,7 +236,7 @@ agent-brief initiative update <id> --file <json>
 
 Reads work with the app closed. Writes exit 3 while it is down.
 
-The mod's socket calls: `GET /initiatives/recent?limit=3` at registration and when **change** opens, `GET /sessions/<id>/initiative` on each typed prompt while the app is up, `PUT /sessions/<id>/initiative` with `{ initiativeId }` from **change**, and `DELETE /sessions/<id>/initiative` from **Detach** and `/initiative off`. Every failure is silent, and the prompt goes in as typed. The types are in `hooks/companion-protocol.ts`. Initiatives need an Agent Brief app with the Initiative tab; an older app answers 404 and the mod adds nothing.
+The mod's socket calls: `GET /initiatives/recent?limit=20` at registration, when the pick row opens and when the Brief pane opens, `GET /sessions/<id>/initiative` on each typed prompt while the app is up, `PUT /sessions/<id>/initiative` with `{ initiativeId }` from the pick row and the pane's Select, and `DELETE /sessions/<id>/initiative` from **Detach**, **None** and `/initiative off`. Every failure is silent, and the prompt goes in as typed. The types are in `hooks/companion-protocol.ts`. Initiatives need an Agent Brief app with the Initiative tab; an older app answers 404 and the mod adds nothing.
 
 ### Pictures in the chat
 
@@ -318,4 +318,4 @@ It prints one JSON line, either `{ ok: true, name, dir, reportPath, screenshots,
 - `claude plugin validate .` checks the mod.
 - `claude plugin test .` runs the tests in `tests/`.
 - `node tests/live/run-live.mjs` runs a live check. It starts a real companion server and an interactive Claude Code in tmux, and checks registration, fill delivery, typed-text safety, `/sketch` and exit. It needs tmux and the companion repo's esbuild, and it sends nothing to the model. It uses a temp inbox so it never touches `~/Downloads/feedback-inbox`.
-- `node tests/live/initiative.mjs` checks the band's **Attached · change**, the pick row, the Brief pane's Initiative line and `/initiative off` and `refresh` against a stub app, then stops the stub and checks `/initiative` still answers. `COLS=110` sets the width. It sends nothing to the model, and stops a model turn if one starts.
+- `node tests/live/initiative.mjs` checks the band's **Attached · change** and **attach initiative**, the pick row, the Brief pane's Initiative Select and `/initiative off` and `refresh` against a stub app, then stops the stub and checks `/initiative` still answers. `COLS=110` sets the width. It sends nothing to the model, and stops a model turn if one starts.

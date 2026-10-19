@@ -29,7 +29,7 @@ import {
 import { INITIATIVE_COMMAND_SPEC } from './initiative'
 import {
   loadInitiative, loadRecent, initiativeContext, initiativeCommand, attachFromBand, detachFromBand,
-  fetchInitiative, currentInitiative, initiativeView, markInitiativeResumed, invalidateInitiative,
+  fetchInitiative, initiativeView, markInitiativeResumed, invalidateInitiative,
   recordInitiativePrompt, type Appended, type InitiativeEnvironment,
 } from './initiative-feature'
 import { isInitiativeCommand } from './initiative'
@@ -622,6 +622,7 @@ function toggleBrief($: EngineInterface): Promise<void> {
   return opening.then(async opened => {
     if (!opened.isPlaced) $.ui.toast(`Brief pane not shown: ${opened.reason}`, { timeoutMs: 8000 })
     await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
+    await loadRecent($, initiativeEnvironment($)).catch(err => log($, `recent initiatives failed: ${String(err)}`))
   })
 }
 
@@ -1182,7 +1183,7 @@ export const register: Register = (on, options) => {
   // A one-row band with Sketch, Stack, Write, Talk, Mode and Brief buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write or /mode does.
   // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
   // Talk dictates into the prompt box until pressed again. Mode shows until the first prompt.
-  // Brief opens and closes the Brief pane. An attached initiative adds `Attached <title> · change`.
+  // Brief opens and closes the Brief pane. An attached initiative adds `Attached <title> · change`, and none adds `attach initiative`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const mode = await read($, modeRef)
@@ -1246,6 +1247,7 @@ export const register: Register = (on, options) => {
     const questions = await read($, questionsRef)
     const table = $.ui.resolve(e)
     const hasFields = e.surface !== 'mobile'
+    const { initiative, listed } = await initiativeView($)
     const pane: BriefPaneView = {
       placement: props.placement,
       hasFields,
@@ -1260,7 +1262,8 @@ export const register: Register = (on, options) => {
       answers: await read($, answersRef),
       asked: questions.length,
       view: await read($, briefRef),
-      initiative: await currentInitiative($),
+      initiative,
+      initiatives: listed,
     }
     const asked = questionsTree(table, questions, hasFields, {
       answer: (id, text) => update($, questionsRef, list => answerQuestion(list, id, text)).then(() => undefined),
@@ -1274,6 +1277,8 @@ export const register: Register = (on, options) => {
       openInApp: (ref, tab) => openOutputInApp($, ref, tab),
       pickMode: mode => pickBriefMode($, mode),
       pickFidelity: fidelity => pickBriefFidelity($, fidelity),
+      attach: id => attachFromBand($, initiativeEnvironment($), id),
+      detach: () => detachFromBand($, initiativeEnvironment($)),
       track: () => trackCommand($, '').then(text => $.ui.toast(text, { timeoutMs: 8000 })),
       hold: (n, text) => update($, answersRef, list => holdAnswer(list, n, text)).then(() => undefined),
       clear: n => update($, answersRef, list => dropAnswer(list, n)).then(() => undefined),

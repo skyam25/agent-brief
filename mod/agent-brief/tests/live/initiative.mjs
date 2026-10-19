@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Live check of the Initiative band, Brief pane line and /initiative: a real interactive Claude Code
+ * Live check of the Initiative band, Brief pane Select and /initiative: a real interactive Claude Code
  * session in tmux with this checkout's mod, a stub app on a Unix socket, and no model calls.
  * Run by hand, never by `claude plugin test`.
  *
@@ -151,8 +151,8 @@ try {
   check(`band reads Attached Pricing · change at ${COLS} columns`, Boolean(attachedBand))
 
   await bandKey('b')
-  const paneLine = await until(() => capture().includes('Initiative · Pricing · revision 7'), 15_000, 500)
-  check('Brief pane opens on its Initiative line', Boolean(paneLine))
+  const paneLine = await until(() => /Initiative · revision 7 +Pricing ▾/.test(capture()), 15_000, 500)
+  check('Brief pane opens on its Initiative Select', Boolean(paneLine))
   keys('Escape')
   await sleep(400)
   await bandKey('b')
@@ -174,6 +174,7 @@ try {
   const off = await run('/initiative off', 'Detached from Onboarding.')
   await sleep(800)
   check('/initiative off detaches', Boolean(off) && !bandLine().includes('Attached') && calls.some(c => c.startsWith('DELETE') && c.includes('/initiative')))
+  check('with none attached the band offers attach initiative', /(i: )?attach initiative/.test(bandLine()))
 
   const none = await run('/initiative refresh', 'This session has no initiative.')
   check('/initiative refresh with nothing attached says so', Boolean(none))

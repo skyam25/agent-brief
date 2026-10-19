@@ -5,7 +5,9 @@ import {
   INITIATIVE_APP_DOWN,
   INITIATIVE_NONE,
   INITIATIVE_NOT_RUNNING,
+  LISTED_LIMIT,
   NOT_ATTACHED,
+  RECENT_LIMIT,
   attachPrompt,
   attachedToast,
   attachedOf,
@@ -66,8 +68,9 @@ export async function fetchInitiative($: EngineInterface, env: InitiativeEnviron
   return snapshot
 }
 
+/** Reads enough initiatives for the Brief pane's Select. The band and the first prompt's line take the first few. */
 export async function loadRecent($: EngineInterface, env: InitiativeEnvironment): Promise<void> {
-  const reply = await env.request('GET', recentInitiativesPath())
+  const reply = await env.request('GET', recentInitiativesPath(LISTED_LIMIT))
   if (reply?.ok) await update($, recentRef, () => summariesOf(reply.body).map(choiceOf))
 }
 
@@ -132,7 +135,7 @@ export async function initiativeCommand($: EngineInterface, env: InitiativeEnvir
   }
   if (parsed.kind === 'draft') {
     await loadRecent($, env)
-    handToClaude($, env, draftPrompt({ sessionId, cwd: await env.home(), outputs: await read($, outputsRef), recent: await read($, recentRef) }))
+    handToClaude($, env, draftPrompt({ sessionId, cwd: await env.home(), outputs: await read($, outputsRef), recent: (await read($, recentRef)).slice(0, RECENT_LIMIT) }))
     return { text: 'Asking Claude to draft an initiative from this session…' }
   }
   const snapshot = await fetchInitiative($, env)
@@ -149,7 +152,7 @@ export async function initiativeCommand($: EngineInterface, env: InitiativeEnvir
   return { text: detachedText(snapshot.title), context: [detachedNote(snapshot.title)] }
 }
 
-/** The band's change row: attaches this session to the picked initiative. */
+/** The band's picker and the Brief pane's Select: attaches this session to the picked initiative. */
 export async function attachFromBand($: EngineInterface, env: InitiativeEnvironment, initiativeId: string): Promise<void> {
   await update($, pickingRef, () => 'none')
   if (!(await env.ready())) {
@@ -167,7 +170,7 @@ export async function attachFromBand($: EngineInterface, env: InitiativeEnvironm
   $.ui.toast(attachedToast(snapshot.title), { timeoutMs: 8000 })
 }
 
-/** The change row's Detach. Claude reads a note about it with the next prompt. */
+/** The picker's Detach, or None in the Brief pane's Select. Claude reads a note about it with the next prompt. */
 export async function detachFromBand($: EngineInterface, env: InitiativeEnvironment): Promise<void> {
   await update($, pickingRef, () => 'none')
   const title = (await read($, initiativeRef))?.title
@@ -181,10 +184,10 @@ export async function detachFromBand($: EngineInterface, env: InitiativeEnvironm
 }
 
 
-export function currentInitiative($: EngineInterface) { return read($, initiativeRef) }
 export async function initiativeView($: EngineInterface) {
   const initiative = await read($, initiativeRef)
-  return { initiative, choices: pickChoices(initiative, await read($, recentRef)) }
+  const recent = await read($, recentRef)
+  return { initiative, choices: pickChoices(initiative, recent), listed: pickChoices(initiative, recent, LISTED_LIMIT + 1) }
 }
 export function markInitiativeResumed($: EngineInterface) { return update($, recentDoneRef, () => true) }
 export function invalidateInitiative($: EngineInterface) { return update($, staleRef, () => true) }

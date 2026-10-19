@@ -122,7 +122,7 @@ Buttons above the prompt open Sketch, Stack and Write, dictate with Talk, set th
 | `/apply-feedback` | Applies recordings from the companion Chrome extension |
 
 - **🎙 Talk** dictates into the prompt box, with no panel.
-- **▣ Brief** opens a pane with the session's outputs and their open feedback, Claude's open questions, the items and the mode, for quick decisions without leaving the terminal.
+- **▣ Brief** opens a pane with the session's outputs and their open feedback, Claude's open questions, the items, the mode and the initiative, for quick decisions without leaving the terminal. Pick an initiative there to attach the session without remembering its name.
 - Under each longer reply, Copy and Open in Agent Brief take the reply with you.
 
 The [plugin README](mod/agent-brief/README.md) covers each command in full.

@@ -386,13 +386,68 @@ describe('the band and the pane', () => {
     expect(await band($)).toContain('Attached Pricing · ')
   })
 
-  test('the Brief pane opens on an Initiative line', async ($, on) => {
+  test('attach initiative shows on the band only while none is attached and there are some to pick', async ($, on) => {
     const { app } = await setup($, on)
-    expect(JSON.stringify(await $.ui.render(briefPane()))).toContain('Initiative · none')
+    expect(await band($)).toContain('"label":"attach initiative"')
     attach(app)
     await $.prompt.submit(typed('go'))
+    expect(await band($)).not.toContain('attach initiative')
+  })
+
+  test('attach initiative is absent when there are no initiatives', async ($, on) => {
+    const seated = await setupCompanion($, on)
+    on('session.messages', () => ({ value: [] }))
+    on('ui.panes', () => ({ value: [] }))
+    await seated.start()
+    await seated.clock.settle()
+    expect(await band($)).not.toContain('attach initiative')
+  })
+
+  test('attach initiative picks among the recent ones and attaches over the socket', async ($, on) => {
+    const { app, world } = await setup($, on)
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'initiative-attach' })
+    const row = await band($)
+    expect(row).toContain('"label":"Pricing"')
+    expect(row).toContain('"label":"Checkout"')
+    expect(row).not.toContain('"label":"Detach"')
+    await $.ui.press({ plugin: 'agent-brief', key: 'initiative-ini-checkout' })
+    expect(app.to('PUT', `/sessions/${SESSION_ID}/initiative`).map(c => c.body)).toEqual([{ initiativeId: 'ini-checkout' }])
+    expect(world.toasts).toContain('Attached Checkout. Claude gets its brief with your next prompt.')
+    expect(await band($)).toContain('Attached Checkout · ')
+  })
+
+  test('the Brief pane\'s Initiative Select lists None and every initiative', async ($, on) => {
+    const { app } = await setup($, on)
+    app.initiatives.set('ini-search', { ...app.initiatives.get('ini-pricing')!, id: 'ini-search', title: 'Search', revision: 2 })
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief' })
     const pane = JSON.stringify(await $.ui.render(briefPane()))
-    expect(pane).toContain('Initiative · ')
+    expect(pane).toContain('"key":"brief-initiative"')
+    for (const title of ['None', 'Pricing', 'Onboarding', 'Checkout', 'Search']) expect(pane).toContain(`"label":"${title}"`)
+  })
+
+  test('picking in the Initiative Select attaches, and None detaches', async ($, on) => {
+    const { app, world } = await setup($, on)
+    await $.ui.render(briefPane())
+    await $.ui.select({ plugin: 'agent-brief', key: 'brief-initiative', value: 'ini-onboarding' })
+    expect(app.to('PUT', `/sessions/${SESSION_ID}/initiative`).map(c => c.body)).toEqual([{ initiativeId: 'ini-onboarding' }])
+    const pane = JSON.stringify(await $.ui.render(briefPane()))
+    expect(pane).toContain('"value":"ini-onboarding"')
+    expect(pane).toContain('Initiative · revision 3')
+    await $.ui.select({ plugin: 'agent-brief', key: 'brief-initiative', value: '' })
+    expect(app.attachments.has(SESSION_ID)).toBe(false)
+    expect(world.toasts).toContain('Detached from Onboarding. Agent Brief adds nothing more to your prompts.')
+  })
+
+  test('the Initiative line is text without fields', async ($, on) => {
+    const { app } = await setup($, on)
+    const mobile = { ...briefPane(), surface: 'mobile' as const }
+    expect(JSON.stringify(await $.ui.render(mobile))).toContain('Initiative · none')
+    attach(app)
+    await $.prompt.submit(typed('go'))
+    const pane = JSON.stringify(await $.ui.render(mobile))
+    expect(pane).not.toContain('brief-initiative')
     expect(pane).toContain('Pricing')
     expect(pane).toContain(' · revision 7')
   })

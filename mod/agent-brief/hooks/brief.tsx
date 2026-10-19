@@ -25,6 +25,8 @@ export type BriefPaneView = {
   view: BriefView
   /** The attached initiative, or null while the session has none. */
   initiative: AttachedInitiative | null
+  /** What the Initiative Select offers: the attached initiative, then the recent ones. */
+  initiatives: { id: string; title: string }[]
 }
 
 export type BriefActions = {
@@ -34,6 +36,8 @@ export type BriefActions = {
   openInApp: (ref: string, tab?: 'feedback') => Promise<void>
   pickMode: (mode: SessionMode) => Promise<void>
   pickFidelity: (fidelity: PrototypeFidelity) => Promise<void>
+  attach: (id: string) => Promise<void>
+  detach: () => Promise<void>
   track: () => Promise<void>
   hold: (n: number, text: string) => Promise<void>
   clear: (n: number) => Promise<void>
@@ -50,7 +54,8 @@ export type BriefActions = {
 export type BriefSlots = { questions?: RenderElement | null }
 
 /**
- * The Brief pane: a header with the Mode Select and the Initiative line, Outputs, the Questions slot, then Items.
+ * The Brief pane: a header with the Mode Select and the Initiative Select, Outputs, the Questions slot, then Items.
+ * Without fields, or with no initiatives to pick, the Initiative line is text.
  * Seated inline above the prompt it draws one summary line and the Ready outputs, until Expand.
  */
 export function briefTree(table: ElementTable, pane: BriefPaneView, act: BriefActions, slots: BriefSlots = {}) {
@@ -125,7 +130,20 @@ function headerTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
           />
         </Box>
       )}
-      {pane.initiative === null ? (
+      {Select && pane.initiatives.length > 0 ? (
+        <Box justifyContent="space-between">
+          <Text dimColor>{pane.initiative === null ? 'Initiative' : `Initiative · revision ${pane.initiative.revision}`}</Text>
+          <Select
+            key="brief-initiative"
+            options={[{ value: '', label: 'None' }, ...pane.initiatives.map(c => ({ value: c.id, label: c.title }))]}
+            value={pane.initiative?.id ?? ''}
+            onSelect={value => {
+              if (value === (pane.initiative?.id ?? '')) return
+              void (value === '' ? act.detach() : act.attach(value))
+            }}
+          />
+        </Box>
+      ) : pane.initiative === null ? (
         <Text dimColor>Initiative · none</Text>
       ) : (
         <Text wrap="truncate-end">
