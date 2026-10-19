@@ -82,9 +82,15 @@ The user's Send decisions message starts with `@<output>.feedback.md` and lists 
 
 ## Item workspaces
 
-Each item has one Sketch board, `fb-<output stem>-<n>`, with a `Round N` frame per round. The user opens it from the item card and saves it to the item, which adds a `Workspace:` line and a PNG in `<output>.feedback/`. Saving sends you nothing.
+Each item has one Sketch board, `fb-<output stem>-<n>`, with a `Round N` frame per round. The user opens it from the item card, draws, pins comments and talks, then saves it to the item. Saving sends you nothing. Each save adds:
 
-- To draw options on an item, run `agent-brief feedback workspace <output> <n>`. It prints the board name first, making the board or the newest round's frame when missing.
+- a `You: … · note · pin <k> on <element> · <words>` line per pin, numbered as the badges on the picture, and one for the overall note
+- `Workspace: <date> · saved · <board> · <output>.feedback/<n>-workspace-<k>.png`, a new picture each time, so older lines keep theirs
+
+`You: … · note · Write note "<title>"` means the user opened a Write note for the item. The note reaches you only when they send it.
+
+- To draw options on an item, run `agent-brief feedback workspace <output> <n>`. It prints the board name first, making the board or any missing round frame.
+- To see a saved workspace, read the PNG its latest `Workspace:` line names, beside the output.
 - Draw inside that round's frame with `agent-brief draw --board <name>`. Read it with `agent-brief read --board <name>`.
 - Never save for the user or write `Workspace:` lines yourself.
 
