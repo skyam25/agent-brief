@@ -148,6 +148,13 @@ describe('seeding', () => {
     expect(seedRequest(roundOnly, pictured, shot)).toBeUndefined();
   });
 
+  it("gives a new round's frame that round's quote and the latest Change", () => {
+    const revised = parseFeedback(`${FILE}    Change: Show the filters as chips above the grid.\n`).items[0]!;
+    const roundOne = { elements: [{ id: 'f1', type: 'frame' as const, label: 'Round 1', x: 0, y: 0 }], bounds: { x: 0, y: 0, width: 1100, height: 720 } };
+    const sticky = seedRequest(revised, roundOne)!.elements.find((e) => e.type === 'sticky')!;
+    expect(sticky.label).toBe('"I couldn\'t find the filters" — Maya\n\nChange: Show the filters as chips above the grid.');
+  });
+
   it('falls back to the title when the item has no quote', () => {
     expect(seedRequest(roundOnly, empty)!.elements[1]!.label).toBe('Pricing is thin');
   });
