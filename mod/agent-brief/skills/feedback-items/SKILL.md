@@ -14,8 +14,9 @@ Write the file only through `agent-brief feedback`. The app checks versions, add
 Change nothing in the output until the user decides. A round is cataloged, not applied.
 
 1. Run `agent-brief feedback list` and `agent-brief feedback show <output>` to see what exists.
-2. Add the round: `agent-brief feedback round <output> --label <SME|customers|…> --source <transcript path>`.
-3. Go through the source in order. For each point, quick ones included, check for a match first:
+2. List the output in this session's Outputs, even when you only catalog against it: call `declare_output`, or run `agent-brief output "<title>" --path <output> --status ready`. Review shows the session's outputs, and this puts the feedback in reach. Files with feedback from earlier sessions also show there.
+3. Add the round: `agent-brief feedback round <output> --label <SME|customers|…> --source <transcript path>`.
+4. Go through the source in order. For each point, quick ones included, check for a match first:
    - `agent-brief feedback related <output> --text "<the point in a few words>"` lists look-alike items across the project.
    - The same point seen again is the same item. Add a `Src:` line to it, never a new item:
      `agent-brief feedback log <output> 6 Src '2 · Maya · 00:14 · "Still no filters"'`
@@ -31,7 +32,7 @@ agent-brief feedback add prototype/checkout.html \
   --related 'pricing.html #3'
 ```
 
-4. Tell the user how many items the round added or joined, and that they decide in Agent Brief, Review → the output → Feedback.
+5. Tell the user how many items the round added or joined, and that they decide in Agent Brief, Review → the output → Feedback.
 
 Item fields:
 
@@ -65,13 +66,14 @@ Item fields:
 - The file is add-only. Writes append a line, add an item or round, or flip a checkbox. Never edit or delete a past line, even a wrong one. Correct it with a new line.
 - `Claude:`, `You:`, `Workspace:` and `Review:` lines are dated events. You write `Claude:` lines; `You:` lines come only from the user in the panel.
 - State comes from the last state verb: open (`cataloged`, `reopen`), accepted (`accept`), rejected (`reject`, `rejected`), done (`done`). `[x]` marks done or rejected.
-- `You: … · sent` marks decisions the user already sent you.
+- `You: … · sent · through N` marks what the user already sent you: the item's first N dated events. Events after it are still unsent. An old `You: … · sent` without `through` covers the events above it.
 
 ## Act on decisions
 
-The user's Send decisions message starts with `@<output>.feedback.md` and lists the items decided since the last send.
+The user's Send decisions message starts with `@<output>.feedback.md` and lists the items decided since the last send. An item can also list a saved workspace, with its board and picture.
 
 1. Read the file with `agent-brief feedback show <output>`. The newest `You:` lines on each item are the decision and its reasons.
+   - For each saved workspace, look at the picture it names (a project path), then run `agent-brief read --board <board>`. The drawing is the user's answer, as much as a note is.
 2. Accepted: make the change, within what the user authorized. Then log it:
    `agent-brief feedback done <output> <n> "<what changed, briefly>" --commit <sha>`
    In a git repo, commit first and pass the hash. Outside one, leave `--commit` off.
@@ -79,6 +81,14 @@ The user's Send decisions message starts with `@<output>.feedback.md` and lists 
 4. Notes and voice notes: answer with `agent-brief feedback log <output> <n> Claude "note · <answer>"`. Reopened items get a fresh look and a `Claude` line.
 5. Log what you did not do, too, such as `Claude "note · blocked on the pricing API"`. Every change gets a dated line.
 6. Say which items you closed and which still wait on the user.
+
+## Review pins on an output with feedback
+
+A review.md from the Review pane can tie a pin to feedback items, with a line like `- Feedback: item #3 in checkout.html.feedback.md`.
+
+- Make the change the pin asks for, as with any review.
+- For each named item, log the pin: `agent-brief feedback log <output> 3 Review 'pin 2 · "<the pin's words, short>"'`.
+- `- Feedback: no item matches this element` means the pin is not on any item's `Where:`. If it is new feedback, catalog it as a new item with the pin's element as `Where:`. File it under a `review` round, adding one with the review.md path as its source when the newest round is not one. If it is only a small fix, make it and say so.
 
 ## Item workspaces
 
