@@ -1,12 +1,13 @@
 /**
  * Feedback items for one output: grouped by the round they first came up in,
  * newest round on top. Each decision, note and voice note saves to the file at
- * once as a dated You line. Send decisions hands Claude what you said since the last send.
+ * once as a dated You line. Send decisions hands Claude what you said and saved since the last send.
+ * On a page, a click lists the items on that element, and a picked item ties the next pin to it.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackItem, FeedbackOp } from '../protocol';
-import { decisionsPrompt, pendingDecisions } from '../shared/feedback';
+import { decisionsPrompt, pendingDecisions, receiptBatches, type PendingDecision } from '../shared/feedback';
 import { workspaceSummary } from '../shared/feedback-workspace';
 import type { CompanionApi } from '../shared/ipc';
 import { BeforeAfter, type PictureHost } from './BeforeAfter';
@@ -14,12 +15,13 @@ import { FeedbackGraph } from './FeedbackGraph';
 import { ExternalIcon, MicIcon } from './Icons';
 import { ReviewVoice } from './review-voice';
 import { VoiceState } from './ReviewView';
+import type { FixedSend } from './useSend';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
 
-export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'requestMicrophone'> & PictureHost;
+export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'requestMicrophone' | 'onVisibility' | 'openItemOutput'> & PictureHost;
 
-/** Hands Claude the decisions text. `onSent` runs once it went out. */
-export type SendFeedback = (sessionId: string, text: string, onSent: () => Promise<void>) => void;
+/** Hands Claude what `build` makes. `build` gives a reason instead when there is nothing to send. */
+export type SendFeedback = (sessionId: string, build: () => Promise<FixedSend | string>) => void;
 
 const cleanError = (err: unknown) => (err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
@@ -27,6 +29,8 @@ export interface FeedbackDocState {
   doc?: FeedbackDocument;
   error?: string;
   refresh: () => void;
+  /** Reads the file again and gives the document, or undefined when the read failed. */
+  reload: () => Promise<FeedbackDocument | undefined>;
   /** Applies ops as the user. Ops only add, so a stale version reads the file again and retries once. */
   apply: (ops: FeedbackOp[]) => Promise<boolean>;
 }
@@ -85,7 +89,7 @@ export function useFeedbackDoc(host: FeedbackHost, sessionId: string | undefined
     },
     [host, sessionId, path, load],
   );
-  return { doc, error, refresh: () => void load(), apply };
+  return { doc, error, refresh: () => void load(), reload: load, apply };
 }
 
 /** The project's feedback files, by output path, for the outputs list. */
@@ -134,9 +138,16 @@ export function FeedbackPanel(props: {
   focus?: number;
   /** Opens an item of another output, from the graph. */
   onOpenItem?: (output: string, n: number) => void;
+  /** The items on the page element clicked last. Absent until a click. */
+  pointed?: number[];
+  /** The item the next review pin joins. */
+  picked?: number;
+  onPick?: (n: number | undefined) => void;
 }) {
   const { doc, error, apply } = props.feedback;
   const [graphShown, setGraphShown] = useState(false);
+  /** Bumps on Refresh, so the graph reads the files again too. */
+  const [graphReads, setGraphReads] = useState(0);
   const [focus, setFocus] = useState(props.focus);
   const root = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -148,13 +159,28 @@ export function FeedbackPanel(props: {
     setGraphShown(false);
     setFocus(n);
   };
+  /** Marks an item, so the next pin on the page joins it. */
+  const pick = (n: number) => {
+    openItem(doc?.output ?? '', n);
+    props.onPick?.(n);
+  };
+  const sources = new Map((doc?.rounds ?? []).flatMap((r) => (r.source ? [[r.n, r.source] as const] : [])));
+  const openSource = (path: string) => {
+    if (props.sessionId) void props.host.openItemOutput(props.sessionId, path).catch((err: Error) => props.onError(`Could not open ${path}: ${cleanError(err)}`));
+  };
   const applyRef = useRef(apply);
   applyRef.current = apply;
+  /** Voice lines still being written to the file. */
+  const writes = useRef(new Set<Promise<boolean>>());
   const [voice] = useState(
     () =>
       new ReviewVoice({
         transcribe: (clip) => props.host.transcribeClip(clip),
-        onText: (target, text) => void applyRef.current([{ op: 'append', item: Number(target), key: 'You', text: `voice · ${oneLine(text)}` }]),
+        onText: (target, text) => {
+          const write = applyRef.current([{ op: 'append', item: Number(target), key: 'You', text: `voice · ${oneLine(text)}` }]);
+          writes.current.add(write);
+          void write.finally(() => writes.current.delete(write));
+        },
         onError: (message) => props.onError(message),
       }),
   );
@@ -162,7 +188,14 @@ export function FeedbackPanel(props: {
     (fn) => voice.subscribe(fn),
     () => voice.version,
   );
-  useEffect(() => () => void voice.stop(), [voice]);
+  // The mic closes when the panel hides or this view goes, and words already heard still land.
+  useEffect(() => {
+    const off = props.host.onVisibility((visible) => !visible && void voice.stop());
+    return () => {
+      if (typeof off === 'function') off();
+      void voice.stop();
+    };
+  }, [voice, props.host]);
 
   // One mic for the panel. Pressing another item's mic moves the words there.
   const toggleVoice = async (n: number) => {
@@ -182,11 +215,25 @@ export function FeedbackPanel(props: {
   };
 
   const pending = doc ? pendingDecisions(doc) : [];
+  /** Writes a receipt on each item through the last event sent. Throws naming the items left unmarked. */
+  const markSent = async (sent: PendingDecision[]) => {
+    const unmarked: string[] = [];
+    for (const ops of receiptBatches(sent)) {
+      if (!(await applyRef.current(ops))) unmarked.push(...ops.map((o) => (o.op === 'append' ? `#${o.item}` : '')));
+    }
+    if (unmarked.length) throw new Error(`the file was not marked for ${unmarked.join(', ')}. The next Send repeats them.`);
+  };
   const send = () => {
-    if (!doc || !props.sessionId || !pending.length) return;
-    const numbers = pending.map((p) => p.item.n);
-    props.onSend(props.sessionId, decisionsPrompt(doc, pending), async () => {
-      await apply(numbers.map((n) => ({ op: 'append', item: n, key: 'You', text: 'sent' })));
+    if (!props.sessionId || !pending.length) return;
+    props.onSend(props.sessionId, async () => {
+      // Words still turning into text reach the file before the send reads it.
+      await voice.stop();
+      await Promise.all([...writes.current]);
+      const fresh = await props.feedback.reload();
+      if (!fresh) return 'Could not read the feedback file. Nothing was sent.';
+      const now = pendingDecisions(fresh);
+      if (!now.length) return 'Decide something first.';
+      return { text: decisionsPrompt(fresh, now), onSent: () => markSent(now) };
     });
   };
 
@@ -194,6 +241,16 @@ export function FeedbackPanel(props: {
   const rounds = [...(doc?.rounds ?? [])].sort((a, b) => b.n - a.n);
   const known = new Set(rounds.map((r) => r.n));
   const loose = items.filter((i) => i.round === undefined || !known.has(i.round));
+  const showItem = (item: FeedbackItem) =>
+    props.onShow &&
+    ((selector: string) => {
+      props.onShow!(selector);
+      props.onPick?.(item.n);
+    });
+  const sourceOf = (item: FeedbackItem) => {
+    const src = item.sources[0];
+    return src && sources.get(src.round);
+  };
   const pictures = (item: FeedbackItem) => doc && <BeforeAfter host={props.host} sessionId={props.sessionId} output={doc.output} item={item} />;
 
   return (
@@ -204,7 +261,14 @@ export function FeedbackPanel(props: {
           <button className="ghost" aria-pressed={graphShown} title="How this project's sources, items, outputs and workspaces link" onClick={() => setGraphShown(!graphShown)} data-testid="feedback-graph-toggle">
             Graph
           </button>
-          <button className="ghost" onClick={props.feedback.refresh}>
+          <button
+            className="ghost"
+            onClick={() => {
+              props.feedback.refresh();
+              setGraphReads((n) => n + 1);
+            }}
+            data-testid="feedback-refresh"
+          >
             Refresh
           </button>
         </span>
@@ -212,7 +276,30 @@ export function FeedbackPanel(props: {
       {doc && <p className="muted feedback-path" title={doc.path}>{doc.path}</p>}
       {error && <p role="alert" className="behavior-error">{error}</p>}
       {!doc && !error && <p>Loading feedback…</p>}
-      {graphShown && <FeedbackGraph host={props.host} sessionId={props.sessionId} output={doc?.output} onOpenItem={openItem} />}
+      {graphShown && <FeedbackGraph host={props.host} sessionId={props.sessionId} output={doc?.output} reads={graphReads} onOpenItem={openItem} />}
+      {!graphShown && props.onPick && items.length > 0 && (props.pointed || props.picked !== undefined) && (
+        <div className="feedback-pointed" data-testid="feedback-pointed">
+          {props.picked !== undefined ? (
+            <span>
+              Your next pin joins #{props.picked}.{' '}
+              <button className="ghost link" onClick={() => props.onPick!(undefined)} data-testid="feedback-unpick">
+                Clear
+              </button>
+            </span>
+          ) : props.pointed!.length ? (
+            <>
+              <span className="muted">On this element</span>
+              {props.pointed!.map((n) => (
+                <button key={n} className="chip" onClick={() => pick(n)} data-testid={`feedback-pointed-${n}`}>
+                  #{n} {items.find((i) => i.n === n)?.title}
+                </button>
+              ))}
+            </>
+          ) : (
+            <span className="muted">No feedback items on this element.</span>
+          )}
+        </div>
+      )}
       {!graphShown && doc && !items.length && (
         <p className="muted" data-testid="feedback-empty">
           No feedback yet. Hand Claude a transcript and ask it to catalog the points against this output.
@@ -229,7 +316,7 @@ export function FeedbackPanel(props: {
             </h4>
             <ol className="review-cards">
               {group.map((item) => (
-                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} />
+                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} />
               ))}
             </ol>
           </div>
@@ -238,7 +325,7 @@ export function FeedbackPanel(props: {
       {!graphShown && loose.length > 0 && (
         <ol className="review-cards">
           {loose.map((item) => (
-            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={props.onShow} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} />
+            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} />
           ))}
         </ol>
       )}
@@ -274,6 +361,9 @@ function ItemCard(props: {
   pictures?: ReactNode;
   /** The graph opened this item. */
   focused?: boolean;
+  /** The transcript of the first quote's round, when it names one. */
+  source?: string;
+  onSource?: (path: string) => void;
 }) {
   const { item } = props;
   const workspace = workspaceSummary(item);
@@ -316,7 +406,18 @@ function ItemCard(props: {
             <span className="muted">
               {' '}
               — {src.speaker}
-              {src.time ? ` · ${src.time}` : ''}
+              {src.time && src.time !== '-' && props.source && props.onSource ? (
+                <>
+                  {' · '}
+                  <button className="ghost link" title={`Open ${props.source}`} onClick={() => props.onSource!(props.source!)} data-testid="feedback-source">
+                    {src.time}
+                  </button>
+                </>
+              ) : src.time ? (
+                ` · ${src.time}`
+              ) : (
+                ''
+              )}
             </span>
           )}
         </blockquote>

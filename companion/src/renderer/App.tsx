@@ -526,7 +526,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               onTrack={(sessionId, on) => void host.setTracking(sessionId, on).catch(report('change item tracking'))}
               onOpenItemOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
               onSend={() => void send()}
-              onSendFeedback={(sessionId, text, onSent) => void sendText(sessionId, text, onSent)}
+              onSendFeedback={(sessionId, build) => void sendText(sessionId, build)}
             />
           )}
           {mode === 'initiative' && (

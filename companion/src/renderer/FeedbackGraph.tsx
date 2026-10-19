@@ -65,7 +65,14 @@ function edgePath(a: Placed, b: Placed, kind: string): string {
   return `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`;
 }
 
-export function FeedbackGraph(props: { host: GraphHost; sessionId?: string; output?: string; onOpenItem: (output: string, n: number) => void }) {
+export function FeedbackGraph(props: {
+  host: GraphHost;
+  sessionId?: string;
+  output?: string;
+  /** A change reads the files again. */
+  reads?: number;
+  onOpenItem: (output: string, n: number) => void;
+}) {
   const [graph, setGraph] = useState<Graph>();
   const [error, setError] = useState<string>();
   const [truncated, setTruncated] = useState(false);
@@ -88,7 +95,7 @@ export function FeedbackGraph(props: { host: GraphHost; sessionId?: string; outp
       gone = true;
       off();
     };
-  }, [props.host, props.sessionId]);
+  }, [props.host, props.sessionId, props.reads]);
 
   if (error) return <p role="alert" className="behavior-error">{error}</p>;
   if (!graph) return <p>Loading the graph…</p>;

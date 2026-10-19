@@ -15,6 +15,12 @@ import type { ItemsStore } from './items';
 import type { ReviewVoice } from './review-voice';
 import type { ToastKind } from './Toast';
 
+/** A fixed text to hand a session, such as Feedback's decisions. `onSent` runs once it went out and throws when its follow-up failed. */
+export interface FixedSend {
+  text: string;
+  onSent?: () => Promise<void>;
+}
+
 /** The decisions an Items Send delivers, so success can clear them. */
 interface Decided {
   sessionId: string;
@@ -41,8 +47,8 @@ export interface PanelSend {
   sendNew: (cwd: string, via: Launcher) => Promise<void>;
   copyPrompt: (cwd: string) => Promise<void>;
   openChooser: (open: boolean) => void;
-  /** Hands a running session a fixed text, such as Feedback's decisions. `onSent` runs once it went out. */
-  sendText: (sessionId: string, text: string, onSent?: () => Promise<void>) => Promise<void>;
+  /** Hands a running session what `build` makes, or says why `build` made nothing. */
+  sendText: (sessionId: string, build: () => Promise<FixedSend | string>) => Promise<void>;
 }
 
 /** The payload fields a draft adds: the pictures its body references and the output file it was copied from, when it has them. */
@@ -134,19 +140,32 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     return { payload: { ...(await controller.payload()), text: draft.body, draftId: draft.id, ...fromDraft(draft) }, clearsBoard: true, sent };
   };
 
-  /** Builds the payload, or takes a fixed one, hands it over, and hides the panel once it went out. */
-  const deliver = async (handOff: (payload: Outgoing) => Promise<SendResult>, fixed?: { payload: Outgoing; onSent?: () => Promise<void> }) => {
+  const fixedOutgoing = async (build: () => Promise<FixedSend | string>): ReturnType<typeof outgoing> => {
+    const fixed = await build();
+    return typeof fixed === 'string' ? fixed : { payload: { text: fixed.text }, clearsBoard: false, onSent: fixed.onSent };
+  };
+
+  /** Builds the payload, or a fixed one, hands it over, and hides the panel once it went out. */
+  const deliver = async (handOff: (payload: Outgoing) => Promise<SendResult>, fixed?: () => Promise<FixedSend | string>) => {
     if (sending.current) return;
     sending.current = true;
     setChooserOpen(false);
     notify('Preparing…', 'progress');
     try {
-      const out = fixed ? { ...fixed, clearsBoard: false } : await outgoing();
+      const out = fixed ? await fixedOutgoing(fixed) : await outgoing();
       if (typeof out === 'string') {
         notify(out);
         return;
       }
       const result = await handOff(out.payload);
+      // A follow-up that failed keeps the panel up, so the user sees what is left undone.
+      if (result.ok && out.onSent) {
+        const failed = await out.onSent().then(() => undefined, (err: Error) => err.message);
+        if (failed) {
+          notify(`Sent, but ${failed}`, 'error');
+          return;
+        }
+      }
       notify(result.message, result.ok ? 'sent' : 'error');
       if (result.ok) {
         if (out.clearsBoard) controller.clearBoard();
@@ -159,7 +178,6 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
           items.clear(out.decided.sessionId, out.decided.decisions);
           void items.load(out.decided.sessionId).catch(() => undefined);
         }
-        if (out.onSent) await out.onSent().catch((err: Error) => notify(`Sent, but the file was not marked: ${err.message}`, 'error'));
         host.hidePanel();
       }
     } catch (err) {
@@ -181,7 +199,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     }
     await deliver((p) => host.send(p));
   };
-  const sendText = async (sessionId: string, text: string, onSent?: () => Promise<void>) => {
+  const sendText = async (sessionId: string, build: () => Promise<FixedSend | string>) => {
     if (sending.current) return;
     sending.current = true;
     try {
@@ -189,7 +207,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     } finally {
       sending.current = false;
     }
-    await deliver((p) => host.send(p), { payload: { text }, onSent });
+    await deliver((p) => host.send(p), build);
   };
   const sendNew = (cwd: string, via: Launcher) => deliver((p) => host.sendNew(p, { cwd, via }));
   const copyPrompt = (cwd: string) => deliver((p) => host.copyPrompt(p, cwd));

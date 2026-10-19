@@ -22,9 +22,25 @@ const KIND_LABELS: Record<OutputKind, string> = {
 /** The last part of a path, or the whole ref for a URL. */
 const fileName = (ref: string) => ref.split('/').filter(Boolean).at(-1) ?? ref;
 
+/** A file ref as a plain project path, so `./docs/a.md` and `docs/a.md` meet. */
+export function canonicalRef(ref: string): string {
+  const parts: string[] = [];
+  for (const part of ref.split('/')) {
+    if (part === '..') parts.pop();
+    else if (part && part !== '.') parts.push(part);
+  }
+  return parts.join('/');
+}
+
+const EXT_KINDS: Record<string, OutputKind> = { md: 'markdown', markdown: 'markdown', mdx: 'markdown', html: 'html', htm: 'html', pdf: 'pdf', docx: 'docx', pptx: 'pptx', xlsx: 'xlsx' };
+
+/** A row for a project file that carries feedback but is not among the session's outputs. */
+const feedbackRecord = (f: FeedbackFileSummary): OutputRecord => ({ ref: f.output, kind: EXT_KINDS[f.output.split('.').at(-1)?.toLowerCase() ?? ''] ?? 'other', tier: 'detected' });
+
 /**
- * The session's outputs: declared ones with their status, then the files Claude
- * only touched, folded under a toggle. Renders nothing when there are none.
+ * The session's outputs: declared ones with their status, then the project's other
+ * files with feedback, then the files Claude only touched, folded under a toggle.
+ * Renders nothing when there are none.
  */
 export function OutputsList(props: {
   store: OutputsStore;
@@ -33,14 +49,14 @@ export function OutputsList(props: {
   selectedRef?: string;
   onOpen: (ref: string) => void;
   onDismiss: (ref: string) => void;
-  /** Feedback files by output. An HTML output shows its feedback in the review pane instead. */
+  /** Feedback files by project path. An HTML output shows its feedback in the review pane instead. */
   feedback?: Map<string, FeedbackFileSummary>;
   onFeedback?: (ref: string) => void;
 }) {
   const { store, sessionId } = props;
   useStore(store);
   const [touchedOpen, setTouchedOpen] = useState<Record<string, boolean>>({});
-  const [menu, setMenu] = useState<MenuPoint & { ref: string }>();
+  const [menu, setMenu] = useState<MenuPoint & { ref: string; feedbackOnly: boolean }>();
 
   // A failed read keeps the last copy.
   useEffect(() => {
@@ -48,31 +64,40 @@ export function OutputsList(props: {
   }, [store, sessionId]);
 
   const all = store.info(sessionId)?.outputs ?? [];
-  if (all.length === 0) return null;
+  // Feedback lives with the file, so another session's items show here too.
+  const listed = new Set(all.map((r) => canonicalRef(r.ref)));
+  const others = [...(props.feedback?.values() ?? [])].filter((f) => f.outputExists && !listed.has(f.output)).map(feedbackRecord);
+  if (all.length === 0 && others.length === 0) return null;
   const declared = all.filter((r) => r.tier === 'declared');
   const touched = all.filter((r) => r.tier === 'detected');
   const open = !!touchedOpen[sessionId];
-  const row = (r: OutputRecord) => (
-    <OutputRow
-      key={r.ref}
-      record={r}
-      index={all.indexOf(r)}
-      selected={r.ref === props.selectedRef}
-      onOpen={() => props.onOpen(r.ref)}
-      onDismiss={() => props.onDismiss(r.ref)}
-      feedback={takesFeedback(r.ref) ? props.feedback?.get(r.ref) : undefined}
-      onFeedback={props.onFeedback && takesFeedback(r.ref) ? () => props.onFeedback!(r.ref) : undefined}
-      onMenu={(e) => {
-        e.preventDefault();
-        setMenu({ ref: r.ref, x: e.clientX, y: e.clientY });
-      }}
-    />
-  );
+  const row = (r: OutputRecord, index: number, feedbackOnly = false) => {
+    const summary = isUrlRef(r.ref) ? undefined : props.feedback?.get(canonicalRef(r.ref));
+    return (
+      <OutputRow
+        key={r.ref}
+        record={r}
+        index={index}
+        selected={r.ref === props.selectedRef}
+        onOpen={() => props.onOpen(r.ref)}
+        onDismiss={feedbackOnly ? undefined : () => props.onDismiss(r.ref)}
+        feedbackOnly={feedbackOnly ? summary : undefined}
+        feedback={takesFeedback(r.ref) ? summary : undefined}
+        onFeedback={props.onFeedback && takesFeedback(r.ref) ? () => props.onFeedback!(canonicalRef(r.ref)) : undefined}
+        onMenu={(e) => {
+          e.preventDefault();
+          setMenu({ ref: r.ref, x: e.clientX, y: e.clientY, feedbackOnly });
+        }}
+      />
+    );
+  };
+  const listedRow = (r: OutputRecord) => row(r, all.indexOf(r));
 
   return (
     <section className="outputs" data-testid="outputs">
-      <SectionHeader title="Outputs" count={all.length} />
-      {declared.length > 0 && <ul>{declared.map(row)}</ul>}
+      <SectionHeader title="Outputs" count={all.length + others.length} />
+      {declared.length > 0 && <ul>{declared.map(listedRow)}</ul>}
+      {others.length > 0 && <ul data-testid="outputs-feedback">{others.map((r, i) => row(r, all.length + i, true))}</ul>}
       {touched.length > 0 && (
         <>
           <button
@@ -86,7 +111,7 @@ export function OutputsList(props: {
             </span>
             Touched ({touched.length})
           </button>
-          {open && <ul>{touched.map(row)}</ul>}
+          {open && <ul>{touched.map(listedRow)}</ul>}
         </>
       )}
       {menu && (
@@ -108,25 +133,27 @@ export function OutputsList(props: {
               role="menuitem"
               onClick={() => {
                 setMenu(undefined);
-                props.onFeedback!(menu.ref);
+                props.onFeedback!(canonicalRef(menu.ref));
               }}
               data-testid="output-menu-feedback"
             >
               Feedback
             </button>
           )}
-          <button
-            className="ghost"
-            role="menuitem"
-            title="Hide until Claude writes it again"
-            onClick={() => {
-              setMenu(undefined);
-              props.onDismiss(menu.ref);
-            }}
-            data-testid="output-menu-hide"
-          >
-            <CloseIcon /> Hide from list
-          </button>
+          {!menu.feedbackOnly && (
+            <button
+              className="ghost"
+              role="menuitem"
+              title="Hide until Claude writes it again"
+              onClick={() => {
+                setMenu(undefined);
+                props.onDismiss(menu.ref);
+              }}
+              data-testid="output-menu-hide"
+            >
+              <CloseIcon /> Hide from list
+            </button>
+          )}
         </ContextMenu>
       )}
     </section>
@@ -141,8 +168,11 @@ function OutputRow(props: {
   index: number;
   selected: boolean;
   feedback?: FeedbackFileSummary;
+  /** Set for a file listed only for its feedback, which the row names in place of a status. */
+  feedbackOnly?: FeedbackFileSummary;
   onOpen: () => void;
-  onDismiss: () => void;
+  /** Absent for a row the session's outputs do not hold. */
+  onDismiss?: () => void;
   onFeedback?: () => void;
   onMenu: (e: MouseEvent) => void;
 }) {
@@ -162,7 +192,11 @@ function OutputRow(props: {
           {showRef && <span className="muted output-ref">{r.ref}</span>}
           <span className="muted preview">
             <span className="kind-tag">{KIND_LABELS[r.kind]}</span>
-            {declared ? (
+            {props.feedbackOnly ? (
+              <span className="origin" data-testid={`output-feedback-only-${index}`}>
+                Feedback · {props.feedbackOnly.open} open
+              </span>
+            ) : declared ? (
               <span className={`status-chip ${r.status ?? 'drafting'}`} data-testid={`output-status-${index}`}>
                 {r.status === 'ready' ? 'Ready' : 'Drafting'}
               </span>
@@ -172,15 +206,17 @@ function OutputRow(props: {
           </span>
         </span>
       </button>
-      <button
-        className="ghost icon-button small output-dismiss"
-        aria-label="Hide"
-        title="Hide until Claude writes it again"
-        onClick={props.onDismiss}
-        data-testid={`output-dismiss-${index}`}
-      >
-        <CloseIcon />
-      </button>
+      {props.onDismiss && (
+        <button
+          className="ghost icon-button small output-dismiss"
+          aria-label="Hide"
+          title="Hide until Claude writes it again"
+          onClick={props.onDismiss}
+          data-testid={`output-dismiss-${index}`}
+        >
+          <CloseIcon />
+        </button>
+      )}
       {props.feedback && props.onFeedback && (
         <button className="ghost output-feedback" title="Open its feedback items" onClick={props.onFeedback} data-testid={`output-feedback-${index}`}>
           Feedback{props.feedback.open ? ` · ${props.feedback.open}` : ''}

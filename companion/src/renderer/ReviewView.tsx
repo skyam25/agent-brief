@@ -139,10 +139,17 @@ export function ReviewView(props: {
   const [missing, setMissing] = useState<string[]>([]);
   const [pagePath, setPagePath] = useState<string>();
   const onPage = pagePath === undefined || pagePath === review.path;
+  /** The feedback items on the element clicked last. */
+  const [pointed, setPointed] = useState<number[]>();
+  /** The feedback item the next pin joins. */
+  const [picked, setPicked] = useState<number>();
+  const items = feedback.doc?.items ?? [];
 
   // The latest values, for the message handler.
-  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage });
-  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage };
+  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage, items, picked });
+  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage, items, picked };
+  /** The items whose `Where:` is among the selectors an element matched. */
+  const itemsAt = useCallback((matches: string[] = []) => live.current.items.filter((i) => i.where && matches.includes(i.where)).map((i) => i.n), []);
 
   useEffect(() => {
     if (!draft.sessionId) {
@@ -244,18 +251,22 @@ export function ReviewView(props: {
   );
 
   const addPin = useCallback(
-    async (anchor: ReviewAnchor, view: ReviewRect) => {
+    async (anchor: ReviewAnchor, view: ReviewRect, matches?: string[]) => {
       const box = frame.current?.getBoundingClientRect();
       const current = book.get(live.current.draftId);
       if (!box || !current?.review) return;
+      // With feedback items, a pin joins the picked item, else the items on its element.
+      const { picked } = live.current;
+      const feedback = live.current.items.length ? (picked !== undefined ? [picked] : itemsAt(matches)) : undefined;
+      setPicked(undefined);
       const room = Object.keys(current.attachments ?? {}).length < MAX_PICTURES;
       const picture = room ? await host.capturePanel(cropRect(box, view)).catch(() => undefined) : undefined;
-      const comment: ReviewComment = { id: newCommentId(), text: '', anchor, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}) };
+      const comment: ReviewComment = { id: newCommentId(), text: '', anchor, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}), ...(feedback ? { feedback } : {}) };
       book.addComment(current.id, comment, picture);
       setSide('comments');
       select(comment.id, true);
     },
-    [book, host, select],
+    [book, host, select, itemsAt],
   );
 
   useEffect(() => {
@@ -273,7 +284,8 @@ export function ReviewView(props: {
       if (m.type === 'reload') reload();
       if (m.type === 'key' && m.key === 'e') setEditing((on) => !on);
       if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
-      if (m.type === 'pin' && live.current.onPage) void addPin(m.anchor, m.view);
+      if (m.type === 'pin' && live.current.onPage) void addPin(m.anchor, m.view, m.matches);
+      if (m.type === 'pointed') setPointed(itemsAt(m.matches));
       if (m.type === 'open-pin') select(m.id, true);
       if (m.type === 'behavior-missing') props.onError(sideRef.current === 'feedback' ? 'That element is not on the page now. Ask Claude to update the item\'s Where line.' : 'That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');
       if (m.type === 'missing') setMissing(m.ids);
@@ -287,7 +299,13 @@ export function ReviewView(props: {
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [addPin, select, host, props.onError, saveEdit, reload, history, setCommenting, setEditing]);
+  }, [addPin, select, host, props.onError, saveEdit, reload, history, setCommenting, setEditing, itemsAt]);
+
+  // The page reports clicks on elements that feedback items name.
+  const wheres = JSON.stringify([...new Set(items.flatMap((i) => (i.where ? [i.where] : [])))]);
+  useEffect(() => {
+    if (loaded) post({ type: 'where', selectors: JSON.parse(wheres) as string[] });
+  }, [loaded, wheres, post]);
 
   // C toggles comment mode, E edit mode, and Escape leaves either, unless a field has the keys.
   useEffect(() => {
@@ -470,7 +488,7 @@ export function ReviewView(props: {
             <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { setSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
             <button className={side === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'feedback'} data-testid="feedback-tab" onClick={() => { setSide('feedback'); setCommenting(false); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>
           </div>
-          {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} onOpenItem={props.onOpenFeedbackItem} onWorkspace={(item) => { setCommenting(false); void workspace.openItem(item); }} workspaceOpening={workspace.opening} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
+          {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} pointed={pointed} picked={picked} onPick={setPicked} onOpenItem={props.onOpenFeedbackItem} onWorkspace={(item) => { setCommenting(false); void workspace.openItem(item); }} workspaceOpening={workspace.opening} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
 
           <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
             <span className="section-head">Overall</span>
@@ -551,6 +569,11 @@ function CommentCard(props: {
         <span className="review-anchor" title={c.anchor.selector}>
           {c.anchor.quote ? c.anchor.tag : anchorLabel(c.anchor, 40)}
         </span>
+        {!!c.feedback?.length && (
+          <span className="kind-tag" title="The feedback items this pin is about" data-testid="review-feedback">
+            {c.feedback.map((n) => `#${n}`).join(' ')}
+          </span>
+        )}
         {props.missing && (
           <span className="review-missing" title="The page no longer has this element" data-testid="review-missing">
             Gone
