@@ -38,7 +38,7 @@ export function Mic(props: {
   return (
     <button className="talk" title={`${title} (${TALK_KEY})`} aria-pressed="false" onClick={props.onMicrophone} data-testid="mic">
       <MicIcon />
-      {label}
+      <span className="talk-label">{label}</span>
       <kbd>{TALK_KEY}</kbd>
     </button>
   );

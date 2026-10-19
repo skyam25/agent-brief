@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BoardsResponse, FeedbackDocument, OutputRecord, ReadResponse } from '../src/protocol';
@@ -128,7 +128,8 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   expect(existsSync(png)).toBe(true);
   expect(readFileSync(png).subarray(1, 4).toString()).toBe('PNG');
   await expect(layer.getByTestId('workspace-saved')).toHaveText(`Workspace · saved ${shortDate(today)}`);
-  await expect(layer.getByTestId('board-comments')).toHaveCount(0);
+  await expect(layer.getByTestId('board-comment-card')).toHaveCount(0);
+  await expect(layer.getByTestId('board-overall')).toHaveValue('');
   await expect(layer.getByTestId('board-pin')).toHaveCount(0);
   await expect(layer.getByTestId('workspace-rail-entry')).toHaveText([/check mobile too/, /pin 1 on .+ · make it bigger/, /Option B reads better/]);
   expect(await deliveriesFor(h.socketPath, 'ws-1')).toHaveLength(0);
@@ -157,6 +158,84 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   await expect.poll(() => readFileSync(file, 'utf8')).toContain(`    Workspace: ${today} · saved · fb-checkout-1 · checkout.html.feedback/1-workspace-2.png\n`);
   expect(existsSync(png)).toBe(true);
   expect(existsSync(join(cwd, 'checkout.html.feedback/1-workspace-2.png'))).toBe(true);
+});
+
+/** Where the header's parts sit: whether any part drops below the first row, and whether Save shows whole. */
+const headLayout = (layer: Locator) =>
+  layer.locator('.workspace-head').evaluate((head) => {
+    const box = head.getBoundingClientRect();
+    const parts = [...head.children].map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0);
+    const save = head.querySelector('[data-testid="workspace-save"]')!.getBoundingClientRect();
+    return {
+      height: Math.round(box.height),
+      wraps: parts.some((r) => r.top >= box.top + box.height / 2),
+      saveShown: save.width > 0 && save.right <= box.right + 0.5 && save.top >= box.top && save.bottom <= box.bottom,
+      quoteCut: (() => {
+        const q = head.querySelector<HTMLElement>('.workspace-quote');
+        return !!q && q.scrollWidth > q.clientWidth;
+      })(),
+    };
+  });
+
+test('the layer keeps one column and a one-line header, and hides the panel footer', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { app, page } = ctx;
+  await app.evaluate(() => globalThis.__companion.panel.win.setSize(1400, 900));
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'ws-5', cwd, title: 'Checkout' });
+  const quote = "I couldn't find the filters. They should be above the products, not buried below where nobody scrolls";
+  await agent(h.socketPath, '/sessions/ws-5/feedback?path=checkout.html', [
+    { op: 'addRound', label: 'customers' },
+    { op: 'addItem', title: "Couldn't find the filter", lines: [{ key: 'Src', text: `1 · Maya · 00:14 · "${quote}"` }, { key: 'Where', text: '#filters' }] },
+  ]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'ws-5', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  const card = page.getByTestId('feedback-item-1');
+  await card.getByTestId('feedback-note').fill('chips, not a dropdown');
+  await card.getByTestId('feedback-note').press('Enter');
+  await expect(card.getByTestId('feedback-note')).toHaveValue('');
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await card.getByTestId('feedback-workspace-open').click();
+  const layer = page.getByTestId('workspace-layer');
+  await expect(layer.locator('canvas.excalidraw__canvas.interactive')).toBeVisible();
+
+  // Save to #N is the layer's only commit, so the panel's footer hides while it shows.
+  await expect(page.getByTestId('composer')).toBeHidden();
+
+  // One column: the unsaved overall note and pins first, then what the item already has.
+  await expect(layer.locator('aside')).toHaveCount(1);
+  const column = layer.getByTestId('board-comments');
+  await expect(column).toBeVisible();
+  await expect(column.getByTestId('workspace-rail-entry')).toHaveText([/chips, not a dropdown/]);
+  await expect(column.getByTestId('workspace-board')).toHaveText('fb-checkout-1');
+  const overallFirst = await column.evaluate((c) => {
+    const overall = c.querySelector('[data-testid="board-overall"]')!;
+    const saved = c.querySelector('[data-testid="workspace-rail-entry"]')!;
+    return !!(overall.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(overallFirst).toBe(true);
+
+  // The header never wraps. The quote truncates and Save stays on the first line, with the sessions and the list open.
+  if ((await page.getByTestId('sidebar-toggle').getAttribute('aria-pressed')) !== 'true') await page.getByTestId('sidebar-toggle').click();
+  for (const [width, height] of [[1400, 900], [1100, 800], [1000, 800]] as const) {
+    await app.evaluate((_e, size) => globalThis.__companion.panel.win.setSize(size[0], size[1]), [width, height] as const);
+    for (const list of [false, true]) {
+      const toggle = page.getByTestId('review-list-toggle');
+      if ((await toggle.getAttribute('aria-pressed')) !== String(list)) await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-pressed', String(list));
+      await page.waitForTimeout(100);
+      const at = `${width}×${height}${list ? ' with the list' : ''}`;
+      expect(await headLayout(layer), at).toMatchObject({ wraps: false, saveShown: true, quoteCut: true });
+      expect((await headLayout(layer)).height, at).toBeLessThanOrEqual(56);
+      await page.screenshot({ path: join(RESULTS, `feedback-workspace-${width}${list ? '-list' : ''}.png`) });
+    }
+  }
+
+  await layer.getByTestId('workspace-back').click();
+  await expect(layer).toHaveCount(0);
+  await expect(page.getByTestId('composer')).toBeVisible();
 });
 
 test('Add to note opens one Write note linked to the item', async () => {
@@ -230,6 +309,34 @@ test('speech in the workspace lands on its pin and saves with it', async () => {
 
   await layer.getByTestId('workspace-save').click();
   await expect.poll(() => readFileSync(join(cwd, 'checkout.html.feedback.md'), 'utf8')).toMatch(/You: \S+ · note · pin 1 on .+ · .*pricing table/i);
+});
+
+test('hiding the panel stops the workspace mic', async () => {
+  const speech = join(ROOT, 'e2e/fixtures/speech.wav');
+  test.skip(!existsSync(speech), 'speech fixture missing');
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  ctx = await launch(dataDir, { COMPANION_TEST_AUDIO: speech });
+  const { app, page } = ctx;
+  await showPanel(app, page);
+  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'ws-6', cwd, title: 'Checkout' });
+  await agent(socketPath, '/sessions/ws-6/feedback?path=checkout.html', [{ op: 'addRound', label: 'customers' }, { op: 'addItem', title: 'Pricing is unclear' }]);
+  await sock(socketPath, 'POST', '/open', { sessionId: 'ws-6', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
+  const layer = page.getByTestId('workspace-layer');
+  await expect(layer.locator('canvas.excalidraw__canvas.interactive')).toBeVisible();
+  await layer.getByTestId('mic').click();
+  await expect(layer.getByTestId('mic')).toHaveAttribute('aria-pressed', 'true');
+
+  // Showing again without a standalone open keeps the Send target, so the layer stays.
+  await app.evaluate(() => globalThis.__companion.panel.hide());
+  await app.evaluate(() => globalThis.__companion.panel.show());
+  await expect(layer).toBeVisible();
+  await expect(layer.getByTestId('mic')).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('opens a workspace over the full-width feedback view', async () => {
