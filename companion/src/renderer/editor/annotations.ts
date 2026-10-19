@@ -17,12 +17,12 @@ export interface Passage {
 }
 
 /** The note's text with a document position for each character. Blocks are joined with a newline. */
-interface TextIndex {
+export interface TextIndex {
   text: string;
   pos: number[];
 }
 
-function indexText(doc: PmNode): TextIndex {
+export function indexText(doc: PmNode): TextIndex {
   let text = '';
   const pos: number[] = [];
   let blocks = 0;

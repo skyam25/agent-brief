@@ -12,6 +12,19 @@ import { imageFiles } from './stack';
 const editable = (t: Element | null) =>
   t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
 
+/**
+ * Opens Excalidraw's search on the board and selects the query. Excalidraw's own ⌘F closes
+ * the search when it already has focus, so ⌘F comes here instead and always opens it.
+ */
+export function openBoardSearch(api: ExcalidrawImperativeAPI): void {
+  api.toggleSidebar({ name: 'default', tab: 'search', force: true });
+  requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLInputElement>('.excalidraw .layer-ui__search input');
+    input?.focus();
+    input?.select();
+  });
+}
+
 /** The Excalidraw canvas with pen handling, trimmed to drawing: no main menu, library or help. */
 export function BoardCanvas(props: {
   controller: BoardController;
@@ -37,6 +50,18 @@ export function BoardCanvas(props: {
       if (active.current && !editable(document.activeElement)) container()?.focus();
     };
     window.addEventListener('focus', focusCanvas);
+
+    // Cmd+F opens the board's search unless a text field outside the board has focus.
+    // Open search listens on the window in capture, so this listens there too and, added first, runs first.
+    const onFind = (e: KeyboardEvent) => {
+      const focused = document.activeElement;
+      if (!active.current || !controller.api || !e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'f') return;
+      if (editable(focused) && !ref.current?.contains(focused)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      openBoardSearch(controller.api);
+    };
+    window.addEventListener('keydown', onFind, { capture: true });
 
     // Cmd+A selects the board, not the panel's text, while focus sits on a control outside it.
     const onKeyDown = (e: KeyboardEvent) => {
@@ -110,6 +135,7 @@ export function BoardCanvas(props: {
     return () => {
       pen.dispose();
       window.removeEventListener('focus', focusCanvas);
+      window.removeEventListener('keydown', onFind, { capture: true });
       document.removeEventListener('keydown', onKeyDown, { capture: true });
       document.removeEventListener('pointermove', onPointerMove, { capture: true });
       document.removeEventListener('paste', onPaste, { capture: true });

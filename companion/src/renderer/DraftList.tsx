@@ -97,6 +97,8 @@ export function DraftRow(props: {
   onSelect: () => void;
   onMenu?: (e: MouseEvent) => void;
   onKeyDown?: (e: KeyboardEvent) => void;
+  /** Where the draft is filed, for a row shown outside its own tab. */
+  place?: string;
   drag?: {
     dragging: boolean;
     dropBefore: boolean;
@@ -140,6 +142,11 @@ export function DraftRow(props: {
             <span className="muted when">{ago(d.updatedAt)}</span>
           </span>
           <span className="muted preview">
+            {props.place && (
+              <span className="board-tag" title={`Filed under ${props.place}`}>
+                {props.place}
+              </span>
+            )}
             {d.board && (
               <span className="board-tag" title={`Goes with the board ${d.board}`}>
                 <LinkIcon /> {d.board}

@@ -10,6 +10,7 @@ import { AT_ATTR, GROUND_ATTR, PASS_ATTR } from '../shared/review-edit';
 import type { ReviewAnchor, ReviewRect } from '../shared/review';
 import { SNAPSHOT_MARK, snapshotBlock } from '../shared/snapshot-block';
 import { createEditMode, type EditMode } from './edit-mode';
+import { createFind } from './find';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from './messages';
 
 /** The file's version, which the server puts on this script's tag. Read now, while this script runs. */
@@ -54,6 +55,7 @@ function start(): void {
   const markers = new Map<string, HTMLButtonElement>();
   /** Feedback items' selectors, from the pane. */
   let wheres: string[] = [];
+  const finder = createFind();
 
   /** The selectors in `wheres` that `el` matches or sits inside. */
   const matching = (el: Element) =>
@@ -392,6 +394,8 @@ function start(): void {
     if (m.type === 'text') edit?.text(m.text);
     if (m.type === 'act') edit?.act(m.act);
     if (m.type === 'insert') edit?.insert(m.what);
+    if (m.type === 'find' && typeof m.query === 'string') post({ type: 'found', ...finder.find(m.query) });
+    if (m.type === 'find-step' && (m.dir === 1 || m.dir === -1)) post({ type: 'found', ...finder.step(m.dir) });
   });
 
   const editable = (t: EventTarget | null) =>
@@ -465,6 +469,13 @@ function start(): void {
     document.addEventListener(
       'keydown',
       (e) => {
+        // ⌘F and ⌘G find in the pane's bar, since the page has focus.
+        const key = e.key.toLowerCase();
+        if (e.metaKey && !e.ctrlKey && !e.altKey && (key === 'f' || key === 'g')) {
+          e.preventDefault();
+          post({ type: 'key', key: key === 'f' ? 'find' : e.shiftKey ? 'find-prev' : 'find-next' });
+          return;
+        }
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') {
           post({ type: 'key', key: 'Escape' });

@@ -40,6 +40,7 @@ Optional extras:
 - Send goes to the session you are on. On Unfiled or an ended session, Send asks where to go. The app never guesses.
 - An ended session keeps its work and offers a command to resume it.
 - The last 10 sends stay in History, ready to reopen.
+- ⌘F finds on the board, in the open note, or on the page under review. ⌘G steps through the matches. Search notes also lists matches filed under other sessions.
 
 ## Sketch and talk
 

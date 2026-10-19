@@ -30,7 +30,7 @@ export type FromPage =
   /** An http or https link the user clicked. */
   | { type: 'link'; href: string }
   /** A pane shortcut pressed while the page had focus. */
-  | { type: 'key'; key: 'c' | 'e' | 'Escape' | 'undo' | 'redo' }
+  | { type: 'key'; key: 'c' | 'e' | 'Escape' | 'undo' | 'redo' | 'find' | 'find-next' | 'find-prev' }
   /** One edit to save. The page waits for `edited` before it sends the next. */
   | { type: 'edit'; version: string; edit: ReviewEdit }
   /** What edit mode has selected, or null. */
@@ -42,7 +42,9 @@ export type FromPage =
   /** The user clicked an element. `matches` lists the `where` selectors it sits in. */
   | { type: 'pointed'; matches: string[] }
   /** Where the page rests after a scroll. */
-  | { type: 'scrolled'; x: number; y: number };
+  | { type: 'scrolled'; x: number; y: number }
+  /** The answer to `find` and `find-step`. `current` is -1 when nothing matches. */
+  | { type: 'found'; total: number; current: number };
 
 /** From the pane to the page. */
 export type ToPage =
@@ -64,7 +66,10 @@ export type ToPage =
   /** Selectors of feedback items, which clicks and pins report back as `matches`. */
   | { type: 'where'; selectors: string[] }
   /** Puts the page back where it rested before a reload. */
-  | { type: 'scroll-to'; x: number; y: number };
+  | { type: 'scroll-to'; x: number; y: number }
+  /** Highlights every match of `query` and shows the first one on screen. An empty query clears them. */
+  | { type: 'find'; query: string }
+  | { type: 'find-step'; dir: 1 | -1 };
 
 export type Tagged<T> = T & { source: typeof REVIEW_SOURCE };
 

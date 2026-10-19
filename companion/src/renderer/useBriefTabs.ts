@@ -30,7 +30,8 @@ export interface PanelTabs {
   /** The active tab's session, or undefined for Unfiled. */
   activeBrief: string | undefined;
   active: SessionBriefEntry | undefined;
-  switchBrief: (sessionId: string) => void;
+  /** Shows a session's tab. With `open`, that draft opens in Write instead of what the tab last showed. */
+  switchBrief: (sessionId: string, open?: string) => Promise<void>;
   openNotes: () => void;
   closeBrief: (sessionId: string) => void;
   /** Drops an opened ended session, so the tab follows the Send target again. */
@@ -54,12 +55,17 @@ export function useBriefTabs({ host, book, controller, sessions, modeRef, tabSco
   const activeBrief = briefs.some((b) => b.sessionId === target) ? target : briefs.some((b) => b.sessionId === endedActive) ? endedActive : undefined;
   tabScope.current = { sessionId: activeBrief, tabs: briefs.map((b) => b.sessionId) };
 
-  const switchBrief = (sessionId: string) => {
+  const switchBrief = (sessionId: string, open?: string) => {
     const brief = briefs.find((b) => b.sessionId === sessionId);
     setEndedActive(brief && !brief.isLive ? sessionId : undefined);
-    void host
+    return host
       .switchBrief(sessionId)
       .then(async (opened) => {
+        if (open) {
+          await showDraft(open);
+          changeMode('write');
+          return;
+        }
         if ('draftId' in opened) await showDraft(opened.draftId);
         // Review and Initiative stay open across a switch; otherwise the tab shows what it opened.
         if (modeRef.current !== 'review' && modeRef.current !== 'initiative') changeMode('draftId' in opened ? 'write' : 'sketch');

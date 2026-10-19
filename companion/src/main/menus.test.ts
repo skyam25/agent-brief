@@ -1,6 +1,7 @@
+import type { MenuItemConstructorOptions } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import type { UpdateStatus } from '../shared/ipc';
-import { trayMenuTemplate, updateItems, type MenuActions } from './menus';
+import { appMenuTemplate, trayMenuTemplate, updateItems, type MenuActions } from './menus';
 
 const actions = (update: Partial<UpdateStatus>): MenuActions => ({
   hotkey: 'Alt+Space',
@@ -11,6 +12,7 @@ const actions = (update: Partial<UpdateStatus>): MenuActions => ({
   newBoard: vi.fn(),
   newNote: vi.fn(),
   openSettings: vi.fn(),
+  find: vi.fn(),
   installCli: vi.fn(),
   installPlugin: vi.fn(),
   update: { version: '0.2.8', state: 'idle', ...update },
@@ -88,5 +90,25 @@ describe('trayMenuTemplate', () => {
   it('adds no extra separator when updates are off', () => {
     const items = trayMenuTemplate(actions({ state: 'off' })).map((i) => i.label ?? i.type);
     expect(items.slice(-3)).toEqual(['Install Claude Code Plugin…', 'separator', 'Quit Agent Brief']);
+  });
+});
+
+describe('Edit menu', () => {
+  const find = (mode: MenuActions['mode']) => {
+    const edit = appMenuTemplate({ ...actions({}), mode }).find((m) => m.label === 'Edit');
+    return (edit?.submenu as MenuItemConstructorOptions[]).find((i) => i.label === 'Find…');
+  };
+
+  it('keeps the standard items and adds Find with ⌘F', () => {
+    const edit = appMenuTemplate(actions({})).find((m) => m.label === 'Edit');
+    const roles = (edit?.submenu as MenuItemConstructorOptions[]).map((i) => i.role).filter(Boolean);
+    expect(roles).toEqual(['undo', 'redo', 'cut', 'copy', 'paste', 'pasteAndMatchStyle', 'delete', 'selectAll']);
+    expect(find('sketch')).toMatchObject({ accelerator: 'Command+F', enabled: true });
+  });
+
+  it('turns Find off where there is nothing to find', () => {
+    expect(find('write')?.enabled).toBe(true);
+    expect(find('review')?.enabled).toBe(true);
+    expect(find('initiative')?.enabled).toBe(false);
   });
 });

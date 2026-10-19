@@ -407,6 +407,8 @@ export interface CompanionApi extends BoardHost {
   setSettings(patch: Partial<Settings>): Promise<SettingsResult>;
   requestMicrophone(): Promise<MicrophoneAccess>;
   onOpenSettings(fn: () => void): Subscription;
+  /** Fires when Edit › Find is chosen. */
+  onFind(fn: () => void): Subscription;
   onNewBoard(fn: () => void): Subscription;
   /** Fires when the panel window shows or hides. */
   onVisibility(fn: (visible: boolean) => void): Subscription;
@@ -579,6 +581,7 @@ export const CH = {
   updateInstall: 'update:install',
   setMode: 'panel:mode',
   newNote: 'panel:new-note',
+  find: 'panel:find',
   openDraft: 'panel:open-draft',
   openFeedbackView: 'panel:open-feedback-view',
   listBriefs: 'briefs:list',
@@ -726,6 +729,7 @@ export const IPC_EVENT = {
   onSessions: CH.sessions,
   onTheme: CH.theme,
   onOpenSettings: CH.openSettings,
+  onFind: CH.find,
   onNewBoard: CH.newBoard,
   onUpdate: CH.update,
   onVisibility: CH.visibility,

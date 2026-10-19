@@ -14,6 +14,8 @@ export interface MenuActions {
   newBoard: () => void;
   newNote: () => void;
   openSettings: () => void;
+  /** Opens the find of the view on show. */
+  find: () => void;
   installCli: () => void;
   installPlugin: () => void;
   update: UpdateStatus;
@@ -84,7 +86,24 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
         { role: 'close' },
       ],
     },
-    { role: 'editMenu' },
+    {
+      role: 'editMenu',
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        // Each view also takes ⌘F itself, so opening twice must be harmless.
+        { label: 'Find…', accelerator: 'Command+F', enabled: a.mode !== 'initiative', click: a.find },
+      ],
+    },
     { role: 'windowMenu' },
   ];
 }

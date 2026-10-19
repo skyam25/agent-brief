@@ -89,6 +89,7 @@ export function createControls(opts: ControlsOptions): Controls {
       openStandalone();
       send(CH.openSettings);
     },
+    find: () => send(CH.find),
     installCli: () => void installs.installCli({ confirm: true }),
     installPlugin: () => void installs.installPlugin({ confirm: true }),
     update: updater.current(),

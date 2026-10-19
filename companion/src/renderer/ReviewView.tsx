@@ -12,6 +12,7 @@ import { useStore } from './hooks';
 import { CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIcon } from './Icons';
 import { Inspector } from './Inspector';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
+import { PageFind } from './PageFind';
 import { OVERALL, type ReviewVoice } from './review-voice';
 import { VoiceState } from './VoiceState';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
@@ -35,6 +36,14 @@ const PAGE_WAIT_MS = 8000;
 const newCommentId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const editable = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.matches('input, textarea, select'));
+
+/** Open review pages' find bars, so the Edit menu's Find can reach them. */
+const finders = new Set<() => void>();
+
+/** Opens the find bar on the review page on show. */
+export function openPageFind(): void {
+  for (const open of finders) open();
+}
 
 /** Open items, and closed ones a later round raised again, need a look. */
 const needsLook = (doc: FeedbackDocument) => doc.items.some((i) => i.state === 'open' || i.raisedAgain !== undefined);
@@ -126,6 +135,19 @@ export function ReviewView(props: {
   const [editing, setEditingState] = useState(false);
   const [pageEditable, setPageEditable] = useState(false);
   const [selected, setSelected] = useState<SelectedElement | null>(null);
+  /** Bumped to open the find bar and focus it. Undefined while it is closed. */
+  const [finding, setFinding] = useState<number>();
+  const findOpen = useRef(false);
+  findOpen.current = finding !== undefined;
+  const openFind = useCallback(() => setFinding(Date.now()), []);
+  const closeFind = useCallback(() => {
+    setFinding(undefined);
+    frame.current?.focus();
+  }, []);
+  useEffect(() => {
+    finders.add(openFind);
+    return () => void finders.delete(openFind);
+  }, [openFind]);
   // Comment and edit mode never run together.
   const setCommenting = useCallback((next: boolean | ((on: boolean) => boolean)) => {
     setCommentingState((on) => {
@@ -358,14 +380,17 @@ export function ReviewView(props: {
       if (m.type === 'measured') measures.current.get(m.id)?.(m.view);
       if (m.type === 'link') void host.openLink(m.href).catch(() => props.onError('Could not open that link.'));
       if (m.type === 'key' && m.key === 'c') setCommenting((on) => !on);
-      if (m.type === 'key' && m.key === 'Escape') {
+      if (m.type === 'key' && m.key === 'find') openFind();
+      if (m.type === 'key' && (m.key === 'find-next' || m.key === 'find-prev') && findOpen.current) post({ type: 'find-step', dir: m.key === 'find-next' ? 1 : -1 });
+      if (m.type === 'key' && m.key === 'Escape' && findOpen.current) closeFind();
+      else if (m.type === 'key' && m.key === 'Escape') {
         setCommenting(false);
         setEditing(false);
       }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [addPin, select, host, props.onError, saveEdit, reload, history, setCommenting, setEditing, itemsAt, post]);
+  }, [addPin, select, host, props.onError, saveEdit, reload, history, setCommenting, setEditing, itemsAt, post, openFind, closeFind]);
 
   // The page reports clicks on elements that feedback items name.
   const wheres = JSON.stringify([...new Set(items.flatMap((i) => (i.where ? [i.where] : [])))]);
@@ -377,7 +402,21 @@ export function ReviewView(props: {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       // The workspace board takes its own keys.
-      if (editable(e.target) || layerOpen.current) return;
+      if (layerOpen.current) return;
+
+      // ⌘F finds on the page, from anywhere in the pane. ⌘G steps through the matches.
+      const key = e.key.toLowerCase();
+      if (e.metaKey && !e.ctrlKey && !e.altKey && key === 'f' && !e.shiftKey) {
+        e.preventDefault();
+        openFind();
+        return;
+      }
+      if (e.metaKey && !e.ctrlKey && !e.altKey && key === 'g' && findOpen.current) {
+        e.preventDefault();
+        post({ type: 'find-step', dir: e.shiftKey ? -1 : 1 });
+        return;
+      }
+      if (editable(e.target)) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && live.current.editing) {
         e.preventDefault();
         void history(e.shiftKey ? 'redo' : 'undo');
@@ -392,12 +431,16 @@ export function ReviewView(props: {
         e.preventDefault();
         setEditing((on) => !on);
       }
+      if (e.key === 'Escape' && findOpen.current) {
+        closeFind();
+        return;
+      }
       if (e.key === 'Escape' && live.current.commenting) setCommenting(false);
       if (e.key === 'Escape' && live.current.editing) setEditing(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [history, setCommenting, setEditing]);
+  }, [history, setCommenting, setEditing, openFind, closeFind, post]);
 
   const pins: PagePin[] = onPage
     ? review.comments.map((c, i) => ({ id: c.id, n: i + 1, selector: c.anchor.selector, fx: c.anchor.fx, fy: c.anchor.fy, active: c.id === activeId }))
@@ -485,6 +528,7 @@ export function ReviewView(props: {
         </button>
       </header>
       <div className={commenting && onPage ? 'review-page commenting' : isEditing ? 'review-page editing' : 'review-page'}>
+        {finding !== undefined && !silent && <PageFind frame={frame} post={post} focusKey={finding} onClose={closeFind} />}
         {src && (
           <iframe
             key={src}

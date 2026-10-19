@@ -12,6 +12,8 @@ import type { NoteComment } from '../../shared/annotations';
 import type { Template } from '../../shared/ipc';
 import { Annotations, annotationsKey, passageAt, passageRange, type Passage } from './annotations';
 import { BlockHandle, StarterChips } from './BlockHandle';
+import { Find, findState } from './find';
+import { FindBar, findIn } from './FindBar';
 import { FormatBar } from './FormatBar';
 import { ATT, AttachmentsContext, Picture } from './ImageView';
 import { ListFormatMenu } from './ListFormatMenu';
@@ -28,6 +30,10 @@ export interface RichEditorHandle {
   selectFirstSlot(): boolean;
   /** Scrolls a comment's passage into view. */
   reveal(comment: NoteComment): void;
+  /** Opens the find bar with `query`, or the selected words, or the last query. */
+  find(query?: string): void;
+  /** Goes to the next or previous match. False when the find bar is closed. */
+  findStep(dir: 1 | -1): boolean;
 }
 
 export interface RichEditorProps {
@@ -74,6 +80,20 @@ export function focusFirstSlot(testId: string, frames = 10): void {
   });
 }
 
+/** Opens an editor's find bar. Waits a few frames, since a note just opened renders after this call. */
+export function openFind(testId: string, query?: string, frames = 10): void {
+  requestAnimationFrame(() => {
+    const handle = live.get(testId);
+    if (handle) handle.find(query);
+    else if (frames > 0) openFind(testId, query, frames - 1);
+  });
+}
+
+/** Goes to an editor's next or previous match. False when its find bar is closed. */
+export function stepFind(testId: string, dir: 1 | -1): boolean {
+  return live.get(testId)?.findStep(dir) ?? false;
+}
+
 /**
  * Moves the cursor from a picture just put in to an empty paragraph below it,
  * so the next key types on instead of replacing the picture.
@@ -116,6 +136,7 @@ export function RichEditor(props: RichEditorProps) {
   const body = useRef<HTMLDivElement>(null);
 
   const [listMenu, setListMenu] = useState<ListMenuState | null>(null);
+  const [finding, setFinding] = useState<{ seed: string; key: number }>();
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashRef = useRef<SlashState | null>(null);
@@ -188,6 +209,7 @@ export function RichEditor(props: RichEditorProps) {
         PromptMarkdown,
         Placeholder.configure({ placeholder: () => latest.current.placeholder ?? '' }),
         Slots.configure({ skip: () => !!slashRef.current }),
+        Find,
         SlashCommand(bridge),
         Annotations.configure({
           get: () => latest.current.annotations ?? NO_COMMENTS,
@@ -276,6 +298,17 @@ export function RichEditor(props: RichEditorProps) {
       const { node } = editor.view.domAtPos(range.from);
       (node instanceof Element ? node : node.parentElement)?.scrollIntoView({ block: 'nearest' });
     },
+    find: (query) => {
+      const { from, to } = editor.state.selection;
+      const selected = editor.state.doc.textBetween(from, to, '\n');
+      const seed = query ?? (selected && !selected.includes('\n') ? selected : findState(editor.state).query);
+      setFinding({ seed, key: Date.now() });
+    },
+    findStep: (dir) => {
+      if (!findState(editor.state).query) return false;
+      findIn(editor, { step: dir });
+      return true;
+    },
   };
   useImperativeHandle(props.editorRef, () => handle, [editor]);
   useEffect(() => {
@@ -300,6 +333,7 @@ export function RichEditor(props: RichEditorProps) {
 
   return (
     <div className="rich-editor">
+      {finding && <FindBar editor={editor} seed={finding.seed} seedKey={finding.key} onClose={() => setFinding(undefined)} />}
       <div className="rich-body" ref={body}>
         <AttachmentsContext.Provider value={props.attachments}>
           <EditorContent editor={editor} className="rich-content" />

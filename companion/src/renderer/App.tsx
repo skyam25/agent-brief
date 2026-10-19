@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CompanionApi, InitInfo, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
-import { BoardCanvas } from './BoardCanvas';
+import { BoardCanvas, openBoardSearch } from './BoardCanvas';
 import { BoardCommentsStore } from './board-comments';
 import { CommentColumn, CommentToggle, useCommentKeys } from './BoardComments';
 import { decisionsClaim, subscribeDecisions } from './decisions-send';
@@ -9,6 +9,8 @@ import { fallbackBoard } from './boardScope';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { draftTitle } from '../shared/drafts';
 import { DraftBook } from './drafts';
+import { openFind } from './editor/RichEditor';
+import { openPageFind } from './ReviewView';
 import { TemplateShelf } from './templates';
 import { shouldHideOnEscape } from './escape';
 import { HistoryPopover } from './HistoryPopover';
@@ -237,6 +239,12 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     const subscriptions = [
       host.onPrompt(setPrompt), host.onTheme(setTheme),
       host.onOpenSettings(() => setSettingsOpen(true)), host.onUpdate(setUpdate),
+      // Edit › Find opens the find of the view on show.
+      host.onFind(() => {
+        if (modeRef.current === 'sketch' && controller.api) openBoardSearch(controller.api);
+        if (modeRef.current === 'write') openFind('draft-body');
+        if (modeRef.current === 'review') openPageFind();
+      }),
     ];
     void host.getUpdate().then(setUpdate);
     // A file with no page opens its Feedback view in Review, as /open asked.
@@ -525,6 +533,11 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               voice={reviewVoice}
               talking={recording}
               onCopy={(clip) => host.copyRich(clip).then(() => true, (err) => (report('copy the note')(err), false))}
+              onOpenElsewhere={async (d) => {
+                if (d.sessionId && briefs.some((b) => b.sessionId === d.sessionId)) return switchBrief(d.sessionId, d.id);
+                openNotes();
+                book.select(d.id);
+              }}
             />
           )}
           {mode === 'review' && (

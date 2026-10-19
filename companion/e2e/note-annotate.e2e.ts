@@ -141,6 +141,7 @@ test('a commented note linked to a board survives a Send from Sketch, for Claude
   const { page } = await openRecap();
   await page.getByTestId('draft-body').getByText('Walk me through').selectText();
   await page.getByTestId('format-comment').click();
+  await expect(page.getByTestId('note-comment-text')).toBeFocused();
   await page.keyboard.type('Ask for the metric.');
   const noteId = await page.evaluate(() => window.__drafts.selected!.id);
   const board = await page.evaluate(() => window.__board.board);

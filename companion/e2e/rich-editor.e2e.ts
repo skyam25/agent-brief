@@ -326,3 +326,62 @@ test('a plain-text draft from before the editor opens as paragraphs and stays as
   const [onDisk] = draftsOnDisk();
   expect(onDisk).toMatchObject({ body: old.body, updatedAt: old.updatedAt });
 });
+
+test('⌘F finds in the note, steps through matches, and Escape leaves the cursor on the match', async () => {
+  const { page } = ctx;
+  const filler = Array.from({ length: 40 }, (_, i) => `Filler line ${i + 1}.`).join('\n\n');
+  await page.evaluate((body) => window.__drafts.create(body), `# Login\n\n${filler}\n\n## Rollout\n\nRemember **SSO** for the login page.\n\nAsk about sso again.`);
+  await expect(editor(page)).toContainText('Rollout');
+
+  await editor(page).click();
+  await page.keyboard.press('Meta+f');
+  const input = page.getByTestId('find-input');
+  await expect(input).toBeFocused();
+  await input.fill('sso');
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 2');
+  await expect(page.locator('.find-hit')).toHaveCount(2);
+
+  // The match in focus scrolls into view.
+  await expect(page.locator('.find-hit.current')).toBeInViewport();
+  await page.screenshot({ path: join(RESULTS, 'find-in-note.png') });
+
+  await input.press('Enter');
+  await expect(page.getByTestId('find-count')).toHaveText('2 of 2');
+  await page.keyboard.press('Meta+g');
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 2');
+  await page.keyboard.press('Shift+Meta+g');
+  await expect(page.getByTestId('find-count')).toHaveText('2 of 2');
+
+  // Edits keep the count right.
+  await page.evaluate(() => window.__drafts.edit(window.__drafts.selected!.id, `${window.__drafts.selected!.body}\n\nOne more SSO.`));
+  await expect(page.getByTestId('find-count')).toHaveText('2 of 3');
+
+  await input.fill('nothing like this');
+  await expect(page.getByTestId('find-count')).toHaveText('No matches');
+  await input.fill('remember sso');
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 1');
+
+  await input.press('Escape');
+  await expect(page.getByTestId('find-bar')).toHaveCount(0);
+  await expect(page.locator('.find-hit')).toHaveCount(0);
+  await expect(editor(page)).toBeFocused();
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('Remember SSO');
+
+  // ⌘F with words selected looks for them.
+  await page.keyboard.press('Meta+f');
+  await expect(page.getByTestId('find-input')).toHaveValue('Remember SSO');
+});
+
+test('opening a note from a filtered list finds the search words in it', async () => {
+  const { page } = ctx;
+  await page.evaluate(() => {
+    window.__drafts.create('A note about lunch.');
+    window.__drafts.create('# Plan\n\nThe rollout needs SSO first.');
+    window.__drafts.select(undefined);
+  });
+  await page.getByTestId('draft-search').fill('rollout');
+  await page.locator('.draft-row', { hasText: 'Plan' }).click();
+  await expect(page.getByTestId('find-input')).toHaveValue('rollout');
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 1');
+  await expect(page.locator('.find-hit.current')).toHaveText('rollout');
+});

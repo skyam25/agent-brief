@@ -6,7 +6,7 @@ import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { DraftEditor } from './DraftEditor';
 import { DraftRow, ReadyQueue, SectionHeader } from './DraftList';
 import { onTab, type DraftBook } from './drafts';
-import { focusFirstSlot } from './editor/RichEditor';
+import { focusFirstSlot, openFind, stepFind } from './editor/RichEditor';
 import { DeleteItem } from './FooterMenu';
 import { filedTab, type FilingTab } from './FilingMenu';
 import { CheckIcon, ChevronIcon, PlusIcon } from './Icons';
@@ -48,6 +48,8 @@ export function WriteView(props: {
   voice: ReviewVoice;
   /** The mic is on. */
   talking: boolean;
+  /** Opens a draft filed under another tab, on its tab. */
+  onOpenElsewhere: (d: Draft) => Promise<void>;
 }) {
   const book = useStore(props.book);
   const shelf = useStore(props.shelf);
@@ -65,9 +67,29 @@ export function WriteView(props: {
     if (book.selectedId) setTemplateId(undefined);
   }, [book.selectedId]);
 
+  // ⌘F finds in the open note wherever focus sits in Write. ⌘G steps through the matches.
+  const noteOpen = !!selected && !template;
+  useEffect(() => {
+    if (!noteOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.ctrlKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'f' && !e.shiftKey) {
+        e.preventDefault();
+        openFind('draft-body');
+      } else if (key === 'g' && stepFind('draft-body', e.shiftKey ? -1 : 1)) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => document.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [noteOpen]);
+
+  /** Opens a draft. While the list is filtered, the note opens with its matches found. */
   const openDraft = (id: string) => {
     setTemplateId(undefined);
     book.select(id);
+    if (query.trim()) openFind('draft-body', query.trim());
   };
   const openTemplate = (id: string) => {
     book.select(undefined);
@@ -100,6 +122,14 @@ export function WriteView(props: {
   const notes = book.drafts.filter(
     (d) => d.status === 'note' && !d.review && here(d) && matches(d, query) && (d.body.trim() || d.board || d.id === selected?.id),
   );
+  /** While searching, matches filed under other tabs, so a note never hides behind the wrong tab. */
+  const elsewhere = query.trim() ? book.drafts.filter((d) => !d.review && !here(d) && d.body.trim() && matches(d, query)) : [];
+  const placeOf = (d: Draft) => filedTab(d, props.tabs)?.title ?? 'Unfiled';
+  const openElsewhere = async (d: Draft) => {
+    setTemplateId(undefined);
+    await props.onOpenElsewhere(d);
+    openFind('draft-body', query.trim());
+  };
 
   /** Moves a Ready draft to `index` among the ones shown, counted without it, keeping other tabs' order. */
   const moveShown = (id: string, index: number) => {
@@ -183,6 +213,16 @@ export function WriteView(props: {
               ))}
             </ul>
           </section>
+          {elsewhere.length > 0 && (
+            <section data-testid="draft-elsewhere">
+              <SectionHeader title="In other sessions" count={elsewhere.length} />
+              <ul>
+                {elsewhere.map((d) => (
+                  <DraftRow key={d.id} draft={d} selected={false} place={placeOf(d)} onSelect={() => void openElsewhere(d)} />
+                ))}
+              </ul>
+            </section>
+          )}
           <section>
             <SectionHeader
               title="Templates"
