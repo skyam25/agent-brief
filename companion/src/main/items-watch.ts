@@ -59,6 +59,11 @@ export class ItemsWatcher {
     for (const id of [...this.entries.keys()]) this.unwatch(id);
   }
 
+  /** Takes every watched file as it is now, so a change already made reports nothing. */
+  settle(): void {
+    for (const e of this.entries.values()) e.seen = signature(e.path);
+  }
+
   private watch(sessionId: string, path: string): void {
     const entry: Entry = { path, seen: signature(path) };
     this.entries.set(sessionId, entry);

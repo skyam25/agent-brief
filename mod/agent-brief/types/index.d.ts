@@ -96,6 +96,8 @@ declare module 'claude-code' {
       hasPrompted: boolean
       /** The session's outputs file records, kept current by each write. */
       outputs: BriefOutput[]
+      /** Open feedback items by output ref, read with the Brief and after each turn. */
+      feedback: Record<string, number>
       /** The session's items file, read at start, on each write and when the Brief pane opens. */
       items: BriefItems | null
       /** Answers the Brief pane holds until Send answers. */

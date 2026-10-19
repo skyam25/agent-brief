@@ -218,7 +218,9 @@ function openOutput(o: Obj): OpenRequest['output'] {
   const path = reqString(output, 'path', 'body.output').trim();
   if (!isMarkdownRef(path) && !isReviewable(path)) fail('body.output.path must be a Markdown (.md, .markdown, .mdx) or HTML (.html, .htm) file');
   if (o.sessionId === undefined) fail('body.output needs body.sessionId');
-  return { path };
+  const tab = optString(output, 'tab', 'body.output');
+  if (tab !== undefined && tab !== 'feedback') fail('body.output.tab must be feedback');
+  return { path, ...(tab ? { tab } : {}) };
 }
 
 /** The longest note title, in characters. */

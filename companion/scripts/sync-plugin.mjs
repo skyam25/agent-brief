@@ -8,6 +8,7 @@ export const pluginContracts = [
   ['companion/src/protocol.ts', 'mod/agent-brief/hooks/companion-protocol.ts'],
   ['companion/src/shared/items.ts', 'mod/agent-brief/hooks/generated/items.ts'],
   ['companion/src/shared/output-file.ts', 'mod/agent-brief/hooks/generated/output-file.ts'],
+  ['companion/src/shared/feedback.ts', 'mod/agent-brief/hooks/generated/feedback.ts'],
 ];
 
 export function generatedContract(source) {

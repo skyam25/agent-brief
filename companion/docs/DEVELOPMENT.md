@@ -91,7 +91,8 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
   - Any other file opens in its default app.
   - Files get the same check as item outputs. They must exist inside the session's folder, symlinks resolved.
   - Tests record opened files and links in `openedOutputs`.
-- `POST /open` with `output: { path }` opens a Markdown or HTML output the same way, shows the panel and makes the session the Send target. The mod's In Agent Brief button sends it.
+- `POST /open` with `output: { path }` opens a Markdown or HTML output the same way, shows the panel and makes the session the Send target. The mod's In Agent Brief button sends it, with `tab: 'feedback'` when the output has open feedback.
+- A review opens on its Feedback tab when `tab: 'feedback'` asks, or when the output has open or raised-again items. Otherwise it opens on Comments.
 - It needs a live `sessionId`. An ended or missing session, another file type, or a file outside the session's folder answers 400 with the reason.
 - `OpenResponse.opened` says what the panel shows: `board`, `note` or `review`. An app that predates the field leaves it out and opens the board.
 - Send with a note that has `source` writes the edited text to `draft.md`, and the prompt is two lines:
@@ -107,6 +108,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 
 - Main serves project files over `agent-brief-review://<token>/<path>` (`src/main/review-protocol.ts`). Each project folder gets a random token, so each is its own origin, apart from the panel's.
 - The handler refuses paths outside the folder, links that leave it, and dot files and folders such as `.env` and `.git`. Responses are `no-store`, so Reload shows Claude's latest write.
+- `OutputWatch` (`src/main/output-watch.ts`) watches the shown output and its feedback file while a review or feedback view is open. An outside write reloads the page at its last scroll, or sends `feedback:changed`. Store and pane writes settle the watch first, so the app's own writes report nothing.
 - HTML responses get `<script src="/__agent-brief__/overlay.js">` as the first script in `<head>`. The overlay (`src/review/overlay.ts`, built to `out/review/overlay.js`) runs in the page's main world. It draws in a closed shadow root and talks to the pane only by `postMessage`, with the types in `src/review/messages.ts`.
 - The frame is `sandbox="allow-scripts allow-same-origin allow-forms"`. The page keeps its own origin, so its storage works, and it still cannot reach the panel. The panel CSP allows `frame-src agent-brief-review:`. `will-frame-navigate` keeps the frame on the scheme. The permission handler refuses every request from it.
 - A pin's anchor holds a unique CSS selector, the tag, the element's text, any selected text, the nearest heading above, and the pin's spot as fractions of the element box. Main crops the panel with `capturePage` at the element's visible box, and the crop is saved as a draft attachment. A draft keeps 40 attachments, so pins past 36 go without a picture.

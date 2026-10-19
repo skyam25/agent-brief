@@ -17,10 +17,12 @@ import {
   briefCounts,
   dropAnswer,
   droppedText,
+  feedbackFileOf,
   hasUserPrompt,
   heldDecisions,
   holdAnswer,
   isOutputOpened,
+  openFeedback,
   openTarget,
   projectName,
 } from './brief-logic'
@@ -163,6 +165,7 @@ const activeAtRef = atom({ plugin: 'agent-brief', key: 'activeAt' } as const, nu
 const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as const, false)
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
+const feedbackRef = atom({ plugin: 'agent-brief', key: 'feedback' } as const, {})
 const answersRef = atom({ plugin: 'agent-brief', key: 'answers' } as const, [])
 const briefRef = atom({ plugin: 'agent-brief', key: 'brief' } as const, { isPrototypePending: false, isTouchedOpen: false, isDoneOpen: false, isExpanded: false })
 const questionsRef = atom({ plugin: 'agent-brief', key: 'questions' } as const, [])
@@ -572,12 +575,26 @@ async function refreshItems($: EngineInterface): Promise<void> {
   await update($, itemsRef, held => (held?.path === path && held.text === text ? held : { path, relPath, text }))
 }
 
-/** Reads the outputs file and the items file into the Brief pane's state. */
+/** Counts each file output's open feedback items, from the `.feedback.md` beside it. */
+async function refreshFeedback($: EngineInterface): Promise<void> {
+  const cwd = await homeCwd($)
+  const counts: Record<string, number> = {}
+  for (const o of await read($, outputsRef)) {
+    if (/^https?:\/\//i.test(o.ref)) continue
+    const text = await $.fs.read(feedbackFileOf(cwd, o.ref)).catch(() => undefined)
+    const open = typeof text === 'string' ? openFeedback(text) : 0
+    if (open > 0) counts[o.ref] = open
+  }
+  await update($, feedbackRef, held => (JSON.stringify(held) === JSON.stringify(counts) ? held : counts))
+}
+
+/** Reads the outputs file, the items file and the outputs' feedback into the Brief pane's state. */
 async function loadBrief($: EngineInterface): Promise<void> {
   const text = await $.fs.read(outputsFile(await homeCwd($), await $.session.id())).catch(() => undefined)
   const file = typeof text === 'string' ? parseOutputsFile(text) : undefined
   await update($, outputsRef, () => file?.outputs ?? [])
   await refreshItems($)
+  await refreshFeedback($)
 }
 
 /**
@@ -612,13 +629,13 @@ async function openOutput($: EngineInterface, ref: string): Promise<void> {
 }
 
 /** Opens a Markdown or HTML output in the app, as a note in Write or in the review pane. */
-async function openOutputInApp($: EngineInterface, ref: string): Promise<void> {
+async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'): Promise<void> {
   const failed = await readyApp($)
   if (failed !== undefined) {
     $.ui.toast(failed, { timeoutMs: 8000 })
     return
   }
-  const body: OpenRequest = { sessionId: await $.session.id(), output: { path: ref } }
+  const body: OpenRequest = { sessionId: await $.session.id(), output: { path: ref, ...(tab ? { tab } : {}) } }
   const reply = await call($, 'POST', '/open', body)
   if (!reply?.ok) {
     const error = (reply?.body as { error?: unknown } | undefined)?.error
@@ -1233,6 +1250,7 @@ export const register: Register = (on, options) => {
       fidelity: await read($, fidelityRef),
       isTracking: await read($, trackingRef),
       outputs: await read($, outputsRef),
+      feedback: await read($, feedbackRef),
       items: await read($, itemsRef),
       answers: await read($, answersRef),
       asked: questions.length,
@@ -1248,7 +1266,7 @@ export const register: Register = (on, options) => {
     })
     return briefTree(table, pane, {
       open: ref => openOutput($, ref),
-      openInApp: ref => openOutputInApp($, ref),
+      openInApp: (ref, tab) => openOutputInApp($, ref, tab),
       pickMode: mode => pickBriefMode($, mode),
       pickFidelity: fidelity => pickBriefFidelity($, fidelity),
       track: () => trackCommand($, '').then(text => $.ui.toast(text, { timeoutMs: 8000 })),
@@ -1321,6 +1339,8 @@ export const register: Register = (on, options) => {
       await keepRegistered($, companionSettings).catch(() => undefined)
     }
     if (e.agentId === undefined) await refreshItems($).catch(() => undefined)
+    // Claude catalogs feedback through the CLI, so its counts are read once the turn ends.
+    if (e.agentId === undefined) await refreshFeedback($).catch(() => undefined)
     return done
   })
 

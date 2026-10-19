@@ -116,16 +116,22 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
         changeMode('sketch');
         setNewBoardRequest((n) => n + 1);
       }),
-      host.onNewNote(({ text, id, sessionId, source, review }) => {
+      host.onNewNote(({ text, id, sessionId, source, review, tab }) => {
         // A note for no session comes with the Send target cleared, so the Notes tab shows.
         if (!sessionId) leaveEnded();
         // Main looks for an open review on disk, and a review edited a moment ago may not be there yet.
         const kept = review && book.drafts.find((d) => d.sessionId === sessionId && d.review?.path === review.path);
         if (kept) book.select(kept.id);
-        else book.create(text, id, sessionId, source, review);
+        const shown = kept ?? book.create(text, id, sessionId, source, review);
+        if (review && tab) book.askTab(shown.id, tab);
         changeMode(review ? 'review' : 'write');
       }),
-      host.onOpenDraft(({ id, sessionId }) => void showDraft(id, sessionId).then(() => changeMode(book.get(id)?.review ? 'review' : 'write'))),
+      host.onOpenDraft(({ id, sessionId, tab }) =>
+        void showDraft(id, sessionId).then(() => {
+          if (tab && book.get(id)?.review) book.askTab(id, tab);
+          changeMode(book.get(id)?.review ? 'review' : 'write');
+        }),
+      ),
       // A note from `agent-brief note` joins the list. The open note and the mode stay.
       host.onDraftsChanged(() => void book.load()),
       host.onVisibility((visible) => {

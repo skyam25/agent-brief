@@ -356,6 +356,7 @@ function start(): void {
     }
     if (m.type === 'show') show(m.id);
     if (m.type === 'where') wheres = m.selectors.filter((s) => typeof s === 'string').slice(0, 500);
+    if (m.type === 'scroll-to' && Number.isFinite(m.x) && Number.isFinite(m.y)) scrollTo({ left: m.x, top: m.y, behavior: 'instant' });
     if (m.type === 'show-behavior') {
       let element: Element | null = null;
       try { if (document.querySelectorAll(m.selector).length === 1) element = document.querySelector(m.selector); } catch { /* stale or invalid target */ }
@@ -479,6 +480,12 @@ function start(): void {
       true,
     );
     addEventListener('scroll', layout, { capture: true, passive: true });
+    // The pane keeps where the page rests, so a reload can put it back.
+    let resting: ReturnType<typeof setTimeout> | undefined;
+    addEventListener('scroll', () => {
+      clearTimeout(resting);
+      resting = setTimeout(() => post({ type: 'scrolled', x: Math.round(scrollX), y: Math.round(scrollY) }), 150);
+    }, { passive: true });
     addEventListener('resize', layout);
     // Pages that animate or load late move elements without a scroll.
     setInterval(layout, 1000);
