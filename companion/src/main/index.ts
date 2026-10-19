@@ -522,7 +522,7 @@ async function start(): Promise<void> {
   ipc.handle('openOutputElsewhere', (sessionId: string, ref: unknown) => files.openElsewhere(sessionId, ref));
   ipc.handle('readBehavior', (sessionId: string, path: unknown) => behaviors.read(behaviorRoot(sessionId), path));
   ipc.handle('decideBehavior', (sessionId: string, path: unknown, decision: unknown) => behaviors.decide(behaviorRoot(sessionId), path, decision));
-  ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path));
+  ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path, { orphan: true }));
   ipc.handle('updateFeedback', (sessionId: string, path: unknown, update: unknown) => feedback.update(behaviorRoot(sessionId), path, update, 'You'));
   ipc.handle('listFeedback', (sessionId: string) => feedback.project(behaviorRoot(sessionId)));
   ipc.handle('openFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, snapshot?: unknown) => workspaces.open(behaviorRoot(sessionId), path, n, snapshot));

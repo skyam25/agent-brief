@@ -587,6 +587,7 @@ export interface BehaviorDecision {
  * GET /sessions/:id/feedback?path=<project-relative output path> answers FeedbackDocument.
  * POST takes FeedbackUpdate and answers FeedbackUpdateResult; 409 on a stale version.
  * GET /sessions/:id/feedback/project answers FeedbackProject.
+ * GET also reads a feedback file whose output was deleted.
  * The socket writes as Claude; the panel writes as You through IPC.
  */
 export type FeedbackState = 'open' | 'accepted' | 'rejected' | 'done';
@@ -657,6 +658,8 @@ export interface FeedbackDocument extends FeedbackDoc {
   output: string;
   /** Content hash, or `missing` before the file exists. */
   version: string;
+  /** False when the output is gone and only its feedback file is left. It reads; writes and snapshots need the output. */
+  outputExists?: false;
 }
 
 export type FeedbackOp =

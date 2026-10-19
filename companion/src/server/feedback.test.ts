@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { main } from '../../cli/main';
@@ -84,4 +84,22 @@ it('refuses You lines from the agent, stale versions, bad paths and unknown sess
   expect((await request(socketPath, 'GET', '/sessions/s1/feedback?path=../outside.md')).status).toBe(400);
   expect((await request(socketPath, 'GET', '/sessions/missing/feedback?path=prototype/checkout.html')).status).toBe(404);
   expect((await cli(['add', 'prototype/checkout.html'])).code).toBe(2);
+});
+
+it('shows and relates a feedback file whose output was deleted, and refuses writes to it', async () => {
+  const { root, cli } = await setup();
+  await cli(['round', 'prototype/pricing.html', '--label', 'SME']);
+  await cli(['add', 'prototype/pricing.html', '--title', 'Plan cards hide the filter chips']);
+  await cli(['round', 'prototype/checkout.html', '--label', 'SME']);
+  await cli(['add', 'prototype/checkout.html', '--title', 'Filter chips are hidden', '--related', 'pricing.html #1']);
+  unlinkSync(join(root, 'prototype/checkout.html'));
+  const shown = await cli(['show', 'prototype/checkout.html']);
+  expect(shown).toMatchObject({ code: 0 });
+  expect(shown.out).toContain('#1 [open] Filter chips are hidden');
+  expect(JSON.parse((await cli(['show', 'prototype/checkout.html', '--json'])).out)).toMatchObject({ output: 'prototype/checkout.html', outputExists: false });
+  expect((await cli(['related', 'prototype/checkout.html', '1'])).out).toContain('→ prototype/pricing.html #1 [open] Plan cards hide the filter chips');
+  expect((await cli(['related', 'prototype/pricing.html', '1'])).out).toContain('← prototype/checkout.html #1 [open] Filter chips are hidden');
+  const write = await cli(['log', 'prototype/checkout.html', '1', 'Claude', 'note · x']);
+  expect(write.code).not.toBe(0);
+  expect(write.err).toContain('Output must be a file');
 });
