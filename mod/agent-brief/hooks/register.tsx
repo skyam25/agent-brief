@@ -275,7 +275,10 @@ async function registerSession($: EngineInterface): Promise<boolean> {
   registeredId = sessionId
   registeredAt = await $.clock.now()
   if (isNew && (await read($, modeRef)) !== 'default') await mirrorMode($)
-  if (isNew) void loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`))
+  if (isNew) {
+    initiativesReadAt = registeredAt
+    void loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`))
+  }
   return true
 }
 
@@ -603,6 +606,13 @@ async function loadBrief($: EngineInterface): Promise<void> {
  */
 let isBriefOpen = false
 
+/**
+ * When the session last asked the app for the initiatives and its attachment, at registration or from the Brief pane.
+ * The pane reads them again when it draws after 30 s, and on its first draw after the band opens it or any close.
+ */
+let initiativesReadAt: number | undefined
+const INITIATIVES_FRESH_MS = 30_000
+
 /** Redraws the Brief pane each minute while it is placed, so output ages stay current. */
 let briefAging: { cancel(): void } | undefined
 const AGING_MS = 60_000
@@ -615,14 +625,15 @@ const AGING_MS = 60_000
 function toggleBrief($: EngineInterface): Promise<void> {
   if (isBriefOpen) {
     isBriefOpen = false
+    initiativesReadAt = undefined
     return $.ui.close({ id: BRIEF_PANE })
   }
   isBriefOpen = true
   const opening = $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS, rows: BRIEF_ROWS })
+  initiativesReadAt = undefined
   return opening.then(async opened => {
     if (!opened.isPlaced) $.ui.toast(`Brief pane not shown: ${opened.reason}`, { timeoutMs: 8000 })
     await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
-    await loadRecent($, initiativeEnvironment($)).catch(err => log($, `recent initiatives failed: ${String(err)}`))
   })
 }
 
@@ -1247,7 +1258,12 @@ export const register: Register = (on, options) => {
     const questions = await read($, questionsRef)
     const table = $.ui.resolve(e)
     const hasFields = e.surface !== 'mobile'
-    const { initiative, listed } = await initiativeView($)
+    const now = await $.clock.now()
+    if (initiativesReadAt === undefined || now - initiativesReadAt > INITIATIVES_FRESH_MS) {
+      initiativesReadAt = now
+      $.clock.after(0, () => loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`)))
+    }
+    const { initiative, listed, refusals } = await initiativeView($)
     const pane: BriefPaneView = {
       placement: props.placement,
       hasFields,
@@ -1256,7 +1272,7 @@ export const register: Register = (on, options) => {
       fidelity: await read($, fidelityRef),
       isTracking: await read($, trackingRef),
       outputs: await read($, outputsRef),
-      now: await $.clock.now(),
+      now,
       feedback: await read($, feedbackRef),
       items: await read($, itemsRef),
       answers: await read($, answersRef),
@@ -1264,6 +1280,7 @@ export const register: Register = (on, options) => {
       view: await read($, briefRef),
       initiative,
       initiatives: listed,
+      refusals,
     }
     const asked = questionsTree(table, questions, hasFields, {
       answer: (id, text) => update($, questionsRef, list => answerQuestion(list, id, text)).then(() => undefined),
@@ -1462,6 +1479,7 @@ export const register: Register = (on, options) => {
   })
   on('ui.close', { id: BRIEF_PANE }, ($, e, next) => {
     isBriefOpen = false
+    initiativesReadAt = undefined
     briefAging?.cancel()
     briefAging = undefined
     return next(e)

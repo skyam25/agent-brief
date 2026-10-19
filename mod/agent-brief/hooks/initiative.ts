@@ -208,7 +208,7 @@ export function recentLine(recent: readonly Pick<InitiativeChoice, 'title'>[]): 
 
 export const bandTitle = (title: string) => (title.length <= TITLE_COLUMNS ? title : `${title.slice(0, TITLE_COLUMNS - 1).trimEnd()}…`)
 
-/** The attached initiative first, then the recent ones, up to `limit`. The band's picker takes four. */
+/** The attached initiative first, then the recent ones, up to `limit`. The band's picker takes the attached one and three recent. */
 export function pickChoices(attached: AttachedInitiative | null, recent: readonly InitiativeChoice[], limit = RECENT_LIMIT + 1): { id: string; title: string }[] {
   const rows = attached === null ? [] : [{ id: attached.id, title: attached.title }]
   for (const r of recent) if (!rows.some(row => row.id === r.id)) rows.push({ id: r.id, title: r.title })

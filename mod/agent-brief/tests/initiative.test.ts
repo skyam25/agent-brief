@@ -418,13 +418,55 @@ describe('the band and the pane', () => {
   })
 
   test('the Brief pane\'s Initiative Select lists None and every initiative', async ($, on) => {
-    const { app } = await setup($, on)
+    const { app, clock } = await setup($, on)
     app.initiatives.set('ini-search', { ...app.initiatives.get('ini-pricing')!, id: 'ini-search', title: 'Search', revision: 2 })
     await $.ui.render(BAND)
     await $.ui.press({ plugin: 'agent-brief', key: 'brief' })
+    await $.ui.render(briefPane())
+    await clock.settle()
     const pane = JSON.stringify(await $.ui.render(briefPane()))
     expect(pane).toContain('"key":"brief-initiative"')
     for (const title of ['None', 'Pricing', 'Onboarding', 'Checkout', 'Search']) expect(pane).toContain(`"label":"${title}"`)
+  })
+
+  test('the Brief pane reads an attachment made elsewhere when it draws', async ($, on) => {
+    const { app, clock } = await setup($, on)
+    await $.ui.render(briefPane())
+    await clock.settle()
+    attach(app, 'ini-checkout')
+    await clock.advance(31_000)
+    await $.ui.render(briefPane())
+    await clock.settle()
+    expect(JSON.stringify(await $.ui.render(briefPane()))).toContain('"value":"ini-checkout"')
+  })
+
+  test('a refused pick leaves the Select on the attachment the app holds', async ($, on) => {
+    const { app, world } = await setup($, on)
+    attach(app)
+    await $.prompt.submit(typed('go'))
+    app.initiatives.delete('ini-onboarding')
+    await $.ui.render(briefPane())
+    await $.ui.select({ plugin: 'agent-brief', key: 'brief-initiative', value: 'ini-onboarding' })
+    expect(world.toasts).toContain('Agent Brief did not attach that initiative.')
+    const pane = JSON.stringify(await $.ui.render(briefPane()))
+    expect(pane, 'a fresh key drops the refused pick').toContain('"key":"brief-initiative-1"')
+    expect(pane).toContain('"value":"ini-pricing"')
+  })
+
+  test('the band picks among three recent, and the pane lists at most 20', async ($, on) => {
+    const { app } = await setup($, on)
+    const pricing = app.initiatives.get('ini-pricing')!
+    for (let n = 0; n < 25; n++) app.initiatives.set(`ini-x${n}`, { ...pricing, id: `ini-x${n}`, title: `X${n}` })
+    attach(app, 'ini-x24')
+    await $.prompt.submit(typed('go'))
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'initiative-change' })
+    const row = await band($)
+    expect(row.match(/"key":"initiative-ini-/g)?.length).toBe(4)
+    const pane = JSON.stringify(await $.ui.render(briefPane()))
+    const options = JSON.parse(pane.match(/"key":"brief-initiative","options":(\[.*?\])/)![1]!) as { value: string }[]
+    expect(options.length).toBe(21)
+    expect(options[1]!.value).toBe('ini-x24')
   })
 
   test('picking in the Initiative Select attaches, and None detaches', async ($, on) => {

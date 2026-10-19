@@ -216,8 +216,8 @@ An initiative is work that runs across many sessions, such as a pricing change. 
 - Once attached, a typed prompt carries the initiative's snapshot after your text, between `--- Agent Brief initiative ---` lines: Understanding (at most 2,400 characters), Decisions, Open and the folder map. It goes only when the token `attachmentRevision:id:revision` changed since the last one, so an unchanged brief costs nothing. It never goes in the system prompt, and slash commands carry none.
 - A compaction drops the snapshot, so the next prompt carries it again. Where an organization manages Claude Code, the compaction event passes over plugins a person installs; run `/initiative refresh` after a compaction there.
 - A detach, from the band, the app or the CLI, gets one note to Claude with the next prompt.
-- **change** or **attach initiative** on the band (hotkey `i`) swaps the row for a pick among the recent initiatives, with **Detach** while one is attached, and **Cancel**. A pick attaches the session at once.
-- The Brief pane's header has an **Initiative** Select that lists **None** and up to 20 initiatives, most recent first. A pick attaches the session, and **None** detaches it. Opening the pane reads the list again. On a surface without fields, or with no initiatives, the line reads the title and revision, or **Initiative · none**.
+- **change** or **attach initiative** on the band (hotkey `i`) swaps the row for a pick among the three most recent initiatives, with **Detach** while one is attached, and **Cancel**. A pick attaches the session at once.
+- The Brief pane's header has an **Initiative** Select that lists **None** and up to 20 initiatives, most recent first. A pick attaches the session, and **None** detaches it. A pick the app refuses toasts why and goes back to the attachment the app holds. The pane reads the list and the attachment again when it opens and every 30 seconds while it draws. On a surface without fields, or with no initiatives, the line reads the title and revision, or **Initiative · none**.
 - When Claude runs an `agent-brief initiative` command, the band reads the attachment again.
 - The `initiative-brief` skill tells Claude when to attach, how to keep the brief short and current, how to draft one and how to run Discover. In the brief and in its replies, Claude names folders by role (Sources, Decisions, Working, Grounding, Outputs), not by their names.
 
@@ -236,7 +236,7 @@ agent-brief initiative update <id> --file <json>
 
 Reads work with the app closed. Writes exit 3 while it is down.
 
-The mod's socket calls: `GET /initiatives/recent?limit=20` at registration, when the pick row opens and when the Brief pane opens, `GET /sessions/<id>/initiative` on each typed prompt while the app is up, `PUT /sessions/<id>/initiative` with `{ initiativeId }` from the pick row and the pane's Select, and `DELETE /sessions/<id>/initiative` from **Detach**, **None** and `/initiative off`. Every failure is silent, and the prompt goes in as typed. The types are in `hooks/companion-protocol.ts`. Initiatives need an Agent Brief app with the Initiative tab; an older app answers 404 and the mod adds nothing.
+The mod's socket calls: `GET /initiatives/recent?limit=20` at registration, when the pick row opens and when the Brief pane draws, with `GET /sessions/<id>/initiative` beside it, `GET /sessions/<id>/initiative` on each typed prompt while the app is up, `PUT /sessions/<id>/initiative` with `{ initiativeId }` from the pick row and the pane's Select, and `DELETE /sessions/<id>/initiative` from **Detach**, **None** and `/initiative off`. Every failure is silent, and the prompt goes in as typed. The types are in `hooks/companion-protocol.ts`. Initiatives need an Agent Brief app with the Initiative tab; an older app answers 404 and the mod adds nothing.
 
 ### Pictures in the chat
 

@@ -109,8 +109,10 @@ declare module 'claude-code' {
       grilling: boolean
       /** The attached initiative; null while the session has none or the app has not said. */
       initiative: AttachedInitiative | null
-      /** The initiatives touched most recently, read when the session registers and when the band's change row opens. */
+      /** Up to 20 initiatives, most recent first, read when the session registers, when the band's pick row opens and when the Brief pane draws. */
       recentInitiatives: InitiativeChoice[]
+      /** How many initiative changes the app refused, which keys the Brief pane's Select afresh. */
+      initiativeRefusals: number
       /** The snapshot last appended to a prompt: its token, its title, and the session it went to. */
       initiativeSent: { sessionId: string; token: string; title: string } | null
       /** True after a compaction, so the next prompt carries the snapshot again. */

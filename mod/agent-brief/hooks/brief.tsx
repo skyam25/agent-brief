@@ -27,6 +27,8 @@ export type BriefPaneView = {
   initiative: AttachedInitiative | null
   /** What the Initiative Select offers: the attached initiative, then the recent ones. */
   initiatives: { id: string; title: string }[]
+  /** How many initiative changes the app refused. Each gives the Select a new key, so it drops the refused pick. */
+  refusals: number
 }
 
 export type BriefActions = {
@@ -134,12 +136,13 @@ function headerTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
         <Box justifyContent="space-between">
           <Text dimColor>{pane.initiative === null ? 'Initiative' : `Initiative · revision ${pane.initiative.revision}`}</Text>
           <Select
-            key="brief-initiative"
+            key={pane.refusals === 0 ? 'brief-initiative' : `brief-initiative-${pane.refusals}`}
             options={[{ value: '', label: 'None' }, ...pane.initiatives.map(c => ({ value: c.id, label: c.title }))]}
             value={pane.initiative?.id ?? ''}
             onSelect={value => {
               if (value === (pane.initiative?.id ?? '')) return
-              void (value === '' ? act.detach() : act.attach(value))
+              if (value === '') void act.detach()
+              else if (pane.initiatives.some(c => c.id === value)) void act.attach(value)
             }}
           />
         </Box>

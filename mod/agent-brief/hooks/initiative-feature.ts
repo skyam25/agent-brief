@@ -35,6 +35,7 @@ const recentRef = atom({ plugin: 'agent-brief', key: 'recentInitiatives' } as co
 const sentRef = atom({ plugin: 'agent-brief', key: 'initiativeSent' } as const, null)
 const staleRef = atom({ plugin: 'agent-brief', key: 'isInitiativeStale' } as const, false)
 const recentDoneRef = atom({ plugin: 'agent-brief', key: 'isRecentLineDone' } as const, false)
+const refusedRef = atom({ plugin: 'agent-brief', key: 'initiativeRefusals' } as const, 0)
 // Engine refs are discovered per file; these keys are shared with their existing owners.
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
@@ -74,7 +75,7 @@ export async function loadRecent($: EngineInterface, env: InitiativeEnvironment)
   if (reply?.ok) await update($, recentRef, () => summariesOf(reply.body).map(choiceOf))
 }
 
-/** Runs when the session registers: the recent initiatives for the first prompt's line, and any attachment the app already holds. */
+/** Runs when the session registers and when the Brief pane opens: the recent initiatives, and any attachment the app holds. */
 export async function loadInitiative($: EngineInterface, env: InitiativeEnvironment): Promise<void> {
   await loadRecent($, env)
   await fetchInitiative($, env)
@@ -156,18 +157,28 @@ export async function initiativeCommand($: EngineInterface, env: InitiativeEnvir
 export async function attachFromBand($: EngineInterface, env: InitiativeEnvironment, initiativeId: string): Promise<void> {
   await update($, pickingRef, () => 'none')
   if (!(await env.ready())) {
-    $.ui.toast(INITIATIVE_APP_DOWN, { timeoutMs: 8000 })
+    await refused($, env, INITIATIVE_APP_DOWN)
     return
   }
   const body: SessionInitiativeRequest = { initiativeId }
   const reply = await env.request('PUT', sessionInitiativePath(await $.session.id()), body)
   const snapshot = reply?.ok ? snapshotOf(reply.body) : undefined
   if (snapshot === undefined) {
-    $.ui.toast(NOT_ATTACHED, { timeoutMs: 8000 })
+    await refused($, env, NOT_ATTACHED)
     return
   }
   await keepInitiative($, snapshot)
   $.ui.toast(attachedToast(snapshot.title), { timeoutMs: 8000 })
+}
+
+/**
+ * A change the app refused. The pane's Select keeps a pick until it draws a new value, so it gets a new key
+ * and draws the attachment the app still holds.
+ */
+async function refused($: EngineInterface, env: InitiativeEnvironment, text: string): Promise<void> {
+  await fetchInitiative($, env).catch(() => undefined)
+  await update($, refusedRef, n => n + 1)
+  $.ui.toast(text, { timeoutMs: 8000 })
 }
 
 /** The picker's Detach, or None in the Brief pane's Select. Claude reads a note about it with the next prompt. */
@@ -176,7 +187,7 @@ export async function detachFromBand($: EngineInterface, env: InitiativeEnvironm
   const title = (await read($, initiativeRef))?.title
   const reply = await env.request('DELETE', sessionInitiativePath(await $.session.id()))
   if (!reply?.ok) {
-    $.ui.toast(reply === undefined ? INITIATIVE_APP_DOWN : `Agent Brief did not detach ${title ?? 'the initiative'}.`, { timeoutMs: 8000 })
+    await refused($, env, reply === undefined ? INITIATIVE_APP_DOWN : `Agent Brief did not detach ${title ?? 'the initiative'}.`)
     return
   }
   await keepInitiative($, null)
@@ -187,7 +198,13 @@ export async function detachFromBand($: EngineInterface, env: InitiativeEnvironm
 export async function initiativeView($: EngineInterface) {
   const initiative = await read($, initiativeRef)
   const recent = await read($, recentRef)
-  return { initiative, choices: pickChoices(initiative, recent), listed: pickChoices(initiative, recent, LISTED_LIMIT + 1) }
+  return {
+    initiative,
+    choices: pickChoices(initiative, recent.slice(0, RECENT_LIMIT)),
+    listed: pickChoices(initiative, recent, LISTED_LIMIT),
+    /** How many changes the app refused, which keys the pane's Select afresh. */
+    refusals: await read($, refusedRef),
+  }
 }
 export function markInitiativeResumed($: EngineInterface) { return update($, recentDoneRef, () => true) }
 export function invalidateInitiative($: EngineInterface) { return update($, staleRef, () => true) }
