@@ -736,8 +736,9 @@ export interface FeedbackGraph {
 
 /**
  * POST /sessions/:id/feedback/snap?path=<HTML output> captures the item's `Where:`
- * element, or the visible page without one, into `<output>.feedback/<n>-r<round>-<side>.png`,
+ * element, or the whole page without one, into `<output>.feedback/<n>-r<round>-<side>.png`,
  * and appends a `Before:` or `After:` line. `round` defaults to the item's latest round.
+ * Pictures never change: a retake is `<n>-r<round>-<side>-<rev>.png` with its own line.
  */
 export interface FeedbackSnapRequest {
   item: number;
@@ -748,6 +749,8 @@ export interface FeedbackSnapRequest {
 export interface FeedbackSnapResult extends FeedbackDocument {
   /** The picture, relative to the project. */
   picture: string;
+  /** The element or page was taller, and the picture shows only its top this many CSS pixels. */
+  clipped?: number;
 }
 
 /** An item's workspace board, as POST /sessions/:id/feedback/workspace?path=<output>&item=<n> answers it.

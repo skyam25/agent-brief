@@ -31,7 +31,7 @@ export const DOCS: Record<string, Doc> = {
   done <output> <n> [text] [--commit <sha>]
   related <output> (<n> | --text <point>) links and look-alike items across the project
   workspace <output> <n>                 prints the item's board, fb-<stem>-<n>, after making it or adding a frame for its newest round
-  snap <output> <n> --before|--after [--round N]  pictures the item's Where: element, or the page, in an HTML output
+  snap <output> <n> --before|--after [--round N]  pictures the item's Where: element, or the whole page, in an HTML output
   graph                                  how rounds, items, outputs and workspaces link across the project`,
     about:
       'Keeps feedback items beside an output in <output>.feedback.md. Every write only adds: a round, an item, a line, or a closed checkbox. Dates are added for you. Claude writes Claude lines; You lines come from the panel. Requires the app and a registered session.',

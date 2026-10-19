@@ -1,7 +1,7 @@
 import { BehaviorStore } from './behavior';
 import { FeedbackStore } from './feedback';
 import { FeedbackWorkspaces } from './feedback-workspace';
-import { FeedbackSnaps, offscreenCapture } from './feedback-snap';
+import { captureSession, FeedbackSnaps, offscreenCapture } from './feedback-snap';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -189,7 +189,8 @@ async function start(): Promise<void> {
   const briefs = new Briefs({ state, store, drafts, sessions: () => server.sessions(), send, onPublish: () => files.sync() });
   const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
   const feedback = new FeedbackStore(() => send(CH.feedbackChanged));
-  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow) });
+  const captures = captureSession(session.fromPartition('feedback-capture'), (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
+  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow, captures) });
   const behaviorRoot = (sessionId: string) => {
     const cwd = briefs.cwdOf(sessionId);
     if (!cwd) throw new Error('Unknown session');

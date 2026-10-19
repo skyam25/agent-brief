@@ -64,7 +64,7 @@ Item fields:
 - Rounds are a registry, newest first. Items follow in the order they came in. Numbers never repeat.
 - The file is add-only. Writes append a line, add an item or round, or flip a checkbox. Never edit or delete a past line, even a wrong one. Correct it with a new line.
 - `Claude:`, `You:`, `Workspace:` and `Review:` lines are dated events. You write `Claude:` lines; `You:` lines come only from the user in the panel.
-- State comes from the last state verb: open (`cataloged`, `reopen`), accepted (`accept`), rejected (`reject`, `rejected`), done (`done`). `[x]` marks done or rejected.
+- State comes from the last state verb: open (`cataloged`, `reopen`), accepted (`accept`), rejected (`reject`, `rejected`), done (`done`, or `closed` unless the item was rejected). `[x]` marks done or rejected. The close and open ops date a `closed` or `reopen` line when they change the state.
 - `You: … · sent` marks decisions the user already sent you.
 
 ## Act on decisions
@@ -95,9 +95,10 @@ On a conflict the CLI reads the file again and retries once. If it still fails, 
 For an HTML output, picture the item before you change it and again after:
 
 - `agent-brief feedback snap <output> <n> --before`, then make the change, then `--after`.
-- It captures the item's `Where:` element, or the visible page without one, into `<output>.feedback/<n>-r<round>-<side>.png` and appends the `Before:` or `After:` line. The round defaults to the item's latest. Pass `--round N` for another.
-- A retake replaces the picture and keeps its one line. Other outputs return an error; skip pictures for them.
-- The item card shows the pair as a slider.
+- It captures the item's `Where:` element, or the whole page without one, into `<output>.feedback/<n>-r<round>-<side>.png` and appends the `Before:` or `After:` line. The round defaults to the item's latest. Pass `--round N` for another.
+- Pictures taller than 10000 CSS pixels keep only their top, and the line ends `· clipped to the top 10000px`. Say so when you report it.
+- Pictures never change. A retake writes `<n>-r<round>-<side>-2.png` and its own line. Picture the before once per round; snap `--after` again for each later fix. Other outputs return an error; skip pictures for them.
+- The item card's slider shows each round's first before against its latest after.
 
 ## Project graph
 
