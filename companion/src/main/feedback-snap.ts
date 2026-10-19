@@ -10,7 +10,7 @@ import { dirname, relative, resolve } from 'node:path';
 import type { BrowserWindow as ElectronWindow, Rectangle, Session } from 'electron';
 import type { FeedbackSnapRequest, FeedbackSnapResult } from '../protocol';
 import type { FeedbackActor } from '../shared/feedback';
-import { snapLine, snapName } from '../shared/feedback-pictures';
+import { picturePath, snapLine, snapName } from '../shared/feedback-pictures';
 import type { FeedbackStore } from './feedback';
 import { feedbackAssetsDir, plainRelative, resolveFeedback, within, writeFeedbackAsset } from './feedback-paths';
 import { REVIEW_SCHEME } from './review-protocol';
@@ -49,9 +49,10 @@ export class FeedbackSnaps {
 
     const { png, clipped } = await this.deps.capture(this.deps.urlFor(root, doc.output), item.where);
     // The capture awaited, so check the output, its folders and the item again before writing.
-    const assets = feedbackAssetsDir(root, doc.output);
     const current = this.deps.store.read(root, doc.output);
-    const named = new Set(current.items.find((i) => i.n === item.n)?.lines.map((l) => l.text.split(' · ')[0]) ?? bad(`${doc.path} has no item #${item.n}`));
+    if (current.output !== doc.output) return bad(`${doc.output} moved while it was being captured. Nothing was written.`);
+    const named = new Set(current.items.find((i) => i.n === item.n)?.lines.map((l) => picturePath(l.text)) ?? bad(`${doc.path} has no item #${item.n}`));
+    const assets = feedbackAssetsDir(root, doc.output);
     let rev = 1;
     for (; rev <= MAX_REVISIONS; rev++) {
       if (!named.has(snapLine(doc.output, item.n, round, req.side, rev)) && writeFeedbackAsset(assets, snapName(item.n, round, req.side, rev), png)) break;
