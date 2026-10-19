@@ -608,7 +608,7 @@ test('Send saves a typed note first, and a proposal changed after an accept asks
   const draft = (await deliveriesFor(h.socketPath, 'fp-12'))[0]!.draft;
   expect(draft).toContain('- #1 Continue is unclear: accept; note · fees next round');
   expect(draft).toContain('  Accepted change: Rename it Review order and show fees');
-  await expect.poll(() => readFileSync(join(cwd, 'checkout.html.feedback.md'), 'utf8')).toMatch(/You: \d{4}-\d{2}-\d{2} · note · fees next round\n/);
+  await expect.poll(() => readFileSync(join(cwd, 'checkout.html.feedback.md'), 'utf8')).toMatch(/You: \d{4}-\d{2}-\d{2} · note · fees next round\n[\s\S]*sent · through \d+\n/);
 
   // Claude revises the proposal. The accept no longer stands.
   await agent(h.socketPath, route, [{ op: 'append', item: 1, key: 'Change', text: 'Rename it Review order and add a fee table' }]);
