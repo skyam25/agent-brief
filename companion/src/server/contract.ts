@@ -29,7 +29,7 @@ import type {
   SessionsResponse,
   UpdateRequest,
 } from '../protocol';
-import type { BoardComments } from '../shared/board-comments';
+import type { BoardComments, BoardPin } from '../shared/board-comments';
 import type { ReviewPayload } from '../shared/review';
 
 export interface Region {
@@ -49,7 +49,7 @@ export interface BoardBackend {
   open(req: OpenRequest): Promise<OpenResponse>;
   listBoards(): Promise<BoardsResponse>;
   read(board: string, region?: Region): Promise<ReadResponse>;
-  png(board: string, opts: { region?: Region; maxEdge?: number }): Promise<Buffer>;
+  png(board: string, opts: { region?: Region; maxEdge?: number; pins?: BoardPin[] }): Promise<Buffer>;
   draw(board: string, req: DrawRequest): Promise<DrawResponse>;
   update(board: string, req: UpdateRequest): Promise<MutateResponse>;
   remove(board: string, req: DeleteRequest): Promise<MutateResponse>;

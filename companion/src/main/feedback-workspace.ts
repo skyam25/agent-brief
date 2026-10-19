@@ -9,10 +9,15 @@ import { basename, join } from 'node:path';
 import type { FeedbackDocument, FeedbackItem, FeedbackUpdateResult, FeedbackWorkspace } from '../protocol';
 import type { BoardBackend } from '../server/contract';
 import { BoardError, badRequest, notFound } from '../board/errors';
+import { cleanBoardComments } from '../shared/board-comments';
 import { feedbackAssets } from '../shared/feedback';
 import {
   bindingOf,
   boundTo,
+  commentNotes,
+  itemNote,
+  itemNoteLine,
+  itemNoteMarker,
   latestWorkspace,
   seedRequest,
   workspaceBinding,
@@ -22,6 +27,7 @@ import {
   workspaceRound,
   type WorkspaceSnapshot,
 } from '../shared/feedback-workspace';
+import type { DraftStore } from './drafts';
 import type { FeedbackStore } from './feedback';
 import type { BoardStore } from './store';
 
@@ -35,6 +41,8 @@ export interface WorkspaceDeps {
   feedback: Pick<FeedbackStore, 'read' | 'update'>;
   store: Pick<BoardStore, 'exists' | 'create' | 'load' | 'saveNotes'>;
   boards: Pick<BoardBackend, 'read' | 'draw' | 'png'>;
+  /** Write notes, for Add to note. `show` opens one in the panel. */
+  notes?: { drafts: Pick<DraftStore, 'list' | 'addNote'>; show: (sessionId: string, id: string) => void };
 }
 
 interface Found {
@@ -164,26 +172,52 @@ export class FeedbackWorkspaces {
     });
   }
 
-  /** Exports the board beside the output as a new PNG and appends a Workspace line as `by`. Sends nothing. */
-  save(root: string, output: unknown, n: unknown, by: 'You' | 'Claude'): Promise<FeedbackUpdateResult> {
+  /**
+   * Exports the board beside the output as a new PNG and appends a Workspace line as `by`.
+   * The user's comments become `You: note` lines before it, and their pins badges on the PNG. Sends nothing.
+   */
+  save(root: string, output: unknown, n: unknown, by: 'You' | 'Claude', rawComments?: unknown): Promise<FeedbackUpdateResult> {
+    const comments = by === 'You' ? cleanBoardComments(rawComments) : undefined;
+    const { pins, lines } = comments ? commentNotes(comments) : { pins: [], lines: [] };
     return this.serial(async () => {
       const { board } = this.boardOf(this.find(root, output, n), false);
-      const png = await this.deps.boards.png(board, { maxEdge: SAVE_MAX_EDGE });
+      const png = await this.deps.boards.png(board, { maxEdge: SAVE_MAX_EDGE, ...(pins.length ? { pins } : {}) });
       // The export took a while, so the output, the item and the folders are checked again before writing.
       const found = this.find(root, output, n);
       const dir = assetDir(realpathSync(root), feedbackAssets(found.doc.output));
       const name = writeRevision(dir, found.item, png);
       const text = workspaceLine(board, `${feedbackAssets(basename(found.doc.output))}/${name}`);
-      const ops = [{ op: 'append' as const, item: found.item.n, key: 'Workspace', text }];
-      // Ops only add, so a write that lost a race reads again and retries once.
-      for (let attempt = 0; ; attempt++) {
-        const { version } = attempt === 0 ? found.doc : this.deps.feedback.read(root, output);
-        try {
-          return this.deps.feedback.update(root, output, { version, ops }, by);
-        } catch (err) {
-          if ((err as { code?: string }).code !== 'conflict' || attempt > 0) throw err;
-        }
-      }
+      const ops = [...lines.map((line) => ({ op: 'append' as const, item: found.item.n, key: 'You', text: line })), { op: 'append' as const, item: found.item.n, key: 'Workspace', text }];
+      return this.append(root, output, found.doc.version, ops, by);
     });
+  }
+
+  /** Opens the session's Write note linked to the item. A new one gets a `You: note` line naming it. */
+  note(root: string, output: unknown, n: unknown, sessionId: string): { draftId: string; created: boolean } {
+    if (!this.deps.notes) throw new BoardError('unavailable', 'this app does not take notes');
+    const { drafts, show } = this.deps.notes;
+    const { doc, item } = this.find(root, output, n);
+    const marker = itemNoteMarker(doc.output, item.n);
+    const kept = drafts.list().find((d) => d.sessionId === sessionId && d.body.includes(marker));
+    if (kept) {
+      show(sessionId, kept.id);
+      return { draftId: kept.id, created: false };
+    }
+    const { title, text } = itemNote(doc.output, item);
+    const draft = drafts.addNote({ text, title, sessionId });
+    this.append(root, output, doc.version, [{ op: 'append', item: item.n, key: 'You', text: itemNoteLine(title) }], 'You');
+    show(sessionId, draft.id);
+    return { draftId: draft.id, created: true };
+  }
+
+  /** Ops only add, so a write that lost a race reads again and retries once. */
+  private append(root: string, output: unknown, version: string, ops: { op: 'append'; item: number; key: string; text: string }[], by: 'You' | 'Claude'): FeedbackUpdateResult {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return this.deps.feedback.update(root, output, { version: attempt === 0 ? version : this.deps.feedback.read(root, output).version, ops }, by);
+      } catch (err) {
+        if ((err as { code?: string }).code !== 'conflict' || attempt > 0) throw err;
+      }
+    }
   }
 }

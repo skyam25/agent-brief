@@ -263,7 +263,18 @@ async function start(): Promise<void> {
 
   // The socket server: sessions, deliveries and the board API for the CLI and the mod.
   // POST /open runs backend.open, which shows the panel and sets the prompt.
-  const workspaces = new FeedbackWorkspaces({ feedback, store, boards: backend });
+  const workspaces = new FeedbackWorkspaces({
+    feedback,
+    store,
+    boards: backend,
+    notes: {
+      drafts,
+      show: (sessionId, id) => {
+        send(CH.draftsChanged);
+        briefs.showDraft(sessionId, id);
+      },
+    },
+  });
   const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, feedbackSnaps, workspaces });
 
   // Writes pending saves and closes the socket once before quitting.
@@ -526,7 +537,8 @@ async function start(): Promise<void> {
   ipc.handle('updateFeedback', (sessionId: string, path: unknown, update: unknown) => feedback.update(behaviorRoot(sessionId), path, update, 'You'));
   ipc.handle('listFeedback', (sessionId: string) => feedback.project(behaviorRoot(sessionId)));
   ipc.handle('openFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, snapshot?: unknown) => workspaces.open(behaviorRoot(sessionId), path, n, snapshot));
-  ipc.handle('saveFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown) => workspaces.save(behaviorRoot(sessionId), path, n, 'You'));
+  ipc.handle('saveFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, comments?: unknown) => workspaces.save(behaviorRoot(sessionId), path, n, 'You', comments));
+  ipc.handle('noteFeedbackItem', (sessionId: string, path: unknown, n: unknown) => workspaces.note(behaviorRoot(sessionId), path, n, sessionId));
   ipc.handle('readFeedbackPicture', (sessionId: string, output: unknown, picture: unknown) => feedbackSnaps.picture(behaviorRoot(sessionId), output, picture));
   ipc.handle('reviewUrl', (sessionId: string, path: unknown) => files.reviewUrl(sessionId, path));
   ipc.handle('reviewEdit', (sessionId: string, path: unknown, version: unknown, edit: unknown) => files.reviewEdit(sessionId, path, version, edit));

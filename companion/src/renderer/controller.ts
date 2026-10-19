@@ -469,7 +469,8 @@ export class BoardController {
         }
         case 'png': {
           const h = await this.sceneFor(a.board);
-          return renderPng(h.elements, h.files, { region: a.region, maxEdge: a.maxEdge });
+          const pins = (a.pins as BoardPin[] | undefined)?.map((p) => pinSpot(p, new Map((h.elements as unknown as Pinnable[]).map((e) => [e.id, e]))).at);
+          return renderPng(h.elements, h.files, { region: a.region, maxEdge: a.maxEdge, ...(pins?.length ? { pins } : {}) });
         }
         case 'show':
           return this.show(a.board);

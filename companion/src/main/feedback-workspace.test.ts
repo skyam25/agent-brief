@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { DrawRequest, ReadResponse, Skeleton } from '../protocol';
 import { tempDir } from '../server/testkit';
+import { DraftStore } from './drafts';
 import { FeedbackStore } from './feedback';
 import { FeedbackWorkspaces } from './feedback-workspace';
 import { BoardStore } from './store';
@@ -205,6 +206,42 @@ describe('FeedbackWorkspaces', () => {
     write([{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Prices hidden', lines: [{ key: 'Src', text: '1 · Ana · 04:00 · "Where is the price?"' }, { key: 'Src', text: '2 · Maya · 01:00 · "No price"' }] }]);
     await workspaces.open(root, 'prototype/checkout.html', 2);
     expect(boards.scenes.get('fb-checkout-2')!.filter((e) => e.type === 'frame').map((e) => e.label)).toEqual(['Round 1', 'Round 2']);
+  });
+
+  it('keeps the comments as You notes before the Workspace line, with badges for the pins that have words', async () => {
+    const { root, boards, workspaces } = setup();
+    await workspaces.open(root, 'prototype/checkout.html', 1);
+    const pin = (id: string, text: string, label?: string) => ({ id, x: 10, y: 20, type: 'sticky', ...(label ? { label } : {}), text, createdAt: 1 });
+    const comments = { overall: 'Option B reads better\nmostly', pins: [pin('bp-1', '', 'empty'), pin('bp-2', 'make it\nbigger', 'Option B: sticky filters')] };
+    const res = await workspaces.save(root, 'prototype/checkout.html', 1, 'You', comments);
+    expect(boards.png).toHaveBeenLastCalledWith('fb-checkout-1', { maxEdge: 2400, pins: [expect.objectContaining({ id: 'bp-2' })] });
+    expect(res.items[0]!.lines.slice(-3).map((l) => `${l.key}: ${l.text}`)).toEqual([
+      'You: 2026-10-18 · note · pin 1 on sticky “Option B: sticky filters” · make it bigger',
+      'You: 2026-10-18 · note · Option B reads better mostly',
+      'Workspace: 2026-10-18 · saved · fb-checkout-1 · checkout.html.feedback/1-workspace-1.png',
+    ]);
+    // Claude's saves never carry the user's words.
+    const again = await workspaces.save(root, 'prototype/checkout.html', 1, 'Claude', comments);
+    expect(again.items[0]!.lines.at(-2)!.key).toBe('Workspace');
+  });
+
+  it('makes the item\'s Write note once, logs it, and opens it after', () => {
+    const { root, feedback, store, boards } = setup();
+    const drafts = new DraftStore(tempDir());
+    const show = vi.fn();
+    const workspaces = new FeedbackWorkspaces({ feedback, store, boards, notes: { drafts, show } });
+    const made = workspaces.note(root, 'prototype/checkout.html', 1, 's1');
+    expect(made.created).toBe(true);
+    const draft = drafts.get(made.draftId)!;
+    expect(draft).toMatchObject({ sessionId: 's1', title: '#1 Hard to find the filters' });
+    expect(draft.body).toContain('Feedback item #1 on prototype/checkout.html.');
+    expect(draft.body).toContain('> "Where do I filter?" — Ana');
+    expect(show).toHaveBeenLastCalledWith('s1', made.draftId);
+    expect(feedback.read(root, 'prototype/checkout.html').items[0]!.events.at(-1)).toMatchObject({ key: 'You', verb: 'note', detail: 'Write note "#1 Hard to find the filters"' });
+
+    expect(workspaces.note(root, 'prototype/checkout.html', 1, 's1')).toEqual({ draftId: made.draftId, created: false });
+    expect(feedback.read(root, 'prototype/checkout.html').items[0]!.events.filter((e) => e.detail.startsWith('Write note'))).toHaveLength(1);
+    expect(workspaces.note(root, 'prototype/checkout.html', 1, 's2').created).toBe(true);
   });
 
   it('refuses unknown items and bad numbers', async () => {

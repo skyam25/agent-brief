@@ -3,7 +3,7 @@ import type { FeedbackWorkspace } from '../protocol';
 import type { WorkspaceSnapshot } from './feedback-workspace';
 /** IPC between the main process and the panel renderer. */
 
-import type { BoardComments } from './board-comments';
+import type { BoardComments, BoardPin } from './board-comments';
 import type { DraftReview, ReviewPayload, ReviewRect } from './review';
 import type { EditResult, HistoryResult, ReviewEdit } from './review-edit';
 import type {
@@ -37,7 +37,8 @@ export interface BoardOps {
   draw: { args: { board: string; req: DrawRequest; batchId: string }; result: DrawResponse };
   update: { args: { board: string; req: UpdateRequest; batchId: string }; result: MutateResponse };
   remove: { args: { board: string; req: DeleteRequest; batchId: string }; result: MutateResponse };
-  png: { args: { board: string; region?: Region; maxEdge: number }; result: Uint8Array };
+  /** `pins` draw numbered badges, as a workspace Save does. */
+  png: { args: { board: string; region?: Region; maxEdge: number; pins?: BoardPin[] }; result: Uint8Array };
   /** Makes `board` the visible board. A tab switch leaves the mode to the renderer. */
   show: { args: { board: string; fromSwitch?: boolean }; result: void };
   /** Builds what Send hands over, from the visible board. */
@@ -472,8 +473,10 @@ export interface CompanionApi extends BoardHost {
   onFeedbackChanged(fn: () => void): () => void;
   /** Makes an item's workspace board when missing and adds a frame for its newest round, seeded with `snapshot` when given. */
   openFeedbackWorkspace(sessionId: string, path: string, n: number, snapshot?: WorkspaceSnapshot): Promise<FeedbackWorkspace>;
-  /** Exports the item's board beside the output and appends a Workspace line. Sends nothing. */
-  saveFeedbackWorkspace(sessionId: string, path: string, n: number): Promise<FeedbackUpdateResult>;
+  /** Exports the item's board beside the output and appends a Workspace line, after a note line per pin and the overall note. Sends nothing. */
+  saveFeedbackWorkspace(sessionId: string, path: string, n: number, comments?: BoardComments): Promise<FeedbackUpdateResult>;
+  /** Opens the Write note linked to the item, making it, and a note line naming it, when missing. */
+  noteFeedbackItem(sessionId: string, path: string, n: number): Promise<{ draftId: string; created: boolean }>;
   reviewUrl(sessionId: string, path: string): Promise<string>;
   /** Applies a review pane edit to the HTML file. `version` is the file's as the page loaded it. */
   reviewEdit(sessionId: string, path: string, version: string, edit: ReviewEdit): Promise<EditResult>;
@@ -574,6 +577,7 @@ export const CH = {
   feedbackChanged: 'feedback:changed',
   openFeedbackWorkspace: 'feedback:workspace-open',
   saveFeedbackWorkspace: 'feedback:workspace-save',
+  noteFeedbackItem: 'feedback:item-note',
   reviewUrl: 'review:url',
   reviewEdit: 'review:edit',
   reviewUndo: 'review:undo',
@@ -650,6 +654,7 @@ export const IPC_INVOKE = {
   listFeedback: CH.listFeedback,
   openFeedbackWorkspace: CH.openFeedbackWorkspace,
   saveFeedbackWorkspace: CH.saveFeedbackWorkspace,
+  noteFeedbackItem: CH.noteFeedbackItem,
   readFeedbackPicture: CH.readFeedbackPicture,
   reviewUrl: CH.reviewUrl,
   reviewEdit: CH.reviewEdit,

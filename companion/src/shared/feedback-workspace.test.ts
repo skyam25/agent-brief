@@ -36,7 +36,6 @@ const FILE = `# Feedback · checkout.html
     You: 2026-10-14 · voice · the chips wrap badly
     Workspace: 2026-10-15 · saved · fb-checkout-6 · checkout.html.feedback/6-workspace.png
     Review: 2026-10-16 · pin 2 · "reads better"
-    You: 2026-10-17 · pin · sticky “Option B” · make it bigger
     Src: 2 · Maya · 00:14 · "I couldn't find the filters"
     Workspace: 2026-10-18 · saved · fb-checkout-6 · checkout.html.feedback/6-workspace.png
 `;
@@ -94,7 +93,6 @@ describe('the item card and rail', () => {
       { kind: 'note', date: '', text: 'a loose note' },
       { kind: 'voice', date: '2026-10-14', text: 'the chips wrap badly' },
       { kind: 'pin', date: '2026-10-16', text: 'pin 2 · "reads better"' },
-      { kind: 'pin', date: '2026-10-17', text: 'sticky “Option B” · make it bigger' },
     ]);
   });
 

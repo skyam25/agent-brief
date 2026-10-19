@@ -6,6 +6,7 @@
  */
 
 import type { DrawRequest, ElementSummary, FeedbackItem, Skeleton } from '../protocol';
+import { pinLabel, type BoardComments, type BoardPin } from './board-comments';
 
 export const WORKSPACE_PREFIX = 'fb-';
 
@@ -59,6 +60,42 @@ export function latestWorkspace(item: Pick<FeedbackItem, 'events'>): SavedWorksp
   return board ? { date: last.date, board, ...(png ? { png } : {}) } : undefined;
 }
 
+const flat = (s: string, max = 3000) => {
+  const one = s.replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+};
+
+/**
+ * What a Save keeps of the workspace's comments: the pins with words, numbered as
+ * the saved picture's badges, and a `You: note` line for each, then one for the overall note.
+ */
+export function commentNotes(c: BoardComments): { pins: BoardPin[]; lines: string[] } {
+  const pins = c.pins.filter((p) => p.text.trim());
+  const lines = pins.map((p, i) => `note · pin ${i + 1} on ${pinLabel(p, 40)} · ${flat(p.text)}`);
+  if (c.overall.trim()) lines.push(`note · ${flat(c.overall)}`);
+  return { pins, lines };
+}
+
+/** The line a Write note linked to the item starts its second paragraph with. Add to note finds the note by it. */
+export const itemNoteMarker = (output: string, n: number) => `Feedback item #${n} on ${output}.`;
+
+/** A new Write note for the item: its title, quote and proposed change. */
+export function itemNote(output: string, item: FeedbackItem): { title: string; text: string } {
+  const title = flat(`#${item.n} ${item.title}`, 120);
+  const src = workspaceQuote(item, workspaceRound(item));
+  const text = [
+    `# ${title}`,
+    itemNoteMarker(output, item.n),
+    ...(src?.quote ? [`> "${src.quote}"${src.speaker ? ` — ${src.speaker}` : ''}`] : []),
+    ...(item.change ? [`Change: ${item.change}`] : []),
+    '',
+  ].join('\n\n');
+  return { title, text };
+}
+
+/** The `You: note` line that records a linked Write note. */
+export const itemNoteLine = (title: string) => `note · Write note "${title}"`;
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** `2026-10-18` as `Oct 18`. */
@@ -79,7 +116,7 @@ export const workspaceRound = (item: Pick<FeedbackItem, 'rounds' | 'round'>) => 
 
 export const frameTitle = (round: number) => `Round ${round}`;
 
-/** What the rail lists: notes, voice notes, and review and workspace pins, in file order. */
+/** What the rail lists: notes, voice notes and review pins, in file order. */
 export interface RailEntry {
   kind: 'note' | 'voice' | 'pin';
   date: string;
@@ -97,7 +134,7 @@ export function railEntries(item: Pick<FeedbackItem, 'lines'>): RailEntry[] {
     const [date = '', verb = '', ...rest] = line.text.split(' · ').map((s) => s.trim());
     const detail = rest.join(' · ');
     if (line.key === 'Review') out.push({ kind: 'pin', date, text: [verb, detail].filter(Boolean).join(' · ') });
-    else if ((verb === 'note' || verb === 'voice' || verb === 'pin') && detail) out.push({ kind: verb, date, text: detail });
+    else if ((verb === 'note' || verb === 'voice') && detail) out.push({ kind: verb, date, text: detail });
   }
   return out;
 }

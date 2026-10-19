@@ -1,21 +1,28 @@
 /**
  * A feedback item's workspace: a full layer over the output with the item's own
- * Sketch board and a rail of what was said about it. Save to #N exports the
- * board beside the output and logs it on the item. Nothing goes to Claude.
+ * Sketch board, the board's comment pins and mic, and a rail of what was said about
+ * it. Save to #N exports the board beside the output and logs it, and the comments,
+ * on the item. Add to note opens a Write note linked to the item. Nothing goes to Claude.
  */
 
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { FeedbackItem } from '../protocol';
+import { hasBoardComments } from '../shared/board-comments';
 import { railEntries, shortDate, workspaceQuote, workspaceRound, workspaceSummary, type WorkspaceSnapshot } from '../shared/feedback-workspace';
 import type { BoardHost, CompanionApi, Theme } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
-import { BoardCommentsStore } from './board-comments';
+import { CommentColumn, CommentToggle, useCommentKeys } from './BoardComments';
 import { BoardController, parseScene, type LoadedScene } from './controller';
+import { Mic } from './Mic';
+import { OVERALL, ReviewVoice } from './review-voice';
 import { fitBoard } from './viewport';
-import { holdWorkspace } from './workspace-boards';
+import { holdWorkspace, workspaceComments as comments } from './workspace-boards';
 
-export type WorkspaceHost = BoardHost & Pick<CompanionApi, 'openFeedbackWorkspace' | 'saveFeedbackWorkspace'>;
+export type WorkspaceHost = BoardHost &
+  Pick<CompanionApi, 'openFeedbackWorkspace' | 'saveFeedbackWorkspace' | 'noteFeedbackItem' | 'transcribeClip' | 'requestMicrophone'>;
+
+const MIC_DENIED = 'Microphone access is off. Turn it on in System Settings > Privacy & Security > Microphone, then try again.';
 
 const cleanError = (err: unknown) => (err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
@@ -76,9 +83,51 @@ export function WorkspaceLayer(props: {
 }) {
   const { host, board } = props;
   const [loaded, setLoaded] = useState<{ controller: BoardController; scene: LoadedScene }>();
-  const [comments] = useState(() => new BoardCommentsStore());
   const [theme, setTheme] = useState(currentTheme);
   const [saving, setSaving] = useState(false);
+  const [voice] = useState(
+    () =>
+      new ReviewVoice({
+        transcribe: (clip) => host.transcribeClip(clip),
+        onText: (target, text) => comments.append(board, target, text),
+        onError: props.onError,
+      }),
+  );
+  const recording = useSyncExternalStore(
+    (fn) => voice.subscribe(fn),
+    () => voice.recording,
+  );
+  const showing = useSyncExternalStore(
+    (fn) => comments.subscribe(fn),
+    () => comments.showing(board),
+  );
+  const selected = useSyncExternalStore(
+    (fn) => comments.subscribe(fn),
+    () => comments.selected,
+  );
+  useCommentKeys(comments, true);
+
+  // Words go to the selected pin, so the mic follows the selection.
+  useEffect(() => {
+    if (voice.recording) voice.aim(selected ?? OVERALL);
+  }, [voice, selected]);
+
+  // Leaving stops the mic. Words still turning into text land on their pins, which stay for the next open.
+  useEffect(
+    () => () => {
+      void voice.stop();
+      comments.setTool(false);
+    },
+    [voice],
+  );
+
+  const toggleMic = async () => {
+    if (voice.recording) return void (await voice.stop());
+    const access = await host.requestMicrophone();
+    if (!access.granted) return props.onError(MIC_DENIED);
+    comments.setTool(true);
+    await voice.start(comments.selected ?? OVERALL).catch((err: Error) => props.onError(`Could not start the microphone: ${err.message}`));
+  };
 
   useEffect(() => {
     const off = host.onTheme(setTheme);
@@ -113,8 +162,13 @@ export function WorkspaceLayer(props: {
     if (!loaded) return;
     setSaving(true);
     try {
+      await voice.stop();
       await loaded.controller.flush();
-      await host.saveFeedbackWorkspace(props.sessionId, props.path, props.n);
+      const kept = comments.of(board);
+      await host.saveFeedbackWorkspace(props.sessionId, props.path, props.n, hasBoardComments(kept) ? kept : undefined);
+      // The item has the saved words now. Words added while saving stay for the next Save.
+      for (const p of kept.pins) if (comments.of(board).pins.find((q) => q.id === p.id)?.text === p.text) comments.remove(board, p.id);
+      if (comments.of(board).overall === kept.overall) comments.setOverall(board, '');
     } catch (err) {
       props.onError(`Could not save the workspace: ${cleanError(err)}`);
     } finally {
@@ -125,6 +179,15 @@ export function WorkspaceLayer(props: {
   const back = async () => {
     await loaded?.controller.flush().catch(() => undefined);
     props.onBack();
+  };
+
+  const addToNote = async () => {
+    await loaded?.controller.flush().catch(() => undefined);
+    try {
+      await host.noteFeedbackItem(props.sessionId, props.path, props.n);
+    } catch (err) {
+      props.onError(`Could not open the note: ${cleanError(err)}`);
+    }
   };
 
   const item = props.item;
@@ -145,18 +208,20 @@ export function WorkspaceLayer(props: {
             </span>
           )}
         </div>
-        <span className="muted workspace-board" title="Claude draws here with agent-brief draw --board" data-testid="workspace-board">
-          {board}
-        </span>
         {summary && (
           <span className="muted" data-testid="workspace-saved">
             {summary}
           </span>
         )}
+        <CommentToggle comments={comments} />
+        <Mic recording={recording} board onMicrophone={() => void toggleMic()} />
+        <button className="ghost" onClick={() => void addToNote()} title="Open a Write note linked to this item" data-testid="workspace-note">
+          Add to note
+        </button>
         <button className="ghost" onClick={() => void back()} data-testid="workspace-back">
           Back to list
         </button>
-        <button className="primary" disabled={!loaded || saving} onClick={() => void save()} title="Export the board beside the output and log it on the item. Nothing is sent." data-testid="workspace-save">
+        <button className="primary" disabled={!loaded || saving} onClick={() => void save()} title="Export the board beside the output and log it and the comments on the item. Nothing is sent." data-testid="workspace-save">
           {saving ? 'Saving…' : `Save to #${props.n}`}
         </button>
       </header>
@@ -166,8 +231,25 @@ export function WorkspaceLayer(props: {
         ) : (
           <p className="muted workspace-loading">Opening the workspace…</p>
         )}
+        {showing && (
+          <CommentColumn
+            comments={comments}
+            board={board}
+            voice={voice}
+            foot="Save keeps each pin's words on the item, numbered on the saved picture. ⌘↩ saves."
+            onSendKeys={(e) => {
+              if (e.key === 'Enter' && e.metaKey) {
+                e.preventDefault();
+                void save();
+              }
+            }}
+          />
+        )}
         <aside className="workspace-rail" aria-label="Notes, voice and pins" data-testid="workspace-rail">
           <h4 className="section-head">Said about #{props.n}</h4>
+          <p className="muted workspace-board" title="Claude draws here with agent-brief draw --board" data-testid="workspace-board">
+            {board}
+          </p>
           {rail.length === 0 && <p className="muted">No notes, voice notes or pins yet.</p>}
           {rail.map((r, i) => (
             <p key={i} className={`workspace-rail-entry ${r.kind}`} data-testid="workspace-rail-entry">
