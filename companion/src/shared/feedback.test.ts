@@ -136,10 +136,11 @@ describe('feedback files', () => {
     expect(pendingDecisions(after)).toEqual([]);
     expect(after.items.map((i) => i.state)).toEqual(['open', 'rejected']);
     const message = decisionsPrompt(doc, pendingDecisions(doc));
-    expect(message.split('\n').slice(0, 4)).toEqual([
+    expect(message.split('\n').slice(0, 5)).toEqual([
       '@prototype/checkout.html.feedback.md',
       'Feedback decisions on prototype/checkout.html from Agent Brief, 2 items:',
       '- #6 Hard to find the filters: accept · keep it sticky on scroll; reopen · too long on mobile',
+      '  Saved workspace: board fb-checkout-6, picture prototype/checkout.html.feedback/6-workspace.png',
       '- #7 Coupon field is confusing: reject · out of scope',
     ]);
   });

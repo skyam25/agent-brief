@@ -279,26 +279,76 @@ export function feedbackSummary(path: string, output: string, outputExists: bool
   return { path, output, outputExists, title: doc.title, rounds: doc.rounds.length, items: doc.items.length, open: count('open'), accepted: count('accepted'), rejected: count('rejected'), done: count('done') };
 }
 
-/** Your lines on each item since its last `You: … · sent`, for Send decisions. */
-export function pendingDecisions(doc: FeedbackDoc): { item: FeedbackItem; said: FeedbackEvent[] }[] {
-  const out: { item: FeedbackItem; said: FeedbackEvent[] }[] = [];
+export interface PendingDecision {
+  item: FeedbackItem;
+  /** Your lines since the last send. */
+  said: FeedbackEvent[];
+  /** Workspaces saved since the last send. */
+  saved: FeedbackEvent[];
+  /** The 1-based index, among the item's events, of the last one this send covers. */
+  through: number;
+}
+
+/** `sent · through 7` covers an item's first 7 events. */
+const THROUGH = /^through (\d+)$/;
+
+/**
+ * Your lines and saved workspaces on each item that no receipt covers, for Send decisions.
+ * A receipt without `through` covers the events before it.
+ */
+export function pendingDecisions(doc: FeedbackDoc): PendingDecision[] {
+  const out: PendingDecision[] = [];
   for (const item of doc.items) {
-    const yours = item.events.filter((e) => e.key === 'You');
-    const last = yours.map((e) => e.verb).lastIndexOf('sent');
-    const said = yours.slice(last + 1);
-    if (said.length) out.push({ item, said });
+    let covered = 0;
+    item.events.forEach((e, i) => {
+      if (e.key !== 'You' || e.verb !== 'sent') return;
+      const through = THROUGH.exec(e.detail);
+      covered = Math.max(covered, through ? Number(through[1]) : i);
+    });
+    const next: PendingDecision = { item, said: [], saved: [], through: 0 };
+    item.events.forEach((e, i) => {
+      if (i < covered) return;
+      if (e.key === 'You' && e.verb !== 'sent') next.said.push(e);
+      else if (e.key === 'Workspace' && e.verb === 'saved') next.saved.push(e);
+      else return;
+      next.through = i + 1;
+    });
+    if (next.through) out.push(next);
   }
   return out;
 }
 
+/** The receipts for what a send covered, in updates the store accepts. */
+export function receiptBatches(pending: PendingDecision[]): FeedbackOp[][] {
+  const ops: FeedbackOp[] = pending.map((p) => ({ op: 'append', item: p.item.n, key: 'You', text: `sent${SEP}through ${p.through}` }));
+  const batches: FeedbackOp[][] = [];
+  for (let i = 0; i < ops.length; i += MAX_OPS) batches.push(ops.slice(i, i + MAX_OPS));
+  return batches;
+}
+
+/** A saved workspace's board and picture, the picture relative to the project. */
+function savedWorkspace(output: string, e: FeedbackEvent): { board: string; picture?: string } {
+  const [board = '', picture] = e.detail.split(SEP).map((s) => s.trim());
+  const dir = output.includes('/') ? output.slice(0, output.lastIndexOf('/') + 1) : '';
+  return { board, ...(picture ? { picture: `${dir}${picture}` } : {}) };
+}
+
 /** The message Send decisions hands Claude. */
-export function decisionsPrompt(doc: Pick<FeedbackDocument, 'path' | 'output'>, pending: ReturnType<typeof pendingDecisions>): string {
+export function decisionsPrompt(doc: Pick<FeedbackDocument, 'path' | 'output'>, pending: PendingDecision[]): string {
   const lines = [
     `@${doc.path}`,
     `Feedback decisions on ${doc.output} from Agent Brief, ${pending.length === 1 ? '1 item' : `${pending.length} items`}:`,
-    ...pending.map(({ item, said }) => `- #${item.n} ${item.title}: ${said.map((e) => [e.verb, e.detail].filter(Boolean).join(SEP)).join('; ')}`),
-    'Act on each: make the accepted changes and log them with agent-brief feedback done, leave rejected items alone, and answer notes with a Claude line. The feedback-items skill has the format.',
   ];
+  for (const { item, said, saved } of pending) {
+    const words = said.map((e) => [e.verb, e.detail].filter(Boolean).join(SEP)).join('; ');
+    lines.push(`- #${item.n} ${item.title}: ${words || 'saved a workspace'}`);
+    for (const e of saved) {
+      const w = savedWorkspace(doc.output, e);
+      lines.push(`  Saved workspace: board ${w.board}${w.picture ? `, picture ${w.picture}` : ''}`);
+    }
+  }
+  lines.push('Act on each: make the accepted changes and log them with agent-brief feedback done, leave rejected items alone, and answer notes with a Claude line. The feedback-items skill has the format.');
+  if (pending.some((p) => p.saved.length)) lines.push("A saved workspace is the user's answer drawn out. Look at each saved workspace's picture and run agent-brief read --board <board> before you act on its item.");
   return lines.join('\n');
 }
 
