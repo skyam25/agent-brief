@@ -23,6 +23,16 @@ describe('Send decisions', () => {
     expect(message).toMatch(/look at each saved workspace's picture.*agent-brief read --board/i);
   });
 
+  it('takes a Save with its pin and overall notes as one pending response', () => {
+    const text = HEAD + item(1, 'You: 2026-10-18 · note · pin 1 on rectangle “Filters” · make it sticky', 'You: 2026-10-18 · note · keep sort on the right', 'Workspace: 2026-10-18 · saved · fb-checkout-1 · checkout.html.feedback/1-workspace-1.png');
+    const pending = pendingDecisions(doc(text));
+    expect(pending.map((p) => [p.said.length, p.saved.length, p.through])).toEqual([[2, 1, 4]]);
+    expect(decisionsPrompt(doc(text), pending).split('\n').slice(2, 4)).toEqual([
+      '- #1 Item 1: note · pin 1 on rectangle “Filters” · make it sticky; note · keep sort on the right',
+      '  Saved workspace: board fb-checkout-1, picture site/checkout.html.feedback/1-workspace-1.png',
+    ]);
+  });
+
   it('records a receipt through the last event sent, so later events stay pending', () => {
     const start = HEAD + item(1, 'You: 2026-10-18 · accept');
     const snapshot = pendingDecisions(doc(start));

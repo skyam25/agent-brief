@@ -6,7 +6,7 @@
  */
 
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FeedbackItem } from '../protocol';
 import { hasBoardComments } from '../shared/board-comments';
 import { railEntries, shortDate, workspaceQuote, workspaceRound, workspaceSummary, type WorkspaceSnapshot } from '../shared/feedback-workspace';
@@ -16,6 +16,7 @@ import { CommentColumn, CommentToggle, useCommentKeys } from './BoardComments';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { Mic } from './Mic';
 import { OVERALL, ReviewVoice } from './review-voice';
+import { claimTalk } from './talk-owner';
 import { fitBoard } from './viewport';
 import { holdWorkspace, workspaceComments as comments } from './workspace-boards';
 
@@ -128,6 +129,11 @@ export function WorkspaceLayer(props: {
     comments.setTool(true);
     await voice.start(comments.selected ?? OVERALL).catch((err: Error) => props.onError(`Could not start the microphone: ${err.message}`));
   };
+
+  // ⌥T talks to this layer's mic while it shows.
+  const talk = useRef(toggleMic);
+  talk.current = toggleMic;
+  useEffect(() => claimTalk(() => void talk.current()), []);
 
   useEffect(() => {
     const off = host.onTheme(setTheme);

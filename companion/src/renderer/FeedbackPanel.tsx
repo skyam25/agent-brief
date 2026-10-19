@@ -14,6 +14,7 @@ import { BeforeAfter, type PictureHost } from './BeforeAfter';
 import { FeedbackGraph } from './FeedbackGraph';
 import { ExternalIcon, MicIcon } from './Icons';
 import { ReviewVoice } from './review-voice';
+import { claimTalk } from './talk-owner';
 import { VoiceState } from './ReviewView';
 import type { FixedSend } from './useSend';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
@@ -197,6 +198,10 @@ export function FeedbackPanel(props: {
     };
   }, [voice, props.host]);
 
+  // While an item records, ⌥T stops it rather than starting the review mic.
+  const recording = voice.recording;
+  useEffect(() => (recording ? claimTalk(() => void voice.stop()) : undefined), [recording, voice]);
+
   // One mic for the panel. Pressing another item's mic moves the words there.
   const toggleVoice = async (n: number) => {
     const target = String(n);
@@ -238,6 +243,8 @@ export function FeedbackPanel(props: {
   };
 
   const items = doc?.items ?? [];
+  // A feedback file whose output is gone reads, but takes no writes.
+  const readOnly = doc?.outputExists === false;
   const rounds = [...(doc?.rounds ?? [])].sort((a, b) => b.n - a.n);
   const known = new Set(rounds.map((r) => r.n));
   const loose = items.filter((i) => i.round === undefined || !known.has(i.round));
@@ -275,6 +282,11 @@ export function FeedbackPanel(props: {
       </div>
       {doc && <p className="muted feedback-path" title={doc.path}>{doc.path}</p>}
       {error && <p role="alert" className="behavior-error">{error}</p>}
+      {readOnly && (
+        <p className="muted" data-testid="feedback-orphan">
+          {doc.output} is gone, so its feedback is read-only.
+        </p>
+      )}
       {!doc && !error && <p>Loading feedback…</p>}
       {graphShown && <FeedbackGraph host={props.host} sessionId={props.sessionId} output={doc?.output} reads={graphReads} onOpenItem={openItem} />}
       {!graphShown && props.onPick && items.length > 0 && (props.pointed || props.picked !== undefined) && (
@@ -316,7 +328,7 @@ export function FeedbackPanel(props: {
             </h4>
             <ol className="review-cards">
               {group.map((item) => (
-                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} />
+                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={readOnly ? undefined : showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={readOnly ? undefined : props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} readOnly={readOnly} />
               ))}
             </ol>
           </div>
@@ -325,11 +337,11 @@ export function FeedbackPanel(props: {
       {!graphShown && loose.length > 0 && (
         <ol className="review-cards">
           {loose.map((item) => (
-            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} />
+            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={readOnly ? undefined : showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={readOnly ? undefined : props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} readOnly={readOnly} />
           ))}
         </ol>
       )}
-      {!graphShown && items.length > 0 && (
+      {!graphShown && items.length > 0 && !readOnly && (
         <footer className="feedback-foot">
           <button
             className="chip"
@@ -364,6 +376,8 @@ function ItemCard(props: {
   /** The transcript of the first quote's round, when it names one. */
   source?: string;
   onSource?: (path: string) => void;
+  /** Shows the item without its decision, note and voice controls. */
+  readOnly?: boolean;
 }) {
   const { item } = props;
   const workspace = workspaceSummary(item);
@@ -449,46 +463,50 @@ function ItemCard(props: {
           )}
         </div>
       )}
-      <div className="behavior-actions">
-        <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => item.state !== 'accepted' && void say('accept')} data-testid="feedback-accept">
-          Accept
-        </button>
-        <button className={item.state === 'rejected' ? 'chip on' : 'chip'} aria-pressed={item.state === 'rejected'} disabled={saving} onClick={() => item.state !== 'rejected' && void say('reject')} data-testid="feedback-reject">
-          Reject
-        </button>
-        {item.state !== 'open' && (
-          <button className="ghost" disabled={saving} onClick={() => void say('reopen')} data-testid="feedback-reopen">
-            Reopen
-          </button>
-        )}
-      </div>
-      <div className="feedback-note">
-        <input
-          aria-label={`Note on #${item.n}`}
-          placeholder={listening ? 'Listening…' : 'Add a note, or a reason with Accept or Reject'}
-          value={note}
-          maxLength={2000}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              void say('note');
-            }
-          }}
-          data-testid="feedback-note"
-        />
-        <button
-          className={listening ? 'ghost icon-button small on' : 'ghost icon-button small'}
-          aria-pressed={listening}
-          aria-label={listening ? `Stop the voice note on #${item.n}` : `Record a voice note on #${item.n}`}
-          title={listening ? 'Stop' : 'Record a voice note'}
-          onClick={props.onVoice}
-          data-testid="feedback-voice"
-        >
-          <MicIcon />
-        </button>
-      </div>
-      <VoiceState voice={props.voice} target={String(item.n)} />
+      {!props.readOnly && (
+        <>
+          <div className="behavior-actions">
+            <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => item.state !== 'accepted' && void say('accept')} data-testid="feedback-accept">
+              Accept
+            </button>
+            <button className={item.state === 'rejected' ? 'chip on' : 'chip'} aria-pressed={item.state === 'rejected'} disabled={saving} onClick={() => item.state !== 'rejected' && void say('reject')} data-testid="feedback-reject">
+              Reject
+            </button>
+            {item.state !== 'open' && (
+              <button className="ghost" disabled={saving} onClick={() => void say('reopen')} data-testid="feedback-reopen">
+                Reopen
+              </button>
+            )}
+          </div>
+          <div className="feedback-note">
+            <input
+              aria-label={`Note on #${item.n}`}
+              placeholder={listening ? 'Listening…' : 'Add a note, or a reason with Accept or Reject'}
+              value={note}
+              maxLength={2000}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void say('note');
+                }
+              }}
+              data-testid="feedback-note"
+            />
+            <button
+              className={listening ? 'ghost icon-button small on' : 'ghost icon-button small'}
+              aria-pressed={listening}
+              aria-label={listening ? `Stop the voice note on #${item.n}` : `Record a voice note on #${item.n}`}
+              title={listening ? 'Stop' : 'Record a voice note'}
+              onClick={props.onVoice}
+              data-testid="feedback-voice"
+            >
+              <MicIcon />
+            </button>
+          </div>
+          <VoiceState voice={props.voice} target={String(item.n)} />
+        </>
+      )}
       {history.length > 0 && (
         <details className="feedback-history">
           <summary className="muted">History · {history.length}</summary>
@@ -517,6 +535,7 @@ export function FeedbackView(props: {
   onOpenItem?: (output: string, n: number) => void;
 }) {
   const feedback = useFeedbackDoc(props.host, props.sessionId, props.path);
+  const gone = feedback.doc?.outputExists === false;
   const workspace = useItemWorkspace({ host: props.host, sessionId: props.sessionId, path: props.path, onError: props.onError });
   const open = workspace.open;
   return (
@@ -528,9 +547,11 @@ export function FeedbackView(props: {
             {props.path}
           </span>
         </div>
-        <button className="ghost" onClick={props.onOpenFile} data-testid="feedback-open-file">
-          <ExternalIcon /> Open file
-        </button>
+        {!gone && (
+          <button className="ghost" onClick={props.onOpenFile} data-testid="feedback-open-file">
+            <ExternalIcon /> Open file
+          </button>
+        )}
       </header>
       <div className="workspace-host">
         <div className="items-body">

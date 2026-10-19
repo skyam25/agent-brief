@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { Mode } from '../shared/ipc';
+import { talkOwner } from './talk-owner';
 
 export interface PanelKeys {
   /** Session tab ids, in order. Notes comes before them. */
@@ -51,9 +52,11 @@ export function usePanelKeys(keys: PanelKeys): void {
         return;
       }
       // By code, since ⌥T types † as a key.
-      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyT' && k.onTalk) {
+      // A view with its own mic, such as a feedback workspace, takes it first.
+      const talk = talkOwner() ?? k.onTalk;
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyT' && talk) {
         e.preventDefault();
-        k.onTalk();
+        talk();
         return;
       }
       if (e.key !== 'Escape') return;

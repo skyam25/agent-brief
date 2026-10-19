@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { FeedbackDocument, OutputRecord } from '../src/protocol';
 import { isoDate } from '../src/shared/feedback';
@@ -286,4 +286,59 @@ test('Send decisions stops the item mic and carries the words, and hiding the pa
   await expect.poll(panelVisible).toBe(false);
   await expect(mic).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(() => readFileSync(file, 'utf8').match(/· voice ·/g)?.length ?? 0, { timeout: 60_000 }).toBe(2);
+
+  // ⌥T stops a recording item mic, and starts no other.
+  await showPanel(app, page);
+  await sock(socketPath, 'POST', '/open', { sessionId: 'fp-5', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  const live = page.locator('[aria-pressed="true"][data-testid="mic"], [aria-pressed="true"][data-testid="feedback-voice"]');
+  await mic.click();
+  await expect(mic).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Alt+KeyT');
+  await expect(mic).toHaveAttribute('aria-pressed', 'false');
+  await expect(live).toHaveCount(0);
+
+  // In an item's workspace, ⌥T talks to the workspace's mic.
+  await card.getByTestId('feedback-workspace-open').click();
+  const layer = page.getByTestId('workspace-layer');
+  await expect(layer.locator('canvas.excalidraw__canvas.interactive')).toBeVisible();
+  await page.keyboard.press('Alt+KeyT');
+  await expect(layer.getByTestId('mic')).toHaveAttribute('aria-pressed', 'true');
+  await expect(live).toHaveCount(1);
+  await page.keyboard.press('Alt+KeyT');
+  await expect(layer.getByTestId('mic')).toHaveAttribute('aria-pressed', 'false');
+  await expect(live).toHaveCount(0);
+});
+
+test('a feedback file whose output is gone opens from the graph read-only', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  put(cwd, 'old.html', PAGE);
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-6', cwd, title: 'Checkout' });
+  await agent(h.socketPath, '/sessions/fp-6/feedback?path=checkout.html', [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Title is vague' }]);
+  await agent(h.socketPath, '/sessions/fp-6/feedback?path=old.html', [
+    { op: 'addRound', label: 'SME' },
+    { op: 'addItem', title: 'Old page point', lines: [{ key: 'Src', text: '1 · Ana · 01:00 · "Too busy"' }, { key: 'Where', text: '#filters' }] },
+    { op: 'append', item: 1, key: 'Claude', text: 'note · looked into it' },
+  ]);
+  unlinkSync(join(cwd, 'old.html'));
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-6', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  await page.getByTestId('feedback-graph-toggle').click();
+  await page.getByTestId('feedback-graph').locator('[data-id="item:old.html#1"]').click();
+
+  const view = page.getByTestId('feedback-view');
+  await expect(view.getByTestId('feedback-orphan')).toHaveText('old.html is gone, so its feedback is read-only.');
+  const card = view.getByTestId('feedback-item-1');
+  await expect(card).toContainText('Too busy');
+  await card.locator('summary').click();
+  await expect(card.getByTestId('feedback-line').last()).toContainText('note · looked into it');
+  for (const id of ['feedback-accept', 'feedback-reject', 'feedback-note', 'feedback-voice', 'feedback-workspace-open', 'feedback-show']) await expect(card.getByTestId(id)).toHaveCount(0);
+  await expect(view.getByTestId('feedback-send')).toHaveCount(0);
+  await expect(view.getByTestId('feedback-open-file')).toHaveCount(0);
+  // The orphan is not a row of its own, since its file cannot open.
+  await expect(page.getByTestId('outputs-feedback').locator('[data-ref="old.html"]')).toHaveCount(0);
 });
