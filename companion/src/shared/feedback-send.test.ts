@@ -66,4 +66,13 @@ describe('Send decisions', () => {
     expect(batches.map((b) => b.length)).toEqual([200, 1]);
     expect(pendingDecisions(doc(batches.reduce(you, text)))).toEqual([]);
   });
+
+  it('names the chosen option and its text', () => {
+    const text = HEAD + item(1, 'You: 2026-10-18 · accept · option B · keep it short');
+    const parsed = doc(text);
+    // The parser fills these from Option: lines; set here so the prompt is tested alone.
+    parsed.items[0]!.options = [{ key: 'A', text: 'Hide the box' }, { key: 'B', text: 'Keep the box and explain it' }];
+    parsed.items[0]!.chosen = 'B';
+    expect(decisionsPrompt(parsed, pendingDecisions(parsed)).split('\n')[2]).toBe('- #1 Item 1: accept · option B (Keep the box and explain it) · keep it short');
+  });
 });

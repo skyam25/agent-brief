@@ -352,6 +352,13 @@ function savedWorkspace(output: string, e: FeedbackEvent): { board: string; pict
   return { board, ...(picture ? { picture: `${dir}${picture}` } : {}) };
 }
 
+/** `option B · note` with the option's text, so Claude reads what was picked. */
+function withOption(item: FeedbackItem, detail: string): string {
+  const m = /^option (\S+)(.*)$/s.exec(detail);
+  const option = m && item.options?.find((o) => o.key === m[1]);
+  return option ? `option ${option.key} (${option.text})${m![2]}` : detail;
+}
+
 /** The message Send decisions hands Claude. */
 export function decisionsPrompt(doc: Pick<FeedbackDocument, 'path' | 'output'>, pending: PendingDecision[]): string {
   const lines = [
@@ -359,7 +366,7 @@ export function decisionsPrompt(doc: Pick<FeedbackDocument, 'path' | 'output'>, 
     `Feedback decisions on ${doc.output} from Agent Brief, ${pending.length === 1 ? '1 item' : `${pending.length} items`}:`,
   ];
   for (const { item, said, saved } of pending) {
-    const words = said.map((e) => [e.verb, e.detail].filter(Boolean).join(SEP)).join('; ');
+    const words = said.map((e) => [e.verb, withOption(item, e.detail)].filter(Boolean).join(SEP)).join('; ');
     lines.push(`- #${item.n} ${item.title}: ${words || 'saved a workspace'}`);
     for (const e of saved) {
       const w = savedWorkspace(doc.output, e);
