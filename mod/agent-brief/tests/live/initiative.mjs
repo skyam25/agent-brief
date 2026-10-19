@@ -150,9 +150,12 @@ try {
   const attachedBand = await until(() => /Attached Pricing · (i: )?change/.test(bandLine()), 10_000, 500)
   check(`band reads Attached Pricing · change at ${COLS} columns`, Boolean(attachedBand))
 
+  // An attach made elsewhere after registration shows on the pane's first draw.
+  const [sessionId] = sessions
+  attachments.set(sessionId, { id: 'ini-onboarding', attachmentRevision: 2 })
   await bandKey('b')
-  const paneLine = await until(() => /Initiative · revision 7 +Pricing ▾/.test(capture()), 15_000, 500)
-  check('Brief pane opens on its Initiative Select', Boolean(paneLine))
+  const paneLine = await until(() => /Initiative · revision 3 +Onboarding ▾/.test(capture()), 15_000, 500)
+  check('Brief pane first opens on the attachment the app holds now', Boolean(paneLine))
   keys('Escape')
   await sleep(400)
   await bandKey('b')
@@ -161,17 +164,17 @@ try {
   await sleep(600)
 
   await bandKey('i')
-  const row = await until(() => /Initiative.*Pricing.*Onboarding.*Checkout.*Detach.*Cancel/.test(bandLine()), 10_000, 400)
+  const row = await until(() => /Initiative.*Onboarding.*Pricing.*Checkout.*Detach.*Cancel/.test(bandLine()), 10_000, 400)
   check('change opens the pick row', Boolean(row))
   keys('Right')
   await sleep(300)
   keys('Enter')
-  const moved = await until(() => /Attached Onboarding · (i: )?change/.test(bandLine()), 10_000, 400)
-  check('a pick attaches over the socket', Boolean(moved) && calls.some(c => c.startsWith('PUT') && c.includes('ini-onboarding')), calls.filter(c => !c.includes('deliveries')).join(' | '))
+  const moved = await until(() => /Attached Pricing · (i: )?change/.test(bandLine()), 10_000, 400)
+  check('a pick attaches over the socket', Boolean(moved) && calls.some(c => c.startsWith('PUT') && c.includes('ini-pricing')), calls.filter(c => !c.includes('deliveries')).join(' | '))
   keys('Escape')
   await sleep(600)
 
-  const off = await run('/initiative off', 'Detached from Onboarding.')
+  const off = await run('/initiative off', 'Detached from Pricing.')
   await sleep(800)
   check('/initiative off detaches', Boolean(off) && !bandLine().includes('Attached') && calls.some(c => c.startsWith('DELETE') && c.includes('/initiative')))
   check('with none attached the band offers attach initiative', /(i: )?attach initiative/.test(bandLine()))

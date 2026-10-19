@@ -41,7 +41,7 @@ const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
 
 /**
- * Counts the attaches and detaches this session started. A read that began before one is stale,
+ * Counts the attaches and detaches this session started, from the band, the pane or `/initiative off`. A read that began before one is stale,
  * so `fetchInitiative` drops it rather than overwrite the newer pick.
  */
 let changes = 0
@@ -69,23 +69,45 @@ async function keepInitiative($: EngineInterface, snapshot: InitiativeSnapshot |
  */
 export async function fetchInitiative($: EngineInterface, env: InitiativeEnvironment): Promise<InitiativeSnapshot | null | undefined> {
   const seen = changes
-  const reply = await env.request('GET', sessionInitiativePath(await $.session.id()))
+  return keepReply($, await env.request('GET', sessionInitiativePath(await $.session.id())), seen)
+}
+
+type Reply = Awaited<ReturnType<InitiativeEnvironment['request']>>
+
+async function keepReply($: EngineInterface, reply: Reply, seen: number): Promise<InitiativeSnapshot | null | undefined> {
   if (reply === undefined || seen !== changes) return undefined
   const snapshot = reply.ok ? (snapshotOf(reply.body) ?? null) : reply.status === 404 ? null : undefined
   if (snapshot !== undefined) await keepInitiative($, snapshot)
   return snapshot
 }
 
-/** Reads enough initiatives for the Brief pane's Select. The band and the first prompt's line take the first few. */
-export async function loadRecent($: EngineInterface, env: InitiativeEnvironment): Promise<void> {
-  const reply = await env.request('GET', recentInitiativesPath(LISTED_LIMIT))
-  if (reply?.ok) await update($, recentRef, () => summariesOf(reply.body).map(choiceOf))
+/** Keeps the list unchanged when the app sends the same one, so a refresh with nothing new draws nothing. */
+async function keepRecent($: EngineInterface, reply: Reply): Promise<void> {
+  if (!reply?.ok) return
+  const next = summariesOf(reply.body).map(choiceOf)
+  await update($, recentRef, held => (JSON.stringify(held) === JSON.stringify(next) ? held : next))
 }
 
-/** Runs when the session registers and when the Brief pane opens: the recent initiatives, and any attachment the app holds. */
-export async function loadInitiative($: EngineInterface, env: InitiativeEnvironment): Promise<void> {
-  await loadRecent($, env)
-  await fetchInitiative($, env)
+/** Reads enough initiatives for the Brief pane's Select. The band and the first prompt's line take the first few. */
+export async function loadRecent($: EngineInterface, env: InitiativeEnvironment): Promise<void> {
+  await keepRecent($, await env.request('GET', recentInitiativesPath(LISTED_LIMIT)))
+}
+
+/**
+ * Runs when the session registers and when the Brief pane opens or draws: the recent initiatives, and any attachment the app holds.
+ * Both reads finish before either is kept, so the redraw the first one causes cannot cut off the second.
+ * False when either read got no answer, so the caller can try again.
+ */
+export async function loadInitiative($: EngineInterface, env: InitiativeEnvironment): Promise<boolean> {
+  const seen = changes
+  const sessionId = await $.session.id()
+  const [recent, attached] = await Promise.all([
+    env.request('GET', recentInitiativesPath(LISTED_LIMIT)),
+    env.request('GET', sessionInitiativePath(sessionId)),
+  ])
+  await keepReply($, attached, seen)
+  await keepRecent($, recent)
+  return recent !== undefined && attached !== undefined
 }
 
 /** What a prompt carries after the user's text. `sent` is what to record once the prompt entered; null clears the record. */
@@ -153,6 +175,7 @@ export async function initiativeCommand($: EngineInterface, env: InitiativeEnvir
     await recordSent($, { token: tokenOf(snapshot), title: snapshot.title })
     return { text: refreshedText(snapshot), context: [injectionText(snapshot)] }
   }
+  changes++
   const reply = await env.request('DELETE', sessionInitiativePath(sessionId))
   if (!reply?.ok) return { text: `Agent Brief did not detach ${snapshot.title}.` }
   await keepInitiative($, null)

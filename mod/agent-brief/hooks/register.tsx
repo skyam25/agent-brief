@@ -604,9 +604,10 @@ async function loadBrief($: EngineInterface): Promise<void> {
 let isBriefOpen = false
 
 /**
- * When the Brief pane last asked the app for the initiatives and this session's attachment.
- * Undefined until the pane's first draw after an open, which reads them, as does a draw after 30 s.
- * A plugin's own opens skip its `ui.open` hook, so the pane's draw is what sees every open.
+ * When the Brief pane last read the initiatives and this session's attachment.
+ * The band's open reads them once the pane is placed. A draw reads them when this is undefined, as after
+ * any close, or 30 s old, which covers opens from elsewhere: a plugin's own opens skip its `ui.open` hook.
+ * A draw's read can lose its answer when a newer draw replaces it, so one with no answer is tried again.
  */
 let initiativesReadAt: number | undefined
 const INITIATIVES_FRESH_MS = 30_000
@@ -638,6 +639,8 @@ function toggleBrief($: EngineInterface): Promise<void> {
   return opening.then(async opened => {
     if (!opened.isPlaced) $.ui.toast(`Brief pane not shown: ${opened.reason}`, { timeoutMs: 8000 })
     await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
+    const startedAt = await $.clock.now()
+    if (await loadInitiative($, initiativeEnvironment($)).catch(() => false)) initiativesReadAt = startedAt
   })
 }
 
@@ -1266,7 +1269,10 @@ export const register: Register = (on, options) => {
     briefAging ??= $.clock.every(AGING_MS, () => $.ui.invalidate('ui.render'))
     if (initiativesReadAt === undefined || now - initiativesReadAt > INITIATIVES_FRESH_MS) {
       initiativesReadAt = now
-      $.clock.after(0, () => loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`)))
+      $.clock.after(0, async () => {
+        const isRead = await loadInitiative($, initiativeEnvironment($)).catch(() => false)
+        if (!isRead && initiativesReadAt === now) initiativesReadAt = undefined
+      })
     }
     const { initiative, listed, refusals } = await initiativeView($)
     const pane: BriefPaneView = {
