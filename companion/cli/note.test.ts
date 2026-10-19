@@ -72,4 +72,14 @@ describe('note', () => {
     const r = await run(['note', '--json'], 'x', SESSION);
     expect(JSON.parse(r.stdout)).toEqual({ ok: true, draftId: 'd9', sessionId: 'sess-1' });
   });
+
+  it('replaces a note in place with --id, keeping where it is filed', async () => {
+    app.handler = () => ({ json: { ok: true, draftId: 'd7' } });
+    const r = await run(['note', '--id', 'd7'], 'Shorter text', SESSION);
+    expect(r.code).toBe(0);
+    expect(app.seen.map((s) => s.body)).toEqual([{ text: 'Shorter text', draftId: 'd7' }]);
+    expect(r.stdout).toContain('Updated note d7 in place');
+    expect(r.stdout).toContain('agent-brief open --note d7');
+    expect((await run(['note', '--id', 'd7', '--session', 's'], 'x')).code).toBe(2);
+  });
 });

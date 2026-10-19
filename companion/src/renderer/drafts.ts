@@ -1,4 +1,5 @@
 import type { BehaviorDocument } from '../protocol';
+import type { NoteAnnotations, NoteComment } from '../shared/annotations';
 import { hasReviewContent } from '../shared/review';
 /** Holds the drafts Write mode shows, with the open one and debounced saves. */
 
@@ -83,8 +84,18 @@ export class DraftBook {
   /** Reads drafts from disk. Edits not saved yet win over what disk has. */
   async load(): Promise<void> {
     const saved = await this.host.listDrafts();
-    const onDisk = new Set(saved.map((d) => d.id));
-    const local = this.drafts.filter((d) => this.saves.has(d.id) || (isEmpty(d) && !onDisk.has(d.id)));
+    const onDisk = new Map(saved.map((d) => [d.id, d]));
+
+    // A queued or running save wins over a stale read, unless the note changed on disk after the last local edit, as `agent-brief note --id` does.
+    // Main refuses a save older than what it stores, so a running one cannot land over the newer note.
+    const replaced = new Set<string>();
+    for (const d of this.drafts) {
+      const disk = onDisk.get(d.id);
+      if (!disk || !this.saves.has(d.id) || disk.updatedAt <= d.updatedAt) continue;
+      this.saves.cancel(d.id);
+      replaced.add(d.id);
+    }
+    const local = this.drafts.filter((d) => !replaced.has(d.id) && (this.saves.has(d.id) || (isEmpty(d) && !onDisk.has(d.id))));
     const keep = new Set(local.map((d) => d.id));
     this.drafts = sortDrafts([...saved.filter((d) => !keep.has(d.id)), ...local]);
     if (this.selectedId && !this.get(this.selectedId)) this.selectedId = undefined;
@@ -193,17 +204,66 @@ export class DraftBook {
     this.patch(id, { review: { ...draft.review, comments: draft.review.comments.map((c) => (c.id === commentId ? { ...c, text } : c)) } });
   }
 
-  /** Adds words to the end of a pin's, or to the overall note when `commentId` is undefined. */
+  /**
+   * Adds words to the end of a pin's or a note comment's, or to the overall words when `commentId` is undefined.
+   * A review's overall words are its body. A note's are its annotations' `overall`, since its body is the note.
+   */
   appendTo(id: string, commentId: string | undefined, words: string): void {
     const draft = this.get(id);
     const add = words.trim();
     if (!draft || !add) return;
     const joined = (text: string) => (text.trim() ? `${text.trimEnd()} ${add}` : add);
-    if (commentId === undefined) this.edit(id, joined(draft.body));
-    else {
-      const comment = draft.review?.comments.find((c) => c.id === commentId);
-      if (comment) this.editComment(id, commentId, joined(comment.text));
+    if (commentId === undefined) {
+      if (draft.review) this.edit(id, joined(draft.body));
+      else this.setOverall(id, joined(draft.annotations?.overall ?? ''));
+      return;
     }
+    const comment = draft.review?.comments.find((c) => c.id === commentId);
+    if (comment) this.editComment(id, commentId, joined(comment.text));
+    const noted = draft.annotations?.comments.find((c) => c.id === commentId);
+    if (noted) this.editNoteComment(id, commentId, joined(noted.text));
+  }
+
+  /** The draft holding a note comment, for words the mic heard. */
+  ownerOfNoteComment(commentId: string): Draft | undefined {
+    return this.drafts.find((d) => d.annotations?.comments.some((c) => c.id === commentId));
+  }
+
+  private annotate(id: string, change: (a: NoteAnnotations) => NoteAnnotations): void {
+    const draft = this.get(id);
+    if (!draft || draft.review) return;
+    this.patch(id, { annotations: change(draft.annotations ?? { comments: [] }) });
+  }
+
+  /** Adds a comment on a passage of a note. */
+  addNoteComment(id: string, comment: NoteComment): void {
+    this.annotate(id, (a) => ({ ...a, comments: [...a.comments, comment] }));
+  }
+
+  editNoteComment(id: string, commentId: string, text: string): void {
+    this.annotate(id, (a) => ({ ...a, comments: a.comments.map((c) => (c.id === commentId ? { ...c, text } : c)) }));
+  }
+
+  removeNoteComment(id: string, commentId: string): void {
+    this.annotate(id, (a) => ({ ...a, comments: a.comments.filter((c) => c.id !== commentId) }));
+  }
+
+  /** Sets the words about the note as a whole. */
+  setOverall(id: string, overall: string): void {
+    this.annotate(id, (a) => {
+      const { overall: _old, ...rest } = a;
+      return overall ? { ...rest, overall } : rest;
+    });
+  }
+
+  /** Drops the comments a Send delivered. Comments added or changed since stay. */
+  clearSent(id: string, sent: NoteAnnotations): void {
+    const delivered = new Map(sent.comments.map((c) => [c.id, c.text]));
+    this.annotate(id, (a) => {
+      const comments = a.comments.filter((c) => delivered.get(c.id) !== c.text);
+      const overall = a.overall === sent.overall ? undefined : a.overall;
+      return { comments, ...(overall ? { overall } : {}) };
+    });
   }
 
   /** Takes a pin off a review. Its picture waits loose for a moment, like any removed picture. */
@@ -303,10 +363,12 @@ export class DraftBook {
   private patch(id: string, change: Partial<Draft>, emit = true): void {
     const at = this.drafts.findIndex((d) => d.id === id);
     if (at === -1) return;
-    const next = { ...this.drafts[at], ...change, updatedAt: this.now() };
+    // Edit times only move forward, so a clock set back never makes an edit look older than what main stores.
+    const next = { ...this.drafts[at], ...change, updatedAt: Math.max(this.now(), this.drafts[at]!.updatedAt + 1) };
     if (!next.board) delete next.board;
     if (!next.sessionId) delete next.sessionId;
     if (!next.attachments || Object.keys(next.attachments).length === 0) delete next.attachments;
+    if (next.annotations && !next.annotations.comments.length && !next.annotations.overall) delete next.annotations;
     const list = [...this.drafts];
     list[at] = next;
     this.drafts = sortDrafts(list);

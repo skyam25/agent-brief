@@ -13,6 +13,7 @@ import { CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIc
 import { Inspector } from './Inspector';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import { OVERALL, type ReviewVoice } from './review-voice';
+import { VoiceState } from './VoiceState';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
 import type { WorkspaceSnapshot } from '../shared/feedback-workspace';
 
@@ -664,18 +665,5 @@ function CommentCard(props: {
       />
       <VoiceState voice={props.voice} target={c.id} />
     </li>
-  );
-}
-
-/** Says when the mic is on this target, or its words are still turning into text. */
-export function VoiceState(props: { voice: ReviewVoice; target: string }) {
-  const listening = props.voice.recording && props.voice.target === props.target;
-  const pending = props.voice.pending.has(props.target);
-  if (!listening && !pending) return null;
-  return (
-    <span className="voice-state muted" data-testid="review-voice-state">
-      {listening && <span className="rec-dot" aria-hidden="true" />}
-      {pending ? 'Writing down what you said…' : 'Listening'}
-    </span>
   );
 }

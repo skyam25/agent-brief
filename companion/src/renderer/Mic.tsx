@@ -7,11 +7,13 @@ export const TALK_KEY = '⌥T';
 
 const BARS = 28;
 
-/** The composer's voice button: Talk and annotate on the board, Talk through page in a review, Discard and Stop while recording. */
+/** The composer's voice button: Talk and annotate on the board or a note, Talk through page in a review, Discard and Stop while recording. */
 export function Mic(props: {
   recording?: boolean;
   /** The mic talks to the board's pins, not a page's. */
   board?: boolean;
+  /** The mic talks to a note's comments. */
+  note?: boolean;
   onMicrophone: () => void;
   onDiscard?: () => void;
 }) {
@@ -31,10 +33,12 @@ export function Mic(props: {
       </>
     );
   }
-  const label = props.board ? 'Talk and annotate' : 'Talk through page';
+  const label = props.board || props.note ? 'Talk and annotate' : 'Talk through page';
   const title = props.board
     ? 'Talk and click the board to pin comments. Each pin gets what you say after it.'
-    : 'Talk through the page. Each pin gets what you say after it.';
+    : props.note
+      ? 'Talk and select passages to comment on them. Each comment gets what you say after it.'
+      : 'Talk through the page. Each pin gets what you say after it.';
   return (
     <button className="talk" title={`${title} (${TALK_KEY})`} aria-pressed="false" onClick={props.onMicrophone} data-testid="mic">
       <MicIcon />

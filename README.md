@@ -54,7 +54,8 @@ Optional extras:
 - A note saves as you type and can hold headings, tables, screenshots and a board.
 - Templates are Markdown files with `{{slots}}`. Pick one with `/`.
 - Copy puts a note on the clipboard as rich text for Slack, Mail or Docs.
-- When Claude drafts a message or an email for you, it lands as a note under the session, ready to edit and copy.
+- When Claude drafts a message or an email for you, it lands as a note under the session, ready to edit and copy. Ask for changes and Claude revises that note, so you keep one copy.
+- Select a passage and press the comment button to highlight it and comment on it. With **Talk and annotate** (⌥T) on, selecting is enough, and what you say lands on that comment. Send hands Claude the note with each passage and its comment, and Claude revises the note in place.
 
 ## What Claude receives
 
@@ -85,7 +86,7 @@ A timeline reads like this:
 
 ## Review
 
-- A Markdown output opens as a note. Edit it and press Send, and Claude applies your changes to the file.
+- A Markdown output opens as a note. Edit it or comment on passages, press Send, and Claude applies your changes to the file.
 - An HTML output opens live. Pin comments to its elements, or talk instead of typing. Edit mode moves, resizes and retypes elements in the file itself. Send hands Claude a `review.md`.
 - A prototype can carry behavior rules. Confirm or reword them in the Behavior tab, then export acceptance criteria for engineering.
 

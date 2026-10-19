@@ -80,7 +80,7 @@ interface Args {
 const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
   'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
-  'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items',
+  'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items', 'id',
 ]);
 /** Value flags that may repeat. The last value also reads as the flag's one value. */
 const LIST_FLAGS = new Set(['src', 'related', 'option', 'text']);
@@ -629,6 +629,15 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const cwd = ctx.io.cwd ?? process.cwd();
     const text = inline ?? (file !== undefined ? await readFile(path.resolve(cwd, file), 'utf8') : await ctx.io.stdin());
     if (text.trim() === '') throw new InputError(file ? `${file} is empty` : 'no text. Pipe Markdown in, or pass --text or --file');
+
+    // --id replaces a saved note in place, where it is filed.
+    const id = str(ctx.args, 'id');
+    if (id !== undefined) {
+      if (str(ctx.args, 'session') !== undefined) throw new UsageError('--id keeps the note where it is filed, so it takes no --session');
+      const res = await callJson<NoteResponse>(ctx.socket, 'POST', '/notes', { text, ...(title ? { title } : {}), draftId: id });
+      show(ctx, res, () => `Updated note ${res.draftId} in place in Agent Brief.\nTo show it, run: agent-brief open --note ${res.draftId}`);
+      return;
+    }
     const flag = str(ctx.args, 'session');
     const fromEnv = flag === undefined ? ctx.io.env[SESSION_ID_ENV] || undefined : undefined;
     const body: NoteRequest = { text, ...(title ? { title } : {}) };
@@ -647,7 +656,8 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const where = filed ? "this session's tab" : 'Notes';
     show(ctx, { ...res, ...(filed ? { sessionId: filed } : {}) }, () =>
       `Saved "${title || 'Untitled note'}" to ${where} in Agent Brief, Write mode. The user can edit it there and press Copy.\n` +
-      `To show it, run: agent-brief open --note ${res.draftId}`,
+      `To show it, run: agent-brief open --note ${res.draftId}\n` +
+      `To change it later, run: agent-brief note --id ${res.draftId} with the full new text`,
     );
   },
 

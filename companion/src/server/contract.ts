@@ -1,3 +1,4 @@
+import type { AnnotationsPayload } from '../shared/annotations';
 import type { BehaviorStore } from '../main/behavior';
 import type { FeedbackStore } from '../main/feedback';
 import type { FeedbackWorkspaces } from '../main/feedback-workspace';
@@ -96,6 +97,8 @@ export interface DeliveryInput {
   review?: ReviewPayload;
   /** Comments pinned to the board, written as comments.md. Present with `png`. */
   comments?: BoardComments;
+  /** Comments on passages of the written draft, written as annotations.md beside draft.md. */
+  annotations?: AnnotationsPayload;
 }
 
 /**

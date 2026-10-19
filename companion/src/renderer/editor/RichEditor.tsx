@@ -8,7 +8,9 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import type { SuggestionProps } from '@tiptap/suggestion';
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import type { NoteComment } from '../../shared/annotations';
 import type { Template } from '../../shared/ipc';
+import { Annotations, annotationsKey, passageAt, passageRange, type Passage } from './annotations';
 import { BlockHandle, StarterChips } from './BlockHandle';
 import { FormatBar } from './FormatBar';
 import { ATT, AttachmentsContext, Picture } from './ImageView';
@@ -24,6 +26,8 @@ export interface RichEditorHandle {
   focus(): void;
   /** Selects the first `{{slot}}`. False when there is none. */
   selectFirstSlot(): boolean;
+  /** Scrolls a comment's passage into view. */
+  reveal(comment: NoteComment): void;
 }
 
 export interface RichEditorProps {
@@ -41,7 +45,18 @@ export interface RichEditorProps {
   label: string;
   testId: string;
   editorRef?: RefObject<RichEditorHandle | null>;
+  /** Comments to highlight, and the one in focus. */
+  annotations?: { comments: NoteComment[]; activeId?: string };
+  /** A passage to comment on, from the Comment button or a selection while annotating. Absent turns commenting off. */
+  onAnnotate?: (passage: Passage) => void;
+  /** True while a finished selection becomes a comment at once. */
+  annotating?: boolean;
+  onAnnotationClick?: (id: string) => void;
+  /** Ids of comments whose passage is no longer in the note. */
+  onAnnotationsMissing?: (ids: string[]) => void;
 }
+
+const NO_COMMENTS = { comments: [] };
 
 /** Mounted editors by test id, so code outside React can select a slot. */
 const live = new Map<string, RichEditorHandle>();
@@ -174,6 +189,13 @@ export function RichEditor(props: RichEditorProps) {
         Placeholder.configure({ placeholder: () => latest.current.placeholder ?? '' }),
         Slots.configure({ skip: () => !!slashRef.current }),
         SlashCommand(bridge),
+        Annotations.configure({
+          get: () => latest.current.annotations ?? NO_COMMENTS,
+          onClick: (id) => latest.current.onAnnotationClick?.(id),
+          onMissing: (ids) => latest.current.onAnnotationsMissing?.(ids),
+          annotating: () => !!latest.current.annotating && !!latest.current.onAnnotate,
+          onSelect: (passage) => latest.current.onAnnotate?.(passage),
+        }),
       ],
       editorProps: {
         attributes: {
@@ -240,9 +262,20 @@ export function RichEditor(props: RichEditorProps) {
     });
   }, [editor, props.value]);
 
+  // New comments, words or focus redraw the highlights.
+  useEffect(() => {
+    if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, true));
+  }, [editor, props.annotations]);
+
   const handle: RichEditorHandle = {
     focus: () => editor.commands.focus('end'),
     selectFirstSlot: () => selectSlot(editor, false, 0),
+    reveal: (comment) => {
+      const range = passageRange(editor.state.doc, comment.quote, comment.occurrence);
+      if (!range) return;
+      const { node } = editor.view.domAtPos(range.from);
+      (node instanceof Element ? node : node.parentElement)?.scrollIntoView({ block: 'nearest' });
+    },
   };
   useImperativeHandle(props.editorRef, () => handle, [editor]);
   useEffect(() => {
@@ -281,7 +314,21 @@ export function RichEditor(props: RichEditorProps) {
           }}
         />
       </div>
-      <FormatBar editor={editor} />
+      <FormatBar
+        editor={editor}
+        onComment={
+          props.onAnnotate &&
+          (() => {
+            const { from, to } = editor.state.selection;
+            const passage = passageAt(editor.state.doc, from, to);
+            if (!passage) return;
+
+            // The selection collapses, so the bar closes and the highlight shows.
+            editor.commands.setTextSelection(to);
+            latest.current.onAnnotate?.(passage);
+          })
+        }
+      />
       <TableMenu editor={editor} />
       {listMenu && (
         <ListFormatMenu

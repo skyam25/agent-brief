@@ -6,6 +6,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import { boardCommentsAsk, boardCommentsMarkdown } from '../shared/board-comments';
 import { imageRefs } from '../shared/drafts';
+import { annotationsAsk, annotationsMarkdown } from '../shared/annotations';
 import { reviewAsk, reviewMarkdown } from '../shared/review';
 import type { DeliveryInput } from './contract';
 
@@ -84,14 +85,16 @@ export function cleanSourcePath(raw: unknown): string | undefined {
 /**
  * The prompt Claude Code receives. A written draft goes first, word for word, then the sketch lines.
  * A draft opened from a project file is not repeated. Its lines point at draft.md and ask Claude to apply it to the file.
- * A review's lines point at review.md instead.
+ * A review's lines point at review.md instead. A draft with comments on its passages points at draft.md and annotations.md.
  */
 export function buildDraft(id: string, input: DeliveryInput): string {
   const rel = `.feedback/sketches/${id}`;
   const source = cleanSourcePath(input.sourcePath);
   const sourceLines = input.review
     ? [`@${rel}/review.md`, reviewAsk(input.review)]
-    : source
+    : input.annotations
+      ? [`@${rel}/draft.md`, `@${rel}/annotations.md`, annotationsAsk(input.annotations, source)]
+      : source
       ? [`@${rel}/draft.md`, `My edited copy of ${source} from Agent Brief. Apply the changes to ${source}, keep what I did not touch, then say what changed.`]
       : undefined;
   const text = sourceLines ? sourceLines.join('\n') : input.text && rewriteImages(input.text, id, input.images ?? []).trim();
@@ -122,8 +125,12 @@ export async function writeBundle(dir: string, input: DeliveryInput): Promise<vo
     const files = new Map((input.images ?? []).map((img) => [basename(img.name).replace(/\.[^.]*$/, ''), basename(img.name)]));
     const picturePath = (id: string) => (files.has(id) ? `${rel}/${files.get(id)}` : undefined);
     writes.push(writeFile(join(dir, 'review.md'), reviewMarkdown(input.review, picturePath)));
-  } else if (input.text || cleanSourcePath(input.sourcePath)) {
+  } else if (input.text || cleanSourcePath(input.sourcePath) || input.annotations) {
     writes.push(writeFile(join(dir, 'draft.md'), rewriteImages(input.text ?? '', basename(dir), input.images ?? [])));
+  }
+  if (input.annotations && !input.review) {
+    const draftFile = `.feedback/sketches/${basename(dir)}/draft.md`;
+    writes.push(writeFile(join(dir, 'annotations.md'), annotationsMarkdown(input.annotations, draftFile, cleanSourcePath(input.sourcePath))));
   }
   if (input.comments && input.png) writes.push(writeFile(join(dir, 'comments.md'), boardCommentsMarkdown(input.boardName, input.comments)));
   if (input.notes) writes.push(writeFile(join(dir, 'notes.md'), input.notes));

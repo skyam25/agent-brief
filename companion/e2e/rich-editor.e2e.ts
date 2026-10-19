@@ -186,6 +186,34 @@ test('the gutter + opens the block menu on an empty line, and below a hovered bl
   await expect.poll(() => draftBody(page)).toBe('# Plan\n\n- [ ] write tests');
 });
 
+test('the gutter + lines up with the hovered list item and adds the next item', async () => {
+  const { page } = ctx;
+  const plus = page.getByTestId('block-plus');
+  await editor(page).click();
+  await page.keyboard.type('- first');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('second');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('third, a longer item that runs on');
+  const items = editor(page).locator('li');
+  await expect(items).toHaveCount(3);
+
+  const last = (await items.nth(2).boundingBox())!;
+  await page.mouse.move(last.x + 40, last.y + 6);
+  await expect
+    .poll(async () => {
+      const box = (await plus.boundingBox())!;
+      return Math.abs(box.y + box.height / 2 - (last.y + 11));
+    }, { timeout: 2000 })
+    .toBeLessThan(8);
+  await page.screenshot({ path: join(RESULTS, 'block-plus-list.png') });
+
+  await plus.click();
+  await expect(page.getByTestId('slash-menu')).toBeVisible();
+  await expect(items).toHaveCount(4);
+  await expect(items.nth(3)).toHaveText('/');
+});
+
 test('the gutter + follows the caret to a new line while the pointer rests on the old one', async () => {
   const { page } = ctx;
   const plus = page.getByTestId('block-plus');

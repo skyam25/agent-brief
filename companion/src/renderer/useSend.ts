@@ -1,9 +1,11 @@
 /** Send: builds what each mode hands over, delivers it, and clears what went out. */
 
 import { useRef, type RefObject } from 'react';
+import { hasAnnotations } from '../shared/annotations';
 import { hasBoardComments } from '../shared/board-comments';
 import { draftImages } from '../shared/drafts';
 import { hasReviewContent } from '../shared/review';
+import type { NoteAnnotations } from '../shared/annotations';
 import type { CompanionApi, Decision, Draft, Launcher, Mode, Outgoing, SendResult } from '../shared/ipc';
 import { findSlots } from '../shared/slots';
 import type { BoardCommentsStore } from './board-comments';
@@ -51,10 +53,30 @@ export interface PanelSend {
   sendText: (sessionId: string, build: () => Promise<FixedSend | string>) => Promise<void>;
 }
 
-/** The payload fields a draft adds: the pictures its body references and the output file it was copied from, when it has them. */
+/** What a Send does with its draft: uses it up, or keeps it for Claude to revise and clears the comments it delivered. */
+type DraftUse = { sent: SentRevision } | { annotated: { id: string; sent: NoteAnnotations } };
+
+/** The draft's own payload fields, and what the Send does with it. A commented note with no file behind it is revised in place. */
+const draftOut = (draft: Draft): { own: Outgoing & { text: string }; use: DraftUse } => {
+  const inPlace = hasAnnotations(draft.annotations) && !draft.source;
+  return {
+    own: { text: draft.body, ...(inPlace ? {} : { draftId: draft.id }), ...fromDraft(draft) },
+    use: inPlace ? { annotated: { id: draft.id, sent: draft.annotations! } } : { sent: { body: draft.body, board: draft.board } },
+  };
+};
+
+/** The payload fields a draft adds: the pictures its body references, the output file it was copied from, and its comments, when it has them. */
 const fromDraft = (draft: Draft) => {
   const images = draftImages(draft);
-  return { ...(images.length ? { images } : {}), ...(draft.source ? { sourcePath: draft.source.path } : {}) };
+  // A note with no file behind it is revised in place, so Claude gets its id.
+  const annotations = hasAnnotations(draft.annotations)
+    ? { ...draft.annotations!, ...(draft.title ? { title: draft.title } : {}), ...(draft.source ? {} : { noteId: draft.id }) }
+    : undefined;
+  return {
+    ...(images.length ? { images } : {}),
+    ...(draft.source ? { sourcePath: draft.source.path } : {}),
+    ...(annotations ? { annotations } : {}),
+  };
 };
 
 export function useSend({ host, book, controller, comments, items, reviewVoice, modeRef, activeBrief, notify, setChooserOpen }: SendDeps): PanelSend {
@@ -84,7 +106,16 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
    * Initiative mode sends the discover prompt.
    */
   const outgoing = async (): Promise<
-    { payload: Outgoing; clearsBoard: boolean; sent?: SentRevision; decided?: Decided; pinned?: string; onSent?: () => Promise<void> } | string
+    | {
+        payload: Outgoing;
+        clearsBoard: boolean;
+        sent?: SentRevision;
+        annotated?: { id: string; sent: NoteAnnotations };
+        decided?: Decided;
+        pinned?: string;
+        onSent?: () => Promise<void>;
+      }
+    | string
   > => {
     if (modeRef.current === 'initiative') return { payload: { text: DISCOVER_PROMPT }, clearsBoard: false };
     if (modeRef.current === 'review') {
@@ -120,24 +151,24 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       const payload = { ...(await controller.payload(reviewed ? pinned.pins : undefined)), ...(reviewed ? { comments: pinned } : {}) };
       const kept = reviewed ? { clearsBoard: false, pinned: board } : { clearsBoard: true };
       if (!linked) return { payload, ...kept };
-      return {
-        payload: { ...payload, text: linked.body, draftId: linked.id, ...fromDraft(linked) },
-        ...kept,
-        sent: { body: linked.body, board: linked.board },
-      };
+      const { own, use } = draftOut(book.get(linked.id) ?? linked);
+      return { payload: { ...payload, ...own }, ...kept, ...use };
     }
-    const draft = book.selected?.review ? undefined : book.selected;
-    if (!draft || (!draft.body.trim() && !draft.board)) return 'Write something first.';
-    const unfilled = checkSlots(draft.body);
+    const open = book.selected?.review ? undefined : book.selected;
+    if (!open || (!open.body.trim() && !open.board)) return 'Write something first.';
+    const unfilled = checkSlots(open.body);
     if (unfilled) {
       focusFirstSlot('draft-body');
       return unfilled;
     }
+    // Words still turning into text land on their comments before the Send reads them.
+    await reviewVoice.stop();
     await book.flush();
-    const sent = { body: draft.body, board: draft.board };
-    if (!draft.board) return { payload: { text: draft.body, draftId: draft.id, ...fromDraft(draft) }, clearsBoard: false, sent };
+    const draft = book.get(open.id) ?? open;
+    const { own, use } = draftOut(draft);
+    if (!draft.board) return { payload: own, clearsBoard: false, ...use };
     if (draft.board !== controller.board) await controller.switchTo(draft.board);
-    return { payload: { ...(await controller.payload()), text: draft.body, draftId: draft.id, ...fromDraft(draft) }, clearsBoard: true, sent };
+    return { payload: { ...(await controller.payload()), ...own }, clearsBoard: true, ...use };
   };
 
   const fixedOutgoing = async (build: () => Promise<FixedSend | string>): ReturnType<typeof outgoing> => {
@@ -174,6 +205,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
           controller.resetSession();
         }
         if (out.payload.draftId && out.sent) book.consume(out.payload.draftId, out.sent);
+        if (out.annotated) book.clearSent(out.annotated.id, out.annotated.sent);
         if (out.decided) {
           items.clear(out.decided.sessionId, out.decided.decisions);
           void items.load(out.decided.sessionId).catch(() => undefined);

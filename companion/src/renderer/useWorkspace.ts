@@ -46,7 +46,7 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
 
   const { reviewVoice, reviewing, toggleReviewVoice } = voice;
 
-  /** Sketch has a mic, which talks to the board's pins. Review mode has one while a review is open. */
+  /** Sketch has a mic, which talks to the board's pins. Review mode has one while a review is open, and Write while a note is. */
   const onMicrophone = reviewing || mode === 'sketch' ? () => void toggleReviewVoice() : undefined;
 
   /** Switches modes. Write opens the first draft, or a new note when there is none. */
@@ -107,7 +107,7 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
     showDraft,
     report,
   });
-  const { leaveEnded } = tabs;
+  const { leaveEnded, showTab } = tabs;
 
   useEffect(() => {
     const subscriptions = [
@@ -126,12 +126,13 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
         if (review && tab) book.askTab(shown.id, tab);
         changeMode(review ? 'review' : 'write');
       }),
-      host.onOpenDraft(({ id, sessionId, tab }) =>
+      host.onOpenDraft(({ id, sessionId, tab }) => {
+        showTab(sessionId);
         void showDraft(id, sessionId).then(() => {
           if (tab && book.get(id)?.review) book.askTab(id, tab);
           changeMode(book.get(id)?.review ? 'review' : 'write');
-        }),
-      ),
+        });
+      }),
       // A note from `agent-brief note` joins the list. The open note and the mode stay.
       host.onDraftsChanged(() => void book.load()),
       host.onVisibility((visible) => {
@@ -144,7 +145,7 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
     return () => {
       for (const off of subscriptions) if (typeof off === 'function') off();
     };
-  }, [host, controller, book, shelf, changeMode, showDraft, leaveEnded, info.panelVisible]);
+  }, [host, controller, book, shelf, changeMode, showDraft, leaveEnded, showTab, info.panelVisible]);
 
   const requestSubscription = useRef<void | (() => void)>(undefined);
   useEffect(() => () => { requestSubscription.current?.(); }, []);

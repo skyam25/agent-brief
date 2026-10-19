@@ -7,6 +7,7 @@ import { ATTACHMENT_ID } from '../shared/attachments';
 import { newDraftId, sortDrafts } from '../shared/drafts';
 import type { Draft, DraftImage } from '../shared/ipc';
 import type { DeliveryInput } from '../server/contract';
+import { cleanAnnotations } from '../shared/annotations';
 import { cleanReview } from '../shared/review';
 
 const ID = /^[\w-]{1,64}$/;
@@ -44,6 +45,7 @@ export function cleanDraft(raw: unknown): Draft {
   const attachments = cleanAttachments(d.attachments);
   const source = d.source && typeof d.source === 'object' && typeof d.source.path === 'string' && d.source.path.trim() ? { path: d.source.path } : undefined;
   const review = d.review === undefined ? undefined : cleanReview(d.review);
+  const annotations = d.annotations === undefined ? undefined : cleanAnnotations(d.annotations);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   const title = typeof d.title === 'string' ? d.title.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE) : '';
   return {
@@ -56,6 +58,7 @@ export function cleanDraft(raw: unknown): Draft {
     ...(attachments ? { attachments } : {}),
     ...(source ? { source } : {}),
     ...(review ? { review } : {}),
+    ...(annotations ? { annotations } : {}),
     rank: num(d.rank),
     createdAt: num(d.createdAt),
     updatedAt: num(d.updatedAt),
@@ -122,6 +125,14 @@ export class DraftStore {
     return draft;
   }
 
+  /** Saves the panel's copy, unless the stored draft changed after it, as `replaceNote` does. Answers what is stored. */
+  saveFromPanel(raw: unknown): Draft {
+    const draft = cleanDraft(raw);
+    const stored = this.get(draft.id);
+    if (stored && stored.updatedAt > draft.updatedAt) return stored;
+    return this.save(draft);
+  }
+
   /** Saves a new note from outside the panel, filed under `sessionId` when one is given. */
   addNote(note: { text: string; title?: string; sessionId?: string }, now = Date.now()): Draft {
     return this.save({
@@ -134,6 +145,13 @@ export class DraftStore {
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  /** Replaces a saved note's text, and its title when given. Undefined when there is no such note. */
+  replaceNote(id: string, note: { text: string; title?: string }, now = Date.now()): Draft | undefined {
+    const draft = this.get(id);
+    if (!draft) return undefined;
+    return this.save({ ...draft, body: note.text, ...(note.title ? { title: note.title } : {}), updatedAt: now });
   }
 
   remove(id: string): void {

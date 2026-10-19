@@ -1,4 +1,4 @@
-/** The panel's microphone: voice for the next sketch Send, or spoken comments in a review. */
+/** The panel's microphone: voice for the next sketch Send, or spoken comments in a review or on a note. */
 
 import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import type { CompanionApi, Mode } from '../shared/ipc';
@@ -25,7 +25,7 @@ export interface VoiceDeps {
 
 export interface PanelVoice {
   reviewVoice: ReviewVoice;
-  /** A review is open in Review mode, or the board shows comments, so the mic talks to pins. */
+  /** A review is open in Review mode, a note in Write, or the board shows comments, so the mic talks to comments. */
   reviewing: boolean;
   /** The board shows comments, so the mic talks to the board's pins. */
   commenting: boolean;
@@ -48,7 +48,7 @@ export interface PanelVoice {
 const BOARD = 'board:';
 
 export function useVoice({ host, book, controller, comments, board, mode, modeRef, notify }: VoiceDeps): PanelVoice {
-  /** The review a recording started in, for words meant for its overall note, or `board:<name>` for a board's comments. */
+  /** The review or note a recording started in, for words meant for its overall note, or `board:<name>` for a board's comments. */
   const voiceDraft = useRef<string>(undefined);
   const [reviewVoice] = useState(
     () =>
@@ -60,7 +60,10 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
             comments.append(owner.slice(BOARD.length), target, text);
             return;
           }
-          const id = target === OVERALL ? voiceDraft.current : book.drafts.find((d) => d.review?.comments.some((c) => c.id === target))?.id;
+          const id =
+            target === OVERALL
+              ? voiceDraft.current
+              : (book.drafts.find((d) => d.review?.comments.some((c) => c.id === target)) ?? book.ownerOfNoteComment(target))?.id;
           if (id) book.appendTo(id, target === OVERALL ? undefined : target, text);
         },
         onError: (message) => notify(message, 'error'),
@@ -71,11 +74,21 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     (fn) => book.subscribe(fn),
     () => !!book.selected?.review,
   ) && mode === 'review';
+  const noteId = useSyncExternalStore(
+    (fn) => book.subscribe(fn),
+    () => (book.selected && !book.selected.review ? book.selected.id : undefined),
+  );
+  const annotatingNote = mode === 'write' && !!noteId;
   const commenting = useSyncExternalStore(
     (fn) => comments.subscribe(fn),
     () => comments.showing(board),
   ) && mode === 'sketch';
-  const reviewing = reviewingPage || commenting;
+  const reviewing = reviewingPage || commenting || annotatingNote;
+
+  // Words go to the note the mic opened on, so opening another note stops it.
+  useEffect(() => {
+    if (voiceDraft.current && voiceDraft.current !== noteId && modeRef.current === 'write' && reviewVoice.recording) void reviewVoice.stop();
+  }, [noteId, reviewVoice, modeRef]);
   const reviewRecording = useSyncExternalStore(
     (fn) => reviewVoice.subscribe(fn),
     () => reviewVoice.recording,
@@ -163,6 +176,21 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
       return;
     }
     const draft = book.selected;
+    if (mode === 'write') {
+      if (!draft || draft.review || modeRef.current !== 'write') return;
+
+      // Words from the last recording land on their own note before this one claims Overall.
+      await reviewVoice.stop();
+      if (modeRef.current !== 'write' || book.selected?.id !== draft.id) return;
+      voiceDraft.current = draft.id;
+      const target = draft.annotations?.comments.some((c) => c.id === reviewVoice.target) ? reviewVoice.target : OVERALL;
+      try {
+        await reviewVoice.start(target);
+      } catch (err) {
+        notify(`Could not start the microphone: ${(err as Error).message}`, 'error');
+      }
+      return;
+    }
     if (!draft?.review || modeRef.current !== 'review') return;
     voiceDraft.current = draft.id;
     try {

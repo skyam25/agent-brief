@@ -1,6 +1,6 @@
 /** The session tabs: which one is on show, and switching, leaving and closing them. */
 
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { SessionsResponse } from '../protocol';
 import type { CompanionApi, Mode, SessionBriefEntry } from '../shared/ipc';
 import type { BoardController } from './controller';
@@ -35,6 +35,8 @@ export interface PanelTabs {
   closeBrief: (sessionId: string) => void;
   /** Drops an opened ended session, so the tab follows the Send target again. */
   leaveEnded: () => void;
+  /** Shows the tab of a draft main opened: an ended session's here, Unfiled for none. A live session arrives as the Send target. */
+  showTab: (sessionId: string | undefined) => void;
 }
 
 export function useBriefTabs({ host, book, controller, sessions, modeRef, tabScope, changeMode, showDraft, report }: BriefTabsDeps): PanelTabs {
@@ -74,6 +76,21 @@ export function useBriefTabs({ host, book, controller, sessions, modeRef, tabSco
       .catch(report('open Unfiled'));
   };
   const leaveEnded = useCallback(() => setEndedActive(undefined), []);
+  const known = useRef({ briefs, sessions });
+  known.current = { briefs, sessions };
+  const showTab = useCallback(
+    (sessionId: string | undefined) => {
+      const brief = sessionId ? known.current.briefs.find((b) => b.sessionId === sessionId) : undefined;
+      if (brief?.isLive || known.current.sessions.sessions.some((x) => x.sessionId === sessionId)) return;
+
+      // An ended session opens its tab. One whose tab was closed lists its notes under Unfiled.
+      setEndedActive(brief ? sessionId : undefined);
+
+      // Write checks the tab before React renders it.
+      tabScope.current = { ...tabScope.current, sessionId: brief ? sessionId : undefined };
+    },
+    [tabScope],
+  );
   const closeBrief = (sessionId: string) => {
     if (endedActive === sessionId) setEndedActive(undefined);
     void host.forgetBrief(sessionId).catch(report('close the tab'));
@@ -94,5 +111,6 @@ export function useBriefTabs({ host, book, controller, sessions, modeRef, tabSco
     openNotes,
     closeBrief,
     leaveEnded,
+    showTab,
   };
 }

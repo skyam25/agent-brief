@@ -27,6 +27,32 @@ describe('buildDraft', () => {
   });
 });
 
+describe('a note with comments on its passages', () => {
+  const annotations = { title: 'Recap', comments: [{ id: 'n1', quote: 'Ship it Friday.', occurrence: 0, text: 'Say which Friday.', createdAt: 1 }] };
+  const note = { boardName: '', text: '# Plan\n\nShip it Friday.', annotations };
+
+  it('points at draft.md and annotations.md, then asks for a revised note', () => {
+    expect(buildDraft('id1', note).split('\n')).toEqual([
+      '@.feedback/sketches/id1/draft.md',
+      '@.feedback/sketches/id1/annotations.md',
+      'Comments on the note “Recap” from Agent Brief, 1 comment on passages. Revise the note to address them, save the new version with `agent-brief note "Recap"`, open it with the line that command prints, then say what changed.',
+    ]);
+  });
+
+  it('asks for changes in the file when the note copies one', () => {
+    expect(buildDraft('id1', { ...note, sourcePath: 'docs/plan.md' }).split('\n')[2]).toMatch(/^Comments on docs\/plan\.md from Agent Brief/);
+  });
+
+  it('writes the note and its comments', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'b');
+    await writeBundle(dir, note);
+    expect(readFileSync(join(dir, 'draft.md'), 'utf8')).toBe('# Plan\n\nShip it Friday.');
+    const md = readFileSync(join(dir, 'annotations.md'), 'utf8');
+    expect(md).toContain('The full text, with any edits, is in .feedback/sketches/b/draft.md.');
+    expect(md).toContain('## 1. “Ship it Friday.”\n\nSay which Friday.');
+  });
+});
+
 describe('a draft opened from a project file', () => {
   const edited = { boardName: '', text: '# Plan\n\nShip it Friday.', sourcePath: 'docs/plan.md' };
   const ask =

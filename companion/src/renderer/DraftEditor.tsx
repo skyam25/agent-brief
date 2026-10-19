@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { hasAnnotations } from '../shared/annotations';
 import type { BoardEntry, Draft } from '../shared/ipc';
 import type { DraftBook } from './drafts';
 import { FileUnder, type FilingTab } from './FilingMenu';
 import { DeleteItem, MoreMenu } from './FooterMenu';
 import { CheckIcon, CopyIcon, LinkIcon, PlusIcon } from './Icons';
 import { richCopy } from './editor/rich-copy';
+import type { Passage } from './editor/annotations';
 import { RichEditor, type RichEditorHandle } from './editor/RichEditor';
 import { newPictureId } from './editor/pictures';
+import { NoteComments } from './NoteComments';
+import { OVERALL, type ReviewVoice } from './review-voice';
 import type { TemplateShelf } from './templates';
 
 /** Names the open draft and saves it as a template. `onDone` gets the words to show, or nothing when cancelled. */
@@ -39,6 +43,8 @@ function TemplateNamer(props: { shelf: TemplateShelf; body: string; onDone: (mes
 
 const NO_PICTURES: Record<string, string> = {};
 
+const newCommentId = () => `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
 /** The open draft: its text, its board, where it is filed, Ready and Delete. */
 export function DraftEditor(props: {
   book: DraftBook;
@@ -54,8 +60,16 @@ export function DraftEditor(props: {
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
   /** The target chip and Send, last in the footer. */
   sendBar?: ReactNode;
+  /** The mic, which talks to this note's comments. */
+  voice: ReviewVoice;
+  /** The mic is on, so a selection becomes a comment at once. */
+  talking: boolean;
 }) {
-  const { book, draft } = props;
+  const { book, draft, voice } = props;
+  useSyncExternalStore(
+    (fn) => voice.subscribe(fn),
+    () => voice.version,
+  );
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -96,6 +110,44 @@ export function DraftEditor(props: {
     return id;
   };
 
+  const [activeId, setActiveId] = useState<string>();
+  const [missing, setMissing] = useState<string[]>([]);
+  const comments = draft.annotations?.comments;
+  const highlights = useMemo(() => ({ comments: comments ?? [], activeId }), [comments, activeId]);
+
+  /** Puts a comment in focus, points the mic at it, and shows its passage. */
+  const select = (id: string | undefined, focus = false) => {
+    setActiveId(id);
+    voice.aim(id ?? OVERALL);
+    const comment = id ? book.get(draft.id)?.annotations?.comments.find((c) => c.id === id) : undefined;
+    if (comment) editor.current?.reveal(comment);
+    if (!id) return;
+    requestAnimationFrame(() => {
+      const card = document.querySelector(`[data-comment="${id}"]`);
+      card?.scrollIntoView({ block: 'nearest' });
+      if (focus) card?.querySelector('textarea')?.focus();
+    });
+  };
+
+  /** A passage to comment on. One already commented on opens its comment. While talking, words fill it. */
+  const annotate = (passage: Passage) => {
+    const known = book.get(draft.id)?.annotations?.comments.find((c) => c.quote === passage.quote && c.occurrence === passage.occurrence);
+    if (known) return select(known.id, !props.talking);
+    const id = newCommentId();
+    book.addNoteComment(draft.id, { id, ...passage, text: '', createdAt: Date.now() });
+    select(id, !props.talking);
+  };
+  const removeComment = (id: string) => {
+    book.removeNoteComment(draft.id, id);
+    if (activeId === id) select(undefined);
+  };
+  const commentKeys = (e: ReactKeyboardEvent) => {
+    if (e.key !== 'Enter' || !e.metaKey) return;
+    e.preventDefault();
+    props.onSend();
+  };
+  const showComments = props.talking || hasAnnotations(draft.annotations);
+
   const boardOptions = draft.board && !boards.includes(draft.board) ? [draft.board, ...boards] : boards;
 
   return (
@@ -110,18 +162,39 @@ export function DraftEditor(props: {
           From {draft.source.path}. Send asks Claude to apply your changes to the file.
         </p>
       )}
-      <RichEditor
-        editorRef={editor}
-        testId="draft-body"
-        label="Draft"
-        placeholder={'Write a prompt or jot a note. Type / for blocks and templates.\n\n⌘↩ sends it. ⌘⇧↩ marks it Ready.'}
-        value={draft.body}
-        onChange={(body) => book.edit(draft.id, body)}
-        attachments={draft.attachments ?? NO_PICTURES}
-        onAttach={attach}
-        onKeyDown={onKeyDown}
-        templates={props.shelf.templates}
-      />
+      <div className="note-work">
+        <RichEditor
+          editorRef={editor}
+          testId="draft-body"
+          label="Draft"
+          placeholder={'Write a prompt or jot a note. Type / for blocks and templates.\n\n⌘↩ sends it. ⌘⇧↩ marks it Ready.'}
+          value={draft.body}
+          onChange={(body) => book.edit(draft.id, body)}
+          attachments={draft.attachments ?? NO_PICTURES}
+          onAttach={attach}
+          onKeyDown={onKeyDown}
+          templates={props.shelf.templates}
+          annotations={highlights}
+          onAnnotate={annotate}
+          annotating={props.talking}
+          onAnnotationClick={(id) => select(id)}
+          onAnnotationsMissing={setMissing}
+        />
+        {showComments && (
+          <NoteComments
+            annotations={draft.annotations}
+            activeId={activeId}
+            missing={missing}
+            voice={voice}
+            talking={props.talking}
+            onSelect={(id) => select(id)}
+            onEdit={(id, text) => book.editNoteComment(draft.id, id, text)}
+            onRemove={removeComment}
+            onOverall={(text) => book.setOverall(draft.id, text)}
+            onKeyDown={commentKeys}
+          />
+        )}
+      </div>
       <footer>
         <label className={draft.board ? 'board-pick' : 'board-pick unset'} title="A board whose sketch goes out with this draft">
           <LinkIcon />

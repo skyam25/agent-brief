@@ -381,6 +381,72 @@ describe('DraftBook reviews', () => {
     expect(book.get(review.id)?.body).toBe('Start. Darker overall.');
   });
 
+  it('adds heard words to a note comment or the overall words, never to the note itself', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    const note = book.create('# Recap', undefined, 's1');
+    book.addNoteComment(note.id, { id: 'n1', quote: 'Recap', occurrence: 0, text: '', createdAt: 1 });
+    book.appendTo(note.id, 'n1', 'Too short.');
+    book.appendTo(note.id, undefined, 'Shorter overall.');
+    expect(book.get(note.id)?.annotations).toEqual({
+      comments: [{ id: 'n1', quote: 'Recap', occurrence: 0, text: 'Too short.', createdAt: 1 }],
+      overall: 'Shorter overall.',
+    });
+    expect(book.get(note.id)?.body).toBe('# Recap');
+    expect(book.ownerOfNoteComment('n1')?.id).toBe(note.id);
+    book.removeNoteComment(note.id, 'n1');
+    book.setOverall(note.id, '');
+    expect(book.get(note.id)?.annotations).toBeUndefined();
+  });
+
+  it('takes a note replaced on disk after the last local edit, and drops the queued save', async () => {
+    const host = fakeHost([saved('n', { body: 'Old' })]);
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.edit('n', 'Old, edited');
+    host.disk.set('n', saved('n', { body: 'Revised by Claude', updatedAt: 10_000 }));
+    await book.load();
+    expect(book.get('n')?.body).toBe('Revised by Claude');
+    await vi.runAllTimersAsync();
+    expect(host.disk.get('n')?.body).toBe('Revised by Claude');
+
+    // A local edit after the outside write still wins.
+    book.edit('n', 'Mine, later');
+    host.disk.set('n', saved('n', { body: 'Stale', updatedAt: 1 }));
+    await book.load();
+    expect(book.get('n')?.body).toBe('Mine, later');
+  });
+
+  it('takes a replaced note while its save is still running', async () => {
+    const host = fakeHost([saved('n', { body: 'Old' })]);
+    let finish = () => {};
+    host.saveDraft.mockImplementationOnce(() => new Promise<undefined>((ok) => (finish = () => ok(undefined))));
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.edit('n', 'Old, edited');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(host.saveDraft).toHaveBeenCalledTimes(1);
+    host.disk.set('n', saved('n', { body: 'Revised by Claude', updatedAt: 10_000 }));
+    await book.load();
+    expect(book.get('n')?.body).toBe('Revised by Claude');
+    finish();
+    await vi.runAllTimersAsync();
+    expect(host.saveDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears only the comments a Send delivered', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    const note = book.create('# Recap', undefined, 's1');
+    const c = (id: string, text: string) => ({ id, quote: 'Recap', occurrence: 0, text, createdAt: 1 });
+    book.addNoteComment(note.id, c('a', 'Sent'));
+    book.addNoteComment(note.id, c('b', 'Sent too'));
+    book.setOverall(note.id, 'Overall');
+    const sent = book.get(note.id)!.annotations!;
+    book.editNoteComment(note.id, 'b', 'Changed while sending');
+    book.addNoteComment(note.id, c('c', 'New'));
+    book.clearSent(note.id, sent);
+    expect(book.get(note.id)?.annotations).toEqual({ comments: [c('b', 'Changed while sending'), c('c', 'New')] });
+  });
+
   it('opens a new review instead of reusing an empty note', () => {
     const book = new DraftBook(fakeHost(), () => t++);
     const note = book.create('', undefined, 's1');

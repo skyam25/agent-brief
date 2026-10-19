@@ -1,6 +1,8 @@
 /* Surface colors follow Excalidraw's own tokens, so the strip and its floating islands read as one app. */
 :root {
   --bg: #ffffff;
+  --highlight: rgb(255 212 59 / 0.45);
+  --highlight-strong: rgb(255 192 0 / 0.7);
   --fg: #1b1b1f;
   --muted: #868e96;
   --line: #e9ecef;
@@ -19,6 +21,8 @@
 
 :root[data-theme='dark'] {
   --bg: #121212;
+  --highlight: rgb(255 212 59 / 0.22);
+  --highlight-strong: rgb(255 212 59 / 0.42);
   --fg: #e3e3e8;
   --muted: #8b8b95;
   --line: #2e2e36;
@@ -1968,6 +1972,58 @@ button.stop-talk:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: text;
+}
+
+/* A note's text beside its comments */
+
+.note-work {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.note-work > .rich-editor {
+  min-width: 0;
+}
+
+.note-comments {
+  width: 248px;
+  flex: none;
+}
+
+/* Passages a note's comments quote */
+
+.rich-doc .annot {
+  background: var(--highlight);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.rich-doc .annot.active {
+  background: var(--highlight-strong);
+}
+
+.rich-doc sup.annot-badge {
+  display: inline-block;
+  min-width: 15px;
+  height: 15px;
+  margin: 0 1px 0 2px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 50% 50% 50% 2px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  vertical-align: super;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rich-doc sup.annot-badge:not(.active) {
+  opacity: 0.75;
 }
 
 .rich-doc mark.slot {

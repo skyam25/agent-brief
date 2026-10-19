@@ -245,6 +245,9 @@ export function parseNote(body: unknown): NoteRequest {
   if (title !== undefined && title.length > MAX_NOTE_TITLE) fail(`body.title must be under ${MAX_NOTE_TITLE} characters`);
   if (title?.includes('\n')) fail('body.title must be one line');
   const sessionId = optString(o, 'sessionId', 'body');
+  const draftId = optString(o, 'draftId', 'body')?.trim();
+  if (draftId !== undefined && !/^[\w-]{1,64}$/.test(draftId)) fail('body.draftId must be a note id');
+  if (draftId) return { text, ...(title ? { title } : {}), draftId };
   return { text, ...(title ? { title } : {}), ...(sessionId ? { sessionId } : {}) };
 }
 

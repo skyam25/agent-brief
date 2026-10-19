@@ -3,6 +3,7 @@ import type { FeedbackWorkspace } from '../protocol';
 import type { WorkspaceSnapshot } from './feedback-workspace';
 /** IPC between the main process and the panel renderer. */
 
+import type { AnnotationsPayload, NoteAnnotations } from './annotations';
 import type { BoardComments, BoardPin } from './board-comments';
 import type { DraftReview, ReviewPayload, ReviewRect } from './review';
 import type { EditResult, HistoryResult, ReviewEdit } from './review-edit';
@@ -88,6 +89,8 @@ export interface SendPayload {
   review?: ReviewPayload;
   /** Comments pinned to the board. The prompt points Claude at comments.md. */
   comments?: BoardComments;
+  /** Comments on passages of the draft. The prompt points Claude at annotations.md. */
+  annotations?: AnnotationsPayload;
 }
 
 /** A picture a draft carries, as the Send hands it over. */
@@ -107,6 +110,8 @@ export interface TextPayload {
   sourcePath?: string;
   /** Comments pinned to an HTML file. The prompt points Claude at review.md. */
   review?: ReviewPayload;
+  /** Comments on passages of the draft. The prompt points Claude at annotations.md. */
+  annotations?: AnnotationsPayload;
 }
 
 /** What Send hands to main from either mode. */
@@ -155,6 +160,8 @@ export interface Draft {
   source?: DraftSource;
   /** Set when the draft reviews a session's HTML file. The body is the overall note. */
   review?: DraftReview;
+  /** Comments on passages of the note, made in Write. */
+  annotations?: NoteAnnotations;
   /** Position in the Ready queue, lowest first. */
   rank: number;
   createdAt: number;

@@ -74,3 +74,17 @@ describe('POST /open with a note', () => {
     expect(both.status).toBe(400);
   });
 });
+
+describe('POST /notes with a draftId', () => {
+  it('passes the note to replace and skips the session check', async () => {
+    const h = await start(noting());
+    const res = await h.call('POST', '/notes', { draftId: 'd7', sessionId: 'gone', title: 'Recap', text: 'New text' });
+    expect(res.status).toBe(200);
+    expect(h.backend.addNote).toHaveBeenCalledWith({ draftId: 'd7', title: 'Recap', text: 'New text' });
+  });
+
+  it('refuses an id that is not a note id', async () => {
+    const h = await start(noting());
+    expect((await h.call('POST', '/notes', { draftId: '../x', text: 'x' })).status).toBe(400);
+  });
+});

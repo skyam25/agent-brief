@@ -63,6 +63,30 @@ describe('DraftStore', () => {
     expect(extra.source).toEqual({ path: 'x.md' });
   });
 
+  it('keeps a note\'s comments across a save and a reload, and drops empty ones', () => {
+    const dir = temp();
+    const comment = { id: 'n1', quote: 'body a', occurrence: 0, text: 'Shorter.', createdAt: 1 };
+    new DraftStore(dir).save(draft('a', { annotations: { comments: [comment], overall: 'Good.' } }));
+    expect(new DraftStore(dir).get('a')?.annotations).toEqual({ comments: [comment], overall: 'Good.' });
+    expect(new DraftStore(dir).save(draft('b', { annotations: { comments: [] } }))).not.toHaveProperty('annotations');
+  });
+
+  it('refuses a panel save older than the stored draft', () => {
+    const store = new DraftStore(temp());
+    store.save(draft('a', { body: 'Replaced', updatedAt: 50 }));
+    expect(store.saveFromPanel(draft('a', { body: 'Stale', updatedAt: 40 })).body).toBe('Replaced');
+    expect(store.get('a')?.body).toBe('Replaced');
+    expect(store.saveFromPanel(draft('a', { body: 'Newer', updatedAt: 60 })).body).toBe('Newer');
+  });
+
+  it('replaces a saved note in place, keeping where it is filed', () => {
+    const store = new DraftStore(temp());
+    store.save(draft('a', { sessionId: 's1', title: 'Recap' }));
+    expect(store.replaceNote('a', { text: 'Shorter.' }, 9)).toMatchObject({ body: 'Shorter.', title: 'Recap', sessionId: 's1', updatedAt: 9 });
+    expect(store.replaceNote('a', { text: 'Again.', title: 'Approach' })?.title).toBe('Approach');
+    expect(store.replaceNote('missing', { text: 'x' })).toBeUndefined();
+  });
+
   it('adds a note from outside the panel, filed and titled', () => {
     const store = new DraftStore(temp());
     const note = store.addNote({ text: 'Hi team,\n\nWe shipped.', title: 'Launch message', sessionId: 's1' }, 5000);

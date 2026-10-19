@@ -1,6 +1,6 @@
 {
   "name": "agent-brief",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Links a Claude Code session to the Agent Brief panel: sketch, stack, write and track from the band or /sketch, /stack, /write and /track, with what you send delivered into the prompt. Also applies feedback sessions exported by the companion Chrome extension with /apply-feedback.",
   "author": {
     "name": "skyam25",

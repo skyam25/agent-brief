@@ -6,7 +6,7 @@ import { useEditorState } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useEscape } from '../hooks';
-import { ChevronIcon, LinkIcon } from '../Icons';
+import { ChevronIcon, CommentIcon, LinkIcon } from '../Icons';
 import { CodeIcon } from './icons';
 
 /** A bare domain gets https; anything with a scheme, a path or an anchor stays. */
@@ -75,7 +75,8 @@ function KindMenu(props: { current: string; onPick: (kind: BlockKind) => void; o
   );
 }
 
-export function FormatBar(props: { editor: Editor }) {
+/** `onComment` adds a Comment button that marks the selection for a comment. */
+export function FormatBar(props: { editor: Editor; onComment?: () => void }) {
   const { editor } = props;
   const [linking, setLinking] = useState(false);
   const [href, setHref] = useState('');
@@ -227,6 +228,22 @@ export function FormatBar(props: { editor: Editor }) {
             setHref((editor.getAttributes('link').href as string | undefined) ?? '');
             setLinking(true);
           })}
+          {props.onComment && (
+            <>
+              <span className="format-sep" aria-hidden="true" />
+              <button
+                type="button"
+                className="format-button"
+                aria-label="Comment"
+                title="Comment on this passage"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={props.onComment}
+                data-testid="format-comment"
+              >
+                <CommentIcon />
+              </button>
+            </>
+          )}
         </>
       )}
     </BubbleMenu>

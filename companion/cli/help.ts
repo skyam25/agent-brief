@@ -109,8 +109,8 @@ A src without a round number is in the catalog's round.`,
     example: 'agent-brief output "Pricing brief" --path docs/pricing.md --status ready',
   },
   note: {
-    usage: 'agent-brief note [title] [--text <markdown> | --file <path>] [--session <id>] [--json]',
-    about: "Saves Markdown as a note in Agent Brief's Write mode without opening the panel. Prints the note's id and the `agent-brief open --note` line that shows it. Reads stdin unless --text or --file is given. Files it under the Claude Code session that runs it, or --session, else under Notes. Exits 3 when the app is not running.",
+    usage: 'agent-brief note [title] [--text <markdown> | --file <path>] [--session <id> | --id <note id>] [--json]',
+    about: "Saves Markdown as a note in Agent Brief's Write mode without opening the panel. Prints the note's id and the `agent-brief open --note` line that shows it. --id replaces that note's text in place, and its title when one is given, so the user keeps one copy. Reads stdin unless --text or --file is given. Files a new note under the Claude Code session that runs it, or --session, else under Notes. Exits 3 when the app is not running.",
     example: `agent-brief note "Launch message" <<'EOF'\nHi team, **v2 is live**.\nEOF`,
   },
   'herdr-pictures': {

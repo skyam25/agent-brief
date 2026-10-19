@@ -113,3 +113,21 @@ test('open --note leaves Unfiled for the note\'s session when the panel has no t
   await page.screenshot({ path: join(RESULTS, 'note-open-unfiled.png') });
 });
 
+test('note --id replaces the open note in place, so the user keeps one copy', async () => {
+  const { page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's5', cwd, title: 'pm-interview' });
+  const env = { ...process.env, COMPANION_SOCKET: socketPath, CLAUDE_CODE_SESSION_ID: 's5' };
+  const cli = (args: string[], input = '') => execFileSync('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { input, env }).toString();
+  const saved = cli(['note', 'Interview approach'], 'Two acts, long probes');
+  const id = /agent-brief open --note (\S+)/.exec(saved)![1]!;
+  expect(saved).toContain(`agent-brief note --id ${id}`);
+  cli(['open', '--note', id]);
+  await expect.poll(selectedBody).toBe('Two acts, long probes');
+
+  expect(cli(['note', '--id', id], 'One act, short probes')).toContain('Updated note');
+  await expect.poll(selectedBody).toBe('One act, short probes');
+  await expect(page.getByTestId('draft-title')).toHaveText('Interview approach');
+  await expect(page.getByTestId('draft-row')).toHaveCount(1);
+  expect((await sock(socketPath, 'POST', '/notes', { draftId: 'missing-id', text: 'x' })).status).toBe(400);
+});

@@ -238,6 +238,12 @@ async function start(): Promise<void> {
     },
     // A note from `agent-brief note`. The panel stays as it is and lists the note.
     addNote(req) {
+      if (req.draftId) {
+        const replaced = drafts.replaceNote(req.draftId, req);
+        if (!replaced) throw new BadRequest(`no note with id ${req.draftId}`);
+        send(CH.draftsChanged);
+        return { ok: true, draftId: replaced.id };
+      }
       const draft = drafts.addNote(req);
       if (req.sessionId) briefs.remember(req.sessionId, {}, !briefs.get(req.sessionId));
       send(CH.draftsChanged);
@@ -263,20 +269,18 @@ async function start(): Promise<void> {
         const draft = drafts.get(req.note.id);
         if (!draft) throw new BadRequest(`no note with id ${req.note.id}`);
 
-        // Write shows the target's tab, so the note's tab becomes the target first.
+        // Write shows the target's tab, so a live owner becomes the target. Unfiled and ended owners clear it, and the panel opens their tab.
         const owner = draft.sessionId;
-        if (!owner) server.setTarget(undefined);
-        else if (server.sessions().sessions.some((s) => s.sessionId === owner)) {
-          if (!briefs.get(owner)) briefs.remember(owner, {});
-          server.setTarget(owner);
-        }
+        const live = !!owner && server.sessions().sessions.some((s) => s.sessionId === owner);
+        if (live && !briefs.get(owner)) briefs.remember(owner, {});
+        server.setTarget(live ? owner : undefined);
 
         if (req.prompt !== undefined) setPrompt(req.prompt);
         panel.show();
         briefs.showDraft(draft.sessionId, draft.id);
         return {
           board: state.state.currentBoard,
-          ...(draft.sessionId ? { targetSessionId: draft.sessionId } : {}),
+          ...(live ? { targetSessionId: owner } : {}),
           opened: 'note',
         };
       }
@@ -484,7 +488,7 @@ async function start(): Promise<void> {
   // Drafts, templates and history.
   ipc.handle('listDrafts', () => drafts.list());
   ipc.handle('saveDraft', (raw: unknown) => {
-    const draft = drafts.save(raw);
+    const draft = drafts.saveFromPanel(raw);
     briefs.touched({ draftId: draft.id });
   });
   ipc.handle('deleteDraft', (id: string) => {

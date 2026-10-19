@@ -1,7 +1,7 @@
 /**
  * Mouse paths to the `/` menu. A "+" sits in the gutter beside the hovered
- * block, or beside the empty line holding the cursor. An empty draft offers
- * its templates as chips.
+ * block or list item, or beside the empty line holding the cursor. An empty
+ * draft offers its templates as chips.
  */
 
 import type { Editor } from '@tiptap/core';
@@ -16,6 +16,24 @@ export function topBlockAt(doc: PMNode, pos: number): { pos: number; node: PMNod
   const $p = doc.resolve(Math.max(0, Math.min(pos, doc.content.size)));
   const index = Math.min($p.index(0), doc.childCount - 1);
   return { pos: $p.posAtIndex(index, 0), node: doc.child(index) };
+}
+
+const ITEMS = new Set(['listItem', 'taskItem']);
+
+/**
+ * The block the "+" stands for at `pos`: the innermost list item, else the top-level block.
+ * `inside` is the node posAtCoords found the pointer in, when it found one.
+ */
+export function handleBlockAt(doc: PMNode, pos: number, inside = -1): { pos: number; node: PMNode } | undefined {
+  const own = inside >= 0 ? doc.nodeAt(inside) : null;
+  if (own && ITEMS.has(own.type.name)) return { pos: inside, node: own };
+
+  // The probe can land in a list's padding, so the nearest text position finds the item.
+  const $p = doc.resolve(Math.max(0, Math.min(pos, doc.content.size)));
+  for (let d = $p.depth; d > 0; d--) {
+    if (ITEMS.has($p.node(d).type.name)) return { pos: $p.before(d), node: $p.node(d) };
+  }
+  return topBlockAt(doc, inside >= 0 ? inside : pos);
 }
 
 /**
@@ -47,6 +65,9 @@ function useEditorTick(editor: Editor): void {
 
 const isEmptyLine = (node: PMNode) => node.type.name === 'paragraph' && node.content.size === 0;
 
+/** A list item holding one empty line. */
+const isEmptyItem = (node: PMNode) => ITEMS.has(node.type.name) && node.childCount === 1 && isEmptyLine(node.firstChild!);
+
 /** Where the "+" goes: the middle of the block's first line, relative to `box`. */
 function lineMiddle(editor: Editor, block: { pos: number; node: PMNode }, box: DOMRect): number | undefined {
   let pos = block.pos;
@@ -66,15 +87,26 @@ function lineMiddle(editor: Editor, block: { pos: number; node: PMNode }, box: D
 }
 
 /**
- * Opens the `/` menu for a block. An empty line takes the slash itself.
- * Any other block gets a new line below it.
+ * Opens the `/` menu for a block. An empty line or list item takes the slash itself.
+ * Any other list item gets a new item below it, and any other block a new line.
  */
 export function openSlashAt(editor: Editor, block: { pos: number; node: PMNode }): void {
-  if (isEmptyLine(block.node)) {
-    editor.chain().focus().setTextSelection(block.pos + 1).insertContent('/').run();
+  if (isEmptyLine(block.node) || isEmptyItem(block.node)) {
+    editor.chain().focus().setTextSelection(block.pos + (isEmptyLine(block.node) ? 1 : 2)).insertContent('/').run();
     return;
   }
   const at = block.pos + block.node.nodeSize;
+  if (ITEMS.has(block.node.type.name)) {
+    const line = { type: 'paragraph', content: [{ type: 'text', text: '/' }] };
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(at, { type: block.node.type.name, ...(block.node.type.name === 'taskItem' ? { attrs: { checked: false } } : {}), content: [line] })
+      .setTextSelection(at + 3)
+      .scrollIntoView()
+      .run();
+    return;
+  }
   editor
     .chain()
     .focus()
@@ -98,7 +130,7 @@ export function BlockHandle(props: { editor: Editor; box: RefObject<HTMLDivEleme
 
       // Probe just inside the text column, so the gutter counts as the block beside it.
       const hit = editor.view.posAtCoords({ left: doc.left + 40, top: e.clientY });
-      const block = hit && topBlockAt(editor.state.doc, hit.inside >= 0 ? hit.inside : hit.pos);
+      const block = hit && handleBlockAt(editor.state.doc, hit.pos, hit.inside);
       const dom = block && editor.view.nodeDOM(block.pos);
 
       // Below the last block, posAtCoords still answers. Only a block level with the pointer counts.
@@ -122,11 +154,12 @@ export function BlockHandle(props: { editor: Editor; box: RefObject<HTMLDivEleme
 
   if (props.hidden || !editor.isEditable || !box.current) return null;
   const { doc, selection } = editor.state;
-  const caret = selection.empty && editor.isFocused ? topBlockAt(doc, selection.from) : undefined;
-  const at = hover ?? (caret && isEmptyLine(caret.node) ? caret.pos : undefined);
+  const caret = selection.empty && editor.isFocused ? handleBlockAt(doc, selection.from) : undefined;
+  const at = hover ?? (caret && (isEmptyLine(caret.node) || isEmptyItem(caret.node)) ? caret.pos : undefined);
   if (at === undefined || at >= doc.content.size) return null;
-  const block = topBlockAt(doc, at);
-  if (!block || block.pos !== at) return null;
+  const node = doc.nodeAt(at);
+  if (!node || !(node.isBlock && (ITEMS.has(node.type.name) || doc.resolve(at).depth === 0))) return null;
+  const block = { pos: at, node };
   const top = lineMiddle(editor, block, box.current.getBoundingClientRect());
   if (top === undefined) return null;
 

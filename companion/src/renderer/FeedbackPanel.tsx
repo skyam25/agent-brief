@@ -20,7 +20,7 @@ import { ExternalIcon, MicIcon, ReloadIcon } from './Icons';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import { ReviewVoice } from './review-voice';
 import { claimTalk } from './talk-owner';
-import { VoiceState } from './ReviewView';
+import { VoiceState } from './VoiceState';
 import type { FixedSend } from './useSend';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
 

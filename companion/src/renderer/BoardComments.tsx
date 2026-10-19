@@ -12,7 +12,7 @@ import type { BoardCommentsStore } from './board-comments';
 import { useStore } from './hooks';
 import { CommentIcon, TrashIcon } from './Icons';
 import { OVERALL, type ReviewVoice } from './review-voice';
-import { VoiceState } from './ReviewView';
+import { VoiceState } from './VoiceState';
 
 const editable = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');

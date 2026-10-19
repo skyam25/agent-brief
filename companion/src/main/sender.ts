@@ -8,6 +8,7 @@ import type { CompanionServer, DeliveryInput } from '../server/contract';
 import { feedbackDir, pruneBundles } from '../server/feedback-dir';
 import { isTextPayload, type Launcher, type Outgoing, type SendPayload, type SendResult } from '../shared/ipc';
 import { cleanBoardComments } from '../shared/board-comments';
+import { cleanAnnotations } from '../shared/annotations';
 import { cleanReview } from '../shared/review';
 import { portablePrompt } from '../shared/sessions';
 import { composeDelivery, findTool } from '../voice/compose';
@@ -46,12 +47,27 @@ function reviewOf(p: Outgoing): DeliveryInput['review'] {
   return { ...review, ...(body?.trim() ? { body } : {}) };
 }
 
-/** The delivery fields a draft adds: its pictures, the file it copies, and its review. */
-function draftFields(p: Outgoing): Pick<DeliveryInput, 'images' | 'sourcePath' | 'review'> {
+/** A Send's comments on passages of its draft, checked, with the note's name. */
+function annotationsOf(p: Outgoing): DeliveryInput['annotations'] {
+  const annotations = cleanAnnotations(p.annotations);
+  if (!annotations) return undefined;
+  const title = typeof p.annotations?.title === 'string' ? p.annotations.title.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  const noteId = typeof p.annotations?.noteId === 'string' && /^[\w-]{1,64}$/.test(p.annotations.noteId) ? p.annotations.noteId : undefined;
+  return { ...annotations, ...(title ? { title } : {}), ...(noteId ? { noteId } : {}) };
+}
+
+/** The delivery fields a draft adds: its pictures, the file it copies, its review, and its comments. */
+function draftFields(p: Outgoing): Pick<DeliveryInput, 'images' | 'sourcePath' | 'review' | 'annotations'> {
   const images = deliveryImages(p.images);
   const sourcePath = cleanSourcePath(p.sourcePath);
   const review = reviewOf(p);
-  return { ...(images.length ? { images } : {}), ...(sourcePath ? { sourcePath } : {}), ...(review ? { review } : {}) };
+  const annotations = review ? undefined : annotationsOf(p);
+  return {
+    ...(images.length ? { images } : {}),
+    ...(sourcePath ? { sourcePath } : {}),
+    ...(review ? { review } : {}),
+    ...(annotations ? { annotations } : {}),
+  };
 }
 
 /** History fields that depend on what went out. The text points at bundle `id`'s picture files. */

@@ -157,6 +157,11 @@ export interface NoteRequest {
   title?: string;
   /** Files the note under this session. It must be live. */
   sessionId?: string;
+  /**
+   * Replaces this saved note's text, and its title when one is given, instead of adding a note.
+   * The note stays where it is filed, so `sessionId` is ignored. An unknown id answers 400.
+   */
+  draftId?: string;
 }
 
 export interface NoteResponse {

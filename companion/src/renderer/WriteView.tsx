@@ -11,6 +11,7 @@ import { DeleteItem } from './FooterMenu';
 import { filedTab, type FilingTab } from './FilingMenu';
 import { CheckIcon, ChevronIcon, PlusIcon } from './Icons';
 import { useEscape, usePointerOutside, useStore } from './hooks';
+import type { ReviewVoice } from './review-voice';
 import { TemplateEditor } from './TemplateEditor';
 import type { TemplateShelf } from './templates';
 
@@ -43,6 +44,10 @@ export function WriteView(props: {
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
   /** The target chip and Send, shown at the right end of the open draft's footer. */
   sendBar?: ReactNode;
+  /** The mic, which talks to the open note's comments. */
+  voice: ReviewVoice;
+  /** The mic is on. */
+  talking: boolean;
 }) {
   const book = useStore(props.book);
   const shelf = useStore(props.shelf);
@@ -247,6 +252,8 @@ export function WriteView(props: {
           onOpenBoard={props.onOpenBoard}
           onCopy={props.onCopy}
           sendBar={props.sendBar}
+          voice={props.voice}
+          talking={props.talking}
         />
       ) : (
         <div className="editor empty-editor">

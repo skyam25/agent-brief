@@ -67,7 +67,8 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - A `sessionId` must name a live session, else 404. The note is filed under it, and the session gets a tab if it had none. Without one, the note goes to Notes.
 - Main sends `drafts:changed`, and an open panel reloads its list. The open note and the mode stay.
 - `agent-brief note "<title>"` reads Markdown from stdin, `--text` or `--file`. It files under `--session`, else `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in its shells. A session from the environment the app does not know gets its note under Notes. When the app is not running it exits 3 and tells Claude to print the text.
-- It prints the `agent-brief open --note <draftId>` line. `POST /open` with `note: { id }` shows that draft in Write under its session and answers `opened: 'note'`. A live session becomes the Send target first, and a note with no session clears it, since Write lists only the target's tab. An unknown id answers 400.
+- It prints the `agent-brief open --note <draftId>` line, and the `agent-brief note --id <draftId>` line that changes it. `POST /notes` with `draftId` replaces that note's text, and its title when given, where it is filed. An unknown id answers 400.
+- `POST /open` with `note: { id }`, which the `open --note` line sends, shows that draft in Write under its session and answers `opened: 'note'`. A live owner becomes the Send target first, since Write lists only the target's tab. An Unfiled or ended owner clears the target, and the panel opens Unfiled or the ended session's tab (`showTab` in `useBriefTabs.ts`). An unknown id answers 400.
 - The outputs prompt section tells Claude to use it for text the user will paste elsewhere, and to run the printed open line when the user asks to see the note.
 - A draft's `title` is one line, at most 200 characters. The list shows it over the body's first line, and the editor shows it above the text.
 - Copy in the note footer renders the Markdown with the editor's schema (`src/renderer/editor/rich-copy.ts`) and writes `text/html` and `text/plain` in one `clipboard.write`. Pictures go in as data URLs. Test runs record the write as `__companion.richClipboard()`.
@@ -104,6 +105,16 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
   ```
 
   With a sketch, those lines come first and the sketch lines follow. A source path that is absolute, multi-line or climbs out with `..` is dropped, and the text goes out word for word.
+
+## Note comments
+
+- `Draft.annotations` (`src/shared/annotations.ts`) holds a note's comments and its overall words. Each comment keeps its passage as plain text with `occurrence`, the match to use when the words repeat, and the heading above it. Blocks join with a newline.
+- The Markdown body never changes. `src/renderer/editor/annotations.ts` finds each passage by its words on every edit and draws a highlight and a numbered badge as decorations. A passage whose words left the note shows Text changed on its card.
+- The format bar's comment button comments on the selection. While the mic is on, a finished mouse selection becomes a comment at once, and the mic aims at it. Words with no comment in focus go to Overall, never into the note.
+- Write's mic uses the review voice (`useVoice.ts`). Opening another note stops it.
+- Send writes `draft.md` and `annotations.md`, and the prompt points at both, from Write or from Sketch with a linked note. A note copied from a file asks Claude to change the file and is used up, as any sent draft is. Any other note stays, and the prompt asks Claude to revise it with `agent-brief note --id`. Once delivered, the comments it carried clear; ones added or changed during the Send stay.
+- A note replaced on disk after its last local edit beats a queued autosave on reload (`DraftBook.load`).
+- Coverage: `src/shared/annotations.test.ts`, `src/renderer/editor/annotations.test.ts`, `src/server/bundle.test.ts`, `e2e/note-annotate.e2e.ts` (typed comment, changed text, and speech through the fake microphone).
 
 ## Review pane
 

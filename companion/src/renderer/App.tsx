@@ -280,6 +280,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
           <Mic
             recording={recording}
             board={mode === 'sketch'}
+            note={mode === 'write'}
             onMicrophone={onMicrophone}
             onDiscard={reviewing ? undefined : () => void discardVoice()}
           />
@@ -521,6 +522,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               onFiled={(where) => notify(`Moved to ${where}.`)}
               onFilingMenu={dismissToast}
               sendBar={sendBar}
+              voice={reviewVoice}
+              talking={recording}
               onCopy={(clip) => host.copyRich(clip).then(() => true, (err) => (report('copy the note')(err), false))}
             />
           )}

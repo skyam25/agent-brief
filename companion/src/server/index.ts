@@ -413,7 +413,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
     if (root === 'notes' && parts.length === 1 && method === 'POST') {
       const body = parseNote(await readJson(req));
       if (!backend.addNote) throw new HttpError(503, 'unavailable', 'this app does not take notes');
-      if (body.sessionId !== undefined) liveSession(body.sessionId);
+      if (body.sessionId !== undefined && !body.draftId) liveSession(body.sessionId);
       return { json: await backend.addNote(body) };
     }
 
