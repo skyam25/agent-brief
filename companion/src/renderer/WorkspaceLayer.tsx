@@ -9,6 +9,7 @@ import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FeedbackItem } from '../protocol';
 import { hasBoardComments } from '../shared/board-comments';
+import { quoted } from '../shared/feedback';
 import { railEntries, shortDate, workspaceQuote, workspaceRound, workspaceSummary, type WorkspaceSnapshot } from '../shared/feedback-workspace';
 import type { BoardHost, CompanionApi, Theme } from '../shared/ipc';
 import { BoardCanvas } from './BoardCanvas';
@@ -207,7 +208,7 @@ export function WorkspaceLayer(props: {
           </span>
           {src?.quote && (
             <span className="muted workspace-quote" title={src.quote}>
-              “{src.quote}”{src.speaker ? ` — ${src.speaker}` : ''}
+              {quoted(src.quote)}{src.speaker ? ` — ${src.speaker}` : ''}
             </span>
           )}
         </div>

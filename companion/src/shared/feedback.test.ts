@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyFeedbackOps, decisionsPrompt, parseFeedback, pendingDecisions, relatedCandidates, serializeFeedback } from './feedback';
+import { applyFeedbackOps, decisionsPrompt, parseFeedback, pendingDecisions, quoted, relatedCandidates, serializeFeedback } from './feedback';
 
 const SAMPLE = `# Feedback · checkout.html
 
@@ -261,5 +261,12 @@ describe('feedback format fixes', () => {
     expect(parseFeedback(SAMPLE).items[1]!.raisedAgain).toBeUndefined();
     const reopened = applyFeedbackOps(raised.text, opts([{ op: 'append', item: 7, key: 'You', text: 'reopen' }], 'You'));
     expect(parseFeedback(reopened.text).items[1]!.raisedAgain).toBeUndefined();
+  });
+});
+
+describe('quoted', () => {
+  it('nests inner quotes as single curly marks', () => {
+    expect(quoted('"Continue" to what?')).toBe('“‘Continue’ to what?”');
+    expect(quoted('Plain words')).toBe('“Plain words”');
   });
 });

@@ -20,10 +20,9 @@ Change nothing in the output until the user decides. A round is cataloged, not a
 3. Check every point for look-alikes in one call: `agent-brief feedback related <output> --text "<point 1>" --text "<point 2>"`.
    - The same point seen again is the same item. Join it with `"same": <n>`, never a new item.
    - A near-repeat, or the same point on another output, is a new item with a `related` link.
-4. Catalog the round and all its points in one call. It adds the round unless the file has it, skips points already cataloged, and names look-alikes it finds:
+4. Catalog the round and all its points in one call. Write the points as JSON with your Write tool to a new file named after the transcript, such as `.feedback/catalog-sme-2.json`, then pass the file. A heredoc makes the command unique each time, so the user can't allow it once. The call adds the round unless the file has it, skips points already cataloged, and names look-alikes it finds:
 
-```bash
-agent-brief feedback catalog prototype/checkout.html --label SME --source transcripts/sme-2.md --date 2026-10-18 --items - <<'EOF'
+```json
 [
   {"title": "Hard to find the filters", "src": ["Ana · 03:02 · \"Where do I filter?\""],
    "change": "Move the filter row above the results.", "where": "#filters", "related": ["pricing.html #3"]},
@@ -31,7 +30,10 @@ agent-brief feedback catalog prototype/checkout.html --label SME --source transc
    "options": ["A · Explain how to save an item", "B · Hide the box until something is saved"]},
   {"same": 2, "src": ["Maya · 00:14 · \"Still no filters\""], "change": "Make the filter row sticky too."}
 ]
-EOF
+```
+
+```bash
+agent-brief feedback catalog prototype/checkout.html --label SME --source transcripts/sme-2.md --date 2026-10-18 --items .feedback/catalog-sme-2.json
 ```
 
 5. Reply with how many items the round added or joined, and mention any praise. End with: Press ▣ Brief, then In Agent Brief on `<output>`.
@@ -89,11 +91,12 @@ The user's Send decisions message starts with `@<output>.feedback.md` and lists 
    - For each saved workspace, look at the picture it names (a project path), then run `agent-brief read --board <board>`. The drawing is the user's answer, as much as a note is.
 2. Accepted: make the change, within what the user authorized. `accept · option B` means build option B.
    - Anything you would add beyond the accepted change is a new proposed item, added with `feedback add`. Never fold it in silently.
-   - Commit the output with `<output>.feedback.md` and the `<output>.feedback/` folder, then log the change: `agent-brief feedback done <output> <n> "<what changed, briefly>" --commit <sha>`. The done line goes in with the next commit. Outside a git repo, leave `--commit` off.
+   - Commit the output with `<output>.feedback.md` and the `<output>.feedback/` folder, then log the change: `agent-brief feedback done <output> <n> "<what changed, briefly>" --commit <sha>`. Once every item is logged, commit `<output>.feedback.md` again, such as `Log feedback #1, #3 done`, so the tree is clean. Outside a git repo, leave `--commit` off.
 3. Rejected: change nothing. The item is already closed.
 4. Notes and voice notes: answer with `agent-brief feedback log <output> <n> Claude "note · <answer>"`. Reopened items get a fresh look and a `Claude` line.
 5. Log what you did not do, too, such as `Claude "note · blocked on the pricing API"`. Every change gets a dated line.
-6. Say which items you closed and which still wait on the user. End with: Press ▣ Brief, then In Agent Brief on `<output>`.
+6. The before and after pictures show on the item cards. To show one in the chat too, call `show_image` with its `path`, once per picture. Its `options` are for choices the user picks between.
+7. Say which items you closed and which still wait on the user. End with: Press ▣ Brief, then In Agent Brief on `<output>`.
 
 A closed item that a later round's `Src:` line names again shows as raised again. Give it a fresh look and a `Claude` line; the user decides whether to reopen it.
 

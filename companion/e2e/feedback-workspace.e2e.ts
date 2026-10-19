@@ -66,7 +66,7 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   await expect.poll(async () => (await read()).map((e) => e.type).sort()).toEqual(['frame', 'image', 'sticky']);
   const seeded = await read();
   expect(seeded.find((e) => e.type === 'frame')!.label).toBe('Round 1');
-  expect(seeded.find((e) => e.type === 'sticky')!.label).toContain('"Where do I filter?" — Ana');
+  expect(seeded.find((e) => e.type === 'sticky')!.label).toContain('“Where do I filter?” — Ana');
   const frameId = seeded.find((e) => e.type === 'frame')!.id;
   expect(seeded.find((e) => e.type === 'image')!.frameId).toBe(frameId);
 
@@ -286,7 +286,7 @@ test('Add to note opens one Write note linked to the item', async () => {
   await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
   const notes = () => ctx.app.evaluate(() => globalThis.__companion.drafts.list().filter((d) => d.sessionId === 'ws-3').map((d) => ({ id: d.id, title: d.title, body: d.body })));
   const [note] = await notes();
-  expect(note).toMatchObject({ title: '#1 Hard to find the filters', body: expect.stringContaining('> "Where do I filter?" — Ana') });
+  expect(note).toMatchObject({ title: '#1 Hard to find the filters', body: expect.stringContaining('> “Where do I filter?” — Ana') });
   const file = join(cwd, 'checkout.html.feedback.md');
   const line = `    You: ${isoDate(new Date())} · note · Write note "#1 Hard to find the filters"\n`;
   expect(readFileSync(file, 'utf8')).toContain(line);

@@ -409,10 +409,16 @@ test('cards show compact, open one at a time, and the Open filter folds closed r
   await expect(page.getByTestId('feedback-pointed')).toContainText('Your next pin joins #2.');
   await expect(second).toHaveClass(/focused/);
 
+  // The pick ends when its card closes.
+  await second.getByTestId('feedback-expand').click();
+  await expect(page.getByTestId('feedback-pointed')).toHaveCount(0);
+  await expect(second).not.toHaveClass(/focused/);
+
   // A decision on a compact card shows under its title, and the card stays listed.
   await first.getByTestId('feedback-accept').click();
   await expect(first.getByTestId('feedback-state')).toHaveText('Accepted');
-  await expect(first.getByTestId('feedback-said')).toHaveText('Youaccept');
+  // A bare accept says nothing the state chip doesn't.
+  await expect(first.getByTestId('feedback-said')).toHaveCount(0);
   await second.getByTestId('feedback-reject').click();
   await expect(second.getByTestId('feedback-state')).toHaveText('Rejected');
   await expect(second).toBeVisible();

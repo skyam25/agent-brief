@@ -117,9 +117,9 @@ describe('seeding', () => {
       ['sticky', 'quote-2'],
     ]);
     expect(req.elements[0]).toMatchObject({ label: 'Round 1', x: 0, y: 0 });
-    expect(req.elements[1]).toMatchObject({ frameId: 'frame-1', label: '"Where do I filter?" — Ana\n\nChange: Move the filter row above the results.' });
+    expect(req.elements[1]).toMatchObject({ frameId: 'frame-1', label: '“Where do I filter?” — Ana\n\nChange: Move the filter row above the results.' });
     expect(req.elements[2]).toMatchObject({ label: 'Round 2', x: 1260, y: 0 });
-    expect(req.elements[3]).toMatchObject({ frameId: 'frame-2', align: 'left', label: '"I couldn\'t find the filters" — Maya\n\nChange: Move the filter row above the results.' });
+    expect(req.elements[3]).toMatchObject({ frameId: 'frame-2', align: 'left', label: '“I couldn\'t find the filters” — Maya\n\nChange: Move the filter row above the results.' });
   });
 
   it('puts the element snapshot in the newest round\'s frame, fitted', () => {
@@ -136,7 +136,7 @@ describe('seeding', () => {
     expect(seedRequest(item(), both)).toBeUndefined();
     const roundOne = { elements: [{ id: 'f1', type: 'frame' as const, label: 'Round 1', x: 0, y: 0 }, { id: 'r', type: 'rectangle' as const, x: 0, y: 0 }], bounds: { x: -20, y: 10, width: 1300, height: 720 } };
     const req = seedRequest(item(), roundOne)!;
-    expect(req.elements.map((e) => e.label?.split('\n')[0])).toEqual(['Round 2', '"I couldn\'t find the filters" — Maya']);
+    expect(req.elements.map((e) => e.label?.split('\n')[0])).toEqual(['Round 2', '“I couldn\'t find the filters” — Maya']);
     expect(req.elements[0]).toMatchObject({ type: 'frame', x: 1440, y: 10 });
   });
 
@@ -152,7 +152,7 @@ describe('seeding', () => {
     const revised = parseFeedback(`${FILE}    Change: Show the filters as chips above the grid.\n`).items[0]!;
     const roundOne = { elements: [{ id: 'f1', type: 'frame' as const, label: 'Round 1', x: 0, y: 0 }], bounds: { x: 0, y: 0, width: 1100, height: 720 } };
     const sticky = seedRequest(revised, roundOne)!.elements.find((e) => e.type === 'sticky')!;
-    expect(sticky.label).toBe('"I couldn\'t find the filters" — Maya\n\nChange: Show the filters as chips above the grid.');
+    expect(sticky.label).toBe('“I couldn\'t find the filters” — Maya\n\nChange: Show the filters as chips above the grid.');
   });
 
   it('falls back to the title when the item has no quote', () => {

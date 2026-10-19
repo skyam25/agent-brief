@@ -457,6 +457,11 @@ export function decisionsPrompt(doc: Pick<FeedbackDocument, 'path' | 'output'>, 
 const STOP = new Set('the and for with that this from are was were but not you your have has can its into than then there their they them what when where which who will would should could about just like also very more some only over under after before again too out our'.split(' '));
 
 /** Words worth matching in an item, lower case. */
+/** A quote in curly marks. Straight quotes inside it become single ones, so `"Continue" to what?` shows as “‘Continue’ to what?”. */
+export function quoted(text: string): string {
+  return `“${text.replace(/"([^"]*)"/g, '‘$1’')}”`;
+}
+
 export function itemWords(text: string): Set<string> {
   return new Set((text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => w.length > 2 && !STOP.has(w)).map((w) => w.replace(/s$/, '')));
 }

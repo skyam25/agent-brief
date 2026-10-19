@@ -7,6 +7,7 @@
 
 import type { DrawRequest, ElementSummary, FeedbackItem, Skeleton } from '../protocol';
 import { pinLabel, type BoardComments, type BoardPin } from './board-comments';
+import { quoted } from './feedback';
 
 export const WORKSPACE_PREFIX = 'fb-';
 
@@ -86,7 +87,7 @@ export function itemNote(output: string, item: FeedbackItem): { title: string; t
   const text = [
     `# ${title}`,
     itemNoteMarker(output, item.n),
-    ...(src?.quote ? [`> "${src.quote}"${src.speaker ? ` — ${src.speaker}` : ''}`] : []),
+    ...(src?.quote ? [`> ${quoted(src.quote)}${src.speaker ? ` — ${src.speaker}` : ''}`] : []),
     ...(item.change ? [`Change: ${item.change}`] : []),
     '',
   ].join('\n\n');
@@ -165,7 +166,7 @@ export function fitSnapshot(s: Pick<WorkspaceSnapshot, 'width' | 'height'>): { w
 
 const stickyText = (item: FeedbackItem, round: number) => {
   const src = workspaceQuote(item, round);
-  const quote = src?.quote ? `"${src.quote}"${src.speaker ? ` — ${src.speaker}` : ''}` : item.title;
+  const quote = src?.quote ? `${quoted(src.quote)}${src.speaker ? ` — ${src.speaker}` : ''}` : item.title;
   return item.change ? `${quote}\n\nChange: ${item.change}` : quote;
 };
 

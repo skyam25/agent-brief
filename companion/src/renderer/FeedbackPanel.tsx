@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackItem, FeedbackOp } from '../protocol';
-import { decisionsPrompt, pendingDecisions, receiptBatches, type PendingDecision } from '../shared/feedback';
+import { decisionsPrompt, pendingDecisions, quoted, receiptBatches, type PendingDecision } from '../shared/feedback';
 import { workspaceSummary } from '../shared/feedback-workspace';
 import type { CompanionApi } from '../shared/ipc';
 import { BeforeAfter, type PictureHost } from './BeforeAfter';
@@ -169,6 +169,12 @@ export function FeedbackPanel(props: {
     root.current?.querySelector(`[data-testid="feedback-item-${expanded}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [graphShown, expanded, doc?.path]);
   const expandedItem = doc?.items.find((i) => i.n === expanded);
+  // A pick lasts while its card stays open and the item stays open.
+  const pickedItem = doc?.items.find((i) => i.n === props.picked);
+  useEffect(() => {
+    if (props.picked === undefined || !doc) return;
+    if (expanded !== props.picked || !pickedItem || pickedItem.state === 'done' || pickedItem.state === 'rejected') props.onPick?.(undefined);
+  }, [props.picked, expanded, pickedItem?.state, doc?.path]);
   // An open card counts as seen, along with whatever Claude writes while it is open.
   useEffect(() => {
     if (doc && expandedItem) markSeen(doc.path, expandedItem);
@@ -486,7 +492,9 @@ function ItemCard(props: {
     if (ok) setNote('');
   };
   const history = historyLines(item);
+  // A bare accept or reject repeats the state chip, so only a note, option or reason shows.
   const said = latestSaid(item);
+  const saidText = said?.detail;
   const acceptable = item.state !== 'accepted' || (!!option && option !== item.chosen);
 
   const actions = !props.readOnly && (
@@ -546,7 +554,7 @@ function ItemCard(props: {
       </div>
       {src && !expanded && (
         <p className="feedback-quote-line" title={src.quote} data-testid="feedback-quote-line">
-          “{src.quote}”{src.speaker && <span className="muted"> — {src.speaker}</span>}
+          {quoted(src.quote)}{src.speaker && <span className="muted"> — {src.speaker}</span>}
         </p>
       )}
       {src && expanded && (
@@ -617,10 +625,10 @@ function ItemCard(props: {
           )}
         </div>
       )}
-      {said && (
+      {said && saidText && (
         <p className="feedback-said" data-testid="feedback-said">
           <span className="who">You</span>
-          {[said.verb, said.detail].filter(Boolean).join(' · ')}
+          {[said.verb, saidText].join(' · ')}
         </p>
       )}
       {actions}

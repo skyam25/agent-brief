@@ -235,7 +235,7 @@ describe('FeedbackWorkspaces', () => {
     const draft = drafts.get(made.draftId)!;
     expect(draft).toMatchObject({ sessionId: 's1', title: '#1 Hard to find the filters' });
     expect(draft.body).toContain('Feedback item #1 on prototype/checkout.html.');
-    expect(draft.body).toContain('> "Where do I filter?" — Ana');
+    expect(draft.body).toContain('> “Where do I filter?” — Ana');
     expect(show).toHaveBeenLastCalledWith('s1', made.draftId);
     expect(feedback.read(root, 'prototype/checkout.html').items[0]!.events.at(-1)).toMatchObject({ key: 'You', verb: 'note', detail: 'Write note "#1 Hard to find the filters"' });
 
