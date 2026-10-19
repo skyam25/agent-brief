@@ -298,12 +298,19 @@ export interface NewNote {
   source?: DraftSource;
   /** Set when the note reviews an HTML output the user opened from the Outputs list. */
   review?: DraftReview;
+  /** The review's side tab to show, as /open asked. */
+  tab?: ReviewTab;
 }
+
+/** A side tab /open can ask a review to show. */
+export type ReviewTab = 'feedback';
 
 /** A note /write reopens, with the session to file it under when it has none. */
 export interface OpenDraft {
   id: string;
   sessionId?: string;
+  /** The review's side tab to show, as /open asked. */
+  tab?: ReviewTab;
 }
 
 /** What a tab switch opened: the session's note, or its board. */

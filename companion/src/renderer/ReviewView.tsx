@@ -1,4 +1,4 @@
-import type { BehaviorDocument, BehaviorDecision } from '../protocol';
+import type { BehaviorDocument, BehaviorDecision, FeedbackDocument } from '../protocol';
 import { BehaviorPanel } from './BehaviorPanel';
 import { FeedbackPanel, openCount, useFeedbackDoc, type FeedbackHost, type SendFeedback } from './FeedbackPanel';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -33,6 +33,9 @@ const PAGE_WAIT_MS = 8000;
 const newCommentId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const editable = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.matches('input, textarea, select'));
+
+/** Open items, and closed ones a later round raised again, need a look. */
+const needsLook = (doc: FeedbackDocument) => doc.items.some((i) => i.state === 'open' || (i as { raisedAgain?: number }).raisedAgain !== undefined);
 
 /** The part of `view`, padded, that lies inside the frame, in window pixels. */
 function cropRect(frame: DOMRect, view: ReviewRect): ReviewRect {
@@ -137,6 +140,29 @@ export function ReviewView(props: {
       return value;
     });
   }, []);
+  // The review opens on Feedback when /open asks, or when items need a look. A tab picked first stays.
+  const tabChosen = useRef(false);
+  const pickSide = useCallback((next: typeof side) => {
+    tabChosen.current = true;
+    setSide(next);
+  }, []);
+  const showFeedback = useCallback(() => {
+    pickSide('feedback');
+    setCommenting(false);
+  }, [pickSide, setCommenting]);
+  useEffect(() => {
+    const take = () => {
+      if (book.takeTab(draft.id) === 'feedback') showFeedback();
+    };
+    take();
+    return book.subscribe(take);
+  }, [book, draft.id, showFeedback]);
+  useEffect(() => {
+    if (tabChosen.current || !feedback.doc) return;
+    tabChosen.current = true;
+    if (needsLook(feedback.doc)) showFeedback();
+  }, [feedback.doc, showFeedback]);
+
   const [activeId, setActiveId] = useState<string>();
   const [missing, setMissing] = useState<string[]>([]);
   const [pagePath, setPagePath] = useState<string>();
@@ -285,10 +311,10 @@ export function ReviewView(props: {
       const picture = room ? await host.capturePanel(cropRect(box, view)).catch(() => undefined) : undefined;
       const comment: ReviewComment = { id: newCommentId(), text: '', anchor, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}), ...(feedback ? { feedback } : {}) };
       book.addComment(current.id, comment, picture);
-      setSide('comments');
+      pickSide('comments');
       select(comment.id, true);
     },
-    [book, host, select, itemsAt],
+    [book, host, select, itemsAt, pickSide],
   );
 
   useEffect(() => {
@@ -508,9 +534,9 @@ export function ReviewView(props: {
       ) : (
         <aside className="review-notes" aria-label="Review details">
           <div className="behavior-tabs" role="tablist" aria-label="Review details">
-            <button className={side === 'comments' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'comments'} onClick={() => setSide('comments')}>Comments</button>
-            <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { setSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
-            <button className={side === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'feedback'} data-testid="feedback-tab" onClick={() => { setSide('feedback'); setCommenting(false); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>
+            <button className={side === 'comments' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'comments'} onClick={() => pickSide('comments')}>Comments</button>
+            <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { pickSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
+            <button className={side === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'feedback'} data-testid="feedback-tab" onClick={() => { showFeedback(); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>
           </div>
           {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} pointed={pointed} picked={picked} onPick={setPicked} onOpenItem={props.onOpenFeedbackItem} onWorkspace={(item) => { setCommenting(false); void workspace.openItem(item); }} workspaceOpening={workspace.opening} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
 

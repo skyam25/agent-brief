@@ -269,6 +269,13 @@ describe('open', () => {
     expect(h.server.sessions().targetSessionId).toBe('a');
   });
 
+  it('passes the Feedback tab an open asks for', async () => {
+    const h = await start();
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    await h.call('POST', '/open', { sessionId: 'a', output: { path: 'page.html', tab: 'feedback' } });
+    expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ output: { path: 'page.html', tab: 'feedback' } }));
+  });
+
   it('refuses an output without a live session or of the wrong type', async () => {
     const h = await start();
     await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
@@ -278,6 +285,7 @@ describe('open', () => {
       { sessionId: 'a', output: { path: 'deck.pdf' } },
       { sessionId: 'a', output: { path: '' } },
       { sessionId: 'a', output: 'plan.md' },
+      { sessionId: 'a', output: { path: 'plan.md', tab: 'comments' } },
     ];
     for (const body of bad) {
       const r = await h.call('POST', '/open', body);

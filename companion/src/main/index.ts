@@ -237,7 +237,7 @@ async function start(): Promise<void> {
       if (req.output && req.sessionId) {
         let opened: 'note' | 'review';
         try {
-          opened = await files.openDocument(req.sessionId, req.output.path);
+          opened = await files.openDocument(req.sessionId, req.output.path, req.output.tab);
         } catch (err) {
           throw new BadRequest((err as Error).message);
         }

@@ -8,7 +8,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { outputsFile } from '../protocol';
 import { itemsFile } from '../server/index';
 import { newDraftId } from '../shared/drafts';
-import { CH, type Decision, type ItemsDocInfo, type OutputsInfo } from '../shared/ipc';
+import { CH, type Decision, type ItemsDocInfo, type OutputsInfo, type ReviewTab } from '../shared/ipc';
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
 import { isMarkdownRef, isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
@@ -167,7 +167,7 @@ export class SessionFiles {
    * A Markdown file opens in Write mode as a note filed under the session, reusing the note
    * already open on that file. Any other file opens in its default app.
    */
-  async openOutput(sessionId: string, ref: unknown): Promise<void> {
+  async openOutput(sessionId: string, ref: unknown, tab?: ReviewTab): Promise<void> {
     const { briefs, drafts, opener } = this.deps;
     if (typeof ref !== 'string' || ref.trim() === '') throw new Error('No output named');
     if (isUrlRef(ref)) {
@@ -177,7 +177,7 @@ export class SessionFiles {
     if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) throw new Error('Agent Brief opens only http and https links');
     const { target } = this.projectFile(sessionId, ref);
     if (isReviewable(target)) {
-      this.openReview(sessionId, ref);
+      this.openReview(sessionId, ref, tab);
       return;
     }
     if (!isMarkdownRef(target)) {
@@ -195,10 +195,10 @@ export class SessionFiles {
     briefs.startNote({ text, id: newDraftId(), sessionId, source: { path: ref } }, false);
   }
 
-  /** Opens a Markdown or HTML output in the panel for POST /open, and says where it opened. */
-  async openDocument(sessionId: string, path: string): Promise<'note' | 'review'> {
+  /** Opens a Markdown or HTML output in the panel for POST /open, and says where it opened. `tab` applies to a review. */
+  async openDocument(sessionId: string, path: string, tab?: ReviewTab): Promise<'note' | 'review'> {
     if (!isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file`);
-    await this.openOutput(sessionId, path);
+    await this.openOutput(sessionId, path, tab);
     return isReviewable(path) ? 'review' : 'note';
   }
 
@@ -286,11 +286,11 @@ export class SessionFiles {
   }
 
   /** Opens an HTML output in the review pane, reusing the review already open on that file. */
-  private openReview(sessionId: string, ref: string): void {
+  private openReview(sessionId: string, ref: string, tab?: ReviewTab): void {
     const { briefs, drafts } = this.deps;
     const existing = drafts.list().find((d) => d.sessionId === sessionId && d.review?.path === ref);
-    if (existing) briefs.showDraft(sessionId, existing.id, false);
-    else briefs.startNote({ id: newDraftId(), sessionId, review: { path: ref, comments: [] } }, false);
+    if (existing) briefs.showDraft(sessionId, existing.id, false, tab);
+    else briefs.startNote({ id: newDraftId(), sessionId, review: { path: ref, comments: [] }, ...(tab ? { tab } : {}) }, false);
   }
 
   private pushOutputs(sessionId: string): void {

@@ -126,8 +126,11 @@ export interface OpenRequest {
   text?: string;
   /** Sets the board's layout. Absent leaves it as it is. */
   layout?: BoardLayout;
-  /** Opens this output of `sessionId` instead of a board: a Markdown file as a note in Write, an HTML file in the review pane. Project-relative. Needs `sessionId`. */
-  output?: { path: string };
+  /**
+   * Opens this output of `sessionId` instead of a board: a Markdown file as a note in Write, an HTML file in the review pane. Project-relative. Needs `sessionId`.
+   * `tab: 'feedback'` opens an HTML review on its Feedback tab.
+   */
+  output?: { path: string; tab?: 'feedback' };
 }
 
 export interface OpenResponse {
