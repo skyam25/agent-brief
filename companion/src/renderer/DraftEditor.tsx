@@ -97,6 +97,9 @@ export function DraftEditor(props: {
     editor.current?.focus();
   }, [props.focusRequest]);
 
+  useEffect(() => book.watchSource(draft.id), [book, draft.id, draft.sessionId, draft.source?.path]);
+  const fileChanged = book.changedSource(draft.id) !== undefined;
+
   const ready = draft.status === 'ready';
   const onKeyDown = (e: globalThis.KeyboardEvent) => {
     if (e.key !== 'Enter' || !e.metaKey) return false;
@@ -160,6 +163,14 @@ export function DraftEditor(props: {
       {draft.source && (
         <p className="draft-source muted" data-testid="draft-source">
           From {draft.source.path}. Send asks Claude to apply your changes to the file.
+        </p>
+      )}
+      {draft.source && fileChanged && (
+        <p className="draft-source-changed" role="status" data-testid="draft-source-changed">
+          The file changed since you edited this note. Reload takes the file's text, and your comments stay.
+          <button className="ghost small" onClick={() => book.reloadSource(draft.id)} data-testid="draft-source-reload">
+            Reload
+          </button>
         </p>
       )}
       <div className="note-work">

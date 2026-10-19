@@ -171,6 +171,8 @@ export interface Draft {
 /** Where a draft came from, when it is a copy of a session's output file. */
 export interface DraftSource {
   path: string;
+  /** The file's text when the note last matched it. A note whose body still equals it has no edits, so it follows the file. */
+  text?: string;
 }
 
 export type Theme = 'light' | 'dark';
@@ -486,6 +488,8 @@ export interface CompanionApi extends BoardHost {
   dismissOutput(sessionId: string, ref: string): Promise<void>;
   /** Opens an output file in its default app, even one the panel can open itself. */
   openOutputElsewhere(sessionId: string, ref: string): Promise<void>;
+  /** A Markdown output's text now, for a note opened from it. Undefined when the file is gone. */
+  readSource(sessionId: string, ref: string): Promise<string | undefined>;
   /** The address the review pane loads a session's HTML file from. */
   readBehavior(sessionId: string, path: string): Promise<BehaviorDocument>;
   decideBehavior(sessionId: string, path: string, decision: BehaviorDecision): Promise<BehaviorDocument>;
@@ -601,6 +605,7 @@ export const CH = {
   openOutput: 'outputs:open',
   dismissOutput: 'outputs:dismiss',
   openOutputElsewhere: 'outputs:open-elsewhere',
+  readSource: 'outputs:read-source',
   readBehavior: 'behavior:read',
   decideBehavior: 'behavior:decide',
   behaviorChanged: 'behavior:changed',
@@ -684,6 +689,7 @@ export const IPC_INVOKE = {
   openOutput: CH.openOutput,
   dismissOutput: CH.dismissOutput,
   openOutputElsewhere: CH.openOutputElsewhere,
+  readSource: CH.readSource,
   readBehavior: CH.readBehavior,
   decideBehavior: CH.decideBehavior,
   readFeedback: CH.readFeedback,

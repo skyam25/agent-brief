@@ -116,6 +116,14 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - A note replaced on disk after its last local edit beats a queued autosave on reload (`DraftBook.load`).
 - Coverage: `src/shared/annotations.test.ts`, `src/renderer/editor/annotations.test.ts`, `src/server/bundle.test.ts`, `e2e/note-annotate.e2e.ts` (typed comment, changed text, and speech through the fake microphone).
 
+## Notes from a file
+
+- A Markdown output opens in Write as a note with `source: { path, text }`. `text` is the file as the note last matched it.
+- `DraftBook.syncSource` compares the note with the file now. A note whose body still equals `text` has no edits and takes the new file text. Its comments stay. An edited note keeps its words and shows Reload.
+- The note re-reads its file on open, on every outside write while it shows (`OutputWatch` covers Markdown outputs too), and before Send. A Send that finds the file changed stops and says why.
+- A note saved before `text` existed has unknown edits, so a changed file shows Reload.
+- Coverage: `src/renderer/drafts.test.ts`, `e2e/note-source.e2e.ts`.
+
 ## Review pane
 
 - Main serves project files over `agent-brief-review://<token>/<path>` (`src/main/review-protocol.ts`). Each project folder gets a random token, so each is its own origin, apart from the panel's.

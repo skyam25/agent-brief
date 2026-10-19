@@ -14,7 +14,12 @@ export const DRAFT_RETRY_MS = 2000;
 /** How many pictures taken out of drafts stay at hand for undo or a paste. */
 const LOOSE_IMAGES = 40;
 
-type DraftHost = Pick<CompanionApi, 'listDrafts' | 'saveDraft' | 'deleteDraft'>;
+type DraftHost = Pick<CompanionApi, 'listDrafts' | 'saveDraft' | 'deleteDraft' | 'readSource' | 'watchOutput' | 'unwatchOutput' | 'onOutputChanged'>;
+
+/** How a note opened from a file stands against the file: matching it, just updated to it, or edited while the file changed. */
+export type SourceSync = 'same' | 'updated' | 'changed';
+
+const sameText = (a: string, b: string) => a.trimEnd() === b.trimEnd();
 
 /**
  * A draft with nothing in it stays in memory, so leaving it leaves nothing behind.
@@ -54,6 +59,8 @@ export class DraftBook {
   private readonly loose = new Map<string, string>();
   /** Side tabs /open asked reviews to show, by draft. The review takes each once. */
   private readonly tabs = new Map<string, ReviewTab>();
+  /** The file's text for an edited note whose file changed, by draft, until Reload. */
+  private readonly changedFiles = new Map<string, string>();
 
   constructor(
     private readonly host: DraftHost,
@@ -306,6 +313,72 @@ export class DraftBook {
     this.emit();
   }
 
+  /**
+   * Compares a note opened from a file with the file's text now. A note with no edits takes
+   * the new text, and its comments stay. An edited note keeps its text until `reloadSource`.
+   */
+  syncSource(id: string, text: string | undefined): SourceSync {
+    const draft = this.get(id);
+    const source = draft?.source;
+    if (!draft || !source || text === undefined) return 'same';
+    const known = source.text;
+    if (sameText(draft.body, text) || (known !== undefined && sameText(known, text))) {
+      if (this.changedFiles.delete(id)) this.emit();
+      if (known === undefined) this.patch(id, { source: { ...source, text } });
+      return 'same';
+    }
+    if (known !== undefined && sameText(draft.body, known)) {
+      this.takeSource(id, text);
+      return 'updated';
+    }
+    this.changedFiles.set(id, text);
+    this.emit();
+    return 'changed';
+  }
+
+  /** Reads the note's file and syncs the note with it. A file the app cannot read leaves the note as it is. */
+  async refreshSource(id: string): Promise<SourceSync> {
+    const draft = this.get(id);
+    if (!draft?.source || !draft.sessionId) return 'same';
+    const text = await this.host.readSource(draft.sessionId, draft.source.path).catch(() => undefined);
+    return this.syncSource(id, text);
+  }
+
+  /** Refreshes the note now and whenever its file changes on disk, until the returned stop runs. */
+  watchSource(id: string): () => void {
+    const draft = this.get(id);
+    const sessionId = draft?.sessionId;
+    const path = draft?.source?.path;
+    if (!sessionId || !path) return () => {};
+    void this.refreshSource(id);
+    void this.host.watchOutput(sessionId, path).catch(() => undefined);
+    const off = this.host.onOutputChanged((c) => {
+      if (c.sessionId === sessionId && c.path === path) void this.refreshSource(id);
+    });
+    return () => {
+      off();
+      void this.host.unwatchOutput(sessionId, path).catch(() => undefined);
+    };
+  }
+
+  /** The file's text when an edited note's file changed, or undefined while they agree. */
+  changedSource(id: string): string | undefined {
+    return this.changedFiles.get(id);
+  }
+
+  /** Replaces an edited note's text with its changed file's. */
+  reloadSource(id: string): void {
+    const text = this.changedFiles.get(id);
+    if (text !== undefined) this.takeSource(id, text);
+  }
+
+  private takeSource(id: string, text: string): void {
+    const draft = this.get(id);
+    if (!draft?.source) return;
+    this.changedFiles.delete(id);
+    this.patch(id, { body: text, source: { ...draft.source, text }, attachments: this.keep(draft, { body: text, review: draft.review }) });
+  }
+
   /** Links a draft to a board, or unlinks it. A board carries one draft, so others let go. */
   link(id: string, board: string | undefined): void {
     if (board) for (const d of this.drafts) if (d.board === board && d.id !== id) this.patch(d.id, { board: undefined }, false);
@@ -387,6 +460,7 @@ export class DraftBook {
 
   private drop(id: string): void {
     this.saves.cancel(id);
+    this.changedFiles.delete(id);
     this.drafts = this.drafts.filter((d) => d.id !== id);
     if (this.selectedId === id) this.selectedId = undefined;
   }

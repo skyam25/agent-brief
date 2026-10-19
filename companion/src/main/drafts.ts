@@ -43,7 +43,9 @@ export function cleanDraft(raw: unknown): Draft {
   if (d.board !== undefined && typeof d.board !== 'string') throw badRequest('draft board must be a board name');
   if (d.sessionId !== undefined && typeof d.sessionId !== 'string') throw badRequest('draft sessionId must be a session id');
   const attachments = cleanAttachments(d.attachments);
-  const source = d.source && typeof d.source === 'object' && typeof d.source.path === 'string' && d.source.path.trim() ? { path: d.source.path } : undefined;
+  const source = d.source && typeof d.source === 'object' && typeof d.source.path === 'string' && d.source.path.trim()
+    ? { path: d.source.path, ...(typeof d.source.text === 'string' && d.source.text.length <= MAX_DRAFT_BODY ? { text: d.source.text } : {}) }
+    : undefined;
   const review = d.review === undefined ? undefined : cleanReview(d.review);
   const annotations = d.annotations === undefined ? undefined : cleanAnnotations(d.annotations);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);

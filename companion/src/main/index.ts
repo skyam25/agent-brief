@@ -42,6 +42,7 @@ import {
   type Theme,
 } from '../shared/ipc';
 import { newDraftId } from '../shared/drafts';
+import { isMarkdownRef } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { createBoardBackend } from './backend';
 import { Briefs } from './briefs';
@@ -195,7 +196,8 @@ async function start(): Promise<void> {
   const outputWatch = new OutputWatch(
     (sessionId, path) => {
       const where = resolveFeedback(behaviorRoot(sessionId), path, { orphan: true });
-      return { feedback: where.file, ...(where.outputExists && isReviewable(where.output) ? { output: where.outputFile } : {}) };
+      const watched = where.outputExists && (isReviewable(where.output) || isMarkdownRef(where.output));
+      return { feedback: where.file, ...(watched ? { output: where.outputFile } : {}) };
     },
     (sessionId, path, kind) => (kind === 'output' ? send(CH.outputChanged, { sessionId, path }) : send(CH.feedbackChanged)),
   );
@@ -579,6 +581,7 @@ async function start(): Promise<void> {
   ipc.handle('openOutput', (sessionId: string, ref: unknown) => files.openOutput(sessionId, ref));
   ipc.handle('dismissOutput', (sessionId: string, ref: unknown) => files.dismissOutput(sessionId, ref));
   ipc.handle('openOutputElsewhere', (sessionId: string, ref: unknown) => files.openElsewhere(sessionId, ref));
+  ipc.handle('readSource', (sessionId: string, ref: unknown) => files.readSource(sessionId, ref));
   ipc.handle('readBehavior', (sessionId: string, path: unknown) => behaviors.read(behaviorRoot(sessionId), path));
   ipc.handle('decideBehavior', (sessionId: string, path: unknown, decision: unknown) => behaviors.decide(behaviorRoot(sessionId), path, decision));
   ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path, { orphan: true }));

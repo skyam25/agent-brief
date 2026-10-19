@@ -4,11 +4,17 @@ import { DRAFT_SAVE_MS, DraftBook, onTab } from './drafts';
 
 function fakeHost(initial: Draft[] = []) {
   const disk = new Map(initial.map((d) => [d.id, d]));
+  const files = new Map<string, string>();
   return {
     disk,
     listDrafts: vi.fn(async () => [...disk.values()]),
     saveDraft: vi.fn(async (d: Draft) => void disk.set(d.id, d)),
     deleteDraft: vi.fn(async (id: string) => void disk.delete(id)),
+    files,
+    readSource: vi.fn(async (_sessionId: string, path: string): Promise<string | undefined> => files.get(path)),
+    watchOutput: vi.fn(async () => undefined),
+    unwatchOutput: vi.fn(async () => undefined),
+    onOutputChanged: vi.fn(() => () => undefined),
   };
 }
 
@@ -453,5 +459,68 @@ describe('DraftBook reviews', () => {
     const review = book.create('', undefined, 's1', undefined, { path: 'a.html', comments: [] });
     expect(review.id).not.toBe(note.id);
     expect(book.selected?.review?.path).toBe('a.html');
+  });
+});
+
+describe('a note opened from a file', () => {
+  const opened = (book: DraftBook, text: string) => book.create(text, 'n1', 's1', { path: 'doc.md', text });
+
+  it('takes the file\'s new text when nobody edited it, and keeps its comments', async () => {
+    const host = fakeHost();
+    const book = new DraftBook(host, () => t++);
+    opened(book, '# Doc\n\nOld line\n');
+    book.addNoteComment('n1', { id: 'c1', quote: 'Doc', occurrence: 0, text: 'Shorter', createdAt: 1 });
+    host.files.set('doc.md', '# Doc\n\nNew line\n');
+
+    expect(await book.refreshSource('n1')).toBe('updated');
+    expect(book.get('n1')!.body).toBe('# Doc\n\nNew line\n');
+    expect(book.get('n1')!.source).toEqual({ path: 'doc.md', text: '# Doc\n\nNew line\n' });
+    expect(book.get('n1')!.annotations!.comments).toHaveLength(1);
+    expect(book.changedSource('n1')).toBeUndefined();
+  });
+
+  it('keeps an edited note\'s text when the file changed, until Reload', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    opened(book, 'Old line\n');
+    book.edit('n1', 'Old line, edited');
+
+    expect(book.syncSource('n1', 'New line\n')).toBe('changed');
+    expect(book.get('n1')!.body).toBe('Old line, edited');
+    expect(book.changedSource('n1')).toBe('New line\n');
+
+    book.reloadSource('n1');
+    expect(book.get('n1')!.body).toBe('New line\n');
+    expect(book.changedSource('n1')).toBeUndefined();
+  });
+
+  it('leaves an edited note alone while its file stays the same', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    opened(book, 'Old line\n');
+    book.edit('n1', 'Old line, edited');
+    expect(book.syncSource('n1', 'Old line\n')).toBe('same');
+    expect(book.get('n1')!.body).toBe('Old line, edited');
+  });
+
+  it('counts the editor trimming the last newline as no edit', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    opened(book, 'Old line\n');
+    book.edit('n1', 'Old line');
+    expect(book.syncSource('n1', 'New line\n')).toBe('updated');
+  });
+
+  it('flags a note saved before notes kept the file\'s text, since its edits are unknown', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    book.create('Old line', 'n1', 's1', { path: 'doc.md' });
+    expect(book.syncSource('n1', 'New line')).toBe('changed');
+    expect(book.syncSource('n1', 'Old line')).toBe('same');
+    expect(book.get('n1')!.source).toEqual({ path: 'doc.md', text: 'Old line' });
+    expect(book.changedSource('n1')).toBeUndefined();
+  });
+
+  it('leaves the note as it is when the file is gone', async () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    opened(book, 'Old line');
+    expect(await book.refreshSource('n1')).toBe('same');
+    expect(book.get('n1')!.body).toBe('Old line');
   });
 });

@@ -92,6 +92,14 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     return `${count === 1 ? '1 empty slot' : `${count} empty slots`}. Send again to send anyway.`;
   };
 
+  /** Why a note opened from a file cannot go out yet: the file changed since the note last matched it. */
+  const sourceBlocker = async (id: string): Promise<string | undefined> => {
+    const sync = await book.refreshSource(id);
+    if (sync === 'updated') return 'The file changed, so the note now shows its new text. Look it over, then Send again.';
+    if (sync === 'changed') return 'The file changed since you edited this note. Reload the note in Write, or copy your edits first.';
+    return undefined;
+  };
+
   /** Why Send in Review mode has no decisions to send, if it has not. */
   const itemsBlocker = (): string | undefined => {
     if (!activeBrief) return "Open a session's items first.";
@@ -151,6 +159,8 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       const payload = { ...(await controller.payload(reviewed ? pinned.pins : undefined)), ...(reviewed ? { comments: pinned } : {}) };
       const kept = reviewed ? { clearsBoard: false, pinned: board } : { clearsBoard: true };
       if (!linked) return { payload, ...kept };
+      const stale = await sourceBlocker(linked.id);
+      if (stale) return stale;
       const { own, use } = draftOut(book.get(linked.id) ?? linked);
       return { payload: { ...payload, ...own }, ...kept, ...use };
     }
@@ -164,6 +174,8 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     // Words still turning into text land on their comments before the Send reads them.
     await reviewVoice.stop();
     await book.flush();
+    const stale = await sourceBlocker(open.id);
+    if (stale) return stale;
     const draft = book.get(open.id) ?? open;
     const { own, use } = draftOut(draft);
     if (!draft.board) return { payload: own, clearsBoard: false, ...use };

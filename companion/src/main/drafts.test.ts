@@ -56,6 +56,8 @@ describe('DraftStore', () => {
     store.save(draft('a', { source: { path: 'docs/plan.md' } }));
     expect(store.get('a')?.source).toEqual({ path: 'docs/plan.md' });
     expect(store.list()[0].source).toEqual({ path: 'docs/plan.md' });
+    store.save(draft('b', { source: { path: 'docs/plan.md', text: '# Plan' } }));
+    expect(store.get('b')?.source).toEqual({ path: 'docs/plan.md', text: '# Plan' });
     for (const source of [undefined, null, 'docs/plan.md', {}, { path: '' }, { path: '  ' }, { path: 7 }]) {
       expect(store.save({ ...draft('b'), source } as unknown as Draft), JSON.stringify(source)).not.toHaveProperty('source');
     }

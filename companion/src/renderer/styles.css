@@ -1730,6 +1730,22 @@ button.stop-talk:hover {
   overflow-wrap: anywhere;
 }
 
+.draft-source-changed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 6px 24px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--highlight) 60%, transparent);
+}
+
+.draft-source-changed button {
+  flex: none;
+  margin-left: auto;
+}
+
 .editor {
   flex: 1;
   display: flex;

@@ -119,9 +119,12 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       host.onNewNote(({ text, id, sessionId, source, review, tab }) => {
         // A note for no session comes with the Send target cleared, so the Notes tab shows.
         if (!sessionId) leaveEnded();
-        // Main looks for an open review on disk, and a review edited a moment ago may not be there yet.
-        const kept = review && book.drafts.find((d) => d.sessionId === sessionId && d.review?.path === review.path);
+        // Main looks for an open review or file note on disk, and one edited a moment ago may not be there yet.
+        const kept = book.drafts.find(
+          (d) => d.sessionId === sessionId && ((review && d.review?.path === review.path) || (source && d.source?.path === source.path)),
+        );
         if (kept) book.select(kept.id);
+        if (kept && source) book.syncSource(kept.id, source.text ?? text);
         const shown = kept ?? book.create(text, id, sessionId, source, review);
         if (review && tab) book.askTab(shown.id, tab);
         changeMode(review ? 'review' : 'write');
@@ -129,6 +132,7 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       host.onOpenDraft(({ id, sessionId, tab }) => {
         showTab(sessionId);
         void showDraft(id, sessionId).then(() => {
+          void book.refreshSource(id);
           if (tab && book.get(id)?.review) book.askTab(id, tab);
           changeMode(book.get(id)?.review ? 'review' : 'write');
         });

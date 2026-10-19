@@ -192,7 +192,18 @@ export class SessionFiles {
     if (statSync(target).size > MAX_OUTPUT_BYTES) throw new Error(`${ref} is over 4 MB, too large to open as a note`);
     const text = readFileSync(target, 'utf8');
     if (text.length > MAX_DRAFT_BODY) throw new Error(`${ref} is longer than a note can hold (${MAX_DRAFT_BODY.toLocaleString('en-US')} characters)`);
-    briefs.startNote({ text, id: newDraftId(), sessionId, source: { path: ref } }, false);
+    briefs.startNote({ text, id: newDraftId(), sessionId, source: { path: ref, text } }, false);
+  }
+
+  /** A Markdown output's text now, for a note opened from it. Undefined when the file is gone or too large for a note. */
+  readSource(sessionId: string, ref: unknown): string | undefined {
+    if (typeof ref !== 'string' || !isMarkdownRef(ref)) throw new Error('Only a Markdown output has a note to refresh');
+    const target = resolve(this.cwd(sessionId), ref.trim());
+    if (!existsSync(target)) return undefined;
+    this.projectFile(sessionId, ref);
+    if (statSync(target).size > MAX_OUTPUT_BYTES) return undefined;
+    const text = readFileSync(target, 'utf8');
+    return text.length > MAX_DRAFT_BODY ? undefined : text;
   }
 
   /**
