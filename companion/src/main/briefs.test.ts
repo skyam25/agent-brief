@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { outputsFile, type SessionInfo } from '../protocol';
 import { Briefs, type BriefsDeps } from './briefs';
+import { workspaceBinding } from '../shared/feedback-workspace';
 import type { SessionBriefs } from './session-briefs';
+import { BoardStore } from './store';
 
 let cwd: string;
 beforeEach(() => {
@@ -49,5 +51,15 @@ describe('Briefs', () => {
     const path = outputsFor('stays');
     briefsWith({ stays: { cwd, at: 1 }, ended: { cwd, at: 2 } }).forget('ended');
     expect(existsSync(path)).toBe(true);
+  });
+
+  it('lists every board for the socket and keeps bound workspaces out of the panel only', () => {
+    const store = new BoardStore(cwd);
+    for (const name of ['fb-planning', 'fb-checkout-1', 'scratch', 'notes-say-fb']) store.create(name);
+    store.saveNotes('fb-checkout-1', `${workspaceBinding('/p/checkout.html', 1)}\n`);
+    store.saveNotes('notes-say-fb', 'Feedback workspace · not a binding\n');
+    const briefs = new Briefs({ state: { state: { sessionBriefs: {} } }, store, drafts: { get: () => undefined }, sessions: () => ({ sessions: [] }), send: () => undefined, onPublish: () => undefined } as unknown as BriefsDeps);
+    expect(briefs.boardsWithHolders().map((b) => b.name)).toEqual(['fb-checkout-1', 'fb-planning', 'notes-say-fb', 'scratch']);
+    expect(briefs.panelBoards().map((b) => b.name)).toEqual(['fb-planning', 'notes-say-fb', 'scratch']);
   });
 });

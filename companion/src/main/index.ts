@@ -381,7 +381,7 @@ async function start(): Promise<void> {
   ipc.handle('openLink', async (url: unknown) => opener.openExternal(webUrl(String(url), 'Not a link').href));
 
   // Boards.
-  ipc.handle('listBoards', () => briefs.boardsWithHolders());
+  ipc.handle('listBoards', () => briefs.panelBoards());
   ipc.handle('loadBoard', (name: string) => store.load(name));
   ipc.handle('saveBoard', (name: string, json: string) => {
     store.saveScene(name, json);
@@ -490,7 +490,7 @@ async function start(): Promise<void> {
   });
   ipc.handle('openUnfiled', () => {
     server.setTarget(undefined);
-    const choice = unfiledBoardChoice({ remembered: state.state.unfiledBoard, boards: briefs.boardsWithHolders() });
+    const choice = unfiledBoardChoice({ remembered: state.state.unfiledBoard, boards: briefs.panelBoards() });
     const board = choice.isNew ? store.create(choice.board) : choice.board;
     state.update({ currentBoard: board, unfiledBoard: board });
     return { board };

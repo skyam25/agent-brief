@@ -1,7 +1,8 @@
 /**
  * An item's workspace: one Sketch board per feedback item, named `fb-<output stem>-<n>`,
- * with one frame per round titled `Round N`. Save exports the board to
- * `<output>.feedback/<n>-workspace.png` and appends a `Workspace:` line.
+ * with one frame per round titled `Round N`. The board notes' first line binds it to
+ * the item. Each Save exports a new `<output>.feedback/<n>-workspace-<k>.png` and
+ * appends a `Workspace:` line naming it.
  */
 
 import type { DrawRequest, ElementSummary, FeedbackItem, Skeleton } from '../protocol';
@@ -10,9 +11,6 @@ export const WORKSPACE_PREFIX = 'fb-';
 
 /** Board names stop at 64 characters. */
 const MAX_NAME = 64;
-
-/** Workspace boards stay out of the sidebar and the board picker. */
-export const isWorkspaceBoard = (name: string) => name.startsWith(WORKSPACE_PREFIX);
 
 /** The output's file name without its last extension, safe for a board name. */
 export function outputStem(output: string): string {
@@ -30,7 +28,19 @@ export function workspaceBoardName(output: string, n: number, attempt = 1): stri
 /** The board notes' first line ties the board to one item of one output file. */
 export const workspaceBinding = (outputFile: string, n: number) => `Feedback workspace · ${outputFile} #${n}`;
 
+/** The output file and item a board's notes bind it to. Undefined for a board that is not a workspace. */
+export function bindingOf(notes: string): { outputFile: string; n: number } | undefined {
+  const m = /^Feedback workspace · (\/.+) #(\d+)$/.exec(notes.split('\n')[0]?.trim() ?? '');
+  return m ? { outputFile: m[1]!, n: Number(m[2]) } : undefined;
+}
+
 export const boundTo = (notes: string, outputFile: string, n: number) => notes.split('\n')[0]?.trim() === workspaceBinding(outputFile, n);
+
+/** Workspace boards stay out of the sidebar and the board picker. Only a binding marks one, never the name. */
+export const isWorkspaceNotes = (notes: string) => bindingOf(notes) !== undefined;
+
+/** The PNG one Save writes. Each save takes the next `k`, so older lines keep their pictures. */
+export const workspacePng = (n: number, k: number) => `${n}-workspace-${k}.png`;
 
 /** `saved · <board> · <png>` on a `Workspace:` line. */
 export const workspaceLine = (board: string, png: string) => `saved · ${board} · ${png}`;
@@ -69,7 +79,7 @@ export const workspaceRound = (item: Pick<FeedbackItem, 'rounds' | 'round'>) => 
 
 export const frameTitle = (round: number) => `Round ${round}`;
 
-/** What the rail lists: notes, voice notes and review pins, in file order. */
+/** What the rail lists: notes, voice notes, and review and workspace pins, in file order. */
 export interface RailEntry {
   kind: 'note' | 'voice' | 'pin';
   date: string;
@@ -87,7 +97,7 @@ export function railEntries(item: Pick<FeedbackItem, 'lines'>): RailEntry[] {
     const [date = '', verb = '', ...rest] = line.text.split(' · ').map((s) => s.trim());
     const detail = rest.join(' · ');
     if (line.key === 'Review') out.push({ kind: 'pin', date, text: [verb, detail].filter(Boolean).join(' · ') });
-    else if ((verb === 'note' || verb === 'voice') && detail) out.push({ kind: verb, date, text: detail });
+    else if ((verb === 'note' || verb === 'voice' || verb === 'pin') && detail) out.push({ kind: verb, date, text: detail });
   }
   return out;
 }
@@ -122,28 +132,46 @@ const stickyText = (item: FeedbackItem, round: number) => {
   return item.change ? `${quote}\n\nChange: ${item.change}` : quote;
 };
 
+const snapshotAt = (frame: { x: number; y: number }, snapshot: WorkspaceSnapshot): Skeleton => ({
+  type: 'image',
+  x: frame.x + INSET * 2 + STICKY.width,
+  y: frame.y + INSET,
+  ...fitSnapshot(snapshot),
+  image: snapshot.data,
+});
+
 /**
- * What to draw so the board has a frame for the item's newest round: the frame,
- * a sticky with the quote and the proposed change, and the element's picture when
- * there is one. Undefined when the frame is already there. New frames go right of the board.
+ * What to draw so the board has every frame the item needs. Each round the item
+ * came up in gets a frame with its quote sticky, placed right of the board. The
+ * newest round's frame also gets the element's picture when it has none. Nothing
+ * on the board is moved or replaced. Undefined when nothing is missing.
  */
 export function seedRequest(
   item: FeedbackItem,
-  board: { elements: Pick<ElementSummary, 'type' | 'label'>[]; bounds: { x: number; y: number; width: number; height: number } },
+  board: { elements: Pick<ElementSummary, 'id' | 'type' | 'label' | 'frameId' | 'x' | 'y'>[]; bounds: { x: number; y: number; width: number; height: number } },
   snapshot?: WorkspaceSnapshot,
 ): DrawRequest | undefined {
-  const round = workspaceRound(item);
-  const title = frameTitle(round);
-  if (board.elements.some((e) => e.type === 'frame' && e.label === title)) return undefined;
+  const newest = workspaceRound(item);
+  const rounds = item.rounds.length ? item.rounds : [newest];
+  const frameOf = (round: number) => board.elements.find((e) => e.type === 'frame' && e.label === frameTitle(round));
+  const elements: Skeleton[] = [];
   const empty = board.elements.length === 0;
-  const x = empty ? 0 : Math.round(board.bounds.x + board.bounds.width + FRAME_GAP);
+  let x = empty ? 0 : Math.round(board.bounds.x + board.bounds.width + FRAME_GAP);
   const y = empty ? 0 : Math.round(board.bounds.y);
-  const elements: Skeleton[] = [
-    { id: 'frame', type: 'frame', x, y, ...FRAME, label: title },
-    { id: 'quote', type: 'sticky', x: x + INSET, y: y + INSET, ...STICKY, label: stickyText(item, round), align: 'left', frameId: 'frame' },
-  ];
-  if (snapshot) {
-    elements.push({ id: 'snapshot', type: 'image', x: x + INSET * 2 + STICKY.width, y: y + INSET, ...fitSnapshot(snapshot), image: snapshot.data, frameId: 'frame' });
+  for (const round of rounds) {
+    if (frameOf(round)) continue;
+    const id = `frame-${round}`;
+    elements.push(
+      { id, type: 'frame', x, y, ...FRAME, label: frameTitle(round) },
+      { id: `quote-${round}`, type: 'sticky', x: x + INSET, y: y + INSET, ...STICKY, label: stickyText(item, round), align: 'left', frameId: id },
+    );
+    if (snapshot && round === newest) elements.push({ ...snapshotAt({ x, y }, snapshot), id: 'snapshot', frameId: id });
+    x += FRAME.width + FRAME_GAP;
   }
-  return { elements };
+  // A frame made before a picture was at hand, as from the CLI, gets one now.
+  const kept = frameOf(newest);
+  if (snapshot && kept && !board.elements.some((e) => e.type === 'image' && e.frameId === kept.id)) {
+    elements.push({ ...snapshotAt(kept, snapshot), id: 'snapshot', frameId: kept.id });
+  }
+  return elements.length ? { elements } : undefined;
 }
