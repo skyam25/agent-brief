@@ -20,7 +20,7 @@ Change nothing in the output until the user decides. A round is cataloged, not a
 3. Check every point for look-alikes in one call: `agent-brief feedback related <output> --text "<point 1>" --text "<point 2>"`.
    - The same point seen again is the same item. Join it with `"same": <n>`, never a new item.
    - A near-repeat, or the same point on another output, is a new item with a `related` link.
-   - A later quote about an existing item joins it as a `src` line, even when it is praise or says the fix works, such as "fine now". Then log what it shows with a `Claude` note.
+   - A later quote that asks again about an existing item joins it as a `src` line. A quote that only praises or confirms a fix, such as "works now", is not a `src` line, because a new `src` on a closed item flags it as raised again. Log it on the item instead: `Claude "note · round 2 · Lena · 00:40 · \"The skip link works now\""`.
    - Never guess which build a speaker saw, or decide for the user that a repeat needs no change. Record the conflict, such as "Raised again after commit 3a62d74; the transcript doesn't say which build Maya saw". Say in the reply which items need the user to look.
 4. Catalog the round and all its points in one call. Write the points as JSON with your Write tool to a new file named after the transcript, such as `.feedback/catalog-sme-2.json`, then pass the file. A heredoc makes the command unique each time, so the user can't allow it once. The call adds the round unless the file has it, skips points already cataloged, and names look-alikes it finds:
 

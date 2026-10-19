@@ -14,7 +14,7 @@ const roundsOf = (item: FeedbackItem) => {
   return later.length ? ` · round ${first}, also ${later.join(', ')}` : ` · round ${first}`;
 };
 
-export const itemHead = (item: FeedbackItem) => `#${item.n} [${item.state}] ${item.title}${roundsOf(item)}`;
+export const itemHead = (item: FeedbackItem) => `#${item.n} [${item.state}${item.revised ? ', changed since accepted' : ''}] ${item.title}${roundsOf(item)}`;
 
 /** `customers · 2026-10-12 · transcripts/cust-1.md`. */
 export const roundText = (r: FeedbackRound) => [r.label, r.date, ...(r.source ? [r.source] : [])].join(' · ');

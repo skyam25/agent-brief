@@ -280,6 +280,8 @@ describe('standing decisions', () => {
     expect([changed.state, changed.revised, changed.chosen]).toEqual(['open', true, undefined]);
     const before = parseFeedback(file('Change: Add guest checkout, then an account', 'You: 2026-10-13 · accept')).items[0]!;
     expect([before.state, before.revised]).toEqual(['accepted', undefined]);
+    const same = parseFeedback(file('You: 2026-10-13 · accept · option A', 'Option: A · Guest first', 'Change: Add guest checkout')).items[0]!;
+    expect([same.state, same.revised, same.chosen]).toEqual(['accepted', undefined, 'A']);
     const done = parseFeedback(file('You: 2026-10-13 · accept', 'Change: Later', 'Claude: 2026-10-14 · done')).items[0]!;
     expect([done.state, done.revised]).toEqual(['done', undefined]);
   });
@@ -289,5 +291,9 @@ describe('standing decisions', () => {
     expect(decisionsPrompt(flipped, pendingDecisions(flipped)).split('\n')[2]).toBe('- #1 Guest checkout: reject · not now (replaces accept · option A (Guest first))');
     const plain = doc(file('You: 2026-10-13 · reject', 'You: 2026-10-13 · accept · fees next round'));
     expect(decisionsPrompt(plain, pendingDecisions(plain)).split('\n').slice(2, 4)).toEqual(['- #1 Guest checkout: accept · fees next round (replaces reject)', '  Accepted change: Add guest checkout']);
+    const revised = doc(file('You: 2026-10-13 · accept · option A · soon', 'Change: Require sign-in first'));
+    const sent = decisionsPrompt(revised, pendingDecisions(revised)).split('\n');
+    expect(sent[2]).toBe('- #1 Guest checkout: not approved · the proposal changed after the accept, so build nothing until the user accepts it again (replaces accept · option A (Guest first) · soon)');
+    expect(sent.some((l) => l.includes('Accepted change'))).toBe(false);
   });
 });

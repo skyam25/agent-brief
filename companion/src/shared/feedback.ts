@@ -139,13 +139,20 @@ function raisedAgainOf(item: FeedbackItem): number | undefined {
   return later.length ? Math.max(...later) : undefined;
 }
 
-/** A `Change:` or `Option:` line after the last accept: the proposal moved since the user approved it. */
+/** The proposal now differs from the one the last accept approved: its change or an option's text. */
 function revisedSinceAccept(item: FeedbackItem): boolean {
-  let accepted = -1;
-  item.lines.forEach((l, i) => {
-    if (l.key === 'You' && parseEvent(l.key, l.text).verb === 'accept') accepted = i;
-  });
-  return accepted >= 0 && item.lines.slice(accepted + 1).some((l) => l.key === 'Change' || l.key === 'Option');
+  let change: string | undefined;
+  const options = new Map<string, string>();
+  const proposal = () => JSON.stringify([change, [...options].sort()]);
+  let approved: string | undefined;
+  for (const l of item.lines) {
+    if (l.key === 'Change') change = l.text;
+    else if (l.key === 'Option') {
+      const m = OPTION.exec(l.text);
+      if (m) options.set(m[1]!.toUpperCase(), m[2]!.trim());
+    } else if (l.key === 'You' && parseEvent(l.key, l.text).verb === 'accept') approved = proposal();
+  }
+  return approved !== undefined && approved !== proposal();
 }
 
 function finish(item: FeedbackItem): FeedbackItem {
@@ -460,9 +467,12 @@ export function decisionsPrompt(doc: Pick<FeedbackDocument, 'path' | 'output'>, 
     const text = (e: FeedbackEvent) => [e.verb, withOption(item, e.detail)].filter(Boolean).join(SEP);
     // The last decision stands. Earlier ones go along as replaced, so their reasons aren't lost.
     const decisions = said.filter((e) => STATE_VERBS[e.verb]);
-    const last = decisions.at(-1);
-    const words = [...(last ? [text(last)] : []), ...said.filter((e) => !STATE_VERBS[e.verb]).map(text)].join('; ');
-    const replaced = decisions.slice(0, -1).map(text).filter((t) => t !== text(last!));
+    const notes = said.filter((e) => !STATE_VERBS[e.verb]).map(text);
+    // A revised item's accept approved an older proposal, so it goes along only as history.
+    const last = item.revised ? undefined : decisions.at(-1);
+    const head = item.revised ? ['not approved · the proposal changed after the accept, so build nothing until the user accepts it again'] : last ? [text(last)] : [];
+    const words = [...head, ...notes].join('; ');
+    const replaced = (item.revised ? decisions : decisions.slice(0, -1)).map(text).filter((t) => !last || t !== text(last));
     lines.push(`- #${item.n} ${item.title}: ${words || 'saved a workspace'}${replaced.length ? ` (replaces ${replaced.join('; ')})` : ''}`);
     if (last?.verb === 'accept' && item.change && !item.chosen) lines.push(`  Accepted change: ${item.change}`);
     for (const e of saved) {
