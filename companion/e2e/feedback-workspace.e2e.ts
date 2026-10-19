@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BoardsResponse, FeedbackDocument, OutputRecord, ReadResponse } from '../src/protocol';
@@ -127,6 +127,11 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   const png = join(cwd, 'checkout.html.feedback/1-workspace-1.png');
   expect(existsSync(png)).toBe(true);
   expect(readFileSync(png).subarray(1, 4).toString()).toBe('PNG');
+  // The pin reads on the whole picture, and a strip under it lists the pin's words.
+  writeFileSync(join(RESULTS, 'feedback-workspace-saved.png'), readFileSync(png));
+  const violet = await violetPixels(page, readFileSync(png));
+  expect(violet.above).toBeGreaterThan(28 * 28 * 0.6);
+  expect(violet.strip).toBeGreaterThan(28 * 28 * 0.6);
   await expect(layer.getByTestId('workspace-saved')).toHaveText(`Workspace · saved ${shortDate(today)}`);
   await expect(layer.getByTestId('board-comment-card')).toHaveCount(0);
   await expect(layer.getByTestId('board-overall')).toHaveValue('');
@@ -159,6 +164,24 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   expect(existsSync(png)).toBe(true);
   expect(existsSync(join(cwd, 'checkout.html.feedback/1-workspace-2.png'))).toBe(true);
 });
+
+/** Pin-violet pixels in a PNG: above its bottom 130 rows, where the board is, and in them, where the legend is. */
+const violetPixels = (page: Page, png: Buffer) =>
+  page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${data}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    const near = (i: number) => Math.abs(px[i]! - 0x69) < 14 && Math.abs(px[i + 1]! - 0x65) < 14 && Math.abs(px[i + 2]! - 0xdb) < 14;
+    const out = { above: 0, strip: 0 };
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (near((y * c.width + x) * 4)) out[y < c.height - 130 ? 'above' : 'strip']++;
+    return out;
+  }, png.toString('base64'));
 
 /** Where the header's parts sit: whether any part drops below the first row, and whether Save shows whole. */
 const headLayout = (layer: Locator) =>

@@ -37,7 +37,7 @@ export interface BoardOps {
   draw: { args: { board: string; req: DrawRequest; batchId: string }; result: DrawResponse };
   update: { args: { board: string; req: UpdateRequest; batchId: string }; result: MutateResponse };
   remove: { args: { board: string; req: DeleteRequest; batchId: string }; result: MutateResponse };
-  /** `pins` draw numbered badges, as a workspace Save does. */
+  /** `pins` draw numbered badges with their words in a strip under the picture, as a workspace Save does. */
   png: { args: { board: string; region?: Region; maxEdge: number; pins?: BoardPin[] }; result: Uint8Array };
   /** Makes `board` the visible board. A tab switch leaves the mode to the renderer. */
   show: { args: { board: string; fromSwitch?: boolean }; result: void };
