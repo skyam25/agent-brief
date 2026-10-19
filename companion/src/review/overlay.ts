@@ -8,6 +8,7 @@
 
 import { AT_ATTR, GROUND_ATTR, PASS_ATTR } from '../shared/review-edit';
 import type { ReviewAnchor, ReviewRect } from '../shared/review';
+import { SNAPSHOT_MARK, snapshotBlock } from '../shared/snapshot-block';
 import { createEditMode, type EditMode } from './edit-mode';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from './messages';
 
@@ -15,6 +16,8 @@ import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } fro
 const VERSION = (document.currentScript as HTMLScriptElement | null)?.dataset.abVersion;
 
 const MARKER = 22;
+/** How long the snapshot outline stays after a measure, for the pane's crop to catch it. */
+const MARK_MS = 1500;
 const ACCENT = '#6965db';
 const HEADINGS = 'h1, h2, h3, h4, h5, h6';
 
@@ -39,6 +42,12 @@ function start(): void {
   let flash: HTMLDivElement | undefined;
   /** Outlines the element of the comment the pane has selected. */
   let selected: HTMLDivElement | undefined;
+  /** Outlines the element Show on page found, until the next show or a press elsewhere. */
+  let shownBox: HTMLDivElement | undefined;
+  let shown: Element | undefined;
+  /** Outlines the element inside a workspace snapshot while the pane crops it. */
+  let mark: HTMLDivElement | undefined;
+  let markTimer: ReturnType<typeof setTimeout> | undefined;
   let edit: EditMode | undefined;
   /** Where the pointer last was over the page. A scroll or pan moves the page under it. */
   let pointer: { x: number; y: number } | undefined;
@@ -68,6 +77,7 @@ function start(): void {
         display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; pointer-events: auto;
         box-shadow: 0 1px 4px rgb(0 0 0 / 0.35); box-sizing: border-box; }
       .pin.active { outline: 3px solid rgb(105 101 219 / 0.35); transform: scale(1.15); }
+      .mark { border: ${SNAPSHOT_MARK.width}px solid ${SNAPSHOT_MARK.color}; background: none; border-radius: 2px; }
     `;
     layer = document.createElement('div');
     hover = document.createElement('div');
@@ -76,7 +86,11 @@ function start(): void {
     flash.className = 'box flash';
     selected = document.createElement('div');
     selected.className = 'box selected';
-    root.append(style, selected, hover, flash, layer);
+    shownBox = document.createElement('div');
+    shownBox.className = 'box mark';
+    mark = document.createElement('div');
+    mark.className = 'box mark';
+    root.append(style, selected, shownBox, mark, hover, flash, layer);
     document.documentElement.append(host);
     edit = createEditMode({ post, root, host: () => host, version: VERSION });
   }
@@ -241,6 +255,7 @@ function start(): void {
     requestAnimationFrame(() => {
       queued = false;
       placeHover();
+      if (shown && shownBox) place(shownBox, shown.getBoundingClientRect(), SNAPSHOT_MARK.width);
       for (const pin of pins) {
         const marker = markers.get(pin.id);
         const el = find(pin.selector);
@@ -303,6 +318,23 @@ function start(): void {
     }, 350);
   }
 
+  /** Scrolls to the element and outlines it with a short pulse. The outline stays. */
+  function showElement(el: Element): void {
+    if (!shownBox) return;
+    el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    shown = el;
+    place(shownBox, el.getBoundingClientRect(), SNAPSHOT_MARK.width);
+    shownBox.animate(
+      [{ boxShadow: '0 0 0 0 rgb(139 92 246 / 0.55)', background: 'rgb(139 92 246 / 0.16)' }, { boxShadow: '0 0 0 12px rgb(139 92 246 / 0)', background: 'rgb(139 92 246 / 0)' }],
+      { duration: 500, iterations: 3, easing: 'ease-out' },
+    );
+  }
+
+  function hideShown(): void {
+    shown = undefined;
+    if (shownBox) shownBox.style.display = 'none';
+  }
+
   function setCommenting(on: boolean): void {
     commenting = on;
     if (on) document.documentElement.setAttribute('data-agent-brief-commenting', '');
@@ -327,18 +359,27 @@ function start(): void {
     if (m.type === 'show-behavior') {
       let element: Element | null = null;
       try { if (document.querySelectorAll(m.selector).length === 1) element = document.querySelector(m.selector); } catch { /* stale or invalid target */ }
-      if (element && element.getBoundingClientRect().width && element.getBoundingClientRect().height) {
-        element.scrollIntoView({ block: 'center', behavior: 'instant' });
-        element.animate([{ outline: '3px solid #8b5cf6', outlineOffset: '3px' }, { outline: '3px solid transparent', outlineOffset: '3px' }], { duration: 1300 });
-      } else window.parent.postMessage({ source: REVIEW_SOURCE, type: 'behavior-missing' }, '*');
+      if (element && element.getBoundingClientRect().width && element.getBoundingClientRect().height) showElement(element);
+      else {
+        hideShown();
+        window.parent.postMessage({ source: REVIEW_SOURCE, type: 'behavior-missing' }, '*');
+      }
     }
     if (m.type === 'measure') {
       let element: Element | null = null;
       try { if (document.querySelectorAll(m.selector).length === 1) element = document.querySelector(m.selector); } catch { /* stale or invalid target */ }
+      // The crop is the element's block, with the element outlined in it.
+      const block = element && snapshotBlock(element);
+      block?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
       element?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+      if (element && mark) {
+        clearTimeout(markTimer);
+        place(mark, element.getBoundingClientRect(), SNAPSHOT_MARK.width);
+      }
       afterPaint(() => {
-        const view = element ? visible(element.getBoundingClientRect()) : undefined;
+        const view = block ? visible(block.getBoundingClientRect()) : undefined;
         post({ type: 'measured', id: m.id, ...(view?.width && view.height ? { view } : {}) });
+        markTimer = setTimeout(() => mark && (mark.style.display = 'none'), MARK_MS);
       });
     }
     if (m.type === 'editing') {
@@ -378,6 +419,7 @@ function start(): void {
         type,
         (e) => {
           if (type === 'pointerdown') swallowClick = false;
+          if (type === 'pointerdown' && shown && !(e.target instanceof Node && shown.contains(e.target))) hideShown();
           if (commenting && !ours(e.target)) e.stopPropagation();
         },
         true,

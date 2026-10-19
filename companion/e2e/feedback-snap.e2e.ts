@@ -66,7 +66,8 @@ test('without Where it captures the whole page, and clips a very tall page and s
   const top = await pixel(join(cwd, clipped.body.picture), 0.5, 0.99);
   expect(top.width / top.height).toBeCloseTo(1280 / 10_000, 3);
   expect(top.rgb).toEqual([255, 255, 255]);
-  expect(readFileSync(join(cwd, 'huge.html.feedback.md'), 'utf8')).toContain('    Before: huge.html.feedback/1-r1-before.png · clipped to the top 10000px\n');
+  // Round numbers are project-wide, so huge.html's first round is 2.
+  expect(readFileSync(join(cwd, 'huge.html.feedback.md'), 'utf8')).toContain('    Before: huge.html.feedback/1-r2-before.png · clipped to the top 10000px\n');
 });
 
 /** A local server that records what asks it for anything. */
