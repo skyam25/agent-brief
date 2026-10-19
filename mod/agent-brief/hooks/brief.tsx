@@ -14,6 +14,8 @@ export type BriefPaneView = {
   fidelity: PrototypeFidelity | null
   isTracking: boolean
   outputs: BriefOutput[]
+  /** Open feedback items by output ref. */
+  feedback: Record<string, number>
   items: BriefItems | null
   answers: BriefAnswer[]
   /** How many questions Claude asked that wait in the Questions section. */
@@ -26,8 +28,8 @@ export type BriefPaneView = {
 export type BriefActions = {
   /** Opens the file in its default app, or the URL in the browser. */
   open: (ref: string) => Promise<void>
-  /** Opens a Markdown or HTML output in the Agent Brief app. */
-  openInApp: (ref: string) => Promise<void>
+  /** Opens a Markdown or HTML output in the Agent Brief app, on its Feedback tab when asked. */
+  openInApp: (ref: string, tab?: 'feedback') => Promise<void>
   pickMode: (mode: SessionMode) => Promise<void>
   pickFidelity: (fidelity: PrototypeFidelity) => Promise<void>
   track: () => Promise<void>
@@ -136,23 +138,27 @@ function headerTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
 
 function outputRowTree(table: ElementTable, row: OutputRow, act: BriefActions) {
   const { Box, Button, Text } = table
+  const tab = row.feedback === undefined ? undefined : 'feedback'
   return (
-    <Box key={`output-${row.ref}`} columnGap={1}>
-      <Box flexGrow={1} flexShrink={1}>
-        <Text wrap="truncate-end">{row.label}</Text>
+    <Box key={`output-${row.ref}`} flexDirection="column">
+      <Box columnGap={1}>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text wrap="truncate-end">{row.label}</Text>
+        </Box>
+        <Text dimColor>{row.status}</Text>
+        <Button key={`output-open-${row.ref}`} plain dimColor label="Open" onPress={() => void act.open(row.ref)} />
+        {row.canBrief && (
+          <Button key={`output-app-${row.ref}`} plain dimColor label="In Agent Brief" onPress={() => void act.openInApp(row.ref, tab)} />
+        )}
       </Box>
-      <Text dimColor>{row.status}</Text>
-      <Button key={`output-open-${row.ref}`} plain dimColor label="Open" onPress={() => void act.open(row.ref)} />
-      {row.canBrief && (
-        <Button key={`output-app-${row.ref}`} plain dimColor label="In Agent Brief" onPress={() => void act.openInApp(row.ref)} />
-      )}
+      {row.feedback !== undefined && <Text color="yellow">{`  ${row.feedback}`}</Text>}
     </Box>
   )
 }
 
 function outputsTree(table: ElementTable, pane: BriefPaneView, act: BriefActions) {
   const { Box, Button, Text } = table
-  const { declared, touched } = outputRows(pane.outputs)
+  const { declared, touched } = outputRows(pane.outputs, pane.feedback)
   const isOpen = pane.view.isTouchedOpen
   return (
     <Box flexDirection="column" marginTop={1}>

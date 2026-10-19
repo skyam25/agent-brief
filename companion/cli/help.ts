@@ -25,17 +25,28 @@ export const DOCS: Record<string, Doc> = {
     usage: `agent-brief feedback <verb> [--session <id>] [--json]
   list                                   feedback files in the project, with open counts
   show <output>                          rounds and items, with every line
-  round <output> --label <l> [--source <transcript>]
-  add <output> --title <t> [--src "<round> · <speaker> · <time> · \\"<quote>\\""]... [--change <text>] [--where <selector or heading>] [--related "<output> #N"]... [--round N]
-  log <output> <n> <key> <text>          appends one line, such as Claude "note · asked about mobile" or Src "2 · Maya · 00:14 · \\"...\\""
+  round <output> --label <l> [--source <transcript>] [--date YYYY-MM-DD]
+                                         adds the round, or says it already exists. One source has one number across the project
+  catalog <output> --label <l> [--source <transcript>] [--date YYYY-MM-DD] --items <file.json | ->
+                                         adds the round and every point in one call, and names look-alikes
+  add <output> --title <t> [--src '<round> · <speaker> · <time> · "<quote>"']... [--change <text>] [--where <selector or heading>] [--option "<letter> · <text>"]... [--related "<output> #N"]... [--round N]
+  log <output> <n> <key> <text>          appends one line, such as Claude "note · asked about mobile" or Src '2 · Maya · 00:14 · "..."'
+  change <output> <n> <text>             revises the proposed change. Earlier Change lines stay as history
   done <output> <n> [text] [--commit <sha>]
-  related <output> (<n> | --text <point>) links and look-alike items across the project
+  related <output> (<n> | --text <point>...) links and look-alike items across the project. Repeat --text to check several points
   workspace <output> <n>                 prints the item's board, fb-<stem>-<n>, after making it or adding a frame for its newest round
-  snap <output> <n> --before|--after [--round N]  pictures the item's Where: element, or the whole page, in an HTML output
-  graph                                  how rounds, items, outputs and workspaces link across the project`,
+  snap <output> <n> --before|--after [--round N]  pictures the item's Where: element in its section, or the whole page, in an HTML output
+  graph                                  how rounds, items, outputs and workspaces link across the project
+
+Quotes go in as said, inner quotes included, with no backslashes. Only JSON escapes them.
+A catalog file is a JSON list. Each point is a new item, or "same" joins an item it repeats:
+  [{"title": "Hard to find the filters", "src": ["Ana · 03:02 · \\"Where do I filter?\\""], "change": "…", "where": "#filters",
+    "options": ["A · …", "B · …"], "related": ["pricing.html #3"]},
+   {"same": 6, "src": ["Maya · 00:14 · \\"Still no filters\\""], "change": "the revised change"}]
+A src without a round number is in the catalog's round.`,
     about:
       'Keeps feedback items beside an output in <output>.feedback.md. Every write only adds: a round, an item, a line, or a closed checkbox. Dates are added for you. Claude writes Claude lines; You lines come from the panel. Requires the app and a registered session.',
-    example: `agent-brief feedback round prototype/checkout.html --label customers --source transcripts/cust-1.md\nagent-brief feedback add prototype/checkout.html --title "Hard to find the filters" --src '1 · Ana · 03:02 · "Where do I filter?"' --where '#filters'\nagent-brief feedback done prototype/checkout.html 6 --commit 3f2a91c\nagent-brief feedback workspace prototype/checkout.html 6`,
+    example: `agent-brief feedback catalog prototype/checkout.html --label customers --source transcripts/cust-1.md --date 2026-10-12 --items round-1.json\nagent-brief feedback add prototype/checkout.html --title "Hard to find the filters" --src '1 · Ana · 03:02 · "Where do I filter?"' --where '#filters'\nagent-brief feedback change prototype/checkout.html 6 "Put the filters in a sticky bar"\nagent-brief feedback done prototype/checkout.html 6 --commit 3f2a91c`,
   },
   status: {
     usage: 'agent-brief status [--json]',

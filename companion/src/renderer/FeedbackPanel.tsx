@@ -13,6 +13,7 @@ import type { CompanionApi } from '../shared/ipc';
 import { BeforeAfter, type PictureHost } from './BeforeAfter';
 import { FeedbackGraph } from './FeedbackGraph';
 import { ExternalIcon, MicIcon } from './Icons';
+import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import { ReviewVoice } from './review-voice';
 import { claimTalk } from './talk-owner';
 import { VoiceState } from './ReviewView';
@@ -524,7 +525,7 @@ function ItemCard(props: {
 
 /** The Feedback view for an output with no page to show, full width beside the list. */
 export function FeedbackView(props: {
-  host: FeedbackHost & WorkspaceHost;
+  host: FeedbackHost & WorkspaceHost & OutputWatchHost;
   sessionId: string;
   path: string;
   canSend: boolean;
@@ -535,6 +536,7 @@ export function FeedbackView(props: {
   onOpenItem?: (output: string, n: number) => void;
 }) {
   const feedback = useFeedbackDoc(props.host, props.sessionId, props.path);
+  useOutputWatch(props.host, props.sessionId, props.path);
   const gone = feedback.doc?.outputExists === false;
   const workspace = useItemWorkspace({ host: props.host, sessionId: props.sessionId, path: props.path, onError: props.onError });
   const open = workspace.open;

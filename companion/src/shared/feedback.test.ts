@@ -193,3 +193,73 @@ describe('feedback files', () => {
     expect(relatedCandidates(docs, 'Filters hidden', { output: 'checkout.html', n: 6 })).toEqual([]);
   });
 });
+
+describe('feedback format fixes', () => {
+  const ROUNDS = `# Feedback · checkout.html
+
+## Round 3 · SME · 2026-10-18 · transcripts/sme-2.md
+## Round 1 · customers · 2026-10-12 · transcripts/cust-1.md
+`;
+
+  it('stores quotes raw and reads legacy escapes back', () => {
+    const { text } = applyFeedbackOps(ROUNDS, opts([{ op: 'addItem', title: 'Box', lines: [{ key: 'Src', text: '1 · Ben · 05:40 · "The box says \\"Nothing yet\\" · then what?"' }] }]));
+    expect(text).toContain('    Src: 1 · Ben · 05:40 · "The box says "Nothing yet" · then what?"');
+    expect(parseFeedback(text).items[0]!.sources[0]!.quote).toBe('The box says "Nothing yet" · then what?');
+    const legacy = parseFeedback('- [ ] #1 A\n    Src: 1 · Ana · 07:15 · "\\"Continue\\" to what?"').items[0]!;
+    expect(legacy.sources[0]!.quote).toBe('"Continue" to what?');
+  });
+
+  it('numbers rounds across the project and adds each source once', () => {
+    const project = [{ n: 4, label: 'SME', date: '2026-10-18', source: 'transcripts/sme-3.md' }, { n: 2, label: 'customers', date: '2026-10-15', source: 'transcripts/cust-2.md' }];
+    const reused = applyFeedbackOps(ROUNDS, { ...opts([{ op: 'addRound', label: 'customers', source: 'transcripts/cust-2.md', date: '2026-10-15' }]), projectRounds: project });
+    expect(reused.added.rounds).toEqual([2]);
+    expect(parseFeedback(reused.text).rounds.map((r) => `${r.n} ${r.date}`)).toEqual(['3 2026-10-18', '2 2026-10-15', '1 2026-10-12']);
+    const next = applyFeedbackOps(ROUNDS, { ...opts([{ op: 'addRound', label: 'review' }]), projectRounds: project });
+    expect(next.added.rounds).toEqual([5]);
+    expect(parseFeedback(next.text).rounds[0]).toMatchObject({ n: 5, label: 'review', date: '2026-10-21' });
+    // A source or a sourceless label already in the file is that round, and nothing is written.
+    const again = applyFeedbackOps(ROUNDS, { ...opts([{ op: 'addRound', label: 'customers', source: 'transcripts/cust-1.md' }]), projectRounds: project });
+    expect(again).toEqual({ text: ROUNDS, added: { rounds: [1], items: [] } });
+    const twice = applyFeedbackOps(next.text, opts([{ op: 'addRound', label: 'review' }]));
+    expect(twice.text).toBe(next.text);
+    // A number another round in this file holds is not reused.
+    const taken = applyFeedbackOps(ROUNDS, { ...opts([{ op: 'addRound', label: 'x', source: 'other.md' }]), projectRounds: [{ n: 3, label: 'x', date: '2026-10-01', source: 'other.md' }] });
+    expect(taken.added.rounds).toEqual([4]);
+    expect(() => applyFeedbackOps(ROUNDS, opts([{ op: 'addRound', label: 'x', date: '18 Oct' }]))).toThrow('date');
+  });
+
+  it('takes the latest Change and keeps earlier ones', () => {
+    const { text } = applyFeedbackOps(SAMPLE, opts([{ op: 'append', item: 6, key: 'Change', text: 'Put the filters in a sticky bar.' }]));
+    const six = parseFeedback(text).items[0]!;
+    expect(six.change).toBe('Put the filters in a sticky bar.');
+    expect(six.lines.filter((l) => l.key === 'Change')).toHaveLength(2);
+  });
+
+  it('reads options and the one an accept picks', () => {
+    const { text } = applyFeedbackOps(ROUNDS, opts([{ op: 'addItem', title: 'Box', lines: [{ key: 'Option', text: 'A · Keep the box and explain it' }, { key: 'Option', text: 'b · Hide it until something is saved' }] }]));
+    expect(text).toContain('    Option: B · Hide it until something is saved');
+    expect(parseFeedback(text).items[0]).toMatchObject({ options: [{ key: 'A', text: 'Keep the box and explain it' }, { key: 'B', text: 'Hide it until something is saved' }] });
+    expect(parseFeedback(text).items[0]!.chosen).toBeUndefined();
+    const picked = applyFeedbackOps(text, opts([{ op: 'append', item: 1, key: 'You', text: 'accept · option B · and say so' }], 'You'));
+    expect(parseFeedback(picked.text).items[0]).toMatchObject({ state: 'accepted', chosen: 'B' });
+    const reopened = applyFeedbackOps(picked.text, opts([{ op: 'append', item: 1, key: 'You', text: 'reopen' }], 'You'));
+    expect(parseFeedback(reopened.text).items[0]!.chosen).toBeUndefined();
+    expect(() => applyFeedbackOps(text, opts([{ op: 'append', item: 1, key: 'You', text: 'accept · option C' }], 'You'))).toThrow('no option C');
+    expect(() => applyFeedbackOps(text, opts([{ op: 'append', item: 1, key: 'Option', text: 'Keep it' }]))).toThrow('Option is');
+    expect(parseFeedback(SAMPLE).items[0]!.options).toBeUndefined();
+  });
+
+  it('marks a closed item raised again by a later Src', () => {
+    const raised = applyFeedbackOps(SAMPLE, opts([
+      { op: 'append', item: 7, key: 'Src', text: '2 · Lee · 10:00 · "Still the box"' },
+      { op: 'append', item: 6, key: 'Src', text: '2 · Lee · 10:05 · "Filters again"' },
+    ]));
+    const [six, seven] = parseFeedback(raised.text).items;
+    expect(seven!.raisedAgain).toBe(2);
+    // #6 is open, so it is not raised again.
+    expect(six!.raisedAgain).toBeUndefined();
+    expect(parseFeedback(SAMPLE).items[1]!.raisedAgain).toBeUndefined();
+    const reopened = applyFeedbackOps(raised.text, opts([{ op: 'append', item: 7, key: 'You', text: 'reopen' }], 'You'));
+    expect(parseFeedback(reopened.text).items[1]!.raisedAgain).toBeUndefined();
+  });
+});

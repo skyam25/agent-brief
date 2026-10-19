@@ -24,6 +24,17 @@ const ITEMS = [
   '',
 ].join('\n')
 
+const FEEDBACK_PATH = `${CWD}/checkout.html.feedback.md`
+const FEEDBACK = [
+  '# Feedback · checkout.html',
+  '',
+  '- [ ] #1 Filters',
+  '    Claude: 2026-10-12 · cataloged',
+  '- [x] #2 Pay',
+  '    Claude: 2026-10-12 · done',
+  '',
+].join('\n')
+
 const OUTPUTS = JSON.stringify({
   version: 1,
   sessionId: SESSION_ID,
@@ -145,6 +156,30 @@ describe('the pane\'s outputs', () => {
     await press($, 'output-app-docs/spec.md')
     expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'docs/spec.md' } })
     expect(world.toasts).toEqual([])
+  })
+
+  test('an output with open feedback says so, and In Agent Brief opens its Feedback tab', async ($, on) => {
+    const outputs = JSON.stringify({
+      version: 1,
+      sessionId: SESSION_ID,
+      outputs: [
+        { ref: 'checkout.html', title: 'Checkout', kind: 'html', tier: 'declared', status: 'ready', declaredAt: 30 },
+        { ref: 'docs/spec.md', title: 'Spec', kind: 'markdown', tier: 'declared', status: 'ready', declaredAt: 10 },
+      ],
+    })
+    on('turn.complete', () => ({ text: '' }))
+    const { app, world } = await setup($, on, { [OUTPUTS_PATH]: outputs, [FEEDBACK_PATH]: FEEDBACK })
+    const drawn = await pane($)
+    expect(drawn).toContain('Feedback · 1 open')
+    await press($, 'output-app-checkout.html')
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'checkout.html', tab: 'feedback' } })
+    await press($, 'output-app-docs/spec.md')
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'docs/spec.md' } })
+
+    // Claude's writes during a turn show once it ends.
+    world.files.set(FEEDBACK_PATH, `${FEEDBACK}- [ ] #3 Another\n`)
+    await $.turn.complete({ answer: 'Cataloged.', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    expect(await pane($)).toContain('Feedback · 2 open')
   })
 
   test('an app that opens the board instead asks to be updated', async ($, on) => {

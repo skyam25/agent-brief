@@ -319,9 +319,10 @@ test('a feedback file whose output is gone opens from the graph read-only', asyn
   put(cwd, 'old.html', PAGE);
   await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-6', cwd, title: 'Checkout' });
   await agent(h.socketPath, '/sessions/fp-6/feedback?path=checkout.html', [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Title is vague' }]);
+  // Round numbers are project-wide, so old.html's first round is 2.
   await agent(h.socketPath, '/sessions/fp-6/feedback?path=old.html', [
     { op: 'addRound', label: 'SME' },
-    { op: 'addItem', title: 'Old page point', lines: [{ key: 'Src', text: '1 · Ana · 01:00 · "Too busy"' }, { key: 'Where', text: '#filters' }] },
+    { op: 'addItem', title: 'Old page point', lines: [{ key: 'Src', text: '2 · Ana · 01:00 · "Too busy"' }, { key: 'Where', text: '#filters' }] },
     { op: 'append', item: 1, key: 'Claude', text: 'note · looked into it' },
   ]);
   unlinkSync(join(cwd, 'old.html'));

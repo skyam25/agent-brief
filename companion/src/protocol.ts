@@ -126,8 +126,11 @@ export interface OpenRequest {
   text?: string;
   /** Sets the board's layout. Absent leaves it as it is. */
   layout?: BoardLayout;
-  /** Opens this output of `sessionId` instead of a board: a Markdown file as a note in Write, an HTML file in the review pane. Project-relative. Needs `sessionId`. */
-  output?: { path: string };
+  /**
+   * Opens this output of `sessionId` instead of a board: a Markdown file as a note in Write, an HTML file in the review pane. Project-relative. Needs `sessionId`.
+   * `tab: 'feedback'` opens an HTML review on its Feedback tab.
+   */
+  output?: { path: string; tab?: 'feedback' };
 }
 
 export interface OpenResponse {
@@ -634,9 +637,15 @@ export interface FeedbackItem {
   /** Every round the item came up in: its first round, then `Src:` rounds, ascending. */
   rounds: number[];
   sources: FeedbackSource[];
-  /** The last `Change:` and `Where:` lines. */
+  /** The last `Change:` and `Where:` lines. Earlier `Change:` lines stay as history. */
   change?: string;
   where?: string;
+  /** `Option: <letter> · <text>` lines, by letter. A later line for a letter replaces it. */
+  options?: { key: string; text: string }[];
+  /** The option the standing accept picked, from `You: … · accept · option B`. */
+  chosen?: string;
+  /** On a closed item, the newest round of a `Src:` line after the line that closed it. */
+  raisedAgain?: number;
   related: { path: string; n: number }[];
   before: string[];
   after: string[];
@@ -663,7 +672,10 @@ export interface FeedbackDocument extends FeedbackDoc {
 }
 
 export type FeedbackOp =
-  | { op: 'addRound'; label: string; source?: string }
+  /** Returns the round already in the file with this source, or this label and no source, and writes nothing.
+   * Otherwise it reuses the number of a project round with the same source, or takes the project's highest plus one.
+   * `date` is the round's ISO date, today when absent. */
+  | { op: 'addRound'; label: string; source?: string; date?: string }
   /** Numbered after the highest item. `round` defaults to the newest round. */
   | { op: 'addItem'; title: string; round?: number; lines?: FeedbackLine[] }
   /** Event keys take `verb · detail` and get the date in front. */

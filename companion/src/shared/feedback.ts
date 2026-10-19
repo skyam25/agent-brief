@@ -10,6 +10,7 @@
  *       Round: 1
  *       Src: 1 · Ana · 03:02 · "Where do I filter?"
  *       Change: Move the filter row above the results.
+ *       Option: A · Keep the sort on the right
  *       Where: #filters
  *       Claude: 2026-10-12 · cataloged
  *       You: 2026-10-12 · accept · keep it sticky on scroll
@@ -30,7 +31,7 @@ export const FEEDBACK_SUFFIX = '.feedback.md';
 
 /** Dated lines. Their text is `<date> · <verb> · <detail>`. */
 export const EVENT_KEYS = ['Claude', 'You', 'Workspace', 'Review'] as const;
-export const FEEDBACK_KEYS = ['Round', 'Src', 'Change', 'Where', 'Related', ...EVENT_KEYS, 'Before', 'After'] as const;
+export const FEEDBACK_KEYS = ['Round', 'Src', 'Change', 'Option', 'Where', 'Related', ...EVENT_KEYS, 'Before', 'After'] as const;
 
 /** What the user can say on an item. `sent` marks the decisions Send handed over. */
 export const YOU_VERBS = ['accept', 'reject', 'reopen', 'note', 'voice', 'sent'] as const;
@@ -44,6 +45,11 @@ const STATE_VERBS: Record<string, FeedbackState> = {
   rejected: 'rejected',
   done: 'done',
 };
+
+/** `Option: B · Hide the box`. */
+const OPTION = /^([A-Za-z])\s*·\s*(.+)$/;
+/** An accept's detail that picks an option: `option B · note`. */
+const PICK = /^option ([A-Za-z])\b/i;
 
 export type FeedbackActor = 'Claude' | 'You';
 
@@ -70,10 +76,22 @@ export function parseEvent(key: string, text: string): FeedbackEvent {
   return { key, date, verb: parts.shift() ?? '', detail: parts.join(SEP) };
 }
 
+/** The quote runs from the first `"` after the time to the last one. A legacy `\"` reads as `"`. */
 export function parseSource(text: string): FeedbackSource | undefined {
   const [round, speaker = '', time = '', ...rest] = text.split(SEP).map((s) => s.trim());
   if (!/^\d+$/.test(round ?? '')) return undefined;
-  return { round: Number(round), speaker, time, quote: rest.join(SEP).replace(/^"(.*)"$/s, '$1') };
+  const said = rest.join(SEP);
+  const open = said.indexOf('"');
+  const close = said.lastIndexOf('"');
+  const quote = open >= 0 && close > open ? said.slice(open + 1, close) : said;
+  return { round: Number(round), speaker, time, quote: quote.replace(/\\"/g, '"') };
+}
+
+const sourceLine = (s: FeedbackSource) => [s.round, s.speaker, s.time, `"${s.quote}"`].join(SEP);
+
+/** The round a new round would repeat: one with the same source, or with the same label when neither has a source. */
+export function findRound(rounds: FeedbackRound[], label: string, source?: string): FeedbackRound | undefined {
+  return rounds.find((r) => (source ? r.source === source : !r.source && r.label === label));
 }
 
 /** Where each part of the document sits, by line index. */
@@ -96,9 +114,38 @@ function stateOf(item: Pick<FeedbackItem, 'events' | 'checked'>): FeedbackState 
   return state ?? (item.checked ? 'done' : 'open');
 }
 
+/** The option the standing accept picked. A later state verb other than done drops it. */
+function chosenOf(events: FeedbackEvent[]): string | undefined {
+  let chosen: string | undefined;
+  for (const e of events) {
+    if (e.key !== 'You' && e.key !== 'Claude') continue;
+    if (e.key === 'You' && e.verb === 'accept') chosen = PICK.exec(e.detail)?.[1]!.toUpperCase();
+    else if (STATE_VERBS[e.verb] && STATE_VERBS[e.verb] !== 'done') chosen = undefined;
+  }
+  return chosen;
+}
+
+/** The newest round of a `Src:` line after the closing event of a closed item. */
+function raisedAgainOf(item: FeedbackItem): number | undefined {
+  if (!isClosed(item.state)) return undefined;
+  let closedAt = -1;
+  item.lines.forEach((l, i) => {
+    if (!isEventKey(l.key)) return;
+    const verb = parseEvent(l.key, l.text).verb;
+    if (verb === 'closed' || (STATE_VERBS[verb] && isClosed(STATE_VERBS[verb]))) closedAt = i;
+  });
+  if (closedAt < 0) return undefined;
+  const later = item.lines.slice(closedAt + 1).filter((l) => l.key === 'Src').map((l) => parseSource(l.text)?.round ?? 0);
+  return later.length ? Math.max(...later) : undefined;
+}
+
 function finish(item: FeedbackItem): FeedbackItem {
   item.state = stateOf(item);
   item.rounds = [...new Set([...(item.round !== undefined ? [item.round] : []), ...item.sources.map((s) => s.round)])].sort((a, b) => a - b);
+  const chosen = chosenOf(item.events);
+  if (chosen) item.chosen = chosen;
+  const raised = raisedAgainOf(item);
+  if (raised) item.raisedAgain = raised;
   return item;
 }
 
@@ -131,6 +178,16 @@ function parseLines(lines: string[]): { doc: FeedbackDoc; layout: Layout } {
         const src = parseSource(text);
         if (src) current.sources.push(src);
       } else if (key === 'Change') current.change = text;
+      else if (key === 'Option') {
+        const m = OPTION.exec(text);
+        if (m) {
+          const option = { key: m[1]!.toUpperCase(), text: m[2]!.trim() };
+          const options = (current.options ??= []);
+          const at = options.findIndex((o) => o.key === option.key);
+          if (at >= 0) options[at] = option;
+          else options.push(option);
+        }
+      }
       else if (key === 'Where') current.where = text;
       else if (key === 'Related') {
         const m = /^(.+?)\s+#(\d+)$/.exec(text);
@@ -188,21 +245,28 @@ function oneLine(v: unknown, what: string, max = MAX_TEXT): string {
 }
 
 /** Checks one line's key and text for an actor, and gives the text as the file writes it. */
-function lineText(doc: FeedbackDoc, key: unknown, text: unknown, by: FeedbackActor, date: string): FeedbackLine {
+function lineText(doc: FeedbackDoc, key: unknown, text: unknown, by: FeedbackActor, date: string, item?: FeedbackItem): FeedbackLine {
   if (typeof key !== 'string' || !isKnownKey(key) || key === 'Round') return fail(`Unknown key ${String(key)}. Use ${FEEDBACK_KEYS.filter((k) => k !== 'Round').join(', ')}`);
   if (key === 'You' && by !== 'You') return fail('Only the user writes You lines');
   if (key === 'Claude' && by !== 'Claude') return fail('Only Claude writes Claude lines');
   const body = oneLine(text, `${key} text`);
   if (key === 'Src') {
     const src = parseSource(body);
-    if (!src) return fail('Src is "<round> · <speaker> · <time> · \\"<quote>\\""');
+    if (!src) return fail('Src is <round> · <speaker> · <time> · "<quote>", with the quote as said');
     if (!doc.rounds.some((r) => r.n === src.round)) return fail(`There is no round ${src.round}`);
+    return { key, text: sourceLine(src) };
+  }
+  if (key === 'Option') {
+    const m = OPTION.exec(body) ?? fail('Option is "<letter> · <text>", such as "A · Keep the box"');
+    return { key, text: `${m[1]!.toUpperCase()}${SEP}${m[2]!.trim()}` };
   }
   if (key === 'Related' && !/^.+\s+#\d+$/.test(body)) return fail('Related is "<output path> #N"');
   if (!isEventKey(key)) return { key, text: body };
   const first = body.split(SEP)[0]!.trim();
   if (DATE.test(first)) return fail('Leave the date out; it is added for you');
   if (key === 'You' && !(YOU_VERBS as readonly string[]).includes(first)) return fail(`You lines start with ${YOU_VERBS.join(', ')}`);
+  const pick = key === 'You' && first === 'accept' ? PICK.exec(parseEvent(key, body).detail)?.[1]!.toUpperCase() : undefined;
+  if (pick && item && !item.options?.some((o) => o.key === pick)) return fail(`#${item.n} has no option ${pick}`);
   return { key, text: `${date}${SEP}${body}` };
 }
 
@@ -213,7 +277,7 @@ function lineText(doc: FeedbackDoc, key: unknown, text: unknown, by: FeedbackAct
  */
 export function applyFeedbackOps(
   text: string | undefined,
-  opts: { output: string; ops: unknown; by: FeedbackActor; date: string },
+  opts: { output: string; ops: unknown; by: FeedbackActor; date: string; projectRounds?: FeedbackRound[] },
 ): { text: string; added: { rounds: number[]; items: number[] } } {
   const { ops, by, date } = opts;
   if (!Array.isArray(ops) || ops.length === 0) return fail('Expected ops');
@@ -244,9 +308,21 @@ export function applyFeedbackOps(
       const label = oneLine(raw.label, 'Round label', 200);
       const source = raw.source === undefined ? undefined : oneLine(raw.source, 'Round source', 1000);
       if (label.includes('·') || source?.includes('·')) return fail('Round label and source cannot hold ·');
-      const n = Math.max(0, ...doc.rounds.map((r) => r.n)) + 1;
-      const line = roundLine({ n, label, date, ...(source ? { source } : {}) });
-      if (layout.rounds.length) lines.splice(Math.min(...layout.rounds), 0, ...put(line));
+      if (raw.date !== undefined && (typeof raw.date !== 'string' || !DATE.test(raw.date))) return fail('Round date is YYYY-MM-DD');
+      const same = findRound(doc.rounds, label, source);
+      if (same) {
+        added.rounds.push(same.n);
+        continue;
+      }
+      // Numbers are project-wide: a source keeps its number in every file, and a new one goes after the highest.
+      const project = opts.projectRounds ?? [];
+      const shared = source ? findRound(project, label, source)?.n : undefined;
+      const n = shared !== undefined && !doc.rounds.some((r) => r.n === shared) ? shared : Math.max(0, ...project.map((r) => r.n), ...doc.rounds.map((r) => r.n)) + 1;
+      const line = roundLine({ n, label, date: raw.date ?? date, ...(source ? { source } : {}) });
+      // Round lines stay newest first.
+      const below = layout.rounds.find((at, k) => doc.rounds[k]!.n < n);
+      if (below !== undefined) lines.splice(below, 0, ...put(line));
+      else if (layout.rounds.length) lines.splice(Math.max(...layout.rounds) + 1, 0, ...put(line));
       else {
         // The first round goes under the title, which a hand-made file may lack.
         if (layout.title === undefined) lines.unshift(...put(`# Feedback · ${name}`));
@@ -268,7 +344,7 @@ export function applyFeedbackOps(
       added.items.push(n);
     } else if (raw.op === 'append') {
       const at = find(raw.item);
-      const line = lineText(doc, raw.key, raw.text, by, date);
+      const line = lineText(doc, raw.key, raw.text, by, date, doc.items.find((i) => i.n === at.n));
       lines.splice(at.last + 1, 0, ...put(`${at.indent}${line.key}: ${line.text}`));
       if (isEventKey(line.key) && STATE_VERBS[parseEvent(line.key, line.text).verb]) mirror.add(at.n);
     } else if (raw.op === 'close' || raw.op === 'open') {
@@ -378,7 +454,7 @@ export function itemWords(text: string): Set<string> {
   return new Set((text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => w.length > 2 && !STOP.has(w)).map((w) => w.replace(/s$/, '')));
 }
 
-export const feedbackItemText = (item: FeedbackItem) => [item.title, item.change ?? '', ...item.sources.map((s) => s.quote)].join(' ');
+export const feedbackItemText = (item: Pick<FeedbackItem, 'title' | 'change' | 'sources'>) => [item.title, item.change ?? '', ...item.sources.map((s) => s.quote)].join(' ');
 
 /** Items across documents that share at least two words with `query`, most shared first. */
 export function relatedCandidates(

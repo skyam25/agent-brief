@@ -40,7 +40,9 @@ export type FromPage =
   /** The answer to `measure`: the element's visible box, or none when the page lacks it. */
   | { type: 'measured'; id: string; view?: ReviewRect }
   /** The user clicked an element. `matches` lists the `where` selectors it sits in. */
-  | { type: 'pointed'; matches: string[] };
+  | { type: 'pointed'; matches: string[] }
+  /** Where the page rests after a scroll. */
+  | { type: 'scrolled'; x: number; y: number };
 
 /** From the pane to the page. */
 export type ToPage =
@@ -60,7 +62,9 @@ export type ToPage =
   /** Scrolls the element into view and answers `measured` once it painted. */
   | { type: 'measure'; id: string; selector: string }
   /** Selectors of feedback items, which clicks and pins report back as `matches`. */
-  | { type: 'where'; selectors: string[] };
+  | { type: 'where'; selectors: string[] }
+  /** Puts the page back where it rested before a reload. */
+  | { type: 'scroll-to'; x: number; y: number };
 
 export type Tagged<T> = T & { source: typeof REVIEW_SOURCE };
 
