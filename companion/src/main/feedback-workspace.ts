@@ -3,8 +3,7 @@
  * board backend, so a workspace open in the panel draws and exports live.
  */
 
-import { randomUUID } from 'node:crypto';
-import { existsSync, linkSync, lstatSync, mkdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { FeedbackDocument, FeedbackItem, FeedbackUpdateResult, FeedbackWorkspace } from '../protocol';
 import type { BoardBackend } from '../server/contract';
@@ -29,6 +28,7 @@ import {
 } from '../shared/feedback-workspace';
 import type { DraftStore } from './drafts';
 import type { FeedbackStore } from './feedback';
+import { feedbackAssetsDir, writeFeedbackAsset, type FeedbackAssetsDir } from './feedback-paths';
 import type { BoardStore } from './store';
 
 /** Long edge of the saved PNG. */
@@ -61,41 +61,12 @@ function snapshotOf(raw: unknown): WorkspaceSnapshot | undefined {
   return ok(s.width) && ok(s.height) ? { data: s.data, width: s.width, height: s.height } : undefined;
 }
 
-/**
- * The folder `rel` under the real project root, made when missing. Every folder on
- * the way must be a real folder, so a link swapped in cannot point the write elsewhere.
- * TODO: use the shared resolver in feedback-paths.ts.
- */
-function assetDir(realRoot: string, rel: string): string {
-  let dir = realRoot;
-  for (const part of rel.split('/')) {
-    dir = join(dir, part);
-    try {
-      mkdirSync(dir);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    }
-    const st = lstatSync(dir);
-    if (st.isSymbolicLink() || !st.isDirectory()) throw badRequest(`${rel} must be a folder inside the project`);
-  }
-  return dir;
-}
-
 /** Writes the PNG under the item's next free revision name, never over a file that is there. */
-function writeRevision(dir: string, item: FeedbackItem, png: Uint8Array): string {
+function writeRevision(assets: FeedbackAssetsDir, item: FeedbackItem, png: Uint8Array): string {
   const saves = item.events.filter((e) => e.key === 'Workspace' && e.verb === 'saved').length;
   for (let k = saves + 1; k <= saves + MAX_ATTEMPTS; k++) {
     const name = workspacePng(item.n, k);
-    const tmp = join(dir, `.${name}.${randomUUID()}.tmp`);
-    try {
-      writeFileSync(tmp, png, { flag: 'wx' });
-      linkSync(tmp, join(dir, name));
-      return name;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    } finally {
-      if (existsSync(tmp)) unlinkSync(tmp);
-    }
+    if (writeFeedbackAsset(assets, name, png)) return name;
   }
   throw new BoardError('conflict', `every workspace picture name for #${item.n} is taken`);
 }
@@ -180,12 +151,13 @@ export class FeedbackWorkspaces {
     const comments = by === 'You' ? cleanBoardComments(rawComments) : undefined;
     const { pins, lines } = comments ? commentNotes(comments) : { pins: [], lines: [] };
     return this.serial(async () => {
-      const { board } = this.boardOf(this.find(root, output, n), false);
+      const before = this.find(root, output, n);
+      const { board } = this.boardOf(before, false);
       const png = await this.deps.boards.png(board, { maxEdge: SAVE_MAX_EDGE, ...(pins.length ? { pins } : {}) });
-      // The export took a while, so the output, the item and the folders are checked again before writing.
+      // The export awaited, so check the output, its folder and the item again before writing.
       const found = this.find(root, output, n);
-      const dir = assetDir(realpathSync(root), feedbackAssets(found.doc.output));
-      const name = writeRevision(dir, found.item, png);
+      const assets = feedbackAssetsDir(root, found.doc.output, before.doc.output);
+      const name = writeRevision(assets, found.item, png);
       const text = workspaceLine(board, `${feedbackAssets(basename(found.doc.output))}/${name}`);
       const ops = [...lines.map((line) => ({ op: 'append' as const, item: found.item.n, key: 'You', text: line })), { op: 'append' as const, item: found.item.n, key: 'Workspace', text }];
       return this.append(root, output, found.doc.version, ops, by);

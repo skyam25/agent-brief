@@ -337,7 +337,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       const session = liveSession(id);
       if (!opts.feedback) throw new HttpError(503, 'unavailable', 'this app does not keep feedback items');
       if (parts.length === 4 && method === 'GET') return { json: opts.feedback.project(session.cwd) };
-      if (method === 'GET') return { json: opts.feedback.read(session.cwd, q.get('path')) };
+      if (method === 'GET') return { json: opts.feedback.read(session.cwd, q.get('path'), { orphan: true }) };
       if (method === 'POST') return { json: opts.feedback.update(session.cwd, q.get('path'), await readJson(req), 'Claude') };
     }
 

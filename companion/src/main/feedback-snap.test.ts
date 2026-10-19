@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { tempDir } from '../server/testkit';
@@ -22,7 +22,7 @@ function setup() {
   ] }, 'Claude');
   store.update(root, 'prd.md', { version: 'missing', ops: [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Thin' }] }, 'Claude');
   const calls: [string, string | undefined][] = [];
-  const capture: PageCapture = async (url, selector) => { calls.push([url, selector]); return PNG; };
+  const capture: PageCapture = async (url, selector) => { calls.push([url, selector]); return { png: PNG }; };
   const snaps = new FeedbackSnaps({ store, urlFor: (_root, path) => `review://${path}`, capture });
   return { root, store, snaps, calls, doc };
 }
@@ -34,16 +34,60 @@ describe('FeedbackSnaps', () => {
     expect(res.picture).toBe('prototype/checkout.html.feedback/1-r1-before.png');
     expect(readFileSync(join(root, res.picture))).toEqual(PNG);
     expect(calls).toEqual([['review://prototype/checkout.html', '#filters']]);
-    // The round defaults to the item's latest, and a retake keeps one line.
+    // The round defaults to the item's latest.
     await snaps.snap(root, 'prototype/checkout.html', { item: 1, side: 'after' }, 'Claude');
-    const again = await snaps.snap(root, 'prototype/checkout.html', { item: 1, side: 'after' }, 'Claude');
-    expect(again.items[0]!.after).toEqual(['checkout.html.feedback/1-r2-after.png']);
     const page = await snaps.snap(root, 'prototype/checkout.html', { item: 2, side: 'before' }, 'Claude');
     expect(page.picture).toBe('prototype/checkout.html.feedback/2-r1-before.png');
     expect(calls.at(-1)).toEqual(['review://prototype/checkout.html', undefined]);
     const text = readFileSync(join(root, 'prototype/checkout.html.feedback.md'), 'utf8');
     expect(text).toContain('    Before: checkout.html.feedback/1-r1-before.png\n    After: checkout.html.feedback/1-r2-after.png\n\n- [ ] #2');
     expect(text.match(/After:/g)).toHaveLength(1);
+  });
+
+  it('keeps every picture: a retake writes a new revision and its own line', async () => {
+    const { root, store } = setup();
+    let bytes = Buffer.from('old');
+    const snaps = new FeedbackSnaps({ store, urlFor: () => 'review://x', capture: async () => ({ png: bytes }) });
+    const at = (p: string) => readFileSync(join(root, 'prototype', p), 'utf8');
+    await snaps.snap(root, 'prototype/checkout.html', { item: 1, side: 'before', round: 1 }, 'Claude');
+    bytes = Buffer.from('new');
+    const again = await snaps.snap(root, 'prototype/checkout.html', { item: 1, side: 'before', round: 1 }, 'Claude');
+    expect(again.picture).toBe('prototype/checkout.html.feedback/1-r1-before-2.png');
+    expect(at('checkout.html.feedback/1-r1-before.png')).toBe('old');
+    expect(at('checkout.html.feedback/1-r1-before-2.png')).toBe('new');
+    // A stray file at the next name is never replaced.
+    writeFileSync(join(root, 'prototype/checkout.html.feedback/1-r1-after.png'), 'stray');
+    const after = await snaps.snap(root, 'prototype/checkout.html', { item: 1, side: 'after', round: 1 }, 'Claude');
+    expect(after.picture).toBe('prototype/checkout.html.feedback/1-r1-after-2.png');
+    expect(at('checkout.html.feedback/1-r1-after.png')).toBe('stray');
+    expect(after.items[0]!.before).toEqual(['checkout.html.feedback/1-r1-before.png', 'checkout.html.feedback/1-r1-before-2.png']);
+    expect(after.items[0]!.after).toEqual(['checkout.html.feedback/1-r1-after-2.png']);
+  });
+
+  it('says in the line when the page was clipped', async () => {
+    const { root, store } = setup();
+    const snaps = new FeedbackSnaps({ store, urlFor: () => 'review://x', capture: async () => ({ png: PNG, clipped: 10_000 }) });
+    const res = await snaps.snap(root, 'prototype/checkout.html', { item: 2, side: 'before' }, 'Claude');
+    expect(res.clipped).toBe(10_000);
+    expect(res.items[1]!.before).toEqual(['checkout.html.feedback/2-r1-before.png · clipped to the top 10000px']);
+  });
+
+  it('checks the folders again after the capture, and writes nothing when a parent was swapped', async () => {
+    for (const into of ['outside', 'inside'] as const) {
+      const { root, store } = setup();
+      const elsewhere = into === 'outside' ? tempDir() : join(root, 'other');
+      mkdirSync(elsewhere, { recursive: true });
+      writeFileSync(join(elsewhere, 'checkout.html'), '<div id="filters"></div>');
+      const capture: PageCapture = async () => {
+        renameSync(join(root, 'prototype'), join(root, 'old'));
+        symlinkSync(elsewhere, join(root, 'prototype'));
+        return { png: PNG };
+      };
+      const snaps = new FeedbackSnaps({ store, urlFor: () => 'review://x', capture });
+      await expect(snaps.snap(root, 'prototype/checkout.html', { item: 1, side: 'before' }, 'Claude')).rejects.toThrow(into === 'outside' ? 'Output must be a file inside the project' : 'moved while');
+      expect(readdirSync(elsewhere)).toEqual(['checkout.html']);
+      expect(existsSync(join(root, 'old/checkout.html.feedback'))).toBe(false);
+    }
   });
 
   it('refuses non-HTML outputs, unknown items and rounds, and a linked assets folder', async () => {
@@ -62,6 +106,11 @@ describe('FeedbackSnaps', () => {
     await snaps.snap(root, 'prototype/checkout.html', { item: 1, side: 'before' }, 'Claude');
     expect(snaps.picture(root, 'prototype/checkout.html', 'checkout.html.feedback/1-r2-before.png')).toBe(`data:image/png;base64,${PNG.toString('base64')}`);
     expect(snaps.picture(root, 'prototype/checkout.html', 'checkout.html.feedback/1-r1-after.png')).toBeUndefined();
-    for (const bad of ['../../outside.png', '.hidden/a.png', 'checkout.html.feedback/1-r2-before.txt', '/etc/a.png']) expect(() => snaps.picture(root, 'prototype/checkout.html', bad)).toThrow();
+    for (const bad of ['../../outside.png', '.hidden/a.png', 'checkout.html.feedback/1-r2-before.txt', '/etc/a.png', 'a\nb.png']) expect(() => snaps.picture(root, 'prototype/checkout.html', bad)).toThrow();
+    // An alias into a dot folder is refused on its canonical path.
+    mkdirSync(join(root, '.hidden'));
+    writeFileSync(join(root, '.hidden/a.png'), PNG);
+    symlinkSync(join(root, '.hidden/a.png'), join(root, 'prototype/checkout.html.feedback/alias.png'));
+    expect(() => snaps.picture(root, 'prototype/checkout.html', 'checkout.html.feedback/alias.png')).toThrow();
   });
 });

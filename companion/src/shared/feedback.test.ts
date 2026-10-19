@@ -109,6 +109,48 @@ describe('feedback files', () => {
     expect(closed.text).toContain('- [x] #6 Hard to find the filters');
   });
 
+  it('dates close and open as state events, so the checkbox, state and history agree', () => {
+    const closed = applyFeedbackOps(SAMPLE, opts([{ op: 'close', item: 6 }]));
+    expect(parseFeedback(closed.text).items[0]).toMatchObject({ checked: true, state: 'done' });
+    expect(parseFeedback(closed.text).items[0]!.events.at(-1)).toEqual({ key: 'Claude', date: '2026-10-21', verb: 'closed', detail: '' });
+    const reopened = applyFeedbackOps(closed.text, opts([{ op: 'open', item: 6 }, { op: 'open', item: 7 }], 'You'));
+    const [six, seven] = parseFeedback(reopened.text).items;
+    expect(six).toMatchObject({ checked: false, state: 'open' });
+    expect(six!.events.at(-1)).toMatchObject({ key: 'You', verb: 'reopen' });
+    expect(seven).toMatchObject({ checked: false, state: 'open' });
+    expect(seven!.events.at(-1)).toMatchObject({ key: 'You', verb: 'reopen' });
+    // A close after a closing verb, and an open on an open item, add no second event.
+    const done = applyFeedbackOps(reopened.text, opts([{ op: 'append', item: 6, key: 'Claude', text: 'done' }, { op: 'close', item: 6 }, { op: 'open', item: 6 }, { op: 'close', item: 7 }]));
+    expect(parseFeedback(done.text).items[0]!.events.slice(-2).map((e) => e.verb)).toEqual(['done', 'reopen']);
+    expect(parseFeedback(done.text).items[1]).toMatchObject({ checked: true, state: 'done' });
+    expect(parseFeedback(done.text).items[1]!.events.at(-1)).toMatchObject({ key: 'Claude', verb: 'closed' });
+    const twice = applyFeedbackOps(SAMPLE, opts([{ op: 'open', item: 6 }]));
+    expect(twice.text).toBe(SAMPLE);
+  });
+
+  it('keeps trailing blank lines and CRLF endings exactly', () => {
+    const op = { op: 'append', item: 7, key: 'Claude', text: 'note · later' };
+    const tail = applyFeedbackOps(`${SAMPLE}\n\n`, opts([op]));
+    expect(tail.text).toBe(`${SAMPLE}    Claude: 2026-10-21 · note · later\n\n\n`);
+    const bare = SAMPLE.slice(0, -1);
+    expect(applyFeedbackOps(bare, opts([op])).text).toBe(`${bare}\n    Claude: 2026-10-21 · note · later`);
+    const crlf = `${SAMPLE.replace(/\n/g, '\r\n')}\r\n`;
+    const out = applyFeedbackOps(crlf, opts([op, { op: 'addItem', title: 'Later' }, { op: 'addRound', label: 'more' }]));
+    expect(out.text.replace(/\r\n/g, '')).not.toContain('\n');
+    expect(out.text.endsWith('\r\n\r\n')).toBe(true);
+    expect(out.text.startsWith(crlf.slice(0, crlf.indexOf('## Round 2')))).toBe(true);
+    expect(parseFeedback(out.text).items.map((i) => i.n)).toEqual([6, 7, 8]);
+  });
+
+  it('escapes control characters in a new title', () => {
+    const output = 'page\n- [ ] #99 Fake approval\n    You: 2026-10-18 · accept\nz.html';
+    const { text } = applyFeedbackOps(undefined, { output, by: 'Claude', date: '2026-10-21', ops: [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Real' }] });
+    const doc = parseFeedback(text);
+    expect(doc.items.map((i) => i.n)).toEqual([1]);
+    expect(doc.items[0]!.events.map((e) => e.key)).toEqual(['Claude']);
+    expect(text.split('\n')[0]).toBe('# Feedback · page\\n- [ ] #99 Fake approval\\n    You: 2026-10-18 · accept\\nz.html');
+  });
+
   it('refuses bad ops without changing anything', () => {
     const bad = [
       [{ op: 'append', item: 9, key: 'Change', text: 'x' }],

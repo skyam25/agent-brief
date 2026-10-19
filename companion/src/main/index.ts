@@ -1,7 +1,7 @@
 import { BehaviorStore } from './behavior';
 import { FeedbackStore } from './feedback';
 import { FeedbackWorkspaces } from './feedback-workspace';
-import { FeedbackSnaps, offscreenCapture } from './feedback-snap';
+import { captureSession, FeedbackSnaps, offscreenCapture } from './feedback-snap';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -189,7 +189,8 @@ async function start(): Promise<void> {
   const briefs = new Briefs({ state, store, drafts, sessions: () => server.sessions(), send, onPublish: () => files.sync() });
   const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
   const feedback = new FeedbackStore(() => send(CH.feedbackChanged));
-  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow) });
+  const captures = captureSession(session.fromPartition('feedback-capture'), (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
+  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow, captures) });
   const behaviorRoot = (sessionId: string) => {
     const cwd = briefs.cwdOf(sessionId);
     if (!cwd) throw new Error('Unknown session');
@@ -533,7 +534,7 @@ async function start(): Promise<void> {
   ipc.handle('openOutputElsewhere', (sessionId: string, ref: unknown) => files.openElsewhere(sessionId, ref));
   ipc.handle('readBehavior', (sessionId: string, path: unknown) => behaviors.read(behaviorRoot(sessionId), path));
   ipc.handle('decideBehavior', (sessionId: string, path: unknown, decision: unknown) => behaviors.decide(behaviorRoot(sessionId), path, decision));
-  ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path));
+  ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path, { orphan: true }));
   ipc.handle('updateFeedback', (sessionId: string, path: unknown, update: unknown) => feedback.update(behaviorRoot(sessionId), path, update, 'You'));
   ipc.handle('listFeedback', (sessionId: string) => feedback.project(behaviorRoot(sessionId)));
   ipc.handle('openFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, snapshot?: unknown) => workspaces.open(behaviorRoot(sessionId), path, n, snapshot));

@@ -1,10 +1,11 @@
 /** Panel and agent writes to feedback files go through this synchronous, version-checked store. */
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
 import { buildFeedbackGraph, type GraphFile } from '../shared/feedback-graph';
-import { applyFeedbackOps, FEEDBACK_SUFFIX, feedbackPath, feedbackSummary, FeedbackOpError, isoDate, parseFeedback, type FeedbackActor } from '../shared/feedback';
+import { applyFeedbackOps, FEEDBACK_SUFFIX, feedbackSummary, FeedbackOpError, isoDate, parseFeedback, type FeedbackActor } from '../shared/feedback';
+import { resolveFeedback } from './feedback-paths';
 
 class FeedbackError extends Error {
   constructor(readonly code: 'bad_request' | 'conflict', message: string) { super(message); }
@@ -16,23 +17,8 @@ const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_FILES = 200;
 const MAX_DIRS = 5000;
 
-const within = (root: string, p: string) => { const rel = relative(root, p); return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
-
 export class FeedbackStore {
   constructor(private readonly changed: () => void = () => {}, private readonly now: () => Date = () => new Date()) {}
-
-  private file(root: string, output: unknown): { file: string; path: string; output: string } {
-    if (typeof output !== 'string' || isAbsolute(output) || output.split(/[\\/]/).some((p) => p.startsWith('.') || !p)) return bad('Expected a project-relative output path without dot folders');
-    if (output.endsWith(FEEDBACK_SUFFIX)) return bad('Name the output, not its feedback file');
-    const realRoot = realpathSync(root);
-    const target = resolve(realRoot, output);
-    if (!within(realRoot, target) || !existsSync(target) || !within(realRoot, realpathSync(target)) || !statSync(target).isFile()) return bad('Output must be a file inside the project');
-    // Resolve the output first, so aliases share one feedback file.
-    const real = realpathSync(target);
-    const file = feedbackPath(real);
-    if (existsSync(file) && (lstatSync(file).isSymbolicLink() || !statSync(file).isFile())) return bad('Feedback file must be a regular file');
-    return { file, path: relative(realRoot, file), output: relative(realRoot, real) };
-  }
 
   private text(file: string, path: string): string | undefined {
     if (!existsSync(file)) return undefined;
@@ -40,17 +26,19 @@ export class FeedbackStore {
     return readFileSync(file, 'utf8');
   }
 
-  read(root: string, output: unknown): FeedbackDocument {
-    const where = this.file(root, output);
+  /** With `orphan`, a feedback file whose output is gone reads too. Writes always need the output. */
+  read(root: string, output: unknown, opts: { orphan?: boolean } = {}): FeedbackDocument {
+    const where = resolveFeedback(root, output, opts);
     const text = this.text(where.file, where.path);
-    if (text === undefined) return { title: '', rounds: [], items: [], path: where.path, output: where.output, version: 'missing' };
-    return { ...parseFeedback(text), path: where.path, output: where.output, version: hash(text) };
+    const gone = where.outputExists ? {} : { outputExists: false as const };
+    if (text === undefined) return { title: '', rounds: [], items: [], path: where.path, output: where.output, version: 'missing', ...gone };
+    return { ...parseFeedback(text), path: where.path, output: where.output, version: hash(text), ...gone };
   }
 
   update(root: string, output: unknown, raw: unknown, by: FeedbackActor): FeedbackUpdateResult {
     const req = raw as FeedbackUpdate | undefined;
     if (!req || typeof req !== 'object' || typeof req.version !== 'string' || !Array.isArray(req.ops)) return bad('Expected version and ops');
-    const where = this.file(root, output);
+    const where = resolveFeedback(root, output);
     const before = this.text(where.file, where.path);
     if ((before === undefined ? 'missing' : hash(before)) !== req.version) throw new FeedbackError('conflict', 'Feedback changed since you read it. Read it again and retry. Nothing was written.');
     let next: ReturnType<typeof applyFeedbackOps>;
