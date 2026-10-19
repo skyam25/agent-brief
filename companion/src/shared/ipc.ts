@@ -300,6 +300,13 @@ export interface NewNote {
   review?: DraftReview;
 }
 
+/** An output with no page that /open asked to show on its Feedback tab, in Review's full-width Feedback view. */
+export interface OpenFeedbackView {
+  sessionId: string;
+  /** Project-relative. */
+  path: string;
+}
+
 /** A note /write reopens, with the session to file it under when it has none. */
 export interface OpenDraft {
   id: string;
@@ -409,6 +416,7 @@ export interface CompanionApi extends BoardHost {
   onNewNote(fn: (note: NewNote) => void): Subscription;
   /** Fires when /write reopens a session's note. */
   onOpenDraft(fn: (open: OpenDraft) => void): Subscription;
+  onOpenFeedbackView(fn: (open: OpenFeedbackView) => void): Subscription;
   /** Fires when main saved a draft the panel did not make, such as a note from `agent-brief note`. */
   onDraftsChanged(fn: () => void): Subscription;
   /** Puts rich text and its plain form on the clipboard in one write. */
@@ -543,6 +551,7 @@ export const CH = {
   setMode: 'panel:mode',
   newNote: 'panel:new-note',
   openDraft: 'panel:open-draft',
+  openFeedbackView: 'panel:open-feedback-view',
   listBriefs: 'briefs:list',
   briefs: 'briefs:changed',
   switchBrief: 'briefs:switch',
@@ -686,6 +695,7 @@ export const IPC_EVENT = {
   onVisibility: CH.visibility,
   onNewNote: CH.newNote,
   onOpenDraft: CH.openDraft,
+  onOpenFeedbackView: CH.openFeedbackView,
   onBriefs: CH.briefs,
   onDraftsChanged: CH.draftsChanged,
   onItems: CH.items,

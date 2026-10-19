@@ -126,7 +126,8 @@ test('a second session finds the project feedback that another session cataloged
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-b' });
   await page.getByTestId('mode-review').click();
   await expect(rows.locator('[data-ref]')).toHaveCount(2);
-  await expect(rows.locator('[data-ref="docs/prd.md"]')).toContainText('Feedback · 1 open');
+  await expect(rows.locator('li', { has: page.locator('[data-ref="docs/prd.md"]') }).locator('button.output-feedback')).toHaveText('Feedback · 1 open');
+  await expect(rows.locator('[data-ref="checkout.html"]')).toContainText('Feedback · 1 open');
   await expect(page.getByTestId('outputs').locator('.output-dismiss')).toHaveCount(0);
   await openPrd();
   await page.screenshot({ path: join(RESULTS, 'feedback-project-rows.png') });

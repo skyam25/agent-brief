@@ -127,3 +127,23 @@ test('opens feedback full width for an output with no page', async () => {
   await expect(view.getByTestId('feedback-item-1')).toHaveCount(0);
   await page.screenshot({ path: join(RESULTS, 'feedback-graph-inline.png') });
 });
+
+test('/open on the Feedback tab opens a Markdown output full width, and without the tab opens Write', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'docs/prd.md', '# PRD\n\n## Pricing\n');
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fb-3', cwd, title: 'PRD' });
+  await agent(h.socketPath, '/sessions/fb-3/feedback?path=docs/prd.md', [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Pricing section is thin' }]);
+  const opened = await sock<{ opened?: string }>(h.socketPath, 'POST', '/open', { sessionId: 'fb-3', output: { path: 'docs/prd.md', tab: 'feedback' } });
+  expect(opened).toMatchObject({ status: 200, body: { opened: 'review' } });
+  await expect(page.getByTestId('mode-review')).toHaveAttribute('aria-selected', 'true');
+  const view = page.getByTestId('feedback-view');
+  await expect(view).toContainText('docs/prd.md');
+  await expect(view.getByTestId('feedback-item-1')).toContainText('Pricing section is thin');
+  await page.screenshot({ path: join(RESULTS, 'feedback-open-tab.png') });
+
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fb-3', output: { path: 'docs/prd.md' } });
+  await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
+});

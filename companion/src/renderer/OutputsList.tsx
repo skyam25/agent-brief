@@ -193,10 +193,13 @@ function OutputRow(props: {
           {showRef && <span className="muted output-ref">{r.ref}</span>}
           <span className="muted preview">
             <span className="kind-tag">{KIND_LABELS[r.kind]}</span>
+            {/* A row with a Feedback button carries its count there. */}
             {props.feedbackOnly ? (
-              <span className="origin" data-testid={`output-feedback-only-${index}`}>
-                Feedback · {props.feedbackOnly.open} open
-              </span>
+              !props.onFeedback && (
+                <span className="origin" data-testid={`output-feedback-only-${index}`}>
+                  Feedback · {props.feedbackOnly.open} open
+                </span>
+              )
             ) : declared ? (
               <>
                 <span className={`status-chip ${r.status ?? 'drafting'}`} data-testid={`output-status-${index}`}>

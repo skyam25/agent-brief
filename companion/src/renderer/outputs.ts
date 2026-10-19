@@ -9,6 +9,8 @@ export class OutputsStore {
   version = 0;
   private readonly infos = new Map<string, OutputsInfo>();
   private readonly listeners = new Set<() => void>();
+  /** Outputs /open asked to show in the Feedback view, by session. Review takes each once. */
+  private readonly feedbackAsks = new Map<string, string>();
 
   constructor(private readonly host: OutputsHost) {
     host.onOutputs((info) => this.put(info));
@@ -37,5 +39,16 @@ export class OutputsStore {
 
   info(sessionId: string): OutputsInfo | undefined {
     return this.infos.get(sessionId);
+  }
+
+  askFeedback(sessionId: string, path: string): void {
+    this.feedbackAsks.set(sessionId, path);
+    this.emit();
+  }
+
+  takeFeedback(sessionId: string): string | undefined {
+    const path = this.feedbackAsks.get(sessionId);
+    this.feedbackAsks.delete(sessionId);
+    return path;
   }
 }

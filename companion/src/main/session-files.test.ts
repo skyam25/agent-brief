@@ -107,6 +107,15 @@ describe('SessionFiles', () => {
     expect(opened).toEqual([]);
   });
 
+  it('opens a Markdown output asked for on its Feedback tab in the full-width Feedback view', async () => {
+    writeFileSync(join(cwd, 'plan.md'), '# Plan');
+    expect(await files.openDocument('s1', './plan.md', 'feedback')).toBe('review');
+    expect(last(CH.openFeedbackView)).toEqual({ sessionId: 's1', path: 'plan.md' });
+    expect(last(CH.newNote)).toBeUndefined();
+    await expect(files.openDocument('s1', 'missing.md', 'feedback')).rejects.toThrow('does not exist yet');
+    await expect(files.openDocument('s1', '../escape.md', 'feedback')).rejects.toThrow('outside the project');
+  });
+
   it('refuses a document that is missing, outside the project, or a symlink out of it', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'outside-'));
     writeFileSync(join(outside, 'secret.md'), 'no');

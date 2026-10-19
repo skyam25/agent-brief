@@ -18,6 +18,17 @@ function store(read: OutputsInfo | undefined = info()) {
 }
 
 describe('OutputsStore', () => {
+  it('holds the Feedback view /open asked for until Review takes it once', () => {
+    const { outputs } = store();
+    let calls = 0;
+    outputs.subscribe(() => calls++);
+    outputs.askFeedback('s1', 'docs/prd.md');
+    expect(calls).toBe(1);
+    expect(outputs.takeFeedback('s2')).toBeUndefined();
+    expect(outputs.takeFeedback('s1')).toBe('docs/prd.md');
+    expect(outputs.takeFeedback('s1')).toBeUndefined();
+  });
+
   it('loads a session and takes pushed changes, bumping its version', async () => {
     const { outputs, push } = store();
     let calls = 0;

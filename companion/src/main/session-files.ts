@@ -4,11 +4,11 @@
  */
 
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, normalize, relative, resolve } from 'node:path';
 import { outputsFile } from '../protocol';
 import { itemsFile } from '../server/index';
 import { newDraftId } from '../shared/drafts';
-import { CH, type Decision, type ItemsDocInfo, type OutputsInfo } from '../shared/ipc';
+import { CH, type Decision, type ItemsDocInfo, type OpenFeedbackView, type OutputsInfo } from '../shared/ipc';
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
 import { isMarkdownRef, isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
@@ -195,9 +195,18 @@ export class SessionFiles {
     briefs.startNote({ text, id: newDraftId(), sessionId, source: { path: ref } }, false);
   }
 
-  /** Opens a Markdown or HTML output in the panel for POST /open, and says where it opened. */
-  async openDocument(sessionId: string, path: string): Promise<'note' | 'review'> {
+  /**
+   * Opens a Markdown or HTML output in the panel for POST /open, and says where it opened.
+   * On the Feedback tab, a Markdown output opens in Review's full-width Feedback view.
+   */
+  async openDocument(sessionId: string, path: string, tab?: 'feedback'): Promise<'note' | 'review'> {
     if (!isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file`);
+    if (tab === 'feedback' && !isReviewable(path)) {
+      this.projectFile(sessionId, path);
+      const open: OpenFeedbackView = { sessionId, path: normalize(path) };
+      this.deps.send(CH.openFeedbackView, open);
+      return 'review';
+    }
     await this.openOutput(sessionId, path);
     return isReviewable(path) ? 'review' : 'note';
   }

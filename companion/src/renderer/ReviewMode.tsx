@@ -16,7 +16,7 @@ import { DeleteItem } from './FooterMenu';
 import { useStore } from './hooks';
 import type { ItemsStore } from './items';
 import { ItemsView } from './ItemsView';
-import { OutputsList } from './OutputsList';
+import { canonicalRef, OutputsList } from './OutputsList';
 import type { OutputsStore } from './outputs';
 import { ReviewView, type ReviewDraft, type ReviewHost } from './ReviewView';
 import type { ReviewVoice } from './review-voice';
@@ -75,10 +75,20 @@ export function ReviewMode(props: {
   const openItems = list?.filter((i) => !i.done).length ?? 0;
   const waiting = list?.filter(awaitsUser).length ?? 0;
 
+  /** /open asked for a Feedback view, so the pane opens no page of its own. */
+  const askedFeedback = useRef(false);
   useEffect(() => {
     setItemsPicked(false);
     setFeedbackFor(undefined);
+    askedFeedback.current = false;
   }, [sessionId]);
+  // A file with no page that /open asked to show on its Feedback tab.
+  useEffect(() => {
+    const path = sessionId && props.outputs.takeFeedback(sessionId);
+    if (!path) return;
+    askedFeedback.current = true;
+    openFeedback(canonicalRef(path));
+  }, [sessionId, outputs.version]);
 
   // With nothing picked, the pane opens on the work: the newest review, else the newest Ready page.
   // It waits for the session's lists, and tries each choice once, so a page that fails to open leaves the items in view.
@@ -86,7 +96,7 @@ export function ReviewMode(props: {
   const itemsInfo = sessionId ? items.doc(sessionId) : undefined;
   const tried = useRef(new Set<string>());
   useEffect(() => {
-    if (!sessionId || open || itemsPicked || feedbackFor) return;
+    if (!sessionId || open || itemsPicked || feedbackFor || askedFeedback.current) return;
     if (!outputsInfo) {
       void props.outputs.load(sessionId).catch(() => undefined);
       return;

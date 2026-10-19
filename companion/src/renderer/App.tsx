@@ -239,6 +239,13 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
       host.onOpenSettings(() => setSettingsOpen(true)), host.onUpdate(setUpdate),
     ];
     void host.getUpdate().then(setUpdate);
+    // A file with no page opens its Feedback view in Review, as /open asked.
+    subscriptions.push(
+      host.onOpenFeedbackView(({ sessionId, path }) => {
+        outputs.askFeedback(sessionId, path);
+        changeMode('review');
+      }),
+    );
     return () => {
       for (const off of subscriptions) if (typeof off === 'function') off();
     };
