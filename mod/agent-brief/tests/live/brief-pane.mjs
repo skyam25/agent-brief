@@ -2,7 +2,8 @@
 /**
  * Live check of the Brief pane: a real interactive Claude Code session in tmux with this
  * checkout's mod, a stub companion server, and no model calls. Run by hand, never by
- * `claude plugin test`. It presses the band's Brief button and expects the pane to dock.
+ * `claude plugin test`. It presses the band's Brief button and expects the pane to dock,
+ * with the landing mock's feedback count, and In Agent Brief asking for its Feedback tab.
  *
  * The terminal is 117 columns by default, under the 144-column floor an unasked pane waits
  * for, so the check fails when the open stops counting as the user's press.
@@ -20,7 +21,13 @@ const project = join(tmp, 'demo-project')
 mkdirSync(project)
 mkdirSync(join(tmp, 'inbox'))
 const socketPath = join(tmp, 's.sock')
-const server = await stubServer(tmp, socketPath)
+const opens = []
+const server = await stubServer(tmp, socketPath, {
+  open: async req => {
+    opens.push(req)
+    return { board: 'main', ...(req.output ? { opened: 'review' } : {}) }
+  },
+})
 const term = terminal(`brief-pane-${process.pid}`)
 
 try {
@@ -60,18 +67,41 @@ try {
     '      Claude: done',
     '',
   ].join('\n'))
+  mkdirSync(join(project, 'mock'), { recursive: true })
+  writeFileSync(join(project, 'mock/landing.html'), '<h1>Landing</h1>')
+  writeFileSync(join(project, 'mock/landing.html.feedback.md'), [
+    '# Feedback · landing.html',
+    '',
+    '## Round 1 · customers · 2026-10-12',
+    '',
+    '- [ ] #1 Hero is vague',
+    '    Claude: 2026-10-12 · cataloged',
+    '- [ ] #2 Pricing hidden',
+    '    Claude: 2026-10-12 · cataloged',
+    '- [x] #3 Footer',
+    '    Claude: 2026-10-12 · done',
+    '',
+  ].join('\n'))
 
   await term.pressBand('b')
   const opened = await until(() => term.capture().includes('Brief ·'), 15_000, 500)
   await sleep(1000)
   term.capture()
-  const rows = ['Outputs', 'Pricing plan', 'Items', '#2 Rows too tight', 'Send answers'].filter(t => !term.pane.includes(t))
+  const rows = ['Outputs', 'Pricing plan', 'Feedback · 2 open', 'Items', '#2 Rows too tight', 'Send answers'].filter(t => !term.pane.includes(t))
   const ok = Boolean(opened) && rows.length === 0
   console.log(`${ok ? 'PASS' : 'FAIL'}  Brief pane at ${process.env.COLS ?? '117'} columns${opened ? '' : ': pane did not open'}${rows.length ? `: missing ${rows.join(', ')}` : ''}`)
   if (!ok) {
     console.log(`--- screen ---\n${term.pane.trimEnd()}\n---`)
     process.exitCode = 1
   }
+  // The landing mock is the first row, so the first In Agent Brief is its own.
+  const clicked = await term.click('In Agent Brief')
+  await until(() => opens.some(r => r.output), 5_000, 300)
+  const asked = opens.find(r => r.output)?.output
+  const tabbed = clicked && asked?.path === 'mock/landing.html' && asked?.tab === 'feedback'
+  console.log(`${tabbed ? 'PASS' : 'FAIL'}  In Agent Brief opens the landing mock on its Feedback tab${tabbed ? '' : `: ${JSON.stringify(asked ?? null)}`}`)
+  if (!tabbed) process.exitCode = 1
+
   // Escape hands the keys back but leaves the pane docked. The band's b closes it.
   term.keys('Escape')
   await sleep(400)

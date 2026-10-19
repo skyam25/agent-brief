@@ -10,6 +10,7 @@ import {
   inlineSummary,
   isOutputOpened,
   itemRows,
+  openFeedback,
   openTarget,
   outputRows,
   projectName,
@@ -117,6 +118,24 @@ describe('held answers', () => {
   })
 })
 
+const FEEDBACK = [
+  '# Feedback · checkout.html',
+  '',
+  '## Round 1 · customers · 2026-10-12',
+  '',
+  '- [ ] #1 Filters',
+  '    Claude: 2026-10-12 · cataloged',
+  '- [ ] #2 Accepted',
+  '    Claude: 2026-10-12 · cataloged',
+  '    You: 2026-10-12 · accept',
+  '- [ ] #3 Reopened',
+  '    Claude: 2026-10-12 · done',
+  '    You: 2026-10-13 · reopen',
+  '- [x] #4 Done',
+  '    Claude: 2026-10-12 · done',
+  '',
+].join('\n')
+
 describe('outputRows', () => {
   test('lists declared outputs newest first, then touched ones in file order', () => {
     const { declared, touched } = outputRows(OUTPUTS)
@@ -129,6 +148,14 @@ describe('outputRows', () => {
       ['notes/touched.md', 'Touched'],
       ['mock.html', 'Touched'],
     ])
+  })
+
+  test('counts open and raised-again feedback items', () => {
+    expect(openFeedback(FEEDBACK)).toBe(2)
+    expect(openFeedback('# Feedback · page.html\n')).toBe(0)
+    const { declared } = outputRows(OUTPUTS, { 'docs/spec.md': 2 })
+    expect(declared.find(r => r.ref === 'docs/spec.md')!.feedback).toBe('Feedback · 2 open')
+    expect(declared.find(r => r.label === 'Deck')!.feedback).toBeUndefined()
   })
 
   test('opens a URL as given and a file by its absolute path', () => {
