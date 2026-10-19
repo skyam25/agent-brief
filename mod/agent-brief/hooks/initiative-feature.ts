@@ -40,6 +40,12 @@ const refusedRef = atom({ plugin: 'agent-brief', key: 'initiativeRefusals' } as 
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
 
+/**
+ * Counts the attaches and detaches this session started. A read that began before one is stale,
+ * so `fetchInitiative` drops it rather than overwrite the newer pick.
+ */
+let changes = 0
+
 export interface InitiativeEnvironment {
   request: (method: string, path: string, body?: unknown) => Promise<{ ok: boolean; status: number; body: unknown } | undefined>
   home: () => Promise<string>
@@ -59,11 +65,12 @@ async function keepInitiative($: EngineInterface, snapshot: InitiativeSnapshot |
 
 /**
  * This session's initiative as the app holds it. Null when it has none: a 204, or a 404 from an app without initiatives.
- * Undefined when the app did not answer, which leaves the kept value alone.
+ * Undefined when the app did not answer, or a pick overtook the read, which leaves the kept value alone.
  */
 export async function fetchInitiative($: EngineInterface, env: InitiativeEnvironment): Promise<InitiativeSnapshot | null | undefined> {
+  const seen = changes
   const reply = await env.request('GET', sessionInitiativePath(await $.session.id()))
-  if (reply === undefined) return undefined
+  if (reply === undefined || seen !== changes) return undefined
   const snapshot = reply.ok ? (snapshotOf(reply.body) ?? null) : reply.status === 404 ? null : undefined
   if (snapshot !== undefined) await keepInitiative($, snapshot)
   return snapshot
@@ -155,6 +162,7 @@ export async function initiativeCommand($: EngineInterface, env: InitiativeEnvir
 
 /** The band's picker and the Brief pane's Select: attaches this session to the picked initiative. */
 export async function attachFromBand($: EngineInterface, env: InitiativeEnvironment, initiativeId: string): Promise<void> {
+  changes++
   await update($, pickingRef, () => 'none')
   if (!(await env.ready())) {
     await refused($, env, INITIATIVE_APP_DOWN)
@@ -183,6 +191,7 @@ async function refused($: EngineInterface, env: InitiativeEnvironment, text: str
 
 /** The picker's Detach, or None in the Brief pane's Select. Claude reads a note about it with the next prompt. */
 export async function detachFromBand($: EngineInterface, env: InitiativeEnvironment): Promise<void> {
+  changes++
   await update($, pickingRef, () => 'none')
   const title = (await read($, initiativeRef))?.title
   const reply = await env.request('DELETE', sessionInitiativePath(await $.session.id()))
@@ -200,7 +209,7 @@ export async function initiativeView($: EngineInterface) {
   const recent = await read($, recentRef)
   return {
     initiative,
-    choices: pickChoices(initiative, recent.slice(0, RECENT_LIMIT)),
+    choices: pickChoices(initiative, recent),
     listed: pickChoices(initiative, recent, LISTED_LIMIT),
     /** How many changes the app refused, which keys the pane's Select afresh. */
     refusals: await read($, refusedRef),

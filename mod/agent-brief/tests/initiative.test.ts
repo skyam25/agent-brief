@@ -135,7 +135,8 @@ describe('initiative logic', () => {
   test('the change row puts the attached one first, then the recent ones', () => {
     const attached = { id: 'b', title: 'B', revision: 1, attachmentRevision: 1 }
     const recent = ['a', 'b', 'c', 'd'].map(id => ({ id, title: id.toUpperCase(), line: '' }))
-    expect(pickChoices(attached, recent).map(c => c.id)).toEqual(['b', 'a', 'c', 'd'])
+    expect(pickChoices(attached, recent).map(c => c.id)).toEqual(['b', 'a', 'c'])
+    expect(pickChoices(attached, recent, 20).map(c => c.id)).toEqual(['b', 'a', 'c', 'd'])
     expect(pickChoices(null, recent.slice(0, 2)).map(c => c.id)).toEqual(['a', 'b'])
   })
 
@@ -429,15 +430,26 @@ describe('the band and the pane', () => {
     for (const title of ['None', 'Pricing', 'Onboarding', 'Checkout', 'Search']) expect(pane).toContain(`"label":"${title}"`)
   })
 
-  test('the Brief pane reads an attachment made elsewhere when it draws', async ($, on) => {
+  test('the Brief pane\'s first draw reads an attachment made elsewhere, even just after registration', async ($, on) => {
     const { app, clock } = await setup($, on)
-    await $.ui.render(briefPane())
-    await clock.settle()
     attach(app, 'ini-checkout')
-    await clock.advance(31_000)
     await $.ui.render(briefPane())
     await clock.settle()
     expect(JSON.stringify(await $.ui.render(briefPane()))).toContain('"value":"ini-checkout"')
+  })
+
+  test('a later draw reads again after 30 s', async ($, on) => {
+    const { app, clock } = await setup($, on)
+    await $.ui.render(briefPane())
+    await clock.settle()
+    attach(app, 'ini-onboarding')
+    await $.ui.render(briefPane())
+    await clock.settle()
+    expect(JSON.stringify(await $.ui.render(briefPane())), 'fresh for 30 s').toContain('"value":""')
+    await clock.advance(31_000)
+    await $.ui.render(briefPane())
+    await clock.settle()
+    expect(JSON.stringify(await $.ui.render(briefPane()))).toContain('"value":"ini-onboarding"')
   })
 
   test('a refused pick leaves the Select on the attachment the app holds', async ($, on) => {
@@ -453,7 +465,7 @@ describe('the band and the pane', () => {
     expect(pane).toContain('"value":"ini-pricing"')
   })
 
-  test('the band picks among three recent, and the pane lists at most 20', async ($, on) => {
+  test('the band picks among three, and the pane lists at most 20', async ($, on) => {
     const { app } = await setup($, on)
     const pricing = app.initiatives.get('ini-pricing')!
     for (let n = 0; n < 25; n++) app.initiatives.set(`ini-x${n}`, { ...pricing, id: `ini-x${n}`, title: `X${n}` })
@@ -462,7 +474,7 @@ describe('the band and the pane', () => {
     await $.ui.render(BAND)
     await $.ui.press({ plugin: 'agent-brief', key: 'initiative-change' })
     const row = await band($)
-    expect(row.match(/"key":"initiative-ini-/g)?.length).toBe(4)
+    expect(row.match(/"key":"initiative-ini-/g)?.length).toBe(3)
     const pane = JSON.stringify(await $.ui.render(briefPane()))
     const options = JSON.parse(pane.match(/"key":"brief-initiative","options":(\[.*?\])/)![1]!) as { value: string }[]
     expect(options.length).toBe(21)

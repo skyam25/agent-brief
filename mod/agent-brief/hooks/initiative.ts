@@ -8,8 +8,8 @@ export const INITIATIVE_MARK = '--- Agent Brief initiative ---'
 export const RECENT_LIMIT = 3
 /** How many initiatives the Brief pane's Select lists. */
 export const LISTED_LIMIT = 20
-/** The band's change row cuts titles past this. */
-const TITLE_COLUMNS = 24
+/** The band's pick row cuts titles past this, so three choices, Detach and Cancel fit 110 columns. */
+const TITLE_COLUMNS = 20
 
 export const INITIATIVE_USAGE = 'Usage: /initiative [<name> | off | refresh | discover]'
 export const INITIATIVE_NOT_RUNNING = 'Agent Brief is not running. Start it, then run /initiative again.'
@@ -208,8 +208,8 @@ export function recentLine(recent: readonly Pick<InitiativeChoice, 'title'>[]): 
 
 export const bandTitle = (title: string) => (title.length <= TITLE_COLUMNS ? title : `${title.slice(0, TITLE_COLUMNS - 1).trimEnd()}…`)
 
-/** The attached initiative first, then the recent ones, up to `limit`. The band's picker takes the attached one and three recent. */
-export function pickChoices(attached: AttachedInitiative | null, recent: readonly InitiativeChoice[], limit = RECENT_LIMIT + 1): { id: string; title: string }[] {
+/** The attached initiative first, then the recent ones, up to `limit`. The band's pick row takes three. */
+export function pickChoices(attached: AttachedInitiative | null, recent: readonly InitiativeChoice[], limit = RECENT_LIMIT): { id: string; title: string }[] {
   const rows = attached === null ? [] : [{ id: attached.id, title: attached.title }]
   for (const r of recent) if (!rows.some(row => row.id === r.id)) rows.push({ id: r.id, title: r.title })
   return rows.slice(0, limit)

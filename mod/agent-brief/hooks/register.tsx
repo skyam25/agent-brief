@@ -275,10 +275,7 @@ async function registerSession($: EngineInterface): Promise<boolean> {
   registeredId = sessionId
   registeredAt = await $.clock.now()
   if (isNew && (await read($, modeRef)) !== 'default') await mirrorMode($)
-  if (isNew) {
-    initiativesReadAt = registeredAt
-    void loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`))
-  }
+  if (isNew) void loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`))
   return true
 }
 
@@ -607,15 +604,24 @@ async function loadBrief($: EngineInterface): Promise<void> {
 let isBriefOpen = false
 
 /**
- * When the session last asked the app for the initiatives and its attachment, at registration or from the Brief pane.
- * The pane reads them again when it draws after 30 s, and on its first draw after the band opens it or any close.
+ * When the Brief pane last asked the app for the initiatives and this session's attachment.
+ * Undefined until the pane's first draw after an open, which reads them, as does a draw after 30 s.
+ * A plugin's own opens skip its `ui.open` hook, so the pane's draw is what sees every open.
  */
 let initiativesReadAt: number | undefined
 const INITIATIVES_FRESH_MS = 30_000
 
-/** Redraws the Brief pane each minute while it is placed, so output ages stay current. */
+/** Redraws the Brief pane each minute while it is placed, so output ages and the initiatives stay current. */
 let briefAging: { cancel(): void } | undefined
 const AGING_MS = 60_000
+
+/** Forgets the drawn pane, so the next open reads the initiatives again and starts its own aging. */
+function briefClosed(): void {
+  isBriefOpen = false
+  initiativesReadAt = undefined
+  briefAging?.cancel()
+  briefAging = undefined
+}
 
 /**
  * The band's Brief button: opens the pane, or closes it while open. Never opens on its own.
@@ -624,13 +630,11 @@ const AGING_MS = 60_000
  */
 function toggleBrief($: EngineInterface): Promise<void> {
   if (isBriefOpen) {
-    isBriefOpen = false
-    initiativesReadAt = undefined
+    briefClosed()
     return $.ui.close({ id: BRIEF_PANE })
   }
   isBriefOpen = true
   const opening = $.ui.open({ id: BRIEF_PANE, title: 'Brief', columns: BRIEF_COLUMNS, rows: BRIEF_ROWS })
-  initiativesReadAt = undefined
   return opening.then(async opened => {
     if (!opened.isPlaced) $.ui.toast(`Brief pane not shown: ${opened.reason}`, { timeoutMs: 8000 })
     await loadBrief($).catch(err => log($, `brief load failed: ${String(err)}`))
@@ -1259,6 +1263,7 @@ export const register: Register = (on, options) => {
     const table = $.ui.resolve(e)
     const hasFields = e.surface !== 'mobile'
     const now = await $.clock.now()
+    briefAging ??= $.clock.every(AGING_MS, () => $.ui.invalidate('ui.render'))
     if (initiativesReadAt === undefined || now - initiativesReadAt > INITIATIVES_FRESH_MS) {
       initiativesReadAt = now
       $.clock.after(0, () => loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`)))
@@ -1471,17 +1476,11 @@ export const register: Register = (on, options) => {
   // A placed open from any module, and a close by the person, keep the band's toggle right.
   on('ui.open', { id: BRIEF_PANE }, async ($, e, next) => {
     const opened = await next(e)
-    if (opened.deny === undefined && opened.value.isPlaced) {
-      isBriefOpen = true
-      briefAging ??= $.clock.every(AGING_MS, () => $.ui.invalidate('ui.render'))
-    }
+    if (opened.deny === undefined && opened.value.isPlaced) isBriefOpen = true
     return opened
   })
   on('ui.close', { id: BRIEF_PANE }, ($, e, next) => {
-    isBriefOpen = false
-    initiativesReadAt = undefined
-    briefAging?.cancel()
-    briefAging = undefined
+    briefClosed()
     return next(e)
   })
 
