@@ -217,6 +217,7 @@ test('the layer keeps one column and a one-line header, and hides the panel foot
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'ws-5', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
   const card = page.getByTestId('feedback-item-1');
+  await card.getByTestId('feedback-expand').click();
   await card.getByTestId('feedback-note').fill('chips, not a dropdown');
   await card.getByTestId('feedback-note').press('Enter');
   await expect(card.getByTestId('feedback-note')).toHaveValue('');
@@ -352,6 +353,7 @@ test('hiding the panel stops the workspace mic', async () => {
   await agent(socketPath, '/sessions/ws-6/feedback?path=checkout.html', [{ op: 'addRound', label: 'customers' }, { op: 'addItem', title: 'Pricing is unclear' }]);
   await sock(socketPath, 'POST', '/open', { sessionId: 'ws-6', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
+  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
   await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
   const layer = page.getByTestId('workspace-layer');
   await expect(layer.locator('canvas.excalidraw__canvas.interactive')).toBeVisible();

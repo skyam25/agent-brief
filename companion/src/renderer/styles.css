@@ -3664,6 +3664,8 @@ button.feedback-option.on .key { color: var(--accent); }
 .workspace-layer { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); }
 /* Save to #N is the layer's only commit, so the panel's footer hides while it shows. */
 .panel:has(.workspace-layer) .composer { display: none; }
+/* The board takes the outputs list's room while it shows. */
+.review-mode:has(.workspace-layer) > .draft-list { display: none; }
 
 /* The header holds one row. The title and quote truncate, and labels drop to icons as it narrows. */
 .workspace-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; container-type: inline-size; }

@@ -653,12 +653,6 @@ export interface FeedbackItem {
   events: FeedbackEvent[];
   notes: string[];
   lines: FeedbackLine[];
-  /** `Option: <letter> · <text>` lines. */
-  options?: { key: string; text: string }[];
-  /** The option the last accept picked, as in `accept · option B`. */
-  chosen?: string;
-  /** The newest round whose `Src:` line comes after the item's last closing event. Unset while open. */
-  raisedAgain?: number;
 }
 
 export interface FeedbackDoc {

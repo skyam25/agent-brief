@@ -546,3 +546,35 @@ test('declared output rows show their open feedback, and the items section reads
   await expect(page.getByTestId('review-mode').locator('.draft-list')).toContainText('Session items');
   await page.screenshot({ path: join(RESULTS, 'feedback-output-rows.png') });
 });
+
+test('an open workspace layer closes the outputs list and the footer, so the board keeps its room', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page, app } = ctx;
+  await app.evaluate(() => globalThis.__companion.panel.win.setSize(1050, 800));
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  const now = Date.now();
+  const checkout: OutputRecord = { ref: 'checkout.html', title: 'Checkout', kind: 'html', tier: 'declared', status: 'ready', declaredAt: now, firstWriteAt: now, lastWriteAt: now, writes: 1 };
+  put(cwd, '.feedback/outputs/fp-11.json', JSON.stringify({ version: 1, sessionId: 'fp-11', outputs: [checkout] }));
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-11', cwd, title: 'Checkout' });
+  await agent(h.socketPath, '/sessions/fp-11/feedback?path=checkout.html', [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Title is vague' }]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-11', output: { path: 'checkout.html' } });
+  const list = page.getByTestId('review-mode').locator('.draft-list');
+  if (!(await list.isVisible())) await page.getByTestId('review-list-toggle').click();
+  await expect(list).toBeVisible();
+  await page.getByTestId('feedback-tab').click();
+  const card = page.getByTestId('feedback-item-1');
+  await expand(card);
+  await card.getByTestId('feedback-workspace-open').click();
+  const layer = page.getByTestId('workspace-layer');
+  const canvas = layer.locator('canvas.excalidraw__canvas.interactive');
+  await expect(canvas).toBeVisible();
+  await expect(list).toBeHidden();
+  await expect(page.getByTestId('composer')).toBeHidden();
+  expect((await canvas.boundingBox())!.width).toBeGreaterThan(500);
+  await page.screenshot({ path: join(RESULTS, 'feedback-workspace-narrow.png') });
+  await layer.getByTestId('workspace-back').click();
+  await expect(list).toBeVisible();
+  await expect(page.getByTestId('send')).toHaveText('Send decisions');
+});

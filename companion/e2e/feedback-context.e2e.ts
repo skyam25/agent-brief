@@ -69,6 +69,7 @@ test('a workspace seed crops the element inside its section, outlined', async ()
   });
   await sock(socketPath, 'POST', '/open', { sessionId: 'fc-2', output: { path: 'cart.html' } });
   await page.getByTestId('feedback-tab').click();
+  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
   await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
   const elements = async () => (await sock<ReadResponse>(socketPath, 'GET', '/boards/fb-cart-1/elements')).body.elements;
   await expect.poll(async () => (await elements())?.some((e) => e.type === 'image') ?? false).toBe(true);
@@ -89,6 +90,7 @@ test('Show on page scrolls the element into view and keeps it outlined', async (
   await page.getByTestId('feedback-tab').click();
   const coupon = page.frameLocator('[data-testid="review-frame"]').locator('#coupon');
   await expect(coupon).not.toBeInViewport();
+  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
   await page.getByTestId('feedback-item-1').getByTestId('feedback-show').click();
   await expect(coupon).toBeInViewport();
   // The pulse is over by now, and the outline stays.
