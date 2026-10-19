@@ -3,16 +3,25 @@
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
-import { app, dialog } from 'electron';
+import { app, type BrowserWindow, dialog, type MessageBoxOptions } from 'electron';
 import { findTool } from '../voice/compose';
 import { cliLinkPath, installCli, isTranslocated, MOVE_APP_FIRST, repairCli, type InstallResult } from './cli-install';
 import { agentBriefMarketplace, describeSource, installPlugin, repairPlugin, type RunClaude } from './plugin-install';
 
+export interface PluginInstall {
+  installed: boolean;
+  cli?: InstallResult;
+  cliError?: string;
+}
+
 export interface Installs {
   /** Links the CLI. With `confirm`, asks first and reports in dialogs; without, throws. */
   installCli(opts: { confirm: boolean; home?: string }): Promise<InstallResult | undefined>;
-  /** Registers the plugin with Claude Code. With `confirm`, asks first and reports in dialogs; without, throws. */
-  installPlugin(opts: { confirm: boolean }): Promise<{ installed: boolean } | undefined>;
+  /**
+   * Registers the plugin with Claude Code and links the CLI, which the plugin's skills call.
+   * With `confirm`, asks first and reports in dialogs; without, throws. A failed link never fails the plugin.
+   */
+  installPlugin(opts: { confirm: boolean; home?: string }): Promise<PluginInstall | undefined>;
   /** A moved app leaves the CLI link and the plugin registration pointing at nothing. This points them here. */
   repair(): Promise<void>;
 }
@@ -27,7 +36,11 @@ function pluginSource(): string {
   return app.isPackaged ? join(process.resourcesPath, 'plugin') : resolve(app.getAppPath(), '..');
 }
 
-export function createInstalls(testMode: boolean): Installs {
+/** `dialogParent` returns the window each dialog opens on, shown and in front, so no dialog hides behind other apps. */
+export function createInstalls(testMode: boolean, dialogParent: () => BrowserWindow): Installs {
+  const showDialog = (opts: MessageBoxOptions) => dialog.showMessageBox(dialogParent(), opts);
+  const showError = (message: string, detail: string) => void showDialog({ type: 'error', message, detail });
+
   /** PATH as the user's login shell sets it. GUI apps start with a much shorter one. */
   const loginShellPath = (): Promise<string> => {
     const fallback = process.env.PATH ?? '';
@@ -54,12 +67,16 @@ export function createInstalls(testMode: boolean): Installs {
       );
   };
 
+  /** Advice for a link whose folder is missing from PATH. */
+  const pathAdvice = (r: InstallResult): string =>
+    `${r.binDir} is not on your PATH. Add this line to ~/.zshrc:\n\nexport PATH="$HOME/.local/bin:$PATH"`;
+
   return {
     async installCli(opts) {
       const home = opts.home ?? homedir();
       const source = cliSource();
       if (opts.confirm) {
-        const { response } = await dialog.showMessageBox({
+        const { response } = await showDialog({
           type: 'question',
           buttons: ['Install', 'Cancel'],
           defaultId: 0,
@@ -72,17 +89,15 @@ export function createInstalls(testMode: boolean): Installs {
       try {
         const result = installCli({ source, home, pathEnv: await loginShellPath() });
         if (opts.confirm) {
-          await dialog.showMessageBox({
+          await showDialog({
             type: 'info',
             message: 'Installed the agent-brief command',
-            detail: result.onPath
-              ? `${result.link} is ready.`
-              : `${result.link} is ready, but ${result.binDir} is not on your PATH. Add this line to ~/.zshrc:\n\nexport PATH="$HOME/.local/bin:$PATH"`,
+            detail: result.onPath ? `${result.link} is ready.` : `${result.link} is ready, but ${pathAdvice(result)}`,
           });
         }
         return result;
       } catch (err) {
-        if (opts.confirm) dialog.showErrorBox('Could not install the agent-brief command', (err as Error).message);
+        if (opts.confirm) showError('Could not install the agent-brief command', (err as Error).message);
         else throw err;
         return undefined;
       }
@@ -92,7 +107,7 @@ export function createInstalls(testMode: boolean): Installs {
       const dir = pluginSource();
       const fail = (message: string): undefined => {
         if (!opts.confirm) throw new Error(message);
-        dialog.showErrorBox('Could not install the Claude Code plugin', message);
+        showError('Could not install the Claude Code plugin', message);
         return undefined;
       };
       if (isTranslocated(dir)) return fail(MOVE_APP_FIRST);
@@ -102,7 +117,7 @@ export function createInstalls(testMode: boolean): Installs {
         if (opts.confirm) {
           const current = await agentBriefMarketplace(run).catch(() => undefined);
           const moves = current && current.path !== dir;
-          const { response } = await dialog.showMessageBox({
+          const { response } = await showDialog({
             type: 'question',
             buttons: ['Install', 'Cancel'],
             defaultId: 0,
@@ -110,6 +125,7 @@ export function createInstalls(testMode: boolean): Installs {
             message: 'Install the Agent Brief plugin for Claude Code?',
             detail: [
               'Claude Code will load the plugin from inside this app, so the plugin updates whenever the app does.',
+              `The agent-brief command, which Claude uses to draw on your board, goes in ${cliLinkPath(opts.home ?? homedir())}.`,
               moves ? `Claude Code loads it from ${describeSource(current)} now. Its settings carry over.` : '',
             ]
               .filter(Boolean)
@@ -117,12 +133,28 @@ export function createInstalls(testMode: boolean): Installs {
           });
           if (response !== 0) return undefined;
         }
-        const result = await installPlugin(run, dir);
+        const result: PluginInstall = await installPlugin(run, dir);
+        try {
+          result.cli = installCli({ source: cliSource(), home: opts.home ?? homedir(), pathEnv: await loginShellPath() });
+        } catch (err) {
+          result.cliError = (err as Error).message;
+        }
         if (opts.confirm) {
-          await dialog.showMessageBox({
+          const cli = result.cliError
+            ? `The agent-brief command was not installed. ${result.cliError}`
+            : result.cli && !result.cli.onPath
+              ? `The agent-brief command is installed, but ${pathAdvice(result.cli)}`
+              : '';
+          await showDialog({
             type: 'info',
             message: 'Installed the Agent Brief plugin',
-            detail: 'New Claude Code sessions load it. In a session that is already open, run /reload-plugins.',
+            detail: [
+              'New Claude Code sessions load it. In a session that is already open, run /reload-plugins.',
+              'Then run /sketch, or press Sketch above the prompt.',
+              cli,
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
           });
         }
         return result;

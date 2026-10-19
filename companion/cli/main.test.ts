@@ -66,6 +66,16 @@ describe('status, sessions, boards, open', () => {
     });
   });
 
+  it('opens a saved note with --note, and refuses --note with --board', async () => {
+    app.handler = () => ({ json: { board: 'flow', opened: 'note', targetSessionId: 's9' } });
+    const r = await run(['open', '--note', 'd7']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('opened note d7 in Write');
+    expect(app.seen[0]).toEqual({ method: 'POST', url: '/open', body: { note: { id: 'd7' } } });
+    expect((await run(['open', '--note', 'd7', '--board', 'flow'])).code).toBe(2);
+    expect(app.seen).toHaveLength(1);
+  });
+
   it('opens a board in the Stack layout', async () => {
     app.handler = () => ({ json: { board: 'shots' } });
     const r = await run(['open', '--board', 'shots', '--layout', 'stack']);

@@ -175,7 +175,7 @@ test('Escape hides the panel unless something on it wants the key', async () => 
   await app.close();
 });
 
-test('File > New Board opens the name field; the CLI installs into a temp home and the plugin through claude', async () => {
+test('File > New Board opens the name field; the CLI installs into a temp home and the plugin through claude, linking the CLI too', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'claude-'));
   const log = join(dir, 'calls.log');
   const claude = join(dir, 'claude');
@@ -194,9 +194,12 @@ test('File > New Board opens the name field; the CLI installs into a temp home a
   expect(result.link).toBe(join(home, '.local/bin/agent-brief'));
   expect(readlinkSync(result.link)).toBe(join(ROOT, 'bin/agent-brief'));
 
-  // The plugin installs from the repo marketplace.
-  const plugin = await app.evaluate(() => globalThis.__companion.installPlugin());
-  expect(plugin).toEqual({ installed: true });
+  // The plugin installs from the repo marketplace and links the CLI with it.
+  const pluginHome = mkdtempSync(join(tmpdir(), 'home-'));
+  const plugin = (await app.evaluate((_e, home) => globalThis.__companion.installPlugin(home), pluginHome))!;
+  expect(plugin.installed).toBe(true);
+  expect(plugin.cliError).toBeUndefined();
+  expect(readlinkSync(join(pluginHome, '.local/bin/agent-brief'))).toBe(join(ROOT, 'bin/agent-brief'));
   expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
     `plugin marketplace add ${resolve(ROOT, '..')}`,
     'plugin list --json',

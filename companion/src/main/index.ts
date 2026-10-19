@@ -259,6 +259,18 @@ async function start(): Promise<void> {
         panel.show();
         return { board: state.state.currentBoard, targetSessionId: req.sessionId, opened };
       }
+      if (req.note) {
+        const draft = drafts.get(req.note.id);
+        if (!draft) throw new BadRequest(`no note with id ${req.note.id}`);
+        if (req.prompt !== undefined) setPrompt(req.prompt);
+        panel.show();
+        briefs.showDraft(draft.sessionId, draft.id);
+        return {
+          board: state.state.currentBoard,
+          ...(draft.sessionId ? { targetSessionId: draft.sessionId } : {}),
+          opened: 'note',
+        };
+      }
       if (req.mode === 'write') {
         if (req.prompt !== undefined) setPrompt(req.prompt);
         panel.show();
@@ -334,7 +346,13 @@ async function start(): Promise<void> {
   files.sync();
 
   const sender = new Sender({ state, history, drafts, server, briefs, terminals, voiceDir });
-  const installs = createInstalls(testMode);
+  /** Shows the panel and returns it, so a dialog opens as its sheet in front of other apps. */
+  const dialogParent = (): BrowserWindow => {
+    panel.show();
+    app.focus({ steal: true });
+    return panel.win;
+  };
+  const installs = createInstalls(testMode, dialogParent);
 
   // COMPANION_UPDATE_URL points a packaged build at a local feed, also in test runs.
   // A `pnpm dist` build has no app-update.yml, so it reads the GitHub releases directly.
@@ -353,8 +371,7 @@ async function start(): Promise<void> {
       panel.prepareQuit();
     },
     confirmRestart: async (version) => {
-      app.focus({ steal: true });
-      const { response } = await dialog.showMessageBox({
+      const { response } = await dialog.showMessageBox(dialogParent(), {
         type: 'info',
         buttons: ['Restart Now', 'Later'],
         defaultId: 0,
@@ -636,7 +653,7 @@ async function start(): Promise<void> {
         buildDelivery: async () => (await sender.composeSketch(await bridge.request('payload', {}))).input,
         applySettings: controls.applySettings,
         installCli: (home: string) => installs.installCli({ confirm: false, home }),
-        installPlugin: () => installs.installPlugin({ confirm: false }),
+        installPlugin: (home: string) => installs.installPlugin({ confirm: false, home }),
         trayMenu: () => trayMenuTemplate(controls.actions()).map((i) => i.label ?? i.type),
         history,
         launches: terminals.launches,

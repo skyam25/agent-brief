@@ -15,11 +15,21 @@ Recordings never land in a project on their own, so a session open in another pr
 
 ## Setup
 
-- **Chrome:** turn off Settings › Downloads › "Ask where to save each file before downloading". Otherwise every export opens a save dialog.
-- **Transcription:** install yap and ffmpeg (`brew install yap ffmpeg`). yap refuses WebM, so ffmpeg always runs first.
-- **Node:** Node 20 or newer must be on `PATH`, or set `nodePath`.
-- **Install the mod:** with the Agent Brief app, pick Install Claude Code Plugin… from its menu. Claude Code then reads the plugin from inside the app, so it updates with the app. Without the app, run `claude plugin marketplace add skyam25/agent-brief` once, then `claude plugin install agent-brief@agent-brief`. From a checkout, add the repository folder instead; the plugin is then read from it, so `/reload-plugins` picks up edits.
-- **Load it for one session:** run `claude --plugin-dir <checkout>/mod/agent-brief`.
+Install the mod one of three ways.
+
+- **With the Agent Brief app.** Pick Install Claude Code Plugin… from the Agent Brief menu or the menu bar icon. It registers the plugin and links the `agent-brief` command into `~/.local/bin`. Claude Code reads both from inside the app, so they update with it. The [project README](../../README.md#set-up) walks through first run.
+- **Without the app.** Run `/plugin marketplace add skyam25/agent-brief`, then `/plugin install agent-brief@agent-brief`. Talk, `/mode`, `/grill` and `/apply-feedback` work alone. The panel commands need the app.
+- **From a checkout.** `claude --plugin-dir <checkout>/mod/agent-brief` loads it for one session. For every session, run `/plugin marketplace add <checkout>`, and `/reload-plugins` then picks up edits. That replaces the app's registration until you pick Install Claude Code Plugin… again.
+
+New sessions load the mod. In a session that is already open, run `/reload-plugins`.
+
+Some features need more:
+
+| Feature | Needs |
+| --- | --- |
+| 🎙 Talk | yap (`brew install yap`) |
+| `/apply-feedback` | yap and ffmpeg (`brew install yap ffmpeg`), since yap refuses WebM. Node 20 or newer on `PATH`, or set `nodePath` |
+| Browser recordings | The companion Chrome extension, not public yet. Turn off Chrome's Settings › Downloads › "Ask where to save each file before downloading", or every export opens a save dialog |
 
 ### Optional: whisper.cpp
 
@@ -69,7 +79,7 @@ A fill never replaces the box. If the box is empty, the draft goes in as it is. 
 ### `/sketch [what to draw or ask]`
 
 1. Checks `/health`. If the app is down, runs `companionLaunch` and checks `/health` every 250 ms for 10 s.
-2. If the app never answers, replies with the launch command and the socket path, and points at the `companionLaunch` and `companionSocket` settings.
+2. If the app never answers, replies with the launch command and the socket path, points at the `companionLaunch` and `companionSocket` settings, and links the app download.
 3. Registers the session, then opens the panel with this session as the Send target. Any text after `/sketch` shows at the top of the panel.
 4. Replies `Agent Brief open — sketch, then press Send.`
 
@@ -91,7 +101,7 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 - The note is filed under this session, so it shows on the session's tab in the panel rather than in Notes.
 - The **¶ Write** button moves the prompt box's draft into the note and empties the box. Large pastes, which the box shows as `[Pasted text #1 +N lines]`, go in as the text they held. Pasted images stay behind as `[Image #N]`, because the plugin cannot read their bytes. With the box empty, it takes Claude's last reply, as `/write last` does, and opens an empty note before Claude has replied.
 - Under the last block of each finished reply of more than one line, a quiet row offers **Copy**, which puts the reply on the clipboard, and **Open in Agent Brief**, which starts a note with it.
-- For text you will paste elsewhere, such as a message, an email or a post, the outputs prompt section tells Claude to run `agent-brief note "<title>"` with the Markdown on stdin. The note lands under this session without opening the panel, and its Copy button puts it on the clipboard as rich text. If the command fails, Claude prints the text.
+- For text you will paste elsewhere, such as a message, an email or a post, the outputs prompt section tells Claude to run `agent-brief note "<title>"` with the Markdown on stdin. The note lands under this session without opening the panel, and its Copy button puts it on the clipboard as rich text. The command prints an `agent-brief open --note <id>` line, which Claude runs when you ask to see the note. If the command fails, Claude prints the text.
 
 Starting text needs Agent Brief 0.2.3 or newer.
 

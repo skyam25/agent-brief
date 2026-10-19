@@ -16,6 +16,7 @@ describe('note', () => {
       { method: 'POST', url: '/notes', body: { text: 'Hi team, **v2 is live**.\n', title: 'Launch message', sessionId: 'sess-1' } },
     ]);
     expect(r.stdout).toContain(`Saved "Launch message" to this session's tab`);
+    expect(r.stdout).toContain('To show it, run: agent-brief open --note d1');
   });
 
   it('takes --text or --file, and --session over the environment', async () => {

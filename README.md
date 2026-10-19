@@ -11,6 +11,22 @@ Agent Brief is a Mac panel and a Claude Code plugin. Everything runs on your Mac
 3. **Claude works.** It reads the bundle, draws on the board, writes outputs and keeps a list of open items.
 4. **Review and answer.** You comment on what it made, answer its questions, and Send again.
 
+## Set up
+
+You need a Mac with Apple Silicon and [Claude Code](https://claude.com/claude-code).
+
+1. Download the latest [release](https://github.com/skyam25/agent-brief/releases/latest), unzip it, and move Agent Brief.app into Applications. Open it from there. It updates itself.
+2. Pick **Install Claude Code Plugin…** from the Agent Brief menu or the menu bar icon. It registers the plugin with Claude Code and links the `agent-brief` command into `~/.local/bin`. Both load from inside the app, so they update with it. If the dialog says `~/.local/bin` is not on your PATH, add the line it shows to `~/.zshrc`.
+3. Start a new Claude Code session, or run `/reload-plugins` in one that is open. Buttons for Sketch, Stack, Write, Talk, Mode and Brief appear above the prompt.
+4. Run `/sketch`, draw something, and press Send. The drawing lands in the session as a prompt.
+
+Optional extras:
+
+- **Voice.** Run `brew install yap ffmpeg`. Talk above the prompt needs yap. Voice in the panel needs both.
+- **Herdr.** Claude Code skips pictures inside [Herdr](https://herdr.dev). Run `agent-brief herdr-pictures on` once, then start Claude in a new pane.
+- **Plugin without the app.** Run `/plugin marketplace add skyam25/agent-brief`, then `/plugin install agent-brief@agent-brief`. Talk, `/mode`, `/grill` and `/apply-feedback` work alone. The panel commands need the app and say where to get it.
+- **Browser recordings.** `/apply-feedback` reads recordings from the companion Chrome extension, which is not public yet.
+
 ## The panel
 
 | Mode | Key | For |
@@ -113,13 +129,6 @@ The [plugin README](mod/agent-brief/README.md) covers each command in full.
 
 - Everything runs on your Mac, and only what you send to Claude leaves it.
 - The app's socket is readable by your user alone.
-
-## Get it
-
-- **App.** Download the latest [release](https://github.com/skyam25/agent-brief/releases/latest), unzip it, and move Agent Brief.app into Applications. It needs macOS on Apple Silicon and updates itself.
-- **Claude Code side.** Pick Install Claude Code Plugin… from the app's menu. The plugin then loads from inside the app and updates with it. To use it without the app, run `/plugin marketplace add skyam25/agent-brief`, then `/plugin install agent-brief@agent-brief`.
-- **Voice.** Transcription uses [yap](https://github.com/finnvoor/yap) and ffmpeg: `brew install yap ffmpeg`.
-- **Herdr.** Claude Code skips pictures inside [Herdr](https://herdr.dev). Run `agent-brief herdr-pictures on` once, then start Claude in a new pane.
 
 ## In this repository
 

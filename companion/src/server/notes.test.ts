@@ -56,3 +56,21 @@ describe('POST /notes', () => {
     expect(res.body.code).toBe('unavailable');
   });
 });
+
+describe('POST /open with a note', () => {
+  it('passes the note id to the backend and answers opened note', async () => {
+    const h = await start({ open: vi.fn(async () => ({ board: 'b', opened: 'note' as const })) });
+    const res = await h.call('POST', '/open', { note: { id: ' d1 ' } });
+    expect(res.status).toBe(200);
+    expect(res.body.opened).toBe('note');
+    expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ note: { id: 'd1' } }));
+  });
+
+  it('refuses a note without an id, and a note with an output', async () => {
+    const h = await start();
+    expect((await h.call('POST', '/open', { note: {} })).status).toBe(400);
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    const both = await h.call('POST', '/open', { sessionId: 'a', note: { id: 'd1' }, output: { path: 'a.md' } });
+    expect(both.status).toBe(400);
+  });
+});

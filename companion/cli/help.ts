@@ -64,8 +64,8 @@ A src without a round number is in the catalog's round.`,
     example: 'agent-brief boards',
   },
   open: {
-    usage: 'agent-brief open [--board <name>] [--prompt <text>] [--session <id>] [--layout freeform|stack] [--json]',
-    about: 'Shows the panel. Creates the board when missing. --prompt puts text at the top of the panel. --session makes that session the Send target. --layout stack files each drop or paste of screenshots as a numbered group.',
+    usage: 'agent-brief open [--board <name> | --note <id>] [--prompt <text>] [--session <id>] [--layout freeform|stack] [--json]',
+    about: 'Shows the panel. Creates the board when missing. --note shows a saved note in Write instead; `agent-brief note` prints its id. --prompt puts text at the top of the panel. --session makes that session the Send target. --layout stack files each drop or paste of screenshots as a numbered group.',
     example: 'agent-brief open --board login-flow --prompt "Sketch the login screens"',
   },
   read: {
@@ -110,7 +110,7 @@ A src without a round number is in the catalog's round.`,
   },
   note: {
     usage: 'agent-brief note [title] [--text <markdown> | --file <path>] [--session <id>] [--json]',
-    about: "Saves Markdown as a note in Agent Brief's Write mode without opening the panel. Reads stdin unless --text or --file is given. Files it under the Claude Code session that runs it, or --session, else under Notes. Exits 3 when the app is not running.",
+    about: "Saves Markdown as a note in Agent Brief's Write mode without opening the panel. Prints the note's id and the `agent-brief open --note` line that shows it. Reads stdin unless --text or --file is given. Files it under the Claude Code session that runs it, or --session, else under Notes. Exits 3 when the app is not running.",
     example: `agent-brief note "Launch message" <<'EOF'\nHi team, **v2 is live**.\nEOF`,
   },
   'herdr-pictures': {

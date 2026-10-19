@@ -208,7 +208,17 @@ export function parseOpen(body: unknown): OpenRequest {
     text: openText(o),
     layout: openLayout(o),
     output: openOutput(o),
+    note: openNote(o),
   };
+}
+
+function openNote(o: Obj): OpenRequest['note'] {
+  if (o.note === undefined) return undefined;
+  const note = object(o.note, 'body.note');
+  const id = reqString(note, 'id', 'body.note').trim();
+  if (!id) fail('body.note.id is required');
+  if (o.output !== undefined) fail('body.note and body.output open different things; send one');
+  return { id };
 }
 
 /** An output to open. Its folder checks run in the app, which knows the session's files. */

@@ -48,12 +48,13 @@ test('parseDeliveries keeps only well-formed entries', () => {
   expect(parseDeliveries({ deliveries: 'x' })).toEqual([])
 })
 
-test('the launch failure names the command and both settings', () => {
+test('the launch failure names the command, both settings and the download', () => {
   const text = launchFailureText('open -a "Agent Brief"', '/tmp/c.sock')
   expect(text).toContain('open -a "Agent Brief"')
   expect(text).toContain('/tmp/c.sock')
   expect(text).toContain('companionLaunch')
   expect(text).toContain('companionSocket')
+  expect(text).toContain('https://github.com/skyam25/agent-brief/releases/latest')
 })
 
 describe('session label', () => {

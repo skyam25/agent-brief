@@ -406,7 +406,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       }
       const res = await backend.open(body);
       for (const fn of openListeners) fn(body);
-      const opened = body.output ? res.opened : (res.opened ?? (body.mode === 'write' ? 'note' : 'board'));
+      const opened = body.output || body.note ? res.opened : (res.opened ?? (body.mode === 'write' ? 'note' : 'board'));
       return { json: { ...res, ...(opened ? { opened } : {}), targetSessionId: target } };
     }
 

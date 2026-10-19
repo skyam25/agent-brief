@@ -28,7 +28,7 @@ interface CompanionTestHooks {
   buildDelivery(): Promise<DeliveryInput>;
   applySettings(patch: Partial<Settings>): SettingsResult;
   installCli(home: string): ReturnType<Installs['installCli']>;
-  installPlugin(): ReturnType<Installs['installPlugin']>;
+  installPlugin(home: string): ReturnType<Installs['installPlugin']>;
   trayMenu(): (string | undefined)[];
   history: SendHistory;
   launches: Terminals['launches'];

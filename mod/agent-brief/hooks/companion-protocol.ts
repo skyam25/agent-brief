@@ -132,6 +132,8 @@ export interface OpenRequest {
    * `tab: 'feedback'` opens an HTML review on its Feedback tab.
    */
   output?: { path: string; tab?: 'feedback' };
+  /** Opens this saved note in Write instead of a board. `POST /notes` returns the id as `draftId`. */
+  note?: { id: string };
 }
 
 export interface OpenResponse {

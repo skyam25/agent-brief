@@ -13,7 +13,7 @@ If `agent-brief` is not on PATH, use the copy inside the app in its place. Quote
 "/Applications/Agent Brief.app/Contents/Resources/bin/agent-brief" status
 ```
 
-If the app is in `~/Applications`, use that path instead. The app's menu item Install Command Line Tool… puts `agent-brief` on PATH.
+If the app is in `~/Applications`, use that path instead. The app's menu items Install Claude Code Plugin… and Install Command Line Tool… put `agent-brief` on PATH.
 
 ## When to use it
 

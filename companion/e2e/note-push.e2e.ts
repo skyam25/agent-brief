@@ -68,3 +68,26 @@ test('a note pushed while the panel is hidden leaves it hidden, and the CLI file
 
   expect((await sock(socketPath, 'POST', '/notes', { sessionId: 'nobody', text: 'x' })).status).toBe(404);
 });
+
+test('the open line the CLI prints shows that note in Write, not a board', async () => {
+  const { app, page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's3', cwd, title: 'Recap' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's3', board: 'release-notes' });
+  await app.evaluate(() => globalThis.__companion.panel.hide());
+
+  const env = { ...process.env, COMPANION_SOCKET: socketPath, CLAUDE_CODE_SESSION_ID: 's3' };
+  const cli = (args: string[], input = '') => execFileSync('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { input, env }).toString();
+  const saved = cli(['note', 'Interview questions recap'], '# Recap\n\nBlock 1');
+  const line = /agent-brief open --note (\S+)/.exec(saved);
+  expect(line, saved).not.toBeNull();
+  expect(await panelVisible()).toBe(false);
+
+  expect(cli(['open', '--note', line![1]])).toContain('opened note');
+  await expect.poll(panelVisible).toBe(true);
+  await expect(page.getByTestId('draft-title')).toHaveText('Interview questions recap');
+  expect(await selectedBody()).toBe('# Recap\n\nBlock 1');
+  await page.screenshot({ path: join(RESULTS, 'note-open.png') });
+
+  expect((await sock(socketPath, 'POST', '/open', { note: { id: 'missing' } })).status).toBe(400);
+});

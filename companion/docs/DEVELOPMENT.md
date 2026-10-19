@@ -67,7 +67,8 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - A `sessionId` must name a live session, else 404. The note is filed under it, and the session gets a tab if it had none. Without one, the note goes to Notes.
 - Main sends `drafts:changed`, and an open panel reloads its list. The open note and the mode stay.
 - `agent-brief note "<title>"` reads Markdown from stdin, `--text` or `--file`. It files under `--session`, else `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in its shells. A session from the environment the app does not know gets its note under Notes. When the app is not running it exits 3 and tells Claude to print the text.
-- The outputs prompt section tells Claude to use it for text the user will paste elsewhere.
+- It prints the `agent-brief open --note <draftId>` line. `POST /open` with `note: { id }` shows that draft in Write under its session and answers `opened: 'note'`. An unknown id answers 400.
+- The outputs prompt section tells Claude to use it for text the user will paste elsewhere, and to run the printed open line when the user asks to see the note.
 - A draft's `title` is one line, at most 200 characters. The list shows it over the body's first line, and the editor shows it above the text.
 - Copy in the note footer renders the Markdown with the editor's schema (`src/renderer/editor/rich-copy.ts`) and writes `text/html` and `text/plain` in one `clipboard.write`. Pictures go in as data URLs. Test runs record the write as `__companion.richClipboard()`.
 
@@ -246,5 +247,7 @@ Before building, the script refuses a dirty tree (untracked files included), an 
 - `claude plugin marketplace add` under the existing name `agent-brief` re-points the registration and keeps the installed plugin and its options. `claude plugin marketplace remove` deletes the options, so the app never removes.
 - 15 s after a packaged launch, the app repairs both if the app moved. It re-points the CLI link when its target is gone. It re-points the plugin when it is registered from an app bundle that no longer exists. Checkouts, GitHub sources and copies that still exist stay as they are.
 - `COMPANION_TEST_CLAUDE` names a stand-in `claude` for test runs.
+
+Update and install dialogs open as sheets on the panel, which shows first (`dialogParent` in `index.ts`). A dialog with no window can open behind the frontmost app when macOS refuses the focus request.
 
 `COMPANION_UPDATE_URL=<url>` points a packaged build at a folder served over HTTP that holds those files. It also turns updates on in test mode, which is how an update is tried locally before a release.

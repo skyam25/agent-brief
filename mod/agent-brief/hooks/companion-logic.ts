@@ -105,9 +105,11 @@ export function deliveriesPath(sessionId: string): string {
   return `/deliveries?session=${encodeURIComponent(sessionId)}&wait=${POLL_WAIT_S}`
 }
 
+export const RELEASES_URL = 'https://github.com/skyam25/agent-brief/releases/latest'
+
 export function launchFailureText(launch: string, socket: string): string {
   const tried = launch.trim() === '' ? 'No launch command is set.' : `Ran \`${launch}\` and waited 10 s.`
-  return `Could not reach Agent Brief at ${socket}. ${tried} Start the app by hand, or fix the companionLaunch and companionSocket settings.`
+  return `Could not reach Agent Brief at ${socket}. ${tried} Start the app by hand, or fix the companionLaunch and companionSocket settings. To install the app, download it from ${RELEASES_URL}.`
 }
 
 export function parseJson(text: string): unknown {

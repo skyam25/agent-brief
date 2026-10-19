@@ -646,7 +646,8 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     }
     const where = filed ? "this session's tab" : 'Notes';
     show(ctx, { ...res, ...(filed ? { sessionId: filed } : {}) }, () =>
-      `Saved "${title || 'Untitled note'}" to ${where} in Agent Brief, Write mode. The user can edit it there and press Copy.`,
+      `Saved "${title || 'Untitled note'}" to ${where} in Agent Brief, Write mode. The user can edit it there and press Copy.\n` +
+      `To show it, run: agent-brief open --note ${res.draftId}`,
     );
   },
 
@@ -753,9 +754,14 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if (board) body.board = board;
     if (prompt) body.prompt = prompt;
     if (sessionId) body.sessionId = sessionId;
+    const note = str(ctx.args, 'note');
+    if (note !== undefined) {
+      if (board || layout) throw new UsageError('--note opens a note, so it takes no --board or --layout');
+      body.note = { id: note };
+    }
     const res = await callJson<OpenResponse>(ctx.socket, 'POST', '/open', body);
     show(ctx, res, (r) =>
-      `opened board ${JSON.stringify(r.board)}` +
+      (r.opened === 'note' ? `opened note ${note} in Write` : `opened board ${JSON.stringify(r.board)}`) +
       (r.targetSessionId ? `, send target ${r.targetSessionId}` : ''),
     );
   },
