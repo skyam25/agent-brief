@@ -45,7 +45,10 @@ export function projectName(cwd: string): string {
 export type OutputRow = {
   ref: string
   label: string
-  status: 'Drafting' | 'Ready' | 'Touched'
+  /** A declared output's status. Touched rows have none. */
+  status?: 'Drafting' | 'Ready'
+  /** Epoch ms of the last declare or write. */
+  at?: number
   isUrl: boolean
   /** True for a Markdown or HTML file the app opens as a note or in its review pane. */
   canBrief: boolean
@@ -53,23 +56,39 @@ export type OutputRow = {
   feedback?: string
 }
 
+const lastTouched = (o: BriefOutput) => {
+  const times = [o.declaredAt, o.lastWriteAt].filter((t): t is number => t !== undefined)
+  return times.length === 0 ? undefined : Math.max(...times)
+}
+
 const rowOf = (o: BriefOutput, open: number): OutputRow => ({
   ref: o.ref,
   label: o.tier === 'declared' ? (o.title ?? fileName(o.ref)) : o.ref,
-  status: o.tier === 'detected' ? 'Touched' : o.status === 'ready' ? 'Ready' : 'Drafting',
+  ...(o.tier === 'declared' ? { status: o.status === 'ready' ? ('Ready' as const) : ('Drafting' as const) } : {}),
+  ...(lastTouched(o) === undefined ? {} : { at: lastTouched(o) }),
   isUrl: isUrl(o.ref),
   canBrief: !isUrl(o.ref) && BRIEF_EXTENSIONS.includes(extensionOf(o.ref)),
   ...(open > 0 ? { feedback: `Feedback · ${open} open` } : {}),
 })
 
 /**
- * Declared outputs, newest first, then touched documents in the order the session first wrote them.
+ * Declared outputs, newest first, then touched documents, last written first.
  * `feedback` holds each output's open feedback count by ref.
  */
 export function outputRows(outputs: readonly BriefOutput[], feedback: Readonly<Record<string, number>> = {}): { declared: OutputRow[]; touched: OutputRow[] } {
   const row = (o: BriefOutput) => rowOf(o, feedback[o.ref] ?? 0)
   const declared = outputs.filter(o => o.tier === 'declared').sort((a, b) => (b.declaredAt ?? 0) - (a.declaredAt ?? 0))
-  return { declared: declared.map(row), touched: outputs.filter(o => o.tier === 'detected').map(row) }
+  const touched = outputs.filter(o => o.tier === 'detected').sort((a, b) => (b.lastWriteAt ?? 0) - (a.lastWriteAt ?? 0))
+  return { declared: declared.map(row), touched: touched.map(row) }
+}
+
+/** How long ago, coarse: `just now`, `4m ago`, `2h ago`, `3d ago`. */
+export function ago(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`
 }
 
 /** An output's feedback file, beside it. */

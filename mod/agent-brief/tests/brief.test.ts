@@ -135,6 +135,27 @@ describe('the pane\'s outputs', () => {
     expect(await pane($)).toContain('mock.html')
   })
 
+  test('dates each row by how long ago it was written, in place of a Touched label', async ($, on) => {
+    const { clock, world } = await setup($, on)
+    const at = clock.now()
+    const outputs = [
+      { ref: 'old.md', kind: 'markdown', tier: 'detected', lastWriteAt: at - 2 * 3_600_000, writes: 1 },
+      { ref: 'new.md', kind: 'markdown', tier: 'detected', lastWriteAt: at, writes: 1 },
+    ]
+    world.files.set(OUTPUTS_PATH, JSON.stringify({ version: 1, sessionId: SESSION_ID, outputs }))
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'brief' })
+    await clock.settle()
+    await press($, 'brief-touched')
+    const drawn = await pane($)
+    expect(drawn.indexOf('new.md')).toBeLessThan(drawn.indexOf('old.md'))
+    expect(drawn).toContain('"just now"')
+    expect(drawn).toContain('"2h ago"')
+    expect(drawn).not.toContain('"Touched"')
+    await clock.advance(4 * 60_000)
+    expect(await pane($)).toContain('"4m ago"')
+  })
+
   test('offers In Agent Brief for Markdown and HTML only', async ($, on) => {
     await setup($, on, { [OUTPUTS_PATH]: OUTPUTS })
     await press($, 'brief-touched')

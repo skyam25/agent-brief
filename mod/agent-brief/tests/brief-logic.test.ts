@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  ago,
   answerControl,
   briefBandLabel,
   briefCounts,
@@ -35,11 +36,11 @@ const ITEMS = [
 ].join('\n')
 
 const OUTPUTS: BriefOutput[] = [
-  { ref: 'notes/touched.md', kind: 'markdown', tier: 'detected', origin: 'edited', writes: 2 },
+  { ref: 'notes/touched.md', kind: 'markdown', tier: 'detected', origin: 'edited', lastWriteAt: 30, writes: 2 },
   { ref: 'docs/spec.md', title: 'Spec', kind: 'markdown', tier: 'declared', status: 'ready', declaredAt: 10 },
   { ref: 'deck.pdf', title: 'Deck', kind: 'pdf', tier: 'declared', status: 'drafting', declaredAt: 20 },
   { ref: 'https://claude.ai/artifact/x', url: 'https://claude.ai/artifact/x', title: 'Page', kind: 'artifact', tier: 'declared', status: 'ready', declaredAt: 5 },
-  { ref: 'mock.html', kind: 'html', tier: 'detected' },
+  { ref: 'mock.html', kind: 'html', tier: 'detected', lastWriteAt: 40 },
 ]
 
 describe('answerControl', () => {
@@ -137,17 +138,30 @@ const FEEDBACK = [
 ].join('\n')
 
 describe('outputRows', () => {
-  test('lists declared outputs newest first, then touched ones in file order', () => {
+  test('lists declared outputs newest first, then touched ones last written first', () => {
     const { declared, touched } = outputRows(OUTPUTS)
     expect(declared.map(r => [r.label, r.status])).toEqual([
       ['Deck', 'Drafting'],
       ['Spec', 'Ready'],
       ['Page', 'Ready'],
     ])
-    expect(touched.map(r => [r.label, r.status])).toEqual([
-      ['notes/touched.md', 'Touched'],
-      ['mock.html', 'Touched'],
+    expect(touched.map(r => [r.label, r.status, r.at])).toEqual([
+      ['mock.html', undefined, 40],
+      ['notes/touched.md', undefined, 30],
     ])
+  })
+
+  test('dates a declared output by its later declare or write', () => {
+    const [row] = outputRows([{ ref: 'a.md', title: 'A', kind: 'markdown', tier: 'declared', status: 'ready', declaredAt: 10, lastWriteAt: 50 }]).declared
+    expect(row.at).toBe(50)
+  })
+
+  test('says how long ago in coarse steps', () => {
+    expect(ago(30_000)).toBe('just now')
+    expect(ago(4 * 60_000)).toBe('4m ago')
+    expect(ago(2 * 3_600_000 + 59 * 60_000)).toBe('2h ago')
+    expect(ago(3 * 86_400_000)).toBe('3d ago')
+    expect(ago(-5_000)).toBe('just now')
   })
 
   test('counts open and raised-again feedback items', () => {

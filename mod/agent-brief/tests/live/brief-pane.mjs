@@ -49,9 +49,9 @@ try {
     version: 1,
     sessionId: sid,
     outputs: [
-      { ref: 'docs/plan.md', title: 'Pricing plan', kind: 'markdown', tier: 'declared', status: 'ready', declaredAt: now - 2000 },
+      { ref: 'docs/plan.md', title: 'Pricing plan', kind: 'markdown', tier: 'declared', status: 'ready', declaredAt: now - 5 * 60_000 },
       { ref: 'mock/landing.html', title: 'Landing mock', kind: 'html', tier: 'declared', status: 'drafting', declaredAt: now - 1000 },
-      { ref: 'notes/scratch.md', kind: 'markdown', tier: 'detected', origin: 'created', firstWriteAt: now },
+      { ref: 'notes/scratch.md', kind: 'markdown', tier: 'detected', origin: 'created', firstWriteAt: now, lastWriteAt: now },
     ],
   }, null, 2))
   writeFileSync(join(project, `.feedback/items/${sid}.md`), [
@@ -87,7 +87,7 @@ try {
   const opened = await until(() => term.capture().includes('Brief ·'), 15_000, 500)
   await sleep(1000)
   term.capture()
-  const rows = ['Outputs', 'Pricing plan', 'Feedback · 2 open', 'Items', '#2 Rows too tight', 'Send answers'].filter(t => !term.pane.includes(t))
+  const rows = ['Outputs', 'Pricing plan', '5m ago', 'just now', 'Feedback · 2 open', 'Items', '#2 Rows too tight', 'Send answers'].filter(t => !term.pane.includes(t))
   const ok = Boolean(opened) && rows.length === 0
   console.log(`${ok ? 'PASS' : 'FAIL'}  Brief pane at ${process.env.COLS ?? '117'} columns${opened ? '' : ': pane did not open'}${rows.length ? `: missing ${rows.join(', ')}` : ''}`)
   if (!ok) {

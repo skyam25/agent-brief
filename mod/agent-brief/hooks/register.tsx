@@ -603,6 +603,10 @@ async function loadBrief($: EngineInterface): Promise<void> {
  */
 let isBriefOpen = false
 
+/** Redraws the Brief pane each minute while it is placed, so output ages stay current. */
+let briefAging: { cancel(): void } | undefined
+const AGING_MS = 60_000
+
 /**
  * The band's Brief button: opens the pane, or closes it while open. Never opens on its own.
  * `$.ui.open` is the first call, with no await before it, so the engine still counts the
@@ -1250,6 +1254,7 @@ export const register: Register = (on, options) => {
       fidelity: await read($, fidelityRef),
       isTracking: await read($, trackingRef),
       outputs: await read($, outputsRef),
+      now: await $.clock.now(),
       feedback: await read($, feedbackRef),
       items: await read($, itemsRef),
       answers: await read($, answersRef),
@@ -1444,11 +1449,16 @@ export const register: Register = (on, options) => {
   // A placed open from any module, and a close by the person, keep the band's toggle right.
   on('ui.open', { id: BRIEF_PANE }, async ($, e, next) => {
     const opened = await next(e)
-    if (opened.deny === undefined && opened.value.isPlaced) isBriefOpen = true
+    if (opened.deny === undefined && opened.value.isPlaced) {
+      isBriefOpen = true
+      briefAging ??= $.clock.every(AGING_MS, () => $.ui.invalidate('ui.render'))
+    }
     return opened
   })
   on('ui.close', { id: BRIEF_PANE }, ($, e, next) => {
     isBriefOpen = false
+    briefAging?.cancel()
+    briefAging = undefined
     return next(e)
   })
 

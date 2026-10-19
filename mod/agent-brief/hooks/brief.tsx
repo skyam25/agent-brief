@@ -1,7 +1,7 @@
 import type { ElementTable, RenderElement } from 'claude-code'
 
 import type { AttachedInitiative, BriefAnswer, BriefItems, BriefOutput, BriefView, PrototypeFidelity, SessionMode } from '../types'
-import { AGREE_TEXT, briefCounts, inlineSummary, itemRows, outputRows } from './brief-logic'
+import { AGREE_TEXT, ago, briefCounts, inlineSummary, itemRows, outputRows } from './brief-logic'
 import type { ItemRow, OutputRow } from './brief-logic'
 import { DEFAULT_FIDELITY, FIDELITY_IDS, MODE_IDS, fidelityLabel, modeLabel } from './modes'
 
@@ -14,6 +14,8 @@ export type BriefPaneView = {
   fidelity: PrototypeFidelity | null
   isTracking: boolean
   outputs: BriefOutput[]
+  /** Epoch ms the pane draws at, for each output's age. */
+  now: number
   /** Open feedback items by output ref. */
   feedback: Record<string, number>
   items: BriefItems | null
@@ -136,7 +138,7 @@ function headerTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
   )
 }
 
-function outputRowTree(table: ElementTable, row: OutputRow, act: BriefActions) {
+function outputRowTree(table: ElementTable, row: OutputRow, now: number, act: BriefActions) {
   const { Box, Button, Text } = table
   const tab = row.feedback === undefined ? undefined : 'feedback'
   return (
@@ -145,7 +147,8 @@ function outputRowTree(table: ElementTable, row: OutputRow, act: BriefActions) {
         <Box flexGrow={1} flexShrink={1}>
           <Text wrap="truncate-end">{row.label}</Text>
         </Box>
-        <Text dimColor>{row.status}</Text>
+        {row.status !== undefined && <Text dimColor>{row.status}</Text>}
+        {row.at !== undefined && <Text dimColor>{ago(now - row.at)}</Text>}
         <Button key={`output-open-${row.ref}`} plain dimColor label="Open" onPress={() => void act.open(row.ref)} />
         {row.canBrief && (
           <Button key={`output-app-${row.ref}`} plain dimColor label="In Agent Brief" onPress={() => void act.openInApp(row.ref, tab)} />
@@ -164,7 +167,7 @@ function outputsTree(table: ElementTable, pane: BriefPaneView, act: BriefActions
     <Box flexDirection="column" marginTop={1}>
       <Text bold>Outputs</Text>
       {declared.length === 0 && touched.length === 0 && <Text dimColor>No outputs yet.</Text>}
-      {declared.map(row => outputRowTree(table, row, act))}
+      {declared.map(row => outputRowTree(table, row, pane.now, act))}
       {touched.length > 0 && (
         <Button
           key="brief-touched"
@@ -174,7 +177,7 @@ function outputsTree(table: ElementTable, pane: BriefPaneView, act: BriefActions
           onPress={() => void act.fold('touched')}
         />
       )}
-      {isOpen && touched.map(row => outputRowTree(table, row, act))}
+      {isOpen && touched.map(row => outputRowTree(table, row, pane.now, act))}
     </Box>
   )
 }
