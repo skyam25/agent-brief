@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { BoardsResponse, FeedbackDocument, OutputRecord, ReadResponse } from '../src/protocol';
 import { isoDate } from '../src/shared/feedback';
 import { shortDate } from '../src/shared/feedback-workspace';
-import { deliveriesFor, launchShown, RESULTS, sock, tempDataDir, type Launched } from './helpers';
+import { deliveriesFor, launch, launchShown, ROOT, RESULTS, showPanel, sock, tempDataDir, type Launched } from './helpers';
 
 let ctx: Launched;
 test.afterEach(async () => { await ctx?.app.close(); });
@@ -30,11 +30,19 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   const cwd = tempDataDir();
   put(cwd, 'checkout.html', PAGE);
   await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'ws-1', cwd, title: 'Checkout' });
+  // An ordinary board whose name happens to start with fb- predates any feedback.
+  await ctx.app.evaluate(() => globalThis.__companion.store.create('fb-planning'));
   const route = '/sessions/ws-1/feedback?path=checkout.html';
   await agent(h.socketPath, route, [
     { op: 'addRound', label: 'customers' },
     { op: 'addItem', title: 'Hard to find the filters', lines: [{ key: 'Src', text: '1 · Ana · 03:02 · "Where do I filter?"' }, { key: 'Change', text: 'Move the filter row above the results.' }, { key: 'Where', text: '#filters' }] },
   ]);
+  const read = async () => (await sock<ReadResponse>(h.socketPath, 'GET', '/boards/fb-checkout-1/elements')).body.elements;
+
+  // Claude opens the workspace first, from the CLI, so it has no picture of the page yet.
+  const viaCli = await sock(h.socketPath, 'POST', '/sessions/ws-1/feedback/workspace?path=checkout.html&item=1');
+  expect(viaCli.status).toBe(200);
+  expect((await read()).map((e) => e.type).sort()).toEqual(['frame', 'sticky']);
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'ws-1', output: { path: 'checkout.html' } });
   await expect(page.getByTestId('review')).toBeVisible();
   await page.getByTestId('feedback-tab').click();
@@ -44,7 +52,7 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   await expect(card.getByTestId('feedback-note')).toHaveValue('');
   await expect(card.getByTestId('feedback-workspace-summary')).toHaveCount(0);
 
-  // The layer covers the page with the item's board, seeded with its frame, quote and element.
+  // The layer covers the page with the item's board. Its frame gains the element's picture.
   await card.getByTestId('feedback-workspace-open').click();
   const layer = page.getByTestId('workspace-layer');
   await expect(layer).toBeVisible();
@@ -54,7 +62,6 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   await expect(layer.getByTestId('workspace-rail-entry')).toHaveText([/Note · .*check mobile too/]);
   const canvas = layer.locator('canvas.excalidraw__canvas.interactive');
   await expect(canvas).toBeVisible();
-  const read = async () => (await sock<ReadResponse>(h.socketPath, 'GET', '/boards/fb-checkout-1/elements')).body.elements;
   await expect.poll(async () => (await read()).map((e) => e.type).sort()).toEqual(['frame', 'image', 'sticky']);
   const seeded = await read();
   expect(seeded.find((e) => e.type === 'frame')!.label).toBe('Round 1');
@@ -62,35 +69,68 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   const frameId = seeded.find((e) => e.type === 'frame')!.id;
   expect(seeded.find((e) => e.type === 'image')!.frameId).toBe(frameId);
 
-  // The board stays out of the board lists.
+  // The socket lists every board. The panel's lists leave out only the bound workspace.
   const { body: listed } = await sock<BoardsResponse>(h.socketPath, 'GET', '/boards');
-  expect(listed.boards.map((b) => b.name)).not.toContain('fb-checkout-1');
+  expect(listed.boards.map((b) => b.name)).toEqual(expect.arrayContaining(['fb-checkout-1', 'fb-planning']));
+  const panelBoards = await page.evaluate(async () => (await (window as unknown as { companion: { listBoards(): Promise<{ name: string }[]> } }).companion.listBoards()).map((b) => b.name));
+  expect(panelBoards).toContain('fb-planning');
+  expect(panelBoards).not.toContain('fb-checkout-1');
 
   // Claude draws on the open workspace, then the user draws a box beside it.
   const drawn = await sock(h.socketPath, 'POST', '/boards/fb-checkout-1/draw', { elements: [{ type: 'sticky', x: 1300, y: 0, label: 'Option B: sticky filters' }] });
   expect(drawn.status).toBe(200);
   await expect.poll(async () => (await read()).some((e) => e.label === 'Option B: sticky filters')).toBe(true);
   await page.screenshot({ path: join(RESULTS, 'feedback-workspace-seeded.png') });
+  // An overall note opens the comment column first, so the canvas keeps its size from here on.
+  await layer.getByTestId('comment-tool').click();
+  await layer.getByTestId('board-overall').fill('Option B reads better');
+  await layer.getByTestId('comment-tool').click();
+  await expect(layer.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'false');
+  await expect(layer.getByTestId('board-comments')).toBeVisible();
   const box = (await canvas.boundingBox())!;
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.click(at.x, at.y);
   await page.keyboard.press('r');
-  await page.mouse.move(box.x + box.width / 2 - 60, box.y + box.height / 2 - 40);
+  await page.mouse.move(at.x - 60, at.y - 40);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 40, { steps: 8 });
+  await page.mouse.move(at.x + 40, at.y + 40, { steps: 8 });
   await page.mouse.up();
   await expect.poll(async () => (await read()).filter((e) => e.by === 'user').length).toBe(1);
   await expect(page.getByTestId('review-edit')).toHaveAttribute('aria-pressed', 'false');
-  await page.screenshot({ path: join(RESULTS, 'feedback-workspace.png') });
 
-  // Save exports the PNG and logs it on the item. Nothing goes to Claude.
+  // The user pins a comment. The pin and the overall note outlast leaving the layer.
+  await layer.getByTestId('comment-tool').click();
+  const view = (await canvas.boundingBox())!;
+  await page.mouse.click(view.x + view.width / 2, view.y + view.height / 2);
+  await expect(layer.getByTestId('board-comment-card')).toHaveCount(1);
+  await layer.getByTestId('board-comment-text').fill('make it bigger');
+  await page.screenshot({ path: join(RESULTS, 'feedback-workspace.png') });
+  await layer.getByTestId('workspace-back').click();
+  await card.getByTestId('feedback-workspace-open').click();
+  await expect(layer.getByTestId('board-comment-text')).toHaveValue('make it bigger');
+  await expect(layer.getByTestId('board-overall')).toHaveValue('Option B reads better');
+  await expect(layer.getByTestId('board-pin')).toHaveCount(1);
+
+  // Save exports the PNG and logs it, the pin and the note on the item. Nothing goes to Claude.
   await layer.getByTestId('workspace-save').click();
   const file = join(cwd, 'checkout.html.feedback.md');
   const today = isoDate(new Date());
-  await expect.poll(() => readFileSync(file, 'utf8')).toContain(`    Workspace: ${today} · saved · fb-checkout-1 · checkout.html.feedback/1-workspace.png\n`);
-  const png = join(cwd, 'checkout.html.feedback/1-workspace.png');
+  const saved = new RegExp(
+    [
+      `    You: ${today} · note · pin 1 on .+ · make it bigger`,
+      `    You: ${today} · note · Option B reads better`,
+      `    Workspace: ${today} · saved · fb-checkout-1 · checkout\\.html\\.feedback/1-workspace-1\\.png`,
+      '',
+    ].join('\n'),
+  );
+  await expect.poll(() => readFileSync(file, 'utf8')).toMatch(saved);
+  const png = join(cwd, 'checkout.html.feedback/1-workspace-1.png');
   expect(existsSync(png)).toBe(true);
   expect(readFileSync(png).subarray(1, 4).toString()).toBe('PNG');
   await expect(layer.getByTestId('workspace-saved')).toHaveText(`Workspace · saved ${shortDate(today)}`);
+  await expect(layer.getByTestId('board-comments')).toHaveCount(0);
+  await expect(layer.getByTestId('board-pin')).toHaveCount(0);
+  await expect(layer.getByTestId('workspace-rail-entry')).toHaveText([/check mobile too/, /pin 1 on .+ · make it bigger/, /Option B reads better/]);
   expect(await deliveriesFor(h.socketPath, 'ws-1')).toHaveLength(0);
 
   await layer.getByTestId('workspace-back').click();
@@ -111,6 +151,85 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   await card.getByTestId('feedback-workspace-open').click();
   await expect(layer.getByTestId('workspace-board')).toHaveText('fb-checkout-1');
   expect((await read()).filter((e) => e.type === 'frame')).toHaveLength(2);
+
+  // A second Save keeps the first picture and names a new one.
+  await layer.getByTestId('workspace-save').click();
+  await expect.poll(() => readFileSync(file, 'utf8')).toContain(`    Workspace: ${today} · saved · fb-checkout-1 · checkout.html.feedback/1-workspace-2.png\n`);
+  expect(existsSync(png)).toBe(true);
+  expect(existsSync(join(cwd, 'checkout.html.feedback/1-workspace-2.png'))).toBe(true);
+});
+
+test('Add to note opens one Write note linked to the item', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'ws-3', cwd, title: 'Checkout' });
+  await agent(h.socketPath, '/sessions/ws-3/feedback?path=checkout.html', [
+    { op: 'addRound', label: 'customers' },
+    { op: 'addItem', title: 'Hard to find the filters', lines: [{ key: 'Src', text: '1 · Ana · 03:02 · "Where do I filter?"' }] },
+  ]);
+  const openLayer = async () => {
+    await sock(h.socketPath, 'POST', '/open', { sessionId: 'ws-3', output: { path: 'checkout.html' } });
+    await page.getByTestId('feedback-tab').click();
+    await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
+    await expect(page.getByTestId('workspace-layer')).toBeVisible();
+  };
+  await openLayer();
+  await page.getByTestId('workspace-note').click();
+  await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
+  const notes = () => ctx.app.evaluate(() => globalThis.__companion.drafts.list().filter((d) => d.sessionId === 'ws-3').map((d) => ({ id: d.id, title: d.title, body: d.body })));
+  const [note] = await notes();
+  expect(note).toMatchObject({ title: '#1 Hard to find the filters', body: expect.stringContaining('> "Where do I filter?" — Ana') });
+  const file = join(cwd, 'checkout.html.feedback.md');
+  const line = `    You: ${isoDate(new Date())} · note · Write note "#1 Hard to find the filters"\n`;
+  expect(readFileSync(file, 'utf8')).toContain(line);
+  await expect(page.locator('.ProseMirror')).toContainText('Feedback item #1 on checkout.html.');
+
+  // A second press opens the same note and logs nothing new.
+  await openLayer();
+  await expect(page.getByTestId('workspace-rail-entry')).toHaveText([/Write note "#1 Hard to find the filters"/]);
+  await page.getByTestId('workspace-note').click();
+  await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
+  expect(await notes()).toHaveLength(1);
+  expect(readFileSync(file, 'utf8').split(line)).toHaveLength(2);
+});
+
+test('speech in the workspace lands on its pin and saves with it', async () => {
+  const speech = join(ROOT, 'e2e/fixtures/speech.wav');
+  test.skip(!existsSync(speech), 'speech fixture missing');
+  test.setTimeout(120_000);
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  ctx = await launch(dataDir, { COMPANION_TEST_AUDIO: speech });
+  const { app, page } = ctx;
+  await showPanel(app, page);
+  await expect.poll(() => existsSync(socketPath)).toBe(true);
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'ws-4', cwd, title: 'Checkout' });
+  await agent(socketPath, '/sessions/ws-4/feedback?path=checkout.html', [{ op: 'addRound', label: 'customers' }, { op: 'addItem', title: 'Pricing is unclear' }]);
+  await sock(socketPath, 'POST', '/open', { sessionId: 'ws-4', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
+  const layer = page.getByTestId('workspace-layer');
+  const canvas = layer.locator('canvas.excalidraw__canvas.interactive');
+  await expect(canvas).toBeVisible();
+
+  // Talk turns the comment tool on, and a click pins the words that follow.
+  await layer.getByTestId('mic').click();
+  await expect(layer.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'true');
+  await expect(layer.getByTestId('board-comments')).toBeVisible();
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(layer.getByTestId('board-comment-card')).toHaveCount(1);
+  await page.waitForTimeout(5000);
+  await layer.getByTestId('mic').click();
+  await expect(layer.getByTestId('board-comment-text')).toHaveValue(/pricing table/i, { timeout: 60_000 });
+
+  await layer.getByTestId('workspace-save').click();
+  await expect.poll(() => readFileSync(join(cwd, 'checkout.html.feedback.md'), 'utf8')).toMatch(/You: \S+ · note · pin 1 on .+ · .*pricing table/i);
 });
 
 test('opens a workspace over the full-width feedback view', async () => {
@@ -131,7 +250,10 @@ test('opens a workspace over the full-width feedback view', async () => {
   await page.getByTestId('mode-review').click();
   await page.getByTestId('output-feedback-0').click();
   const view = page.getByTestId('feedback-view');
-  await view.getByTestId('feedback-workspace-open').click();
+
+  // Claude's opens overlap the user's, and the round still gets one frame and one quote.
+  const cli = () => sock(h.socketPath, 'POST', '/sessions/ws-2/feedback/workspace?path=docs/prd.md&item=1');
+  await Promise.all([cli(), view.getByTestId('feedback-workspace-open').click(), cli()]);
   const layer = view.getByTestId('workspace-layer');
   await expect(layer.getByTestId('workspace-board')).toHaveText('fb-prd-1');
   await expect(layer.locator('canvas.excalidraw__canvas.interactive')).toBeVisible();

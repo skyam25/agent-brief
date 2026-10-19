@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { cleanName } from '../main/store';
 import { parseFeedback } from './feedback';
 import {
+  bindingOf,
   boundTo,
   fitSnapshot,
-  isWorkspaceBoard,
+  isWorkspaceNotes,
   latestWorkspace,
   outputStem,
   railEntries,
@@ -12,6 +13,7 @@ import {
   shortDate,
   workspaceBinding,
   workspaceBoardName,
+  workspacePng,
   workspaceQuote,
   workspaceRound,
   workspaceSummary,
@@ -46,8 +48,7 @@ describe('workspace board names', () => {
     expect(workspaceBoardName('prototype/checkout.html', 6)).toBe('fb-checkout-6');
     expect(workspaceBoardName('docs/prd.v2.md', 3)).toBe('fb-prd.v2-3');
     expect(workspaceBoardName('checkout.html', 6, 2)).toBe('fb-checkout-6-2');
-    expect(isWorkspaceBoard('fb-checkout-6')).toBe(true);
-    expect(isWorkspaceBoard('Oct 16')).toBe(false);
+    expect(workspacePng(6, 3)).toBe('6-workspace-3.png');
   });
 
   it('makes any file name safe and short enough for a board', () => {
@@ -66,6 +67,14 @@ describe('workspace board names', () => {
     expect(boundTo(notes, '/q/checkout.html', 6)).toBe(false);
     expect(boundTo(notes, '/p/checkout.html', 7)).toBe(false);
     expect(boundTo('', '/p/checkout.html', 6)).toBe(false);
+    expect(bindingOf(notes)).toEqual({ outputFile: '/p/checkout.html', n: 6 });
+  });
+
+  it('marks a workspace by its binding, never by its name', () => {
+    expect(isWorkspaceNotes(`${workspaceBinding('/p/a b.html', 2)}\n`)).toBe(true);
+    expect(isWorkspaceNotes('')).toBe(false);
+    expect(isWorkspaceNotes('planning for fb-checkout')).toBe(false);
+    expect(isWorkspaceNotes('Feedback workspace · relative.html #1')).toBe(false);
   });
 });
 
@@ -96,34 +105,50 @@ describe('the item card and rail', () => {
 });
 
 describe('seeding', () => {
-  it('starts an empty board with the round frame and a quote sticky', () => {
+  const shot = { data: 'data:image/jpeg;base64,AAAA', width: 2000, height: 400 };
+  const roundOnly = parseFeedback('- [ ] #1 Pricing is thin\n    Round: 1\n').items[0]!;
+
+  it('starts an empty board with a frame and quote sticky for every round the item came up in', () => {
     const req = seedRequest(item(), empty)!;
     expect(req.elements.map((e) => [e.type, e.id])).toEqual([
-      ['frame', 'frame'],
-      ['sticky', 'quote'],
+      ['frame', 'frame-1'],
+      ['sticky', 'quote-1'],
+      ['frame', 'frame-2'],
+      ['sticky', 'quote-2'],
     ]);
-    expect(req.elements[0]).toMatchObject({ label: 'Round 2', x: 0, y: 0 });
-    expect(req.elements[1]).toMatchObject({ frameId: 'frame', align: 'left', label: '"I couldn\'t find the filters" — Maya\n\nChange: Move the filter row above the results.' });
+    expect(req.elements[0]).toMatchObject({ label: 'Round 1', x: 0, y: 0 });
+    expect(req.elements[1]).toMatchObject({ frameId: 'frame-1', label: '"Where do I filter?" — Ana\n\nChange: Move the filter row above the results.' });
+    expect(req.elements[2]).toMatchObject({ label: 'Round 2', x: 1260, y: 0 });
+    expect(req.elements[3]).toMatchObject({ frameId: 'frame-2', align: 'left', label: '"I couldn\'t find the filters" — Maya\n\nChange: Move the filter row above the results.' });
   });
 
-  it('adds the element snapshot inside the frame, fitted', () => {
-    const req = seedRequest(item(), empty, { data: 'data:image/jpeg;base64,AAAA', width: 2000, height: 400 })!;
-    const shot = req.elements[2]!;
-    expect(shot).toMatchObject({ type: 'image', frameId: 'frame', image: 'data:image/jpeg;base64,AAAA' });
-    expect(shot.width! / shot.height!).toBeCloseTo(5, 1);
-    expect(shot.width).toBeLessThan(1100);
+  it('puts the element snapshot in the newest round\'s frame, fitted', () => {
+    const req = seedRequest(item(), empty, shot)!;
+    const image = req.elements.find((e) => e.type === 'image')!;
+    expect(image).toMatchObject({ frameId: 'frame-2', image: shot.data });
+    expect(image.width! / image.height!).toBeCloseTo(5, 1);
+    expect(image.width).toBeLessThan(1100);
     expect(fitSnapshot({ width: 200, height: 100 })).toEqual({ width: 200, height: 100 });
   });
 
-  it('leaves a board that has the round frame alone, and adds a new round to the right', () => {
-    const roundTwo = { elements: [{ type: 'frame' as const, label: 'Round 2' }], bounds: { x: 0, y: 0, width: 1100, height: 720 } };
-    expect(seedRequest(item(), roundTwo)).toBeUndefined();
-    const roundOne = { elements: [{ type: 'frame' as const, label: 'Round 1' }, { type: 'rectangle' as const }], bounds: { x: -20, y: 10, width: 1300, height: 720 } };
-    expect(seedRequest(item(), roundOne)!.elements[0]).toMatchObject({ type: 'frame', label: 'Round 2', x: 1440, y: 10 });
+  it('adds only what is missing, to the right, and leaves the rest alone', () => {
+    const both = { elements: [{ id: 'f1', type: 'frame' as const, label: 'Round 1', x: 0, y: 0 }, { id: 'f2', type: 'frame' as const, label: 'Round 2', x: 1260, y: 0 }], bounds: { x: 0, y: 0, width: 2360, height: 720 } };
+    expect(seedRequest(item(), both)).toBeUndefined();
+    const roundOne = { elements: [{ id: 'f1', type: 'frame' as const, label: 'Round 1', x: 0, y: 0 }, { id: 'r', type: 'rectangle' as const, x: 0, y: 0 }], bounds: { x: -20, y: 10, width: 1300, height: 720 } };
+    const req = seedRequest(item(), roundOne)!;
+    expect(req.elements.map((e) => e.label?.split('\n')[0])).toEqual(['Round 2', '"I couldn\'t find the filters" — Maya']);
+    expect(req.elements[0]).toMatchObject({ type: 'frame', x: 1440, y: 10 });
+  });
+
+  it('gives a frame made without a picture the snapshot, once', () => {
+    const framed = { elements: [{ id: 'f1', type: 'frame' as const, label: 'Round 1', x: 40, y: 50 }, { id: 's', type: 'sticky' as const, frameId: 'f1', x: 88, y: 98 }], bounds: { x: 40, y: 50, width: 1100, height: 720 } };
+    const req = seedRequest(roundOnly, framed, shot)!;
+    expect(req.elements).toEqual([expect.objectContaining({ type: 'image', frameId: 'f1', x: 40 + 48 * 2 + 320, y: 98 })]);
+    const pictured = { ...framed, elements: [...framed.elements, { id: 'i', type: 'image' as const, frameId: 'f1', x: 0, y: 0 }] };
+    expect(seedRequest(roundOnly, pictured, shot)).toBeUndefined();
   });
 
   it('falls back to the title when the item has no quote', () => {
-    const bare = parseFeedback('- [ ] #1 Pricing is thin\n    Round: 1\n').items[0]!;
-    expect(seedRequest(bare, empty)!.elements[1]!.label).toBe('Pricing is thin');
+    expect(seedRequest(roundOnly, empty)!.elements[1]!.label).toBe('Pricing is thin');
   });
 });

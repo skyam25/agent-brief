@@ -131,6 +131,11 @@ export class BoardStore {
     };
   }
 
+  notes(name: string): string {
+    const path = this.notesPath(name);
+    return existsSync(path) ? readFileSync(path, 'utf8') : '';
+  }
+
   /** True when the board has no live elements and no notes. A missing board is empty. */
   isEmpty(name: string): boolean {
     const { scene, notes } = this.load(name);

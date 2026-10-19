@@ -399,7 +399,7 @@ function itemNumber(raw: string | undefined, verb: string): number {
 /** Every readable feedback document in the project. */
 async function projectDocs(ctx: Ctx): Promise<FeedbackDocument[]> {
   const project = await callJson<FeedbackProject>(ctx.socket, 'GET', `${feedbackRoute(ctx)}/project`);
-  const docs = await Promise.all(project.files.filter((f) => f.outputExists).map((f) => readFeedbackDoc(ctx, f.output).catch(() => undefined)));
+  const docs = await Promise.all(project.files.map((f) => readFeedbackDoc(ctx, f.output).catch(() => undefined)));
   return docs.filter((d): d is FeedbackDocument => !!d);
 }
 

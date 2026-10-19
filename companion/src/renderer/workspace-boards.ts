@@ -1,7 +1,11 @@
 /** Workspace boards open in a feedback layer. Main's requests for those boards go to the layer's controller. */
 
 import type { BoardReply, BoardRequest } from '../shared/ipc';
+import { BoardCommentsStore } from './board-comments';
 import type { BoardController } from './controller';
+
+/** Pins and words on workspace boards. They outlast the layer until a Save keeps them on the item. */
+export const workspaceComments = new BoardCommentsStore();
 
 const held = new Set<BoardController>();
 

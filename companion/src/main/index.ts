@@ -1,7 +1,7 @@
 import { BehaviorStore } from './behavior';
 import { FeedbackStore } from './feedback';
 import { FeedbackWorkspaces } from './feedback-workspace';
-import { FeedbackSnaps, offscreenCapture } from './feedback-snap';
+import { captureSession, FeedbackSnaps, offscreenCapture } from './feedback-snap';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -189,7 +189,8 @@ async function start(): Promise<void> {
   const briefs = new Briefs({ state, store, drafts, sessions: () => server.sessions(), send, onPublish: () => files.sync() });
   const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
   const feedback = new FeedbackStore(() => send(CH.feedbackChanged));
-  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow) });
+  const captures = captureSession(session.fromPartition('feedback-capture'), (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
+  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow, captures) });
   const behaviorRoot = (sessionId: string) => {
     const cwd = briefs.cwdOf(sessionId);
     if (!cwd) throw new Error('Unknown session');
@@ -263,7 +264,18 @@ async function start(): Promise<void> {
 
   // The socket server: sessions, deliveries and the board API for the CLI and the mod.
   // POST /open runs backend.open, which shows the panel and sets the prompt.
-  const workspaces = new FeedbackWorkspaces({ feedback, store, boards: backend });
+  const workspaces = new FeedbackWorkspaces({
+    feedback,
+    store,
+    boards: backend,
+    notes: {
+      drafts,
+      show: (sessionId, id) => {
+        send(CH.draftsChanged);
+        briefs.showDraft(sessionId, id);
+      },
+    },
+  });
   const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, feedbackSnaps, workspaces });
 
   // Writes pending saves and closes the socket once before quitting.
@@ -381,7 +393,7 @@ async function start(): Promise<void> {
   ipc.handle('openLink', async (url: unknown) => opener.openExternal(webUrl(String(url), 'Not a link').href));
 
   // Boards.
-  ipc.handle('listBoards', () => briefs.boardsWithHolders());
+  ipc.handle('listBoards', () => briefs.panelBoards());
   ipc.handle('loadBoard', (name: string) => store.load(name));
   ipc.handle('saveBoard', (name: string, json: string) => {
     store.saveScene(name, json);
@@ -490,7 +502,7 @@ async function start(): Promise<void> {
   });
   ipc.handle('openUnfiled', () => {
     server.setTarget(undefined);
-    const choice = unfiledBoardChoice({ remembered: state.state.unfiledBoard, boards: briefs.boardsWithHolders() });
+    const choice = unfiledBoardChoice({ remembered: state.state.unfiledBoard, boards: briefs.panelBoards() });
     const board = choice.isNew ? store.create(choice.board) : choice.board;
     state.update({ currentBoard: board, unfiledBoard: board });
     return { board };
@@ -522,11 +534,12 @@ async function start(): Promise<void> {
   ipc.handle('openOutputElsewhere', (sessionId: string, ref: unknown) => files.openElsewhere(sessionId, ref));
   ipc.handle('readBehavior', (sessionId: string, path: unknown) => behaviors.read(behaviorRoot(sessionId), path));
   ipc.handle('decideBehavior', (sessionId: string, path: unknown, decision: unknown) => behaviors.decide(behaviorRoot(sessionId), path, decision));
-  ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path));
+  ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path, { orphan: true }));
   ipc.handle('updateFeedback', (sessionId: string, path: unknown, update: unknown) => feedback.update(behaviorRoot(sessionId), path, update, 'You'));
   ipc.handle('listFeedback', (sessionId: string) => feedback.project(behaviorRoot(sessionId)));
   ipc.handle('openFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, snapshot?: unknown) => workspaces.open(behaviorRoot(sessionId), path, n, snapshot));
-  ipc.handle('saveFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown) => workspaces.save(behaviorRoot(sessionId), path, n, 'You'));
+  ipc.handle('saveFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, comments?: unknown) => workspaces.save(behaviorRoot(sessionId), path, n, 'You', comments));
+  ipc.handle('noteFeedbackItem', (sessionId: string, path: unknown, n: unknown) => workspaces.note(behaviorRoot(sessionId), path, n, sessionId));
   ipc.handle('readFeedbackPicture', (sessionId: string, output: unknown, picture: unknown) => feedbackSnaps.picture(behaviorRoot(sessionId), output, picture));
   ipc.handle('reviewUrl', (sessionId: string, path: unknown) => files.reviewUrl(sessionId, path));
   ipc.handle('reviewEdit', (sessionId: string, path: unknown, version: unknown, edit: unknown) => files.reviewEdit(sessionId, path, version, edit));

@@ -59,6 +59,7 @@ export function createBoardBackend(deps: BackendDeps): BoardBackend {
         board: existing(board),
         region: opts.region,
         maxEdge: opts.maxEdge ?? DEFAULT_MAX_EDGE,
+        ...(opts.pins?.length ? { pins: opts.pins } : {}),
       });
       return Buffer.from(bytes);
     },

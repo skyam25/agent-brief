@@ -27,6 +27,8 @@ const CROP_PAD = 12;
 const READY_WAIT_MS = 2000;
 /** How long the page has to measure an element for a workspace snapshot. */
 const MEASURE_WAIT_MS = 1500;
+/** How long a workspace capture waits for the page to load. */
+const PAGE_WAIT_MS = 8000;
 
 const newCommentId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -174,11 +176,30 @@ export function ReviewView(props: {
 
   const post = useCallback((m: ToPage) => frame.current?.contentWindow?.postMessage({ source: REVIEW_SOURCE, ...m }, '*'), []);
 
+  // The page's overlay says ready once it loads. A capture waits for that, so an early open still gets its picture.
+  const ready = useRef(false);
+  const readyWaiters = useRef(new Set<() => void>());
+  const pageReady = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        if (ready.current) return resolve(true);
+        const done = (ok: boolean) => {
+          clearTimeout(timer);
+          readyWaiters.current.delete(onReady);
+          resolve(ok);
+        };
+        const onReady = () => done(true);
+        const timer = setTimeout(() => done(false), PAGE_WAIT_MS);
+        readyWaiters.current.add(onReady);
+      }),
+    [],
+  );
+
   // Opening an item's workspace first crops its element from the page.
   const measures = useRef(new Map<string, (view?: ReviewRect) => void>());
   const capture = useCallback(
     async (selector: string): Promise<WorkspaceSnapshot | undefined> => {
-      if (!live.current.onPage) return undefined;
+      if (!(await pageReady()) || !live.current.onPage) return undefined;
       const id = newCommentId();
       const view = await new Promise<ReviewRect | undefined>((resolve) => {
         const timer = setTimeout(() => measures.current.get(id)?.(), MEASURE_WAIT_MS);
@@ -195,7 +216,7 @@ export function ReviewView(props: {
       const data = await host.capturePanel(rect);
       return data ? { data, width: rect.width, height: rect.height } : undefined;
     },
-    [host, post],
+    [host, post, pageReady],
   );
   const workspace = useItemWorkspace({ host, sessionId: draft.sessionId, path: review.path, capture, onError: props.onError });
   const layerOpen = useRef(false);
@@ -212,6 +233,7 @@ export function ReviewView(props: {
   );
 
   const reload = useCallback(() => {
+    ready.current = false;
     setLoaded(false);
     setPagePath(undefined);
     setSelected(null);
@@ -274,6 +296,8 @@ export function ReviewView(props: {
       if (!frame.current || e.source !== frame.current.contentWindow || !isTagged(e.data)) return;
       const m = e.data as unknown as FromPage;
       if (m.type === 'ready') {
+        ready.current = true;
+        for (const fn of [...readyWaiters.current]) fn();
         setLoaded(true);
         setSilent(false);
         setPagePath(m.path);

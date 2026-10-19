@@ -154,7 +154,7 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
 }
 
 /** The comment column beside the board: an overall note, then one card per pin. */
-export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ReviewVoice; onSendKeys: (e: KeyboardEvent) => void }) {
+export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ReviewVoice; onSendKeys: (e: KeyboardEvent) => void; foot?: string }) {
   const { comments, board, voice } = props;
   useStore(comments);
   useSyncExternalStore(
@@ -210,7 +210,7 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
         </ol>
       )}
       <footer className="muted review-foot">
-        {pins.length > 0 ? 'Send hands Claude each pin with its element. ⌘↩ sends.' : 'Draw as well as pin. Send takes both.'}
+        {props.foot ?? (pins.length > 0 ? 'Send hands Claude each pin with its element. ⌘↩ sends.' : 'Draw as well as pin. Send takes both.')}
       </footer>
     </aside>
   );

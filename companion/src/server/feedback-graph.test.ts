@@ -15,7 +15,7 @@ async function setup() {
   const root = tempDir();
   const socketPath = join(root, 's.sock');
   const feedback = new FeedbackStore(undefined, () => new Date(2026, 9, 18));
-  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (_r, p) => `review://${p}`, capture: async () => Buffer.from('png') });
+  const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (_r, p) => `review://${p}`, capture: async () => ({ png: Buffer.from('png') }) });
   const server = createCompanionServer({ socketPath, backend: fakeBackend(), feedback, feedbackSnaps });
   openServers.push(server);
   await server.listen();

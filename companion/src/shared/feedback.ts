@@ -83,13 +83,18 @@ interface Layout {
   items: { n: number; head: number; last: number; indent: string }[];
 }
 
+const isClosed = (state: FeedbackState) => state === 'done' || state === 'rejected';
+
 function stateOf(item: Pick<FeedbackItem, 'events' | 'checked'>): FeedbackState {
   let state: FeedbackState | undefined;
-  for (const e of item.events) if ((e.key === 'Claude' || e.key === 'You') && STATE_VERBS[e.verb]) state = STATE_VERBS[e.verb];
+  for (const e of item.events) {
+    if (e.key !== 'Claude' && e.key !== 'You') continue;
+    // `closed` comes from the close op and keeps a rejection.
+    if (e.verb === 'closed') state = state === 'rejected' ? state : 'done';
+    else if (STATE_VERBS[e.verb]) state = STATE_VERBS[e.verb];
+  }
   return state ?? (item.checked ? 'done' : 'open');
 }
-
-const isClosed = (state: FeedbackState) => state === 'done' || state === 'rejected';
 
 function finish(item: FeedbackItem): FeedbackItem {
   item.state = stateOf(item);
@@ -167,6 +172,11 @@ export function serializeFeedback(doc: FeedbackDoc): string {
   return out.join('\n') + '\n';
 }
 
+const ESCAPES: Record<string, string> = { '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+
+/** Control characters as visible escapes, so a name stays on its one line. */
+const escapeControls = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, (c) => ESCAPES[c] ?? `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 export class FeedbackOpError extends Error {}
 const fail = (message: string): never => { throw new FeedbackOpError(message); };
 
@@ -198,8 +208,8 @@ function lineText(doc: FeedbackDoc, key: unknown, text: unknown, by: FeedbackAct
 
 /**
  * Applies ops to the file's text, or to a new file when `text` is undefined, and
- * keeps every existing line as it was. Throws FeedbackOpError on the first bad op,
- * so a failed update changes nothing.
+ * keeps every existing byte as it was, trailing blank lines and CRLF endings included.
+ * Throws FeedbackOpError on the first bad op, so a failed update changes nothing.
  */
 export function applyFeedbackOps(
   text: string | undefined,
@@ -208,9 +218,14 @@ export function applyFeedbackOps(
   const { ops, by, date } = opts;
   if (!Array.isArray(ops) || ops.length === 0) return fail('Expected ops');
   if (ops.length > MAX_OPS) return fail(`At most ${MAX_OPS} ops at once`);
-  const name = opts.output.split('/').filter(Boolean).at(-1) ?? opts.output;
-  const lines = (text ?? `# Feedback · ${name}\n`).split('\n');
-  while (lines.length && lines.at(-1) === '') lines.pop();
+  const name = escapeControls(opts.output.split('/').filter(Boolean).at(-1) ?? opts.output);
+  const source = text ?? `# Feedback · ${name}\n`;
+  const lines = source.split('\n');
+  // Additions go above the trailing blank lines, and take the file's line ending.
+  const tail: string[] = [];
+  while (lines.length && /^\r?$/.test(lines.at(-1)!)) tail.unshift(lines.pop()!);
+  const cr = source[source.indexOf('\n') - 1] === '\r' ? '\r' : '';
+  const put = (...added: string[]) => added.map((l) => l + cr);
   const added = { rounds: [] as number[], items: [] as number[] };
   const mirror = new Set<number>();
 
@@ -231,13 +246,13 @@ export function applyFeedbackOps(
       if (label.includes('·') || source?.includes('·')) return fail('Round label and source cannot hold ·');
       const n = Math.max(0, ...doc.rounds.map((r) => r.n)) + 1;
       const line = roundLine({ n, label, date, ...(source ? { source } : {}) });
-      if (layout.rounds.length) lines.splice(Math.min(...layout.rounds), 0, line);
+      if (layout.rounds.length) lines.splice(Math.min(...layout.rounds), 0, ...put(line));
       else {
         // The first round goes under the title, which a hand-made file may lack.
-        if (layout.title === undefined) lines.unshift(`# Feedback · ${name}`);
+        if (layout.title === undefined) lines.unshift(...put(`# Feedback · ${name}`));
         const at = (layout.title ?? 0) + 1;
         const after = lines[at] !== undefined && lines[at]!.trim() !== '' ? [''] : [];
-        lines.splice(at, 0, '', line, ...after);
+        lines.splice(at, 0, ...put('', line, ...after));
       }
       added.rounds.push(n);
     } else if (raw.op === 'addItem') {
@@ -249,16 +264,20 @@ export function applyFeedbackOps(
       const body = (raw.lines ?? []).map((l) => lineText(doc, l?.key, l?.text, by, date));
       const n = Math.max(0, ...doc.items.map((i) => i.n)) + 1;
       const item = { n, title, checked: false, lines: [{ key: 'Round', text: String(round) }, ...body, { key: by, text: `${date}${SEP}${by === 'You' ? 'note · added' : 'cataloged'}` }] } as FeedbackItem;
-      lines.push('', ...itemLines(item));
+      lines.push(...put('', ...itemLines(item)));
       added.items.push(n);
     } else if (raw.op === 'append') {
       const at = find(raw.item);
       const line = lineText(doc, raw.key, raw.text, by, date);
-      lines.splice(at.last + 1, 0, `${at.indent}${line.key}: ${line.text}`);
+      lines.splice(at.last + 1, 0, ...put(`${at.indent}${line.key}: ${line.text}`));
       if (isEventKey(line.key) && STATE_VERBS[parseEvent(line.key, line.text).verb]) mirror.add(at.n);
-    } else if (raw.op === 'close') flip(raw.item, true);
-    else if (raw.op === 'open') flip(raw.item, false);
-    else return fail(`Unknown op ${String((raw as { op?: unknown }).op)}`);
+    } else if (raw.op === 'close' || raw.op === 'open') {
+      // Each op dates the state change it makes, so the checkbox and the history agree.
+      const at = find(raw.item);
+      const close = raw.op === 'close';
+      if (isClosed(doc.items.find((i) => i.n === at.n)!.state) !== close) lines.splice(at.last + 1, 0, ...put(`${at.indent}${by}: ${date}${SEP}${close ? 'closed' : 'reopen'}`));
+      flip(at.n, close);
+    } else return fail(`Unknown op ${String((raw as { op?: unknown }).op)}`);
   }
 
   // A state verb moves the checkbox with it.
@@ -270,7 +289,7 @@ export function applyFeedbackOps(
       if (isClosed(item.state) !== item.checked) lines[head] = lines[head]!.replace(/^- \[( |x|X)\]/, isClosed(item.state) ? '- [x]' : '- [ ]');
     }
   }
-  return { text: lines.join('\n') + '\n', added };
+  return { text: [...lines, ...tail].join('\n'), added };
 }
 
 /** Counts for the project list. */

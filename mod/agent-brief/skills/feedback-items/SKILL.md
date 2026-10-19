@@ -65,7 +65,7 @@ Item fields:
 - Rounds are a registry, newest first. Items follow in the order they came in. Numbers never repeat.
 - The file is add-only. Writes append a line, add an item or round, or flip a checkbox. Never edit or delete a past line, even a wrong one. Correct it with a new line.
 - `Claude:`, `You:`, `Workspace:` and `Review:` lines are dated events. You write `Claude:` lines; `You:` lines come only from the user in the panel.
-- State comes from the last state verb: open (`cataloged`, `reopen`), accepted (`accept`), rejected (`reject`, `rejected`), done (`done`). `[x]` marks done or rejected.
+- State comes from the last state verb: open (`cataloged`, `reopen`), accepted (`accept`), rejected (`reject`, `rejected`), done (`done`, or `closed` unless the item was rejected). `[x]` marks done or rejected. The close and open ops date a `closed` or `reopen` line when they change the state.
 - `You: … · sent · through N` marks what the user already sent you: the item's first N dated events. Events after it are still unsent. An old `You: … · sent` without `through` covers the events above it.
 
 ## Act on decisions
@@ -92,9 +92,15 @@ A review.md from the Review pane can tie a pin to feedback items, with a line li
 
 ## Item workspaces
 
-Each item has one Sketch board, `fb-<output stem>-<n>`, with a `Round N` frame per round. The user opens it from the item card and saves it to the item, which adds a `Workspace:` line and a PNG in `<output>.feedback/`. Saving sends you nothing.
+Each item has one Sketch board, `fb-<output stem>-<n>`, with a `Round N` frame per round. The user opens it from the item card, draws, pins comments and talks, then saves it to the item. Saving sends you nothing. Each save adds:
 
-- To draw options on an item, run `agent-brief feedback workspace <output> <n>`. It prints the board name first, making the board or the newest round's frame when missing.
+- a `You: … · note · pin <k> on <element> · <words>` line per pin, numbered as the badges on the picture, and one for the overall note
+- `Workspace: <date> · saved · <board> · <output>.feedback/<n>-workspace-<k>.png`, a new picture each time, so older lines keep theirs
+
+`You: … · note · Write note "<title>"` means the user opened a Write note for the item. The note reaches you only when they send it.
+
+- To draw options on an item, run `agent-brief feedback workspace <output> <n>`. It prints the board name first, making the board or any missing round frame.
+- To see a saved workspace, read the PNG its latest `Workspace:` line names, beside the output.
 - Draw inside that round's frame with `agent-brief draw --board <name>`. Read it with `agent-brief read --board <name>`.
 - Never save for the user or write `Workspace:` lines yourself.
 
@@ -105,9 +111,10 @@ On a conflict the CLI reads the file again and retries once. If it still fails, 
 For an HTML output, picture the item before you change it and again after:
 
 - `agent-brief feedback snap <output> <n> --before`, then make the change, then `--after`.
-- It captures the item's `Where:` element, or the visible page without one, into `<output>.feedback/<n>-r<round>-<side>.png` and appends the `Before:` or `After:` line. The round defaults to the item's latest. Pass `--round N` for another.
-- A retake replaces the picture and keeps its one line. Other outputs return an error; skip pictures for them.
-- The item card shows the pair as a slider.
+- It captures the item's `Where:` element, or the whole page without one, into `<output>.feedback/<n>-r<round>-<side>.png` and appends the `Before:` or `After:` line. The round defaults to the item's latest. Pass `--round N` for another.
+- Pictures taller than 10000 CSS pixels keep only their top, and the line ends `· clipped to the top 10000px`. Say so when you report it.
+- Pictures never change. A retake writes `<n>-r<round>-<side>-2.png` and its own line. Picture the before once per round; snap `--after` again for each later fix. Other outputs return an error; skip pictures for them.
+- The item card's slider shows each round's first before against its latest after.
 
 ## Project graph
 
