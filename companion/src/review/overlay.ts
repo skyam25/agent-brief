@@ -90,7 +90,7 @@ function start(): void {
     shownBox.className = 'box mark';
     mark = document.createElement('div');
     mark.className = 'box mark';
-    root.append(style, selected, shownBox, mark, hover, flash, layer);
+    root.append(style, selected, hover, flash, shownBox, mark, layer);
     document.documentElement.append(host);
     edit = createEditMode({ post, root, host: () => host, version: VERSION });
   }
