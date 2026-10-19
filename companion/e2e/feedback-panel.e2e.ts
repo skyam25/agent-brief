@@ -584,3 +584,37 @@ test('an open workspace layer closes the outputs list and the footer, so the boa
   await expect(list).toBeVisible();
   await expect(page.getByTestId('send')).toHaveText('Send decisions');
 });
+
+test('Send saves a typed note first, and a proposal changed after an accept asks again', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-12', cwd, title: 'Checkout' });
+  const route = '/sessions/fp-12/feedback?path=checkout.html';
+  await agent(h.socketPath, route, [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Continue is unclear', lines: [{ key: 'Change', text: 'Rename it Review order and show fees' }] }]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-12', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  const card = page.getByTestId('feedback-item-1');
+  const send = page.getByTestId('send');
+
+  // Accept, then type a qualifier without pressing Enter. Send saves it before it reads the file.
+  await card.getByTestId('feedback-accept').click();
+  await expand(card);
+  await card.getByTestId('feedback-note').fill('fees next round');
+  await send.click();
+  await expect.poll(async () => (await deliveriesFor(h.socketPath, 'fp-12')).length).toBe(1);
+  const draft = (await deliveriesFor(h.socketPath, 'fp-12'))[0]!.draft;
+  expect(draft).toContain('- #1 Continue is unclear: accept; note · fees next round');
+  expect(draft).toContain('  Accepted change: Rename it Review order and show fees');
+  await expect.poll(() => readFileSync(join(cwd, 'checkout.html.feedback.md'), 'utf8')).toMatch(/You: \d{4}-\d{2}-\d{2} · note · fees next round\n/);
+
+  // Claude revises the proposal. The accept no longer stands.
+  await agent(h.socketPath, route, [{ op: 'append', item: 1, key: 'Change', text: 'Rename it Review order and add a fee table' }]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-12', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  await expect(card.getByTestId('feedback-state')).toHaveText('Open');
+  await expect(card.getByTestId('feedback-revised')).toHaveText('Changed since you accepted');
+  await expect(card.getByTestId('feedback-accept')).toHaveAttribute('aria-pressed', 'false');
+});

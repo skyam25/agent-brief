@@ -196,6 +196,11 @@ export function FeedbackPanel(props: {
   };
   const applyRef = useRef(apply);
   applyRef.current = apply;
+  /** Notes typed but not yet saved, by item. Send saves them first. */
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const setDraft = (n: number, text: string) => setDrafts((d) => ({ ...d, [n]: text }));
   /** Voice lines still being written to the file. */
   const writes = useRef(new Set<Promise<boolean>>());
   const [voice] = useState(
@@ -245,6 +250,8 @@ export function FeedbackPanel(props: {
   };
 
   const pending = doc ? pendingDecisions(doc) : [];
+  /** Items with a decision or a typed note waiting to go. */
+  const waiting = new Set([...pending.map((p) => p.item.n), ...Object.keys(drafts).filter((n) => oneLine(drafts[Number(n)]!)).map(Number)]).size;
   /** Writes a receipt on each item through the last event sent. Throws naming the items left unmarked. */
   const markSent = async (sent: PendingDecision[]) => {
     const unmarked: string[] = [];
@@ -254,11 +261,16 @@ export function FeedbackPanel(props: {
     if (unmarked.length) throw new Error(`the file was not marked for ${unmarked.join(', ')}. The next Send repeats them.`);
   };
   const send = () => {
-    if (!props.sessionId || !pending.length) return;
+    if (!props.sessionId || !waiting) return;
     props.onSend(props.sessionId, async () => {
-      // Words still turning into text reach the file before the send reads it.
+      // Typed notes and words still turning into text reach the file before the send reads it.
       await voice.stop();
       await Promise.all([...writes.current]);
+      const typed = Object.entries(draftsRef.current).flatMap(([n, text]) => (oneLine(text) ? [{ op: 'append' as const, item: Number(n), key: 'You', text: decisionText('note', undefined, oneLine(text)) }] : []));
+      if (typed.length) {
+        if (!(await applyRef.current(typed))) return 'Could not save your typed notes. Nothing was sent.';
+        setDrafts({});
+      }
       const fresh = await props.feedback.reload();
       if (!fresh) return 'Could not read the feedback file. Nothing was sent.';
       const now = pendingDecisions(fresh);
@@ -275,7 +287,7 @@ export function FeedbackPanel(props: {
   const sendRef = useRef(send);
   sendRef.current = send;
   const blocked = readOnly ? 'This feedback is read-only, since its output is gone.' : !props.canSend ? 'This session has ended. Resume it to send.' : undefined;
-  useEffect(() => claimDecisions({ count: pending.length, blocked, send: () => sendRef.current() }), [pending.length, blocked]);
+  useEffect(() => claimDecisions({ count: waiting, blocked, send: () => sendRef.current() }), [waiting, blocked]);
 
   const rounds = [...(doc?.rounds ?? [])].sort((a, b) => b.n - a.n);
   const known = new Set(rounds.map((r) => r.n));
@@ -303,6 +315,8 @@ export function FeedbackPanel(props: {
       }}
       expanded={item.n === expanded}
       onExpand={(open) => setExpanded(open ? item.n : undefined)}
+      note={drafts[item.n] ?? ''}
+      onNote={(text) => setDraft(item.n, text)}
       updated={!!doc && item.n !== expanded && updatedSince(item, seenCount(doc.path, item.n))}
       onShow={readOnly ? undefined : showItem(item)}
       onVoice={() => void toggleVoice(item.n)}
@@ -454,6 +468,9 @@ function ItemCard(props: {
   /** Shows the whole card. Otherwise it shows compact. */
   expanded: boolean;
   onExpand: (open: boolean) => void;
+  /** The note being typed, kept by the panel so Send can save it. */
+  note: string;
+  onNote: (text: string) => void;
   /** Claude wrote since you last opened the card. */
   updated: boolean;
   onShow?: (selector: string) => void;
@@ -472,7 +489,7 @@ function ItemCard(props: {
 }) {
   const { item, expanded } = props;
   const workspace = workspaceSummary(item);
-  const [note, setNote] = useState('');
+  const { note, onNote: setNote } = props;
   const [saving, setSaving] = useState(false);
   /** The option the next Accept picks. */
   const [option, setOption] = useState(item.chosen);
@@ -495,7 +512,7 @@ function ItemCard(props: {
   // A bare accept or reject repeats the state chip, so only a note, option or reason shows.
   const said = latestSaid(item);
   const saidText = said?.detail;
-  const acceptable = item.state !== 'accepted' || (!!option && option !== item.chosen);
+  const acceptable = item.state !== 'accepted' || (!!option && option !== item.chosen) || !!oneLine(note);
 
   const actions = !props.readOnly && (
     <div className="behavior-actions">
@@ -546,6 +563,11 @@ function ItemCard(props: {
             also round {n}
           </span>
         ))}
+        {item.revised && (
+          <span className="kind-tag raised" title="The proposal changed after you accepted it. Decide again." data-testid="feedback-revised">
+            Changed since you accepted
+          </span>
+        )}
         {item.raisedAgain !== undefined && (
           <span className="kind-tag raised" data-testid="feedback-raised">
             Raised again · round {item.raisedAgain}

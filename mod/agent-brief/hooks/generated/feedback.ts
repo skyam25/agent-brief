@@ -140,10 +140,25 @@ function raisedAgainOf(item: FeedbackItem): number | undefined {
   return later.length ? Math.max(...later) : undefined;
 }
 
+/** A `Change:` or `Option:` line after the last accept: the proposal moved since the user approved it. */
+function revisedSinceAccept(item: FeedbackItem): boolean {
+  let accepted = -1;
+  item.lines.forEach((l, i) => {
+    if (l.key === 'You' && parseEvent(l.key, l.text).verb === 'accept') accepted = i;
+  });
+  return accepted >= 0 && item.lines.slice(accepted + 1).some((l) => l.key === 'Change' || l.key === 'Option');
+}
+
 function finish(item: FeedbackItem): FeedbackItem {
   item.state = stateOf(item);
+  // An accept approves the proposal as it stood, so a later revision asks again.
+  const revised = item.state === 'accepted' && revisedSinceAccept(item);
+  if (revised) {
+    item.state = 'open';
+    item.revised = true;
+  }
   item.rounds = [...new Set([...(item.round !== undefined ? [item.round] : []), ...item.sources.map((s) => s.round)])].sort((a, b) => a - b);
-  const chosen = chosenOf(item.events);
+  const chosen = revised ? undefined : chosenOf(item.events);
   if (chosen) item.chosen = chosen;
   const raised = raisedAgainOf(item);
   if (raised) item.raisedAgain = raised;
@@ -443,26 +458,32 @@ export function decisionsPrompt(doc: Pick<FeedbackDocument, 'path' | 'output'>, 
     `Feedback decisions on ${doc.output} from Agent Brief, ${pending.length === 1 ? '1 item' : `${pending.length} items`}:`,
   ];
   for (const { item, said, saved } of pending) {
-    const words = said.map((e) => [e.verb, withOption(item, e.detail)].filter(Boolean).join(SEP)).join('; ');
-    lines.push(`- #${item.n} ${item.title}: ${words || 'saved a workspace'}`);
+    const text = (e: FeedbackEvent) => [e.verb, withOption(item, e.detail)].filter(Boolean).join(SEP);
+    // The last decision stands. Earlier ones go along as replaced, so their reasons aren't lost.
+    const decisions = said.filter((e) => STATE_VERBS[e.verb]);
+    const last = decisions.at(-1);
+    const words = [...(last ? [text(last)] : []), ...said.filter((e) => !STATE_VERBS[e.verb]).map(text)].join('; ');
+    const replaced = decisions.slice(0, -1).map(text).filter((t) => t !== text(last!));
+    lines.push(`- #${item.n} ${item.title}: ${words || 'saved a workspace'}${replaced.length ? ` (replaces ${replaced.join('; ')})` : ''}`);
+    if (last?.verb === 'accept' && item.change && !item.chosen) lines.push(`  Accepted change: ${item.change}`);
     for (const e of saved) {
       const w = savedWorkspace(doc.output, e);
       lines.push(`  Saved workspace: board ${w.board}${w.picture ? `, picture ${w.picture}` : ''}`);
     }
   }
-  lines.push('Act on each: make the accepted changes and log them with agent-brief feedback done, leave rejected items alone, and answer notes with a Claude line. The feedback-items skill has the format.');
+  lines.push('Act on each item\'s standing decision: make the accepted changes and log them with agent-brief feedback done, leave rejected items alone, and answer notes with a Claude line. A note on an accept can narrow it. The feedback-items skill has the format.');
   if (pending.some((p) => p.saved.length)) lines.push("A saved workspace is the user's answer drawn out. Look at each saved workspace's picture and run agent-brief read --board <board> before you act on its item.");
   return lines.join('\n');
 }
 
 const STOP = new Set('the and for with that this from are was were but not you your have has can its into than then there their they them what when where which who will would should could about just like also very more some only over under after before again too out our'.split(' '));
 
-/** Words worth matching in an item, lower case. */
 /** A quote in curly marks. Straight quotes inside it become single ones, so `"Continue" to what?` shows as “‘Continue’ to what?”. */
 export function quoted(text: string): string {
   return `“${text.replace(/"([^"]*)"/g, '‘$1’')}”`;
 }
 
+/** Words worth matching in an item, lower case. */
 export function itemWords(text: string): Set<string> {
   return new Set((text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => w.length > 2 && !STOP.has(w)).map((w) => w.replace(/s$/, '')));
 }

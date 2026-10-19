@@ -647,6 +647,8 @@ export interface FeedbackItem {
   chosen?: string;
   /** On a closed item, the newest round of a `Src:` line after the line that closed it. */
   raisedAgain?: number;
+  /** A `Change:` or `Option:` line came after the last accept, so the accept no longer stands and the item is open. */
+  revised?: boolean;
   related: { path: string; n: number }[];
   before: string[];
   after: string[];

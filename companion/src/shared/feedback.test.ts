@@ -181,7 +181,7 @@ describe('feedback files', () => {
     expect(message.split('\n').slice(0, 5)).toEqual([
       '@prototype/checkout.html.feedback.md',
       'Feedback decisions on prototype/checkout.html from Agent Brief, 2 items:',
-      '- #6 Hard to find the filters: accept · keep it sticky on scroll; reopen · too long on mobile',
+      '- #6 Hard to find the filters: reopen · too long on mobile (replaces accept · keep it sticky on scroll)',
       '  Saved workspace: board fb-checkout-6, picture prototype/checkout.html.feedback/6-workspace.png',
       '- #7 Coupon field is confusing: reject · out of scope',
     ]);
@@ -268,5 +268,26 @@ describe('quoted', () => {
   it('nests inner quotes as single curly marks', () => {
     expect(quoted('"Continue" to what?')).toBe('“‘Continue’ to what?”');
     expect(quoted('Plain words')).toBe('“Plain words”');
+  });
+});
+
+describe('standing decisions', () => {
+  const file = (...lines: string[]) => `# Feedback · a.html\n\n## Round 1 · SME · 2026-10-12\n\n- [ ] #1 Guest checkout\n    Round: 1\n    Change: Add guest checkout\n    Option: A · Guest first\n${lines.map((l) => `    ${l}\n`).join('')}`;
+  const doc = (text: string) => ({ ...parseFeedback(text), path: 'a.html.feedback.md', output: 'a.html', version: 'v' });
+
+  it('reopens an accepted item whose proposal changed after the accept', () => {
+    const changed = parseFeedback(file('You: 2026-10-13 · accept · option A', 'Option: A · Require sign-in first')).items[0]!;
+    expect([changed.state, changed.revised, changed.chosen]).toEqual(['open', true, undefined]);
+    const before = parseFeedback(file('Change: Add guest checkout, then an account', 'You: 2026-10-13 · accept')).items[0]!;
+    expect([before.state, before.revised]).toEqual(['accepted', undefined]);
+    const done = parseFeedback(file('You: 2026-10-13 · accept', 'Change: Later', 'Claude: 2026-10-14 · done')).items[0]!;
+    expect([done.state, done.revised]).toEqual(['done', undefined]);
+  });
+
+  it('sends the last decision, with the change it accepts and what it replaced', () => {
+    const flipped = doc(file('You: 2026-10-13 · accept · option A', 'You: 2026-10-13 · reject · not now'));
+    expect(decisionsPrompt(flipped, pendingDecisions(flipped)).split('\n')[2]).toBe('- #1 Guest checkout: reject · not now (replaces accept · option A (Guest first))');
+    const plain = doc(file('You: 2026-10-13 · reject', 'You: 2026-10-13 · accept · fees next round'));
+    expect(decisionsPrompt(plain, pendingDecisions(plain)).split('\n').slice(2, 4)).toEqual(['- #1 Guest checkout: accept · fees next round (replaces reject)', '  Accepted change: Add guest checkout']);
   });
 });

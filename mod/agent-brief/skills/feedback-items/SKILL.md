@@ -20,6 +20,8 @@ Change nothing in the output until the user decides. A round is cataloged, not a
 3. Check every point for look-alikes in one call: `agent-brief feedback related <output> --text "<point 1>" --text "<point 2>"`.
    - The same point seen again is the same item. Join it with `"same": <n>`, never a new item.
    - A near-repeat, or the same point on another output, is a new item with a `related` link.
+   - A later quote about an existing item joins it as a `src` line, even when it is praise or says the fix works, such as "fine now". Then log what it shows with a `Claude` note.
+   - Never guess which build a speaker saw, or decide for the user that a repeat needs no change. Record the conflict, such as "Raised again after commit 3a62d74; the transcript doesn't say which build Maya saw". Say in the reply which items need the user to look.
 4. Catalog the round and all its points in one call. Write the points as JSON with your Write tool to a new file named after the transcript, such as `.feedback/catalog-sme-2.json`, then pass the file. A heredoc makes the command unique each time, so the user can't allow it once. The call adds the round unless the file has it, skips points already cataloged, and names look-alikes it finds:
 
 ```json
@@ -50,7 +52,7 @@ What goes in:
 - `related`: `<output path relative to this file's folder> #N`.
 - `same`: the item a repeat joins. Its `src` lines go on that item, and a `change` revises it.
 
-When a later round changes what an item asks for, revise it: `agent-brief feedback change <output> <n> "<the revised change>"`. Earlier `Change:` lines stay as history.
+When a later round changes what an item asks for, revise it: `agent-brief feedback change <output> <n> "<the revised change>"`. Earlier `Change:` lines stay as history. A revision after the user accepted puts the item back to open, so the user decides again. Never revise an accepted item to widen what you build. Add a new item instead.
 
 Round numbers are project-wide. One transcript has one number in every file, so a file's numbers may skip. `round` and `catalog` say when the round already exists. For a single point, `agent-brief feedback add <output> --title … --src '<round> · <speaker> · <time> · "<quote>"' [--change …] [--where …] [--option "A · …"]… [--related …] [--round N]` adds it.
 
@@ -91,6 +93,7 @@ The user's Send decisions message starts with `@<output>.feedback.md` and lists 
    - For each saved workspace, look at the picture it names (a project path), then run `agent-brief read --board <board>`. The drawing is the user's answer, as much as a note is.
 2. Accepted: make the change, within what the user authorized. `accept · option B` means build option B.
    - Anything you would add beyond the accepted change is a new proposed item, added with `feedback add`. Never fold it in silently.
+   - A note can narrow an accept, as in "Review order is good, fees next round". Build the part the user approved. Add each deferred part as a new open item with `related` set to this one, quoting the user's note in its change. Then log the done line for the part you built. Never leave deferred work only in a note.
    - Commit the output with `<output>.feedback.md` and the `<output>.feedback/` folder, then log the change: `agent-brief feedback done <output> <n> "<what changed, briefly>" --commit <sha>`. Once every item is logged, commit `<output>.feedback.md` again, such as `Log feedback #1, #3 done`, so the tree is clean. Outside a git repo, leave `--commit` off.
 3. Rejected: change nothing. The item is already closed.
 4. Notes and voice notes: answer with `agent-brief feedback log <output> <n> Claude "note · <answer>"`. Reopened items get a fresh look and a `Claude` line.
