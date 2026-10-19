@@ -4,7 +4,7 @@
  */
 
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { useEffect, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
+import { useEffect, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
 import { boxOf, type Shaped } from '../board/geometry';
 import { pinSpot, pinTarget, type Pinnable } from '../board/pin';
 import { pinLabel, type BoardPin } from '../shared/board-comments';
@@ -29,7 +29,7 @@ export function CommentToggle({ comments }: { comments: BoardCommentsStore }) {
         onClick={() => comments.setTool(!tool)}
         data-testid="comment-tool"
       >
-        <CommentIcon /> Comment
+        <CommentIcon /> <span className="pill-label">Comment</span>
       </button>
     </div>
   );
@@ -153,8 +153,8 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
   );
 }
 
-/** The comment column beside the board: an overall note, then one card per pin. */
-export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ReviewVoice; onSendKeys: (e: KeyboardEvent) => void; foot?: string }) {
+/** The comment column beside the board: an overall note, one card per pin, then `children`. */
+export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ReviewVoice; onSendKeys: (e: KeyboardEvent) => void; foot?: string; children?: ReactNode }) {
   const { comments, board, voice } = props;
   useStore(comments);
   useSyncExternalStore(
@@ -209,6 +209,7 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
           ))}
         </ol>
       )}
+      {props.children}
       <footer className="muted review-foot">
         {props.foot ?? (pins.length > 0 ? 'Send hands Claude each pin with its element. ⌘↩ sends.' : 'Draw as well as pin. Send takes both.')}
       </footer>

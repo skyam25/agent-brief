@@ -49,6 +49,22 @@ describe('feedback store', () => {
     expect(readFileSync(join(root, doc.path), 'utf8')).toBe(before);
   });
 
+  it('numbers rounds across the project, so one transcript has one number in every file', () => {
+    const { root, store } = setup();
+    const round = (output: string, label: string, source?: string) => {
+      const res = store.update(root, output, { version: store.read(root, output).version, ops: [{ op: 'addRound', label, ...(source ? { source } : {}) }] }, 'Claude');
+      return res.added.rounds[0];
+    };
+    expect(round('prototype/checkout.html', 'SME', 'transcripts/sme-2.md')).toBe(2);
+    expect(round('prd.md', 'SME', 'transcripts/sme-2.md')).toBe(2);
+    expect(round('prd.md', 'review')).toBe(3);
+    expect(round('prd.md', 'customers', 'transcripts/cust-1.md')).toBe(1);
+    expect(store.read(root, 'prd.md').rounds.map((r) => r.n)).toEqual([3, 2, 1]);
+    const before = readFileSync(join(root, 'prd.md.feedback.md'), 'utf8');
+    expect(round('prd.md', 'SME', 'transcripts/sme-2.md')).toBe(2);
+    expect(readFileSync(join(root, 'prd.md.feedback.md'), 'utf8')).toBe(before);
+  });
+
   it('notifies on writes', () => {
     const root = tempDir();
     writeFileSync(join(root, 'a.md'), 'x');

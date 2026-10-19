@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs';
 import { outputsFile, type SessionInfo, type SessionsResponse } from '../protocol';
 import { newDraftId } from '../shared/drafts';
 import { isWorkspaceNotes } from '../shared/feedback-workspace';
-import { CH, type BoardEntry, type NewNote, type OpenDraft, type SessionBriefEntry } from '../shared/ipc';
+import { CH, type BoardEntry, type NewNote, type OpenDraft, type ReviewTab, type SessionBriefEntry } from '../shared/ipc';
 import type { DraftStore } from './drafts';
 import { resumeCommand } from './launch';
 import {
@@ -189,8 +189,8 @@ export class Briefs {
   }
 
   /** Shows a saved draft in Write mode and records it as the session's note. */
-  showDraft(sessionId: string | undefined, id: string, touch = true): void {
-    const open: OpenDraft = { id, ...(sessionId ? { sessionId } : {}) };
+  showDraft(sessionId: string | undefined, id: string, touch = true, tab?: ReviewTab): void {
+    const open: OpenDraft = { id, ...(sessionId ? { sessionId } : {}), ...(tab ? { tab } : {}) };
     this.deps.send(CH.openDraft, open);
     if (sessionId) this.remember(sessionId, { draftId: id, last: 'draft' }, touch);
   }

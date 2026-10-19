@@ -1,6 +1,6 @@
 /**
  * PNG export of an Excalidraw scene, whole or cropped to a region,
- * with optional stroke number badges.
+ * with optional stroke number badges, comment pins and a legend of the pins' words.
  */
 
 import { convertToExcalidrawElements, exportToCanvas } from '@excalidraw/excalidraw';
@@ -8,6 +8,7 @@ import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { BinaryFiles } from '@excalidraw/excalidraw/types';
 import type { Region } from '../server/contract';
 import { badgeCentre, boxOf, fitScale, intersects, pad, strokeStart, union, type Point, type Shaped } from '../board/geometry';
+import { legendLayout, pinSize } from '../board/pin-legend';
 import type { ExSkeleton } from '../board/skeleton';
 import { randomId } from './ops';
 
@@ -21,11 +22,12 @@ const EXPORT_PADDING = 24;
  * whatever theme the panel shows. `numbers` writes small stroke numbers and
  * image letters next to those elements, matching the labels in timeline.md.
  * `pins` draws comment pins at scene points, numbered from 1, matching comments.md.
+ * `legend` holds each pin's words, listed in a strip under the picture.
  */
 export async function renderPng(
   elements: readonly El[],
   files: BinaryFiles,
-  opts: { region?: Region; maxEdge: number; numbers?: Record<string, number | string>; pins?: readonly Point[] },
+  opts: { region?: Region; maxEdge: number; numbers?: Record<string, number | string>; pins?: readonly Point[]; legend?: readonly string[] },
 ): Promise<Uint8Array> {
   const els = elements.filter((e) => !e.isDeleted);
   const appState = { exportBackground: true, viewBackgroundColor: '#ffffff', exportWithDarkMode: false };
@@ -42,6 +44,7 @@ export async function renderPng(
     const scale = fitScale(region.width, region.height, opts.maxEdge);
     if (numbered) drawNumbers(canvas, els, numbered, region, scale);
     if (pins) drawPins(canvas, pins, region, scale);
+    if (pins && opts.legend) canvas = withLegend(canvas, opts.legend);
   } else if (els.length === 0) {
     canvas = whiteCanvas(Math.min(400, opts.maxEdge), Math.min(300, opts.maxEdge));
   } else {
@@ -114,34 +117,58 @@ function drawNumbers(
   }
 }
 
-/** Pin size in output pixels. */
-const PIN_PX = 22;
-
 /** The panel's accent, so pins on the PNG look like pins on the board. */
 const PIN_COLOR = '#6965db';
 
-/**
- * Draws each comment pin as the board shows it: a violet badge with its number,
- * whose square corner sits on the pinned spot. Sizes are in output pixels.
- */
-function drawPins(canvas: HTMLCanvasElement, pins: readonly Point[], region: Region, scale: number): void {
-  const ctx = canvas.getContext('2d')!;
-  ctx.font = `700 ${BADGE_FONT_PX}px -apple-system, Helvetica, sans-serif`;
+const FONT = '-apple-system, Helvetica, sans-serif';
+
+/** A violet badge with its number, whose square bottom-left corner sits at `left`, `bottom`. */
+function drawBadge(ctx: CanvasRenderingContext2D, n: number, left: number, bottom: number, size: number): void {
+  const top = bottom - size;
+  ctx.font = `700 ${Math.round(size * 0.55)}px ${FONT}`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
-  pins.forEach(([x, y], i) => {
-    const left = (x - region.x) * scale;
-    const top = (y - region.y) * scale - PIN_PX;
-    ctx.beginPath();
-    ctx.roundRect(left, top, PIN_PX, PIN_PX, [PIN_PX / 2, PIN_PX / 2, PIN_PX / 2, 2]);
-    ctx.fillStyle = PIN_COLOR;
-    ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = '#ffffff';
-    ctx.stroke();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(String(i + 1), left + PIN_PX / 2, top + PIN_PX / 2 + 0.5);
+  ctx.beginPath();
+  ctx.roundRect(left, top, size, size, [size / 2, size / 2, size / 2, 2]);
+  ctx.fillStyle = PIN_COLOR;
+  ctx.fill();
+  ctx.lineWidth = Math.max(1.5, size / 16);
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(String(n), left + size / 2, top + size / 2 + 0.5);
+}
+
+/** Draws each comment pin as the board shows it, sized to read on the whole picture. */
+function drawPins(canvas: HTMLCanvasElement, pins: readonly Point[], region: Region, scale: number): void {
+  const ctx = canvas.getContext('2d')!;
+  const size = pinSize(canvas.width, canvas.height);
+  pins.forEach(([x, y], i) => drawBadge(ctx, i + 1, (x - region.x) * scale, (y - region.y) * scale, size));
+}
+
+/** The picture with a strip under it listing each pin's number and words. */
+function withLegend(canvas: HTMLCanvasElement, texts: readonly string[]): HTMLCanvasElement {
+  const measuring = canvas.getContext('2d')!;
+  const layout = legendLayout(texts, canvas.width, canvas.height, (text, px) => {
+    measuring.font = `${px}px ${FONT}`;
+    return measuring.measureText(text).width;
   });
+  if (!layout) return canvas;
+  const out = whiteCanvas(layout.width, canvas.height + layout.height);
+  const ctx = out.getContext('2d')!;
+  ctx.drawImage(canvas, 0, 0);
+  ctx.fillStyle = '#d4d4d8';
+  ctx.fillRect(0, canvas.height, out.width, Math.max(1, Math.round(layout.unit / 20)));
+  for (const row of layout.rows) {
+    const top = canvas.height + row.top;
+    drawBadge(ctx, row.n, layout.pad, top + layout.unit, layout.unit);
+    ctx.font = `${layout.font}px ${FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1e1e1e';
+    row.lines.forEach((line, i) => ctx.fillText(line, layout.textX, top + (i === 0 ? layout.unit / 2 : layout.unit / 2 + i * layout.lineHeight)));
+  }
+  return out;
 }
 
 function whiteCanvas(width: number, height: number): HTMLCanvasElement {

@@ -116,6 +116,18 @@ describe('SessionFiles', () => {
     await expect(files.openDocument('s1', '../escape.md', 'feedback')).rejects.toThrow('outside the project');
   });
 
+  it('carries the Feedback tab to a new or reopened review', async () => {
+    writeFileSync(join(cwd, 'page.html'), '<p>hi</p>');
+    await files.openDocument('s1', 'page.html', 'feedback');
+    const review = last(CH.newNote)!;
+    expect(review).toMatchObject({ review: { path: 'page.html' }, tab: 'feedback' });
+    drafts.save({ id: review.id as string, body: '', status: 'note', rank: 0, createdAt: 1, updatedAt: 1, sessionId: 's1', review: { path: 'page.html', comments: [] } });
+    await files.openDocument('s1', 'page.html', 'feedback');
+    expect(last(CH.openDraft)).toEqual({ id: review.id, sessionId: 's1', tab: 'feedback' });
+    await files.openDocument('s1', 'page.html');
+    expect(last(CH.openDraft)).toEqual({ id: review.id, sessionId: 's1' });
+  });
+
   it('refuses a document that is missing, outside the project, or a symlink out of it', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'outside-'));
     writeFileSync(join(outside, 'secret.md'), 'no');

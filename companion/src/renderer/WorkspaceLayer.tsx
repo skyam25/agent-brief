@@ -1,7 +1,7 @@
 /**
  * A feedback item's workspace: a full layer over the output with the item's own
- * Sketch board, the board's comment pins and mic, and a rail of what was said about
- * it. Save to #N exports the board beside the output and logs it, and the comments,
+ * Sketch board, the board's comment pins and mic, and one column with the unsaved
+ * comments first and what was said about the item after. Save to #N exports the board beside the output and logs it, and the comments,
  * on the item. Add to note opens a Write note linked to the item. Nothing goes to Claude.
  */
 
@@ -21,7 +21,7 @@ import { fitBoard } from './viewport';
 import { holdWorkspace, workspaceComments as comments } from './workspace-boards';
 
 export type WorkspaceHost = BoardHost &
-  Pick<CompanionApi, 'openFeedbackWorkspace' | 'saveFeedbackWorkspace' | 'noteFeedbackItem' | 'transcribeClip' | 'requestMicrophone'>;
+  Pick<CompanionApi, 'openFeedbackWorkspace' | 'saveFeedbackWorkspace' | 'noteFeedbackItem' | 'transcribeClip' | 'requestMicrophone' | 'onVisibility'>;
 
 const MIC_DENIED = 'Microphone access is off. Turn it on in System Settings > Privacy & Security > Microphone, then try again.';
 
@@ -98,10 +98,6 @@ export function WorkspaceLayer(props: {
     (fn) => voice.subscribe(fn),
     () => voice.recording,
   );
-  const showing = useSyncExternalStore(
-    (fn) => comments.subscribe(fn),
-    () => comments.showing(board),
-  );
   const selected = useSyncExternalStore(
     (fn) => comments.subscribe(fn),
     () => comments.selected,
@@ -113,14 +109,15 @@ export function WorkspaceLayer(props: {
     if (voice.recording) voice.aim(selected ?? OVERALL);
   }, [voice, selected]);
 
-  // Leaving stops the mic. Words still turning into text land on their pins, which stay for the next open.
-  useEffect(
-    () => () => {
+  // Leaving or hiding the panel stops the mic. Words still turning into text land on their pins, which stay for the next open.
+  useEffect(() => {
+    const off = host.onVisibility((visible) => !visible && void voice.stop());
+    return () => {
+      if (typeof off === 'function') off();
       void voice.stop();
       comments.setTool(false);
-    },
-    [voice],
-  );
+    };
+  }, [host, voice]);
 
   const toggleMic = async () => {
     if (voice.recording) return void (await voice.stop());
@@ -205,7 +202,7 @@ export function WorkspaceLayer(props: {
     <section className="workspace-layer" aria-label={`Workspace for #${props.n}`} data-escape-owner data-testid="workspace-layer">
       <header className="workspace-head">
         <div className="workspace-what">
-          <span className="workspace-title">
+          <span className="workspace-title" title={item?.title}>
             <span className="num">#{props.n}</span> {item?.title}
           </span>
           {src?.quote && (
@@ -214,22 +211,19 @@ export function WorkspaceLayer(props: {
             </span>
           )}
         </div>
-        {summary && (
-          <span className="muted" data-testid="workspace-saved">
-            {summary}
-          </span>
-        )}
-        <CommentToggle comments={comments} />
-        <Mic recording={recording} board onMicrophone={() => void toggleMic()} />
-        <button className="ghost" onClick={() => void addToNote()} title="Open a Write note linked to this item" data-testid="workspace-note">
-          Add to note
-        </button>
-        <button className="ghost" onClick={() => void back()} data-testid="workspace-back">
-          Back to list
-        </button>
-        <button className="primary" disabled={!loaded || saving} onClick={() => void save()} title="Export the board beside the output and log it and the comments on the item. Nothing is sent." data-testid="workspace-save">
-          {saving ? 'Saving…' : `Save to #${props.n}`}
-        </button>
+        <div className="workspace-actions">
+          <CommentToggle comments={comments} />
+          <Mic recording={recording} board onMicrophone={() => void toggleMic()} />
+          <button className="ghost" onClick={() => void addToNote()} title="Open a Write note linked to this item" data-testid="workspace-note">
+            Add to note
+          </button>
+          <button className="ghost" onClick={() => void back()} title="Back to the feedback list" data-testid="workspace-back">
+            Back<span className="wide-label">to list</span>
+          </button>
+          <button className="primary" disabled={!loaded || saving} onClick={() => void save()} title="Export the board beside the output and log it and the comments on the item. Nothing is sent." data-testid="workspace-save">
+            {saving ? 'Saving…' : `Save to #${props.n}`}
+          </button>
+        </div>
       </header>
       <div className="workspace-body">
         {loaded ? (
@@ -237,36 +231,41 @@ export function WorkspaceLayer(props: {
         ) : (
           <p className="muted workspace-loading">Opening the workspace…</p>
         )}
-        {showing && (
-          <CommentColumn
-            comments={comments}
-            board={board}
-            voice={voice}
-            foot="Save keeps each pin's words on the item, numbered on the saved picture. ⌘↩ saves."
-            onSendKeys={(e) => {
-              if (e.key === 'Enter' && e.metaKey) {
-                e.preventDefault();
-                void save();
-              }
-            }}
-          />
-        )}
-        <aside className="workspace-rail" aria-label="Notes, voice and pins" data-testid="workspace-rail">
-          <h4 className="section-head">Said about #{props.n}</h4>
-          <p className="muted workspace-board" title="Claude draws here with agent-brief draw --board" data-testid="workspace-board">
-            {board}
-          </p>
-          {rail.length === 0 && <p className="muted">No notes, voice notes or pins yet.</p>}
-          {rail.map((r, i) => (
-            <p key={i} className={`workspace-rail-entry ${r.kind}`} data-testid="workspace-rail-entry">
-              <span className="who">
-                {RAIL_LABELS[r.kind]}
-                {r.date ? ` · ${shortDate(r.date)}` : ''}
-              </span>
-              {r.text}
+        {/* One column: what this Save will keep, then what the item already has. */}
+        <CommentColumn
+          comments={comments}
+          board={board}
+          voice={voice}
+          foot="Save keeps each pin's words on the item, numbered on the saved picture. ⌘↩ saves."
+          onSendKeys={(e) => {
+            if (e.key === 'Enter' && e.metaKey) {
+              e.preventDefault();
+              void save();
+            }
+          }}
+        >
+          <section className="workspace-rail" aria-label="Notes, voice and pins" data-testid="workspace-rail">
+            <h3 className="section-head">Said about #{props.n}</h3>
+            <p className="muted workspace-board" title="Claude draws here with agent-brief draw --board" data-testid="workspace-board">
+              {board}
             </p>
-          ))}
-        </aside>
+            {summary && (
+              <p className="muted" data-testid="workspace-saved">
+                {summary}
+              </p>
+            )}
+            {rail.length === 0 && <p className="muted">No notes, voice notes or pins yet.</p>}
+            {rail.map((r, i) => (
+              <p key={i} className={`workspace-rail-entry ${r.kind}`} data-testid="workspace-rail-entry">
+                <span className="who">
+                  {RAIL_LABELS[r.kind]}
+                  {r.date ? ` · ${shortDate(r.date)}` : ''}
+                </span>
+                {r.text}
+              </p>
+            ))}
+          </section>
+        </CommentColumn>
       </div>
     </section>
   );

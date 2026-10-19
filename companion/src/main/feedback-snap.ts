@@ -1,7 +1,7 @@
 /**
  * Before and after pictures for feedback items. A hidden offscreen window loads the
- * HTML output the way the review pane does and captures the item's `Where:` element,
- * or the whole page up to a height. Each picture is a new file in the output's
+ * HTML output the way the review pane does and captures the block around the item's
+ * `Where:` element, with the element outlined, or the whole page up to a height. Each picture is a new file in the output's
  * sibling folder, and the item gains a `Before:` or `After:` line for it.
  */
 
@@ -11,6 +11,7 @@ import type { BrowserWindow as ElectronWindow, Rectangle, Session } from 'electr
 import type { FeedbackSnapRequest, FeedbackSnapResult } from '../protocol';
 import type { FeedbackActor } from '../shared/feedback';
 import { picturePath, snapLine, snapName } from '../shared/feedback-pictures';
+import { SNAPSHOT_MARK, snapshotBlock } from '../shared/snapshot-block';
 import type { FeedbackStore } from './feedback';
 import { feedbackAssetsDir, plainRelative, resolveFeedback, within, writeFeedbackAsset } from './feedback-paths';
 import { REVIEW_SCHEME } from './review-protocol';
@@ -88,19 +89,32 @@ const LOAD_TIMEOUT = 15_000;
 /** Room around the element, in CSS pixels. */
 const PAD = 8;
 
-/** `rect` is the element's padded box in the viewport, absent for the whole page. `full` is the height it needs. */
+/** `rect` is the block's padded box in the viewport, absent for the whole page. `full` is the height it needs. */
 type Measured = { rect?: Rectangle; full: number } | { error: 'missing' | 'invalid' | 'empty' };
 
-/** Runs in the page. Scrolls the element, or the page, to the top, waits two frames, and measures it. */
-function measure(selector: string | null, pad: number): Promise<Measured> {
+/**
+ * Runs in the page. Scrolls the element's block, or the page, to the top, outlines
+ * the element, waits two frames, and measures the block.
+ */
+function measure(selector: string | null, pad: number, block: (el: Element) => Element, mark: { color: string; width: number }): Promise<Measured> {
   return (async () => {
     await document.fonts?.ready;
     let el: Element | null = null;
+    let target: Element | null = null;
     if (selector) {
-      try { el = document.querySelector(selector); } catch { return { error: 'invalid' as const }; }
-      if (!el) return { error: 'missing' as const };
+      try { target = document.querySelector(selector); } catch { return { error: 'invalid' as const }; }
+      if (!target) return { error: 'missing' as const };
+      el = block(target);
       el.scrollIntoView({ block: 'start', inline: 'nearest' });
       scrollBy(0, -pad);
+      const t = target.getBoundingClientRect();
+      if (!t.width || !t.height) return { error: 'empty' as const };
+      document.querySelector('[data-agent-brief-mark]')?.remove();
+      const outline = document.createElement('div');
+      outline.setAttribute('data-agent-brief-mark', '');
+      const w = mark.width;
+      outline.style.cssText = `all: initial; display: block; position: fixed; left: ${t.left - w}px; top: ${t.top - w}px; width: ${t.width + w * 2}px; height: ${t.height + w * 2}px; border: ${w}px solid ${mark.color}; box-sizing: border-box; pointer-events: none; z-index: 2147483647;`;
+      document.documentElement.append(outline);
     } else scrollTo(0, 0);
     await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
     if (!el) return { full: Math.ceil(Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0)) };
@@ -158,7 +172,8 @@ export function offscreenCapture(Window: typeof ElectronWindow, session: Session
       const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('The page took too long to load')), LOAD_TIMEOUT); });
       await Promise.race([wc.loadURL(url), timeout]);
       const run = async () => {
-        const measured = await Promise.race([wc.executeJavaScript(`(${measure.toString()})(${JSON.stringify(selector ?? null)}, ${PAD})`) as Promise<Measured>, timeout]);
+        const script = `(${measure.toString()})(${JSON.stringify(selector ?? null)}, ${PAD}, ${snapshotBlock.toString()}, ${JSON.stringify(SNAPSHOT_MARK)})`;
+        const measured = await Promise.race([wc.executeJavaScript(script) as Promise<Measured>, timeout]);
         if ('full' in measured) return measured;
         if (measured.error === 'invalid') return bad(`Where: ${selector} is not a CSS selector`);
         return bad(measured.error === 'missing' ? `No element on the page matches ${selector}` : `${selector} takes no room on the page`);

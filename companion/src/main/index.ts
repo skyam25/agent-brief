@@ -1,5 +1,6 @@
 import { BehaviorStore } from './behavior';
 import { FeedbackStore } from './feedback';
+import { resolveFeedback } from './feedback-paths';
 import { FeedbackWorkspaces } from './feedback-workspace';
 import { captureSession, FeedbackSnaps, offscreenCapture } from './feedback-snap';
 import { existsSync, rmSync } from 'node:fs';
@@ -41,6 +42,7 @@ import {
   type Theme,
 } from '../shared/ipc';
 import { newDraftId } from '../shared/drafts';
+import { isReviewable } from '../shared/review';
 import { createBoardBackend } from './backend';
 import { Briefs } from './briefs';
 import { RendererBridge } from './bridge';
@@ -52,6 +54,7 @@ import { expandHome, InitiativeStore } from './initiatives';
 import { createInstalls } from './installs';
 import { ItemsWatcher } from './items-watch';
 import { trayMenuTemplate } from './menus';
+import { OutputWatch } from './output-watch';
 import { Panel } from './panel';
 import { Quitter } from './quit';
 import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './review-protocol';
@@ -188,7 +191,18 @@ async function start(): Promise<void> {
 
   const briefs = new Briefs({ state, store, drafts, sessions: () => server.sessions(), send, onPublish: () => files.sync() });
   const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
-  const feedback = new FeedbackStore(() => send(CH.feedbackChanged));
+  // Outputs the panel shows. Store and pane writes settle it first, so only outside edits report.
+  const outputWatch = new OutputWatch(
+    (sessionId, path) => {
+      const where = resolveFeedback(behaviorRoot(sessionId), path, { orphan: true });
+      return { feedback: where.file, ...(where.outputExists && isReviewable(where.output) ? { output: where.outputFile } : {}) };
+    },
+    (sessionId, path, kind) => (kind === 'output' ? send(CH.outputChanged, { sessionId, path }) : send(CH.feedbackChanged)),
+  );
+  const feedback = new FeedbackStore(() => {
+    outputWatch.settle();
+    send(CH.feedbackChanged);
+  });
   const captures = captureSession(session.fromPartition('feedback-capture'), (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
   const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow, captures) });
   const behaviorRoot = (sessionId: string) => {
@@ -374,7 +388,10 @@ async function start(): Promise<void> {
       mode: state.state.mode,
     }),
   );
-  ipc.on('ready', () => bridge.ready());
+  ipc.on('ready', () => {
+    outputWatch.clear();
+    bridge.ready();
+  });
   ipcMain.on(CH.reply, (_e, reply: BoardReply) => bridge.handleReply(reply));
   ipc.on('hidePanel', () => panel.hide());
   ipc.on('setMode', (mode: Mode) => {
@@ -542,9 +559,16 @@ async function start(): Promise<void> {
   ipc.handle('noteFeedbackItem', (sessionId: string, path: unknown, n: unknown) => workspaces.note(behaviorRoot(sessionId), path, n, sessionId));
   ipc.handle('readFeedbackPicture', (sessionId: string, output: unknown, picture: unknown) => feedbackSnaps.picture(behaviorRoot(sessionId), output, picture));
   ipc.handle('reviewUrl', (sessionId: string, path: unknown) => files.reviewUrl(sessionId, path));
-  ipc.handle('reviewEdit', (sessionId: string, path: unknown, version: unknown, edit: unknown) => files.reviewEdit(sessionId, path, version, edit));
-  ipc.handle('reviewUndo', (sessionId: string, path: unknown) => files.reviewUndo(sessionId, path));
-  ipc.handle('reviewRedo', (sessionId: string, path: unknown) => files.reviewRedo(sessionId, path));
+  // The pane's own writes never reload its page.
+  const settled = <T>(result: T): T => {
+    outputWatch.settle();
+    return result;
+  };
+  ipc.handle('reviewEdit', (sessionId: string, path: unknown, version: unknown, edit: unknown) => settled(files.reviewEdit(sessionId, path, version, edit)));
+  ipc.handle('reviewUndo', (sessionId: string, path: unknown) => settled(files.reviewUndo(sessionId, path)));
+  ipc.handle('reviewRedo', (sessionId: string, path: unknown) => settled(files.reviewRedo(sessionId, path)));
+  ipc.handle('watchOutput', (sessionId: string, path: unknown) => outputWatch.watch(sessionId, String(path)));
+  ipc.handle('unwatchOutput', (sessionId: string, path: unknown) => outputWatch.unwatch(sessionId, String(path)));
 
   // Initiatives. The panel's changes are the PM's revisions.
   ipc.handle('listInitiatives', () => initiatives.list());

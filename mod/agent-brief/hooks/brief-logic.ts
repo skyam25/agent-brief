@@ -1,4 +1,5 @@
 import type { BriefAnswer, BriefOutput, SessionMode } from '../types'
+import { feedbackPath, parseFeedback } from './generated/feedback'
 import { awaitsUser, parseItems } from './items-file'
 import type { Decision } from './items-file'
 import { modeLabel } from './modes'
@@ -48,20 +49,35 @@ export type OutputRow = {
   isUrl: boolean
   /** True for a Markdown or HTML file the app opens as a note or in its review pane. */
   canBrief: boolean
+  /** `Feedback · N open` while the output has open or raised-again feedback items. */
+  feedback?: string
 }
 
-const rowOf = (o: BriefOutput): OutputRow => ({
+const rowOf = (o: BriefOutput, open: number): OutputRow => ({
   ref: o.ref,
   label: o.tier === 'declared' ? (o.title ?? fileName(o.ref)) : o.ref,
   status: o.tier === 'detected' ? 'Touched' : o.status === 'ready' ? 'Ready' : 'Drafting',
   isUrl: isUrl(o.ref),
   canBrief: !isUrl(o.ref) && BRIEF_EXTENSIONS.includes(extensionOf(o.ref)),
+  ...(open > 0 ? { feedback: `Feedback · ${open} open` } : {}),
 })
 
-/** Declared outputs, newest first, then touched documents in the order the session first wrote them. */
-export function outputRows(outputs: readonly BriefOutput[]): { declared: OutputRow[]; touched: OutputRow[] } {
+/**
+ * Declared outputs, newest first, then touched documents in the order the session first wrote them.
+ * `feedback` holds each output's open feedback count by ref.
+ */
+export function outputRows(outputs: readonly BriefOutput[], feedback: Readonly<Record<string, number>> = {}): { declared: OutputRow[]; touched: OutputRow[] } {
+  const row = (o: BriefOutput) => rowOf(o, feedback[o.ref] ?? 0)
   const declared = outputs.filter(o => o.tier === 'declared').sort((a, b) => (b.declaredAt ?? 0) - (a.declaredAt ?? 0))
-  return { declared: declared.map(rowOf), touched: outputs.filter(o => o.tier === 'detected').map(rowOf) }
+  return { declared: declared.map(row), touched: outputs.filter(o => o.tier === 'detected').map(row) }
+}
+
+/** An output's feedback file, beside it. */
+export const feedbackFileOf = (cwd: string, ref: string) => feedbackPath(openTarget(cwd, ref))
+
+/** How many items in a feedback file are open, or closed and raised again by a later round. */
+export function openFeedback(text: string): number {
+  return parseFeedback(text).items.filter(i => i.state === 'open' || (i as { raisedAgain?: number }).raisedAgain !== undefined).length
 }
 
 /** What `open` takes for a row: the URL, or the file's absolute path. */

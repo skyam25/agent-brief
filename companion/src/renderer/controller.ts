@@ -469,8 +469,10 @@ export class BoardController {
         }
         case 'png': {
           const h = await this.sceneFor(a.board);
-          const pins = (a.pins as BoardPin[] | undefined)?.map((p) => pinSpot(p, new Map((h.elements as unknown as Pinnable[]).map((e) => [e.id, e]))).at);
-          return renderPng(h.elements, h.files, { region: a.region, maxEdge: a.maxEdge, ...(pins?.length ? { pins } : {}) });
+          const asked = a.pins as BoardPin[] | undefined;
+          const pins = asked?.map((p) => pinSpot(p, new Map((h.elements as unknown as Pinnable[]).map((e) => [e.id, e]))).at);
+          // A saved picture lists each pin's words under it.
+          return renderPng(h.elements, h.files, { region: a.region, maxEdge: a.maxEdge, ...(pins?.length ? { pins, legend: asked!.map((p) => p.text) } : {}) });
         }
         case 'show':
           return this.show(a.board);

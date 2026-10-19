@@ -3,7 +3,7 @@ import { hasReviewContent } from '../shared/review';
 /** Holds the drafts Write mode shows, with the open one and debounced saves. */
 
 import { keptImages, newDraftId, sortDrafts } from '../shared/drafts';
-import type { CompanionApi, Draft, DraftSource } from '../shared/ipc';
+import type { CompanionApi, Draft, DraftSource, ReviewTab } from '../shared/ipc';
 import { SaveQueue } from './save-queue';
 import { MAX_EDITS, type DraftReview, type ReviewComment } from '../shared/review';
 
@@ -51,6 +51,8 @@ export class DraftBook {
   private readonly listeners = new Set<() => void>();
   /** Pictures an edit took out of a draft, by id. An undo or a paste that brings the reference back finds them here. */
   private readonly loose = new Map<string, string>();
+  /** Side tabs /open asked reviews to show, by draft. The review takes each once. */
+  private readonly tabs = new Map<string, ReviewTab>();
 
   constructor(
     private readonly host: DraftHost,
@@ -65,6 +67,17 @@ export class DraftBook {
   private emit(): void {
     this.version++;
     for (const fn of this.listeners) fn();
+  }
+
+  askTab(id: string, tab: ReviewTab): void {
+    this.tabs.set(id, tab);
+    this.emit();
+  }
+
+  takeTab(id: string): ReviewTab | undefined {
+    const tab = this.tabs.get(id);
+    this.tabs.delete(id);
+    return tab;
   }
 
   /** Reads drafts from disk. Edits not saved yet win over what disk has. */

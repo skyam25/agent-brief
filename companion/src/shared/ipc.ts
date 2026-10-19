@@ -37,7 +37,7 @@ export interface BoardOps {
   draw: { args: { board: string; req: DrawRequest; batchId: string }; result: DrawResponse };
   update: { args: { board: string; req: UpdateRequest; batchId: string }; result: MutateResponse };
   remove: { args: { board: string; req: DeleteRequest; batchId: string }; result: MutateResponse };
-  /** `pins` draw numbered badges, as a workspace Save does. */
+  /** `pins` draw numbered badges with their words in a strip under the picture, as a workspace Save does. */
   png: { args: { board: string; region?: Region; maxEdge: number; pins?: BoardPin[] }; result: Uint8Array };
   /** Makes `board` the visible board. A tab switch leaves the mode to the renderer. */
   show: { args: { board: string; fromSwitch?: boolean }; result: void };
@@ -298,7 +298,18 @@ export interface NewNote {
   source?: DraftSource;
   /** Set when the note reviews an HTML output the user opened from the Outputs list. */
   review?: DraftReview;
+  /** The review's side tab to show, as /open asked. */
+  tab?: ReviewTab;
 }
+
+/** A watched output that changed on disk. */
+export interface OutputChange {
+  sessionId: string;
+  path: string;
+}
+
+/** A side tab /open can ask a review to show. */
+export type ReviewTab = 'feedback';
 
 /** An output with no page that /open asked to show on its Feedback tab, in Review's full-width Feedback view. */
 export interface OpenFeedbackView {
@@ -311,6 +322,8 @@ export interface OpenFeedbackView {
 export interface OpenDraft {
   id: string;
   sessionId?: string;
+  /** The review's side tab to show, as /open asked. */
+  tab?: ReviewTab;
 }
 
 /** What a tab switch opened: the session's note, or its board. */
@@ -479,6 +492,11 @@ export interface CompanionApi extends BoardHost {
   /** A `Before:` or `After:` picture, relative to the output's folder, as a data URL. Undefined when the file is gone. */
   readFeedbackPicture(sessionId: string, output: string, picture: string): Promise<string | undefined>;
   onFeedbackChanged(fn: () => void): () => void;
+  /** Watches an output and its feedback file until the matching unwatch. Outside changes fire `onOutputChanged` or `onFeedbackChanged`. */
+  watchOutput(sessionId: string, path: string): Promise<void>;
+  unwatchOutput(sessionId: string, path: string): Promise<void>;
+  /** A watched output changed on disk, not through the panel. */
+  onOutputChanged(fn: (change: OutputChange) => void): () => void;
   /** Makes an item's workspace board when missing and adds a frame for its newest round, seeded with `snapshot` when given. */
   openFeedbackWorkspace(sessionId: string, path: string, n: number, snapshot?: WorkspaceSnapshot): Promise<FeedbackWorkspace>;
   /** Exports the item's board beside the output and appends a Workspace line, after a note line per pin and the overall note. Sends nothing. */
@@ -584,6 +602,9 @@ export const CH = {
   listFeedback: 'feedback:list',
   readFeedbackPicture: 'feedback:picture',
   feedbackChanged: 'feedback:changed',
+  watchOutput: 'outputs:watch',
+  unwatchOutput: 'outputs:unwatch',
+  outputChanged: 'outputs:file-changed',
   openFeedbackWorkspace: 'feedback:workspace-open',
   saveFeedbackWorkspace: 'feedback:workspace-save',
   noteFeedbackItem: 'feedback:item-note',
@@ -665,6 +686,8 @@ export const IPC_INVOKE = {
   saveFeedbackWorkspace: CH.saveFeedbackWorkspace,
   noteFeedbackItem: CH.noteFeedbackItem,
   readFeedbackPicture: CH.readFeedbackPicture,
+  watchOutput: CH.watchOutput,
+  unwatchOutput: CH.unwatchOutput,
   reviewUrl: CH.reviewUrl,
   reviewEdit: CH.reviewEdit,
   reviewUndo: CH.reviewUndo,
@@ -703,4 +726,5 @@ export const IPC_EVENT = {
   onInitiativesChanged: CH.initiativesChanged,
   onBehaviorChanged: CH.behaviorChanged,
   onFeedbackChanged: CH.feedbackChanged,
+  onOutputChanged: CH.outputChanged,
 } as const satisfies Record<Exclude<EventMethod, 'onRequest'>, string>;

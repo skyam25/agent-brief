@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import type { FeedbackDocument, FeedbackFileSummary, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
+import type { FeedbackDocument, FeedbackFileSummary, FeedbackProject, FeedbackRound, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
 import { buildFeedbackGraph, type GraphFile } from '../shared/feedback-graph';
 import { applyFeedbackOps, FEEDBACK_SUFFIX, feedbackSummary, FeedbackOpError, isoDate, parseFeedback, type FeedbackActor } from '../shared/feedback';
 import { resolveFeedback } from './feedback-paths';
@@ -41,8 +41,10 @@ export class FeedbackStore {
     const where = resolveFeedback(root, output);
     const before = this.text(where.file, where.path);
     if ((before === undefined ? 'missing' : hash(before)) !== req.version) throw new FeedbackError('conflict', 'Feedback changed since you read it. Read it again and retry. Nothing was written.');
+    // Round numbers are project-wide, so a new round looks at every feedback file.
+    const projectRounds = req.ops.some((op) => op?.op === 'addRound') ? this.projectRounds(root) : undefined;
     let next: ReturnType<typeof applyFeedbackOps>;
-    try { next = applyFeedbackOps(before, { output: where.output, ops: req.ops, by, date: isoDate(this.now()) }); }
+    try { next = applyFeedbackOps(before, { output: where.output, ops: req.ops, by, date: isoDate(this.now()), projectRounds }); }
     catch (err) {
       if (err instanceof FeedbackOpError) return bad(err.message);
       throw err;
@@ -60,31 +62,39 @@ export class FeedbackStore {
   /** Every feedback file under the project, skipping dot folders and node_modules, and the graph that links them. */
   project(root: string): FeedbackProject {
     const realRoot = realpathSync(root);
-    const files: FeedbackFileSummary[] = [];
-    const parsed: GraphFile[] = [];
-    const queue = [realRoot];
-    let dirs = 0;
-    let truncated = false;
-    while (queue.length) {
-      if (++dirs > MAX_DIRS) { truncated = true; break; }
-      const dir = queue.shift()!;
-      let entries;
-      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-      for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-        if (e.name.startsWith('.') || e.name === 'node_modules') continue;
-        const full = join(dir, e.name);
-        if (e.isDirectory()) queue.push(full);
-        else if (e.isFile() && e.name.endsWith(FEEDBACK_SUFFIX) && e.name !== FEEDBACK_SUFFIX) {
-          if (files.length >= MAX_FILES) { truncated = true; break; }
-          if (statSync(full).size > MAX_BYTES) continue;
-          const outputFull = full.slice(0, -FEEDBACK_SUFFIX.length);
-          const file: GraphFile = { path: relative(realRoot, full), output: relative(realRoot, outputFull), outputExists: existsSync(outputFull), doc: parseFeedback(readFileSync(full, 'utf8')) };
-          parsed.push(file);
-          files.push(feedbackSummary(file.path, file.output, file.outputExists, file.doc));
-        }
-      }
-      if (files.length >= MAX_FILES && truncated) break;
-    }
+    const { found, truncated } = scan(realRoot);
+    const parsed: GraphFile[] = found.map((full) => {
+      const outputFull = full.slice(0, -FEEDBACK_SUFFIX.length);
+      return { path: relative(realRoot, full), output: relative(realRoot, outputFull), outputExists: existsSync(outputFull), doc: parseFeedback(readFileSync(full, 'utf8')) };
+    });
+    const files = parsed.map((f) => feedbackSummary(f.path, f.output, f.outputExists, f.doc));
     return { files, graph: buildFeedbackGraph(parsed), ...(truncated ? { truncated } : {}) };
   }
+
+  private projectRounds(root: string): FeedbackRound[] {
+    return scan(realpathSync(root)).found.flatMap((full) => parseFeedback(readFileSync(full, 'utf8')).rounds);
+  }
+}
+
+/** Feedback files under the project, in a stable order, within the scan's limits. */
+function scan(realRoot: string): { found: string[]; truncated: boolean } {
+  const found: string[] = [];
+  const queue = [realRoot];
+  let dirs = 0;
+  while (queue.length) {
+    if (++dirs > MAX_DIRS) return { found, truncated: true };
+    const dir = queue.shift()!;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+      const full = join(dir, e.name);
+      if (e.isDirectory()) queue.push(full);
+      else if (e.isFile() && e.name.endsWith(FEEDBACK_SUFFIX) && e.name !== FEEDBACK_SUFFIX) {
+        if (found.length >= MAX_FILES) return { found, truncated: true };
+        if (statSync(full).size <= MAX_BYTES) found.push(full);
+      }
+    }
+  }
+  return { found, truncated: false };
 }
