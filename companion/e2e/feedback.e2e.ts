@@ -47,6 +47,8 @@ test('lists feedback by round, saves decisions as You lines, and sends them', as
   await expect(page.getByTestId('feedback-round-1')).toContainText('Hard to find the filters');
   await expect(first.getByTestId('feedback-also')).toHaveText('also round 2');
   await expect(first).toContainText('Where do I filter?');
+  await expect(first).not.toContainText('Move the filter row above the results.');
+  await first.getByTestId('feedback-expand').click();
   await expect(first).toContainText('Move the filter row above the results.');
   await first.getByTestId('feedback-show').click();
 
@@ -58,31 +60,34 @@ test('lists feedback by round, saves decisions as You lines, and sends them', as
   await expect(first.getByTestId('feedback-note')).toHaveValue('');
   expect(readFileSync(file, 'utf8')).toContain(`    You: ${today} · accept · keep it sticky on scroll\n`);
 
+  // A rejected card keeps only Reopen.
   const second = page.getByTestId('feedback-item-2');
+  await second.getByTestId('feedback-expand').click();
+  await second.getByTestId('feedback-note').fill('copy belongs to marketing');
   await second.getByTestId('feedback-reject').click();
   await expect(second.getByTestId('feedback-state')).toHaveText('Rejected');
   expect(readFileSync(file, 'utf8')).toContain('- [x] #2 Pay button wording');
-
-  await second.getByTestId('feedback-note').fill('copy belongs to marketing');
-  await second.getByTestId('feedback-note').press('Enter');
-  await expect.poll(() => readFileSync(file, 'utf8')).toContain(`You: ${today} · note · copy belongs to marketing`);
+  expect(readFileSync(file, 'utf8')).toContain(`You: ${today} · reject · copy belongs to marketing`);
+  await expect(second.getByTestId('feedback-reopen')).toBeVisible();
+  for (const id of ['feedback-accept', 'feedback-reject', 'feedback-note', 'feedback-voice', 'feedback-workspace-open']) await expect(second.getByTestId(id)).toHaveCount(0);
 
   // Claude's writes reach the open panel, and the history shows every line.
   await agent(h.socketPath, route, [{ op: 'append', item: 1, key: 'Claude', text: 'note · checking mobile first' }]);
+  await first.getByTestId('feedback-expand').click();
   await first.locator('summary').click();
   await expect(first.getByTestId('feedback-line').last()).toHaveText(`Claude${today} · note · checking mobile first`);
   await page.screenshot({ path: join(RESULTS, 'feedback-tab.png') });
 
-  await expect(page.getByTestId('feedback-send')).toHaveText('Send decisions · 2');
-  await page.getByTestId('feedback-send').click();
+  await expect(page.getByTestId('send')).toHaveText('Send decisions · 2');
+  await page.getByTestId('send').click();
   await expect.poll(async () => (await deliveriesFor(h.socketPath, 'fb-1')).length).toBe(1);
   const [delivery] = await deliveriesFor(h.socketPath, 'fb-1');
   expect(delivery!.draft).toContain('@checkout.html.feedback.md');
   expect(delivery!.draft).toContain('- #1 Hard to find the filters: accept · keep it sticky on scroll');
-  expect(delivery!.draft).toContain('- #2 Pay button wording: reject; note · copy belongs to marketing');
+  expect(delivery!.draft).toContain('- #2 Pay button wording: reject · copy belongs to marketing');
   await expect.poll(() => readFileSync(file, 'utf8').match(new RegExp(`You: ${today} · sent`, 'g'))?.length).toBe(2);
-  await expect(page.getByTestId('feedback-send')).toHaveText('Send decisions');
-  await expect(page.getByTestId('feedback-send')).toBeDisabled();
+  await expect(page.getByTestId('send')).toHaveText('Send decisions');
+  await expect(page.getByTestId('send')).toBeDisabled();
 });
 
 test('opens feedback full width for an output with no page', async () => {
@@ -101,10 +106,11 @@ test('opens feedback full width for an output with no page', async () => {
   ]);
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'fb-2' });
   await page.getByTestId('mode-review').click();
-  await expect(page.getByTestId('output-feedback-0')).toHaveText('Feedback · 1');
+  await expect(page.getByTestId('output-feedback-0')).toHaveText('Feedback · 1 open');
   await page.getByTestId('output-feedback-0').click();
   const view = page.getByTestId('feedback-view');
   await expect(view).toContainText('docs/prd.md');
+  await view.getByTestId('feedback-expand').click();
   await expect(view.getByTestId('feedback-item-1')).toContainText('Where · ## Pricing');
   await expect(view.getByTestId('feedback-show')).toHaveCount(0);
   await view.getByTestId('feedback-accept').click();
@@ -113,4 +119,11 @@ test('opens feedback full width for an output with no page', async () => {
   await expect(page.getByTestId('output-feedback-0')).toHaveText('Feedback');
   await expect(view.getByTestId('feedback-open-file')).toBeVisible();
   await page.screenshot({ path: join(RESULTS, 'feedback-full.png') });
+
+  // The full-width view draws the graph in place of the list.
+  await view.getByTestId('feedback-graph-toggle').click();
+  await expect(view.getByTestId('feedback-graph')).toBeVisible();
+  await expect(page.getByTestId('feedback-graph-layer')).toHaveCount(0);
+  await expect(view.getByTestId('feedback-item-1')).toHaveCount(0);
+  await page.screenshot({ path: join(RESULTS, 'feedback-graph-inline.png') });
 });

@@ -125,6 +125,7 @@ test('a retake adds a picture, keeps the first Before, and the open card shows t
   const panel = ctx.page;
   await sock(socketPath, 'POST', '/open', { sessionId: 'fs-4', output: { path: 'checkout.html' } });
   await panel.getByTestId('feedback-tab').click();
+  await panel.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
   const slider = panel.getByTestId('feedback-item-1').getByTestId('feedback-slider');
   await expect(slider.locator('img')).toHaveCount(2);
   const src = async (sel: string) => (await slider.locator(sel).getAttribute('src')) ?? '';

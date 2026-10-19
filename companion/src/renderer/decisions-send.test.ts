@@ -5,8 +5,8 @@ describe('decisions send', () => {
   it('hands the footer Send to the newest Feedback view and tells subscribers', () => {
     const heard = vi.fn();
     const off = subscribeDecisions(heard);
-    const side = { count: 1, canSend: true, send: () => undefined };
-    const full = { count: 3, canSend: true, send: () => undefined };
+    const side = { count: 1, send: () => undefined };
+    const full = { count: 3, send: () => undefined };
     expect(decisionsClaim()).toBeUndefined();
     const releaseSide = claimDecisions(side);
     const releaseFull = claimDecisions(full);

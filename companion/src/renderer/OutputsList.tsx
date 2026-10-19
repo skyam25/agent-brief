@@ -82,7 +82,7 @@ export function OutputsList(props: {
         onOpen={() => props.onOpen(r.ref)}
         onDismiss={feedbackOnly ? undefined : () => props.onDismiss(r.ref)}
         feedbackOnly={feedbackOnly ? summary : undefined}
-        feedback={takesFeedback(r.ref) ? summary : undefined}
+        feedback={summary}
         onFeedback={props.onFeedback && takesFeedback(r.ref) ? () => props.onFeedback!(canonicalRef(r.ref)) : undefined}
         onMenu={(e) => {
           e.preventDefault();
@@ -167,6 +167,7 @@ function OutputRow(props: {
   record: OutputRecord;
   index: number;
   selected: boolean;
+  /** The output's feedback file. A page shows its items in the review pane, a file in the Feedback view. */
   feedback?: FeedbackFileSummary;
   /** Set for a file listed only for its feedback, which the row names in place of a status. */
   feedbackOnly?: FeedbackFileSummary;
@@ -197,9 +198,16 @@ function OutputRow(props: {
                 Feedback · {props.feedbackOnly.open} open
               </span>
             ) : declared ? (
-              <span className={`status-chip ${r.status ?? 'drafting'}`} data-testid={`output-status-${index}`}>
-                {r.status === 'ready' ? 'Ready' : 'Drafting'}
-              </span>
+              <>
+                <span className={`status-chip ${r.status ?? 'drafting'}`} data-testid={`output-status-${index}`}>
+                  {r.status === 'ready' ? 'Ready' : 'Drafting'}
+                </span>
+                {props.feedback && !props.onFeedback && props.feedback.items > 0 && (
+                  <span className="origin" data-testid={`output-feedback-count-${index}`}>
+                    Feedback · {props.feedback.open} open
+                  </span>
+                )}
+              </>
             ) : (
               r.origin && <span className="origin">{r.origin}</span>
             )}
@@ -219,7 +227,7 @@ function OutputRow(props: {
       )}
       {props.feedback && props.onFeedback && (
         <button className="ghost output-feedback" title="Open its feedback items" onClick={props.onFeedback} data-testid={`output-feedback-${index}`}>
-          Feedback{props.feedback.open ? ` · ${props.feedback.open}` : ''}
+          Feedback{props.feedback.open ? ` · ${props.feedback.open} open` : ''}
         </button>
       )}
     </li>

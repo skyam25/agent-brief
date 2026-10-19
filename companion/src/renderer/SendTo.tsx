@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type { SessionsResponse } from '../protocol';
 import type { Launcher, LaunchOptions } from '../shared/ipc';
 import type { SessionInfo } from '../protocol';
+import type { DecisionsClaim } from './decisions-send';
 import { activeAgo, folderName, hostLabel, hueOf, shortFolder } from '../shared/sessions';
 import { CheckIcon, ChevronIcon, TerminalIcon } from './Icons';
 import { usePointerOutside } from './hooks';
@@ -41,9 +42,33 @@ export function SendTo(props: {
   chooseFolder: () => Promise<string | undefined>;
   /** Sits before the chip and Send, set apart by a divider. */
   mic?: ReactNode;
+  /** A Feedback view's decisions, which Send hands its own session in place of the chooser. */
+  decisions?: DecisionsClaim;
 }) {
   const target = props.sessions.sessions.find((s) => s.sessionId === props.sessions.targetSessionId);
   const name = target && (target.title || folderName(target.cwd));
+  const d = props.decisions;
+  if (d) {
+    return (
+      <div className="anchor send-to">
+        {props.mic && (
+          <>
+            {props.mic}
+            <span className="divider" aria-hidden="true" />
+          </>
+        )}
+        <button
+          className="primary send-named"
+          disabled={!!d.blocked || !d.count}
+          title={d.blocked ?? (d.count ? 'Hand Claude what you decided since the last send' : 'Decide something first')}
+          onClick={d.send}
+          data-testid="send"
+        >
+          Send decisions{d.count ? ` · ${d.count}` : ''}
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="anchor send-to">
       {props.mic && (

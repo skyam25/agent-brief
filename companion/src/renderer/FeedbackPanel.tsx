@@ -1,18 +1,22 @@
 /**
  * Feedback items for one output: grouped by the round they first came up in,
- * newest round on top. Each decision, note and voice note saves to the file at
- * once as a dated You line. Send decisions hands Claude what you said and saved since the last send.
+ * newest round on top. Cards show compact, and one at a time opens in full.
+ * Each decision, note and voice note saves to the file at once as a dated You line.
+ * While the panel shows, the footer Send hands Claude what you said and saved since the last send.
  * On a page, a click lists the items on that element, and a picked item ties the next pin to it.
  */
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackItem, FeedbackOp } from '../protocol';
 import { decisionsPrompt, pendingDecisions, receiptBatches, type PendingDecision } from '../shared/feedback';
 import { workspaceSummary } from '../shared/feedback-workspace';
 import type { CompanionApi } from '../shared/ipc';
 import { BeforeAfter, type PictureHost } from './BeforeAfter';
+import { claimDecisions } from './decisions-send';
+import { decisionText, historyLines, inOpenFilter, isClosed, latestSaid, markSeen, needsLook, seenCount, updatedSince, type FeedbackFilter } from './feedback-cards';
 import { FeedbackGraph } from './FeedbackGraph';
-import { ExternalIcon, MicIcon } from './Icons';
+import { ExternalIcon, MicIcon, ReloadIcon } from './Icons';
 import { ReviewVoice } from './review-voice';
 import { claimTalk } from './talk-owner';
 import { VoiceState } from './ReviewView';
@@ -115,7 +119,8 @@ export function useFeedbackFiles(host: FeedbackHost, sessionId: string | undefin
   return files;
 }
 
-export const openCount = (doc?: FeedbackDocument) => doc?.items.filter((i) => i.state === 'open').length ?? 0;
+/** Items that wait on the user: open ones and closed ones raised again. */
+export const openCount = (doc?: FeedbackDocument) => doc?.items.filter(needsLook).length ?? 0;
 
 const STATE_LABELS: Record<FeedbackItem['state'], string> = { open: 'Open', accepted: 'Accepted', rejected: 'Rejected', done: 'Done' };
 
@@ -135,7 +140,7 @@ export function FeedbackPanel(props: {
   onWorkspace?: (item: FeedbackItem) => void;
   /** The item whose workspace is opening. */
   workspaceOpening?: number;
-  /** The item to scroll to and mark when the panel opens. */
+  /** The item to open and scroll to when the panel opens. */
   focus?: number;
   /** Opens an item of another output, from the graph. */
   onOpenItem?: (output: string, n: number) => void;
@@ -144,27 +149,40 @@ export function FeedbackPanel(props: {
   /** The item the next review pin joins. */
   picked?: number;
   onPick?: (n: number | undefined) => void;
+  /** Draws the graph in place of the list. Otherwise it covers the review page as a layer. */
+  inlineGraph?: boolean;
 }) {
   const { doc, error, apply } = props.feedback;
   const [graphShown, setGraphShown] = useState(false);
   /** Bumps on Refresh, so the graph reads the files again too. */
   const [graphReads, setGraphReads] = useState(0);
-  const [focus, setFocus] = useState(props.focus);
+  const [filter, setFilter] = useState<FeedbackFilter>('open');
+  /** The one card shown in full. */
+  const [expanded, setExpanded] = useState(props.focus);
+  /** Items decided here stay listed under Open until the view closes. */
+  const [kept, setKept] = useState(() => new Set<number>());
   const root = useRef<HTMLElement>(null);
+  const graphInline = graphShown && !!props.inlineGraph;
   useEffect(() => {
-    if (graphShown || focus === undefined || !doc) return;
-    root.current?.querySelector(`[data-testid="feedback-item-${focus}"]`)?.scrollIntoView({ block: 'center' });
-  }, [graphShown, focus, doc?.path]);
+    if (graphShown || expanded === undefined || !doc) return;
+    root.current?.querySelector(`[data-testid="feedback-item-${expanded}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [graphShown, expanded, doc?.path]);
+  const expandedItem = doc?.items.find((i) => i.n === expanded);
+  // An open card counts as seen, along with whatever Claude writes while it is open.
+  useEffect(() => {
+    if (doc && expandedItem) markSeen(doc.path, expandedItem);
+  }, [doc?.path, expandedItem?.events.length]);
   const openItem = (output: string, n: number) => {
     if (doc && output !== doc.output) return props.onOpenItem?.(output, n);
     setGraphShown(false);
-    setFocus(n);
+    setExpanded(n);
   };
   /** Marks an item, so the next pin on the page joins it. */
   const pick = (n: number) => {
     openItem(doc?.output ?? '', n);
     props.onPick?.(n);
   };
+  const keep = (n: number) => setKept((k) => (k.has(n) ? k : new Set(k).add(n)));
   const sources = new Map((doc?.rounds ?? []).flatMap((r) => (r.source ? [[r.n, r.source] as const] : [])));
   const openSource = (path: string) => {
     if (props.sessionId) void props.host.openItemOutput(props.sessionId, path).catch((err: Error) => props.onError(`Could not open ${path}: ${cleanError(err)}`));
@@ -245,38 +263,83 @@ export function FeedbackPanel(props: {
   const items = doc?.items ?? [];
   // A feedback file whose output is gone reads, but takes no writes.
   const readOnly = doc?.outputExists === false;
+
+  // The footer Send sends these decisions while the panel shows.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const blocked = readOnly ? 'This feedback is read-only, since its output is gone.' : !props.canSend ? 'This session has ended. Resume it to send.' : undefined;
+  useEffect(() => claimDecisions({ count: pending.length, blocked, send: () => sendRef.current() }), [pending.length, blocked]);
+
   const rounds = [...(doc?.rounds ?? [])].sort((a, b) => b.n - a.n);
   const known = new Set(rounds.map((r) => r.n));
   const loose = items.filter((i) => i.round === undefined || !known.has(i.round));
+  const listed = (i: FeedbackItem) => filter === 'all' || inOpenFilter(i) || i.n === expanded || kept.has(i.n);
   const showItem = (item: FeedbackItem) =>
     props.onShow &&
     ((selector: string) => {
       props.onShow!(selector);
       props.onPick?.(item.n);
+      setExpanded(item.n);
     });
   const sourceOf = (item: FeedbackItem) => {
     const src = item.sources[0];
     return src && sources.get(src.round);
   };
-  const pictures = (item: FeedbackItem) => doc && <BeforeAfter host={props.host} sessionId={props.sessionId} output={doc.output} item={item} />;
+  const card = (item: FeedbackItem) => (
+    <ItemCard
+      key={item.n}
+      item={item}
+      voice={voice}
+      onApply={async (ops) => {
+        keep(item.n);
+        return apply(ops);
+      }}
+      expanded={item.n === expanded}
+      onExpand={(open) => setExpanded(open ? item.n : undefined)}
+      updated={!!doc && item.n !== expanded && updatedSince(item, seenCount(doc.path, item.n))}
+      onShow={readOnly ? undefined : showItem(item)}
+      onVoice={() => void toggleVoice(item.n)}
+      pictures={doc && <BeforeAfter host={props.host} sessionId={props.sessionId} output={doc.output} item={item} />}
+      focused={item.n === props.picked}
+      onWorkspace={readOnly ? undefined : props.onWorkspace}
+      opening={props.workspaceOpening === item.n}
+      source={sourceOf(item)}
+      onSource={openSource}
+      readOnly={readOnly}
+    />
+  );
+
+  const refresh = () => {
+    props.feedback.refresh();
+    setGraphReads((n) => n + 1);
+  };
+  const graph = graphShown && <FeedbackGraph host={props.host} sessionId={props.sessionId} output={doc?.output} reads={graphReads} onOpenItem={openItem} />;
+  // On a review page the graph covers the page and this panel, under the review bar.
+  const layerHost = graphShown && !props.inlineGraph ? root.current?.closest('.review') : undefined;
 
   return (
     <section className="feedback-panel" aria-label="Feedback" data-testid="feedback-panel" ref={root}>
       <div className="behavior-heading">
         <h3>Feedback{items.length > 0 ? ` · ${openCount(doc)} open` : ''}</h3>
         <span className="feedback-heading-actions">
+          <span className="feedback-filter" role="group" aria-label="Show">
+            {(['open', 'all'] as const).map((f) => (
+              <button key={f} className={filter === f ? 'ghost on' : 'ghost'} aria-pressed={filter === f} onClick={() => setFilter(f)} data-testid={`feedback-filter-${f}`}>
+                {f === 'open' ? 'Open' : 'All'}
+              </button>
+            ))}
+          </span>
           <button className="ghost" aria-pressed={graphShown} title="How this project's sources, items, outputs and workspaces link" onClick={() => setGraphShown(!graphShown)} data-testid="feedback-graph-toggle">
             Graph
           </button>
           <button
-            className="ghost"
-            onClick={() => {
-              props.feedback.refresh();
-              setGraphReads((n) => n + 1);
-            }}
+            className="ghost icon-button small"
+            title="Read the feedback files again"
+            aria-label="Refresh"
+            onClick={refresh}
             data-testid="feedback-refresh"
           >
-            Refresh
+            <ReloadIcon />
           </button>
         </span>
       </div>
@@ -288,8 +351,26 @@ export function FeedbackPanel(props: {
         </p>
       )}
       {!doc && !error && <p>Loading feedback…</p>}
-      {graphShown && <FeedbackGraph host={props.host} sessionId={props.sessionId} output={doc?.output} reads={graphReads} onOpenItem={openItem} />}
-      {!graphShown && props.onPick && items.length > 0 && (props.pointed || props.picked !== undefined) && (
+      {graphInline && graph}
+      {layerHost &&
+        createPortal(
+          <section className="feedback-graph-layer" aria-label="Feedback graph" data-testid="feedback-graph-layer">
+            <header className="workspace-head">
+              <span className="workspace-title">Feedback graph</span>
+              <span className="muted">Sources, items, outputs and workspaces across the project</span>
+              <span className="spacer" />
+              <button className="ghost icon-button small" title="Read the feedback files again" aria-label="Refresh" onClick={refresh} data-testid="feedback-graph-refresh">
+                <ReloadIcon />
+              </button>
+              <button className="ghost" onClick={() => setGraphShown(false)} data-testid="feedback-graph-back">
+                Back to list
+              </button>
+            </header>
+            <div className="feedback-graph-body">{graph}</div>
+          </section>,
+          layerHost,
+        )}
+      {!graphInline && props.onPick && items.length > 0 && (props.pointed || props.picked !== undefined) && (
         <div className="feedback-pointed" data-testid="feedback-pointed">
           {props.picked !== undefined ? (
             <span>
@@ -312,66 +393,69 @@ export function FeedbackPanel(props: {
           )}
         </div>
       )}
-      {!graphShown && doc && !items.length && (
+      {!graphInline && doc && !items.length && (
         <p className="muted" data-testid="feedback-empty">
           No feedback yet. Hand Claude a transcript and ask it to catalog the points against this output.
         </p>
       )}
-      {!graphShown && rounds.map((r) => {
-        const group = items.filter((i) => i.round === r.n);
-        if (!group.length) return null;
-        return (
-          <div key={r.n} className="feedback-round" data-testid={`feedback-round-${r.n}`}>
-            <h4 className="section-head" title={r.source}>
-              Round {r.n} · {r.label}
-              <span className="muted"> · {r.date}</span>
-            </h4>
-            <ol className="review-cards">
-              {group.map((item) => (
-                <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={readOnly ? undefined : showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={readOnly ? undefined : props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} readOnly={readOnly} />
-              ))}
-            </ol>
-          </div>
-        );
-      })}
-      {!graphShown && loose.length > 0 && (
-        <ol className="review-cards">
-          {loose.map((item) => (
-            <ItemCard key={item.n} item={item} voice={voice} onApply={apply} onShow={readOnly ? undefined : showItem(item)} onVoice={() => void toggleVoice(item.n)} pictures={pictures(item)} focused={item.n === focus} onWorkspace={readOnly ? undefined : props.onWorkspace} opening={props.workspaceOpening === item.n} source={sourceOf(item)} onSource={openSource} readOnly={readOnly} />
-          ))}
-        </ol>
-      )}
-      {!graphShown && items.length > 0 && !readOnly && (
-        <footer className="feedback-foot">
-          <button
-            className="chip"
-            disabled={!pending.length || !props.canSend}
-            title={!props.canSend ? 'This session has ended. Resume it to send.' : pending.length ? 'Hand Claude what you decided since the last send' : 'Decide something first'}
-            onClick={send}
-            data-testid="feedback-send"
-          >
-            Send decisions{pending.length ? ` · ${pending.length}` : ''}
-          </button>
-          <span className="muted">Decisions save as you make them.</span>
-        </footer>
-      )}
+      {!graphInline &&
+        rounds.map((r) => {
+          const group = items.filter((i) => i.round === r.n);
+          if (!group.length) return null;
+          const shown = group.filter(listed);
+          const hidden = group.length - shown.length;
+          // Under Open, a round with nothing left to decide folds to one line.
+          if (!shown.length) {
+            return (
+              <button key={r.n} className="ghost feedback-round-folded" title="Show every item" onClick={() => setFilter('all')} data-testid={`feedback-round-${r.n}`}>
+                Round {r.n} · {r.label}
+                <span className="muted">
+                  {' '}
+                  · {r.date} · {hidden} closed
+                </span>
+              </button>
+            );
+          }
+          return (
+            <div key={r.n} className="feedback-round" data-testid={`feedback-round-${r.n}`}>
+              <h4 className="section-head" title={r.source}>
+                Round {r.n} · {r.label}
+                <span className="muted">
+                  {' '}
+                  · {r.date}
+                  {hidden ? ` · ${hidden} closed` : ''}
+                </span>
+              </h4>
+              <ol className="review-cards">{shown.map(card)}</ol>
+            </div>
+          );
+        })}
+      {!graphInline && loose.some(listed) && <ol className="review-cards">{loose.filter(listed).map(card)}</ol>}
     </section>
   );
 }
 
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 
+/** Clicks on a card's controls do not open or close it. */
+const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, input, select, textarea, a, summary, .before-after');
+
 function ItemCard(props: {
   item: FeedbackItem;
   voice: ReviewVoice;
   onApply: (ops: FeedbackOp[]) => Promise<boolean>;
+  /** Shows the whole card. Otherwise it shows compact. */
+  expanded: boolean;
+  onExpand: (open: boolean) => void;
+  /** Claude wrote since you last opened the card. */
+  updated: boolean;
   onShow?: (selector: string) => void;
   onVoice: () => void;
   onWorkspace?: (item: FeedbackItem) => void;
   opening?: boolean;
   /** The item's before and after pictures. */
   pictures?: ReactNode;
-  /** The graph opened this item. */
+  /** The next pin joins this item. */
   focused?: boolean;
   /** The transcript of the first quote's round, when it names one. */
   source?: string;
@@ -379,29 +463,70 @@ function ItemCard(props: {
   /** Shows the item without its decision, note and voice controls. */
   readOnly?: boolean;
 }) {
-  const { item } = props;
+  const { item, expanded } = props;
   const workspace = workspaceSummary(item);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  /** The option the next Accept picks. */
+  const [option, setOption] = useState(item.chosen);
   const listening = props.voice.recording && props.voice.target === String(item.n);
   const [first, ...later] = item.rounds;
   const src = item.sources[0];
+  const closed = isClosed(item);
+  const options = item.options ?? [];
   const say = async (verb: 'accept' | 'reject' | 'reopen' | 'note') => {
     const detail = oneLine(note);
     if (verb === 'note' && !detail) return;
+    // An item with options opens to have one picked before an accept.
+    if (verb === 'accept' && options.length && !option) return props.onExpand(true);
     setSaving(true);
-    const ok = await props.onApply([{ op: 'append', item: item.n, key: 'You', text: detail ? `${verb} · ${detail}` : verb }]);
+    const ok = await props.onApply([{ op: 'append', item: item.n, key: 'You', text: decisionText(verb, verb === 'accept' ? option : undefined, detail) }]);
     setSaving(false);
     if (ok) setNote('');
   };
-  const history = item.lines.filter((l) => l.key !== 'Round');
+  const history = historyLines(item);
+  const said = latestSaid(item);
+  const acceptable = item.state !== 'accepted' || (!!option && option !== item.chosen);
+
+  const actions = !props.readOnly && (
+    <div className="behavior-actions">
+      {closed ? (
+        <button className="chip" disabled={saving} onClick={() => void say('reopen')} data-testid="feedback-reopen">
+          Reopen
+        </button>
+      ) : (
+        <>
+          <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => acceptable && void say('accept')} data-testid="feedback-accept">
+            {option && expanded ? `Accept ${option}` : 'Accept'}
+          </button>
+          <button className="chip" disabled={saving} onClick={() => void say('reject')} data-testid="feedback-reject">
+            Reject
+          </button>
+          {item.state === 'accepted' && (
+            <button className="ghost" disabled={saving} onClick={() => void say('reopen')} data-testid="feedback-reopen">
+              Reopen
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
 
   return (
-    <li className={`review-card feedback-item ${item.state}${listening ? ' listening' : ''}${props.focused ? ' focused' : ''}`} data-testid={`feedback-item-${item.n}`}>
-      <div className="review-card-head">
+    <li
+      className={`review-card feedback-item ${item.state}${expanded ? ' expanded' : ' compact'}${listening ? ' listening' : ''}${props.focused ? ' focused' : ''}`}
+      onClick={(e) => !expanded && !onControl(e) && props.onExpand(true)}
+      data-testid={`feedback-item-${item.n}`}
+    >
+      <button className="ghost review-card-head feedback-head" aria-expanded={expanded} title={expanded ? 'Show less' : 'Show the whole item'} onClick={() => props.onExpand(!expanded)} data-testid="feedback-expand">
         <span className="num">#{item.n}</span>
         <span className="feedback-title">{item.title}</span>
-      </div>
+        {props.updated && (
+          <span className="feedback-updated" title="Claude wrote since you last opened this" data-testid="feedback-updated">
+            Updated
+          </span>
+        )}
+      </button>
       <div className="feedback-badges">
         <span className={`feedback-state ${item.state}`} data-testid="feedback-state">
           {STATE_LABELS[item.state]}
@@ -412,8 +537,18 @@ function ItemCard(props: {
             also round {n}
           </span>
         ))}
+        {item.raisedAgain !== undefined && (
+          <span className="kind-tag raised" data-testid="feedback-raised">
+            Raised again · round {item.raisedAgain}
+          </span>
+        )}
       </div>
-      {src && (
+      {src && !expanded && (
+        <p className="feedback-quote-line" title={src.quote} data-testid="feedback-quote-line">
+          “{src.quote}”{src.speaker && <span className="muted"> — {src.speaker}</span>}
+        </p>
+      )}
+      {src && expanded && (
         <blockquote className="review-quote">
           {src.quote}
           {src.speaker && (
@@ -436,8 +571,26 @@ function ItemCard(props: {
           )}
         </blockquote>
       )}
-      {item.change && <p className="feedback-change">{item.change}</p>}
-      {item.where && (
+      {expanded && item.change && <p className="feedback-change">{item.change}</p>}
+      {expanded && options.length > 0 && (
+        <div className="feedback-options" role="radiogroup" aria-label={`Options for #${item.n}`}>
+          {options.map((o) => (
+            <button
+              key={o.key}
+              role="radio"
+              aria-checked={option === o.key}
+              className={option === o.key ? 'feedback-option on' : 'feedback-option'}
+              disabled={props.readOnly || closed}
+              onClick={() => setOption(o.key)}
+              data-testid={`feedback-option-${o.key}`}
+            >
+              <span className="key">{o.key}</span>
+              <span>{o.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {expanded && item.where && !closed && (
         <p className="muted feedback-where">
           {props.onShow ? (
             <button className="ghost link" onClick={() => props.onShow!(item.where!)} data-testid="feedback-show">
@@ -448,10 +601,10 @@ function ItemCard(props: {
           )}
         </p>
       )}
-      {props.pictures}
-      {(props.onWorkspace || workspace) && (
+      {expanded && props.pictures}
+      {expanded && ((props.onWorkspace && !closed) || workspace) && (
         <div className="feedback-workspace">
-          {props.onWorkspace && (
+          {props.onWorkspace && !closed && (
             <button className="chip" disabled={props.opening} onClick={() => props.onWorkspace!(item)} data-testid="feedback-workspace-open">
               {props.opening ? 'Opening…' : 'Open workspace'}
             </button>
@@ -463,25 +616,19 @@ function ItemCard(props: {
           )}
         </div>
       )}
-      {!props.readOnly && (
+      {said && (
+        <p className="feedback-said" data-testid="feedback-said">
+          <span className="who">You</span>
+          {[said.verb, said.detail].filter(Boolean).join(' · ')}
+        </p>
+      )}
+      {actions}
+      {expanded && !props.readOnly && !closed && (
         <>
-          <div className="behavior-actions">
-            <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => item.state !== 'accepted' && void say('accept')} data-testid="feedback-accept">
-              Accept
-            </button>
-            <button className={item.state === 'rejected' ? 'chip on' : 'chip'} aria-pressed={item.state === 'rejected'} disabled={saving} onClick={() => item.state !== 'rejected' && void say('reject')} data-testid="feedback-reject">
-              Reject
-            </button>
-            {item.state !== 'open' && (
-              <button className="ghost" disabled={saving} onClick={() => void say('reopen')} data-testid="feedback-reopen">
-                Reopen
-              </button>
-            )}
-          </div>
           <div className="feedback-note">
             <input
               aria-label={`Note on #${item.n}`}
-              placeholder={listening ? 'Listening…' : 'Add a note, or a reason with Accept or Reject'}
+              placeholder={listening ? 'Listening…' : 'Note or reason'}
               value={note}
               maxLength={2000}
               onChange={(e) => setNote(e.target.value)}
@@ -507,7 +654,7 @@ function ItemCard(props: {
           <VoiceState voice={props.voice} target={String(item.n)} />
         </>
       )}
-      {history.length > 0 && (
+      {expanded && history.length > 0 && (
         <details className="feedback-history">
           <summary className="muted">History · {history.length}</summary>
           {history.map((l, i) => (
@@ -555,7 +702,7 @@ export function FeedbackView(props: {
       </header>
       <div className="workspace-host">
         <div className="items-body">
-          <FeedbackPanel host={props.host} sessionId={props.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSend} onError={props.onError} focus={props.focus} onOpenItem={props.onOpenItem} onWorkspace={(item) => void workspace.openItem(item)} workspaceOpening={workspace.opening} />
+          <FeedbackPanel host={props.host} sessionId={props.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSend} onError={props.onError} focus={props.focus} onOpenItem={props.onOpenItem} onWorkspace={(item) => void workspace.openItem(item)} workspaceOpening={workspace.opening} inlineGraph />
         </div>
         {open && (
           <WorkspaceLayer key={open.board} host={props.host} sessionId={props.sessionId} path={props.path} board={open.board} n={open.n} item={feedback.doc?.items.find((i) => i.n === open.n)} onBack={workspace.close} onError={props.onError} />

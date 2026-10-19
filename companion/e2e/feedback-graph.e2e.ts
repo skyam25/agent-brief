@@ -70,33 +70,44 @@ test('snaps before and after pictures into a slider, and the graph opens items',
   await expect(panel.getByTestId('review')).toBeVisible();
   await panel.getByTestId('feedback-tab').click();
   const first = panel.getByTestId('feedback-item-1');
+  await first.getByTestId('feedback-expand').click();
   const slider = first.getByTestId('feedback-slider');
   await expect(slider).toBeVisible();
   await expect(slider.locator('img')).toHaveCount(2);
   await expect(slider.locator('img.before')).toHaveAttribute('src', /^data:image\/png;base64,/);
   await slider.locator('input[type=range]').fill('30');
   await expect(slider).toHaveAttribute('style', /--split: 30%/);
+  await panel.getByTestId('feedback-item-2').getByTestId('feedback-expand').click();
   await expect(panel.getByTestId('feedback-item-2').getByTestId('feedback-pictures')).toHaveCount(0);
+  await first.getByTestId('feedback-expand').click();
   await panel.screenshot({ path: join(RESULTS, 'feedback-slider.png') });
 
-  // The graph links both outputs through the shared source and the Related line.
+  // The graph covers the page as a layer, and links both outputs through the shared source and the Related line.
   await panel.getByTestId('feedback-graph-toggle').click();
-  const graph = panel.getByTestId('feedback-graph');
+  const layer = panel.getByTestId('feedback-graph-layer');
+  const graph = layer.getByTestId('feedback-graph');
   await expect(graph).toBeVisible();
+  const frameBox = (await panel.getByTestId('review-frame').boundingBox())!;
+  const layerBox = (await layer.boundingBox())!;
+  expect(layerBox.x).toBeLessThanOrEqual(frameBox.x);
+  expect(layerBox.width).toBeGreaterThan(frameBox.width);
   await expect(graph.getByTestId('graph-node')).toHaveCount(7);
   await expect(graph.locator('[data-kind="raised"]')).toHaveCount(4);
   await expect(graph.locator('[data-kind="related"]')).toHaveCount(1);
   await panel.screenshot({ path: join(RESULTS, 'feedback-graph.png') });
 
   await graph.locator('[data-id="item:checkout.html#2"]').click();
-  await expect(graph).toHaveCount(0);
-  await expect(panel.getByTestId('feedback-item-2')).toHaveClass(/focused/);
+  await expect(layer).toHaveCount(0);
+  await expect(panel.getByTestId('feedback-item-2').getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
+  await panel.getByTestId('feedback-graph-toggle').click();
+  await layer.getByTestId('feedback-graph-back').click();
+  await expect(layer).toHaveCount(0);
 
   await panel.getByTestId('feedback-graph-toggle').click();
   await panel.getByTestId('feedback-graph').locator('[data-id="item:pricing.html#1"]').click();
   const full = panel.getByTestId('feedback-view');
   await expect(full).toContainText('pricing.html');
-  await expect(full.getByTestId('feedback-item-1')).toHaveClass(/focused/);
+  await expect(full.getByTestId('feedback-item-1').getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
   await expect(full.getByTestId('feedback-item-1')).toContainText('Plans hide the filters');
   await expect(full.getByTestId('feedback-item-1').getByTestId('feedback-picture')).toContainText('Before');
 });

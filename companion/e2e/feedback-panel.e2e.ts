@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { FeedbackDocument, OutputRecord } from '../src/protocol';
-import { isoDate } from '../src/shared/feedback';
+import { isoDate, parseFeedback } from '../src/shared/feedback';
 import { deliveriesFor, launch, launchShown, RESULTS, ROOT, showPanel, sock, tempDataDir, type Launched } from './helpers';
 
 let ctx: Launched;
@@ -22,6 +22,13 @@ async function agent(socketPath: string, route: string, ops: unknown[]) {
   expect(res.status).toBe(200);
 }
 
+/** Opens a card unless it is open already. */
+const expand = async (card: Locator) => {
+  const head = card.getByTestId('feedback-expand');
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+  await expect(head).toHaveAttribute('aria-expanded', 'true');
+};
+
 const panelVisible = () => ctx.app.evaluate(() => globalThis.__companion.panel.isVisible());
 
 test('a saved workspace is sendable, and each send names its picture and board', async () => {
@@ -38,10 +45,11 @@ test('a saved workspace is sendable, and each send names its picture and board',
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-1', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
   const card = page.getByTestId('feedback-item-1');
-  const sendButton = page.getByTestId('feedback-send');
+  const sendButton = page.getByTestId('send');
   await expect(sendButton).toBeDisabled();
 
   const saveWorkspace = async () => {
+    await expand(card);
     await card.getByTestId('feedback-workspace-open').click();
     const layer = page.getByTestId('workspace-layer');
     await expect(layer.getByTestId('workspace-board')).toHaveText('fb-checkout-1');
@@ -140,7 +148,7 @@ test('receipts cover more than one update holds, and a failed receipt keeps the 
   await page.getByTestId('mode-review').click();
   await page.getByTestId('outputs-feedback').locator('button.output-feedback').click();
   const view = page.getByTestId('feedback-view');
-  const sendButton = view.getByTestId('feedback-send');
+  const sendButton = page.getByTestId('send');
   await expect(sendButton).toHaveText('Send decisions · 201');
   await sendButton.click();
   await expect.poll(async () => (await deliveriesFor(h.socketPath, 'fp-2')).length).toBe(1);
@@ -184,6 +192,7 @@ test('page clicks list their items, pins carry them into review.md, and a quote 
   const frame = page.frameLocator('[data-testid="review-frame"]');
 
   // The quote's time opens the round's transcript.
+  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
   await page.getByTestId('feedback-item-1').getByTestId('feedback-source').click();
   await expect.poll(() => app.evaluate(() => [...globalThis.__companion.openedOutputs])).toContain(join(cwd, 'transcripts/cust-1.md'));
 
@@ -235,11 +244,11 @@ test('Refresh reloads the graph after a hand edit', async () => {
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-4', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
   await page.getByTestId('feedback-graph-toggle').click();
-  const graph = page.getByTestId('feedback-graph');
+  const graph = page.getByTestId('feedback-graph-layer').getByTestId('feedback-graph');
   await expect(graph.locator('[data-id^="item:"]')).toHaveCount(1);
   const file = join(cwd, 'checkout.html.feedback.md');
   writeFileSync(file, `${readFileSync(file, 'utf8')}\n- [ ] #2 Added by hand\n    Round: 1\n`);
-  await page.getByTestId('feedback-refresh').click();
+  await page.getByTestId('feedback-graph-refresh').click();
   await expect(graph.locator('[data-id^="item:"]')).toHaveCount(2);
 });
 
@@ -260,14 +269,15 @@ test('Send decisions stops the item mic and carries the words, and hiding the pa
   await page.getByTestId('feedback-tab').click();
   const card = page.getByTestId('feedback-item-1');
   const mic = card.getByTestId('feedback-voice');
+  await expand(card);
   await card.getByTestId('feedback-accept').click();
-  await expect(page.getByTestId('feedback-send')).toHaveText('Send decisions · 1');
+  await expect(page.getByTestId('send')).toHaveText('Send decisions · 1');
 
   // Send while talking: the words land in the file, then in the message.
   await mic.click();
   await expect(mic).toHaveAttribute('aria-pressed', 'true');
   await page.waitForTimeout(5000);
-  await page.getByTestId('feedback-send').click();
+  await page.getByTestId('send').click();
   await expect.poll(async () => (await deliveriesFor(socketPath, 'fp-5')).length, { timeout: 90_000 }).toBe(1);
   const [delivery] = await deliveriesFor(socketPath, 'fp-5');
   expect(delivery!.draft).toMatch(/- #1 Pricing is unclear: accept; voice · .*pricing table/i);
@@ -278,6 +288,7 @@ test('Send decisions stops the item mic and carries the words, and hiding the pa
   // Hiding the panel closes the mic, and the words still land.
   await sock(socketPath, 'POST', '/open', { sessionId: 'fp-5', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
+  await expand(card);
   await expect(mic).toHaveAttribute('aria-pressed', 'false');
   await mic.click();
   await expect(mic).toHaveAttribute('aria-pressed', 'true');
@@ -291,6 +302,7 @@ test('Send decisions stops the item mic and carries the words, and hiding the pa
   await showPanel(app, page);
   await sock(socketPath, 'POST', '/open', { sessionId: 'fp-5', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
+  await expand(card);
   const live = page.locator('[aria-pressed="true"][data-testid="mic"], [aria-pressed="true"][data-testid="feedback-voice"]');
   await mic.click();
   await expect(mic).toHaveAttribute('aria-pressed', 'true');
@@ -334,11 +346,201 @@ test('a feedback file whose output is gone opens from the graph read-only', asyn
   await expect(view.getByTestId('feedback-orphan')).toHaveText('old.html is gone, so its feedback is read-only.');
   const card = view.getByTestId('feedback-item-1');
   await expect(card).toContainText('Too busy');
+  await expand(card);
   await card.locator('summary').click();
   await expect(card.getByTestId('feedback-line').last()).toContainText('note · looked into it');
   for (const id of ['feedback-accept', 'feedback-reject', 'feedback-note', 'feedback-voice', 'feedback-workspace-open', 'feedback-show']) await expect(card.getByTestId(id)).toHaveCount(0);
-  await expect(view.getByTestId('feedback-send')).toHaveCount(0);
+  await expect(page.getByTestId('send')).toHaveText('Send decisions');
+  await expect(page.getByTestId('send')).toBeDisabled();
   await expect(view.getByTestId('feedback-open-file')).toHaveCount(0);
   // The orphan is not a row of its own, since its file cannot open.
   await expect(page.getByTestId('outputs-feedback').locator('[data-ref="old.html"]')).toHaveCount(0);
+});
+
+test('cards show compact, open one at a time, and the Open filter folds closed rounds', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-7', cwd, title: 'Checkout' });
+  const route = '/sessions/fp-7/feedback?path=checkout.html';
+  await agent(h.socketPath, route, [
+    { op: 'addRound', label: 'customers' },
+    { op: 'addItem', title: 'Hard to find the filters', lines: [{ key: 'Src', text: '1 · Ana · 03:02 · "Where do I filter? I scrolled and gave up, I only found it way down at the bottom."' }, { key: 'Change', text: 'Move the filter row above the results.' }, { key: 'Where', text: '#filters' }] },
+    { op: 'addItem', title: 'Pay button wording', lines: [{ key: 'Src', text: '1 · Ben · 04:10 · "Pay what?"' }, { key: 'Where', text: '#pay' }] },
+    { op: 'addRound', label: 'SME' },
+    { op: 'addItem', title: 'Prices ending .99 feel gimmicky', lines: [{ key: 'Src', text: '2 · Maya · 01:10 · "The .99 prices feel cheap"' }] },
+    { op: 'append', item: 3, key: 'Claude', text: 'done · rounded the prices' },
+  ]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-7', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  const panel = page.getByTestId('feedback-panel');
+  const first = page.getByTestId('feedback-item-1');
+  const second = page.getByTestId('feedback-item-2');
+
+  // Compact: title, state, round, a one-line quote and the decision buttons.
+  await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
+  await expect(first.getByTestId('feedback-quote-line')).toContainText('Where do I filter?');
+  await expect(first).not.toContainText('Move the filter row');
+  for (const id of ['feedback-accept', 'feedback-reject']) await expect(first.getByTestId(id)).toBeVisible();
+  for (const id of ['feedback-note', 'feedback-show', 'feedback-workspace-open', 'feedback-voice']) await expect(first.getByTestId(id)).toHaveCount(0);
+
+  // Round 2 holds only a done item, so Open folds it to one line.
+  await expect(page.getByTestId('feedback-filter-open')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('feedback-round-2')).toHaveText(/Round 2 · SME.*1 closed/);
+  await expect(page.getByTestId('feedback-item-3')).toHaveCount(0);
+  await page.screenshot({ path: join(RESULTS, 'feedback-compact.png') });
+
+  // One card opens at a time.
+  await first.getByTestId('feedback-quote-line').click();
+  await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
+  await expect(first).toContainText('Move the filter row above the results.');
+  await expect(first.getByTestId('feedback-note')).toHaveAttribute('placeholder', 'Note or reason');
+  await page.screenshot({ path: join(RESULTS, 'feedback-expanded.png') });
+  await second.getByTestId('feedback-expand').click();
+  await expect(second.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
+  await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
+
+  // Show on page picks its item.
+  await second.getByTestId('feedback-show').click();
+  await expect(page.getByTestId('feedback-pointed')).toContainText('Your next pin joins #2.');
+  await expect(second).toHaveClass(/focused/);
+
+  // A decision on a compact card shows under its title, and the card stays listed.
+  await first.getByTestId('feedback-accept').click();
+  await expect(first.getByTestId('feedback-state')).toHaveText('Accepted');
+  await expect(first.getByTestId('feedback-said')).toHaveText('Youaccept');
+  await second.getByTestId('feedback-reject').click();
+  await expect(second.getByTestId('feedback-state')).toHaveText('Rejected');
+  await expect(second).toBeVisible();
+
+  // All lists closed items, which offer only Reopen.
+  await page.getByTestId('feedback-filter-all').click();
+  const third = page.getByTestId('feedback-item-3');
+  await expect(third).toBeVisible();
+  await third.getByTestId('feedback-expand').click();
+  await expect(third.getByTestId('feedback-reopen')).toBeVisible();
+  for (const id of ['feedback-accept', 'feedback-reject', 'feedback-note', 'feedback-voice', 'feedback-workspace-open', 'feedback-show']) await expect(third.getByTestId(id)).toHaveCount(0);
+  await expect(panel.locator('.feedback-round h4')).toHaveText([/Round 2 · SME/, /Round 1 · customers/]);
+  await page.screenshot({ path: join(RESULTS, 'feedback-all.png') });
+});
+
+test('Updated marks a reply after your send, the history leaves out receipts, and the footer Send sends decisions', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-8', cwd, title: 'Checkout' });
+  const route = '/sessions/fp-8/feedback?path=checkout.html';
+  await agent(h.socketPath, route, [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Title is vague' }, { op: 'addItem', title: 'Footer is crowded' }]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-8', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  const card = page.getByTestId('feedback-item-1');
+  const send = page.getByTestId('send');
+  // New items are not updated.
+  await expect(page.getByTestId('feedback-updated')).toHaveCount(0);
+  await expect(send).toHaveText('Send decisions');
+  await expect(send).toBeDisabled();
+  await card.getByTestId('feedback-accept').click();
+  await expect(send).toHaveText('Send decisions · 1');
+  await page.screenshot({ path: join(RESULTS, 'feedback-footer-send.png') });
+  await send.click();
+  await expect.poll(async () => (await deliveriesFor(h.socketPath, 'fp-8')).length).toBe(1);
+  expect((await deliveriesFor(h.socketPath, 'fp-8'))[0]!.draft).toContain('- #1 Title is vague: accept');
+
+  // Claude answers after the send.
+  await agent(h.socketPath, route, [{ op: 'append', item: 1, key: 'Claude', text: 'note · retitled it' }]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-8', output: { path: 'checkout.html' } });
+  await page.getByTestId('feedback-tab').click();
+  await expect(card.getByTestId('feedback-updated')).toBeVisible();
+  await expect(page.getByTestId('feedback-item-2').getByTestId('feedback-updated')).toHaveCount(0);
+  await page.screenshot({ path: join(RESULTS, 'feedback-updated.png') });
+  await card.getByTestId('feedback-expand').click();
+  await expect(card.getByTestId('feedback-updated')).toHaveCount(0);
+  await expect(card.locator('summary')).toHaveText('History · 3');
+  await card.locator('summary').click();
+  await expect(card.getByTestId('feedback-line')).toHaveText([/cataloged/, /accept/, /note · retitled it/]);
+  await card.getByTestId('feedback-expand').click();
+  await expect(card.getByTestId('feedback-updated')).toHaveCount(0);
+
+  // Off the Feedback tab, Send is the review's own again.
+  await page.getByRole('tab', { name: 'Comments' }).click();
+  await expect(send).toHaveText('Send');
+});
+
+/** Option and raised-again parsing comes from the core fixes; these checks wait for it. */
+const parsesOptions = parseFeedback('# F\n\n## Round 1 · SME · 2026-10-12\n\n- [ ] #1 A\n    Round: 1\n    Option: A · One\n').items[0]?.options !== undefined;
+
+test('options are choices, an accept names the one picked, and a raised-again item counts as open', async () => {
+  test.skip(!parsesOptions, 'needs the Option: parser from the core fixes');
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  put(
+    cwd,
+    'checkout.html.feedback.md',
+    `# Feedback · checkout.html
+
+## Round 2 · SME · 2026-10-14
+## Round 1 · customers · 2026-10-12
+
+- [ ] #1 Empty saved-for-later box is confusing
+    Round: 1
+    Src: 1 · Ben · 02:00 · "Nothing yet, and I didn't know what to do with it"
+    Option: A · Hide the box until something is saved
+    Option: B · Keep the box and explain it
+    Claude: 2026-10-12 · cataloged
+
+- [x] #2 Prices ending .99 feel gimmicky
+    Round: 1
+    Src: 1 · Ana · 05:00 · "The .99 prices feel cheap"
+    Claude: 2026-10-12 · cataloged
+    You: 2026-10-13 · reject · pricing is fixed
+    Src: 2 · Maya · 01:10 · "Those .99 prices again"
+`,
+  );
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-9', cwd, title: 'Checkout' });
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-9', output: { path: 'checkout.html' } });
+  await expect(page.getByTestId('feedback-tab')).toHaveText('Feedback · 2 open');
+  await page.getByTestId('feedback-tab').click();
+  const raised = page.getByTestId('feedback-item-2');
+  await expect(raised.getByTestId('feedback-raised')).toHaveText('Raised again · round 2');
+  await expect(raised.getByTestId('feedback-reopen')).toBeVisible();
+
+  // Accept on a compact card with options opens it to pick one.
+  const card = page.getByTestId('feedback-item-1');
+  await card.getByTestId('feedback-accept').click();
+  await expect(card.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
+  await card.getByTestId('feedback-option-B').click();
+  await expect(card.getByTestId('feedback-option-B')).toHaveAttribute('aria-checked', 'true');
+  await page.screenshot({ path: join(RESULTS, 'feedback-options.png') });
+  await card.getByTestId('feedback-accept').click();
+  await expect(card.getByTestId('feedback-state')).toHaveText('Accepted');
+  expect(readFileSync(join(cwd, 'checkout.html.feedback.md'), 'utf8')).toMatch(/You: \d{4}-\d{2}-\d{2} · accept · option B\n/);
+  await page.getByTestId('send').click();
+  await expect.poll(async () => (await deliveriesFor(h.socketPath, 'fp-9')).length).toBe(1);
+  expect((await deliveriesFor(h.socketPath, 'fp-9'))[0]!.draft).toContain('- #1 Empty saved-for-later box is confusing: accept · option B (Keep the box and explain it)');
+});
+
+test('declared output rows show their open feedback, and the items section reads as session items', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'checkout.html', PAGE);
+  const now = Date.now();
+  const checkout: OutputRecord = { ref: 'checkout.html', title: 'Checkout prototype', kind: 'html', tier: 'declared', status: 'ready', declaredAt: now, firstWriteAt: now, lastWriteAt: now, writes: 1 };
+  put(cwd, '.feedback/outputs/fp-10.json', JSON.stringify({ version: 1, sessionId: 'fp-10', outputs: [checkout] }));
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'fp-10', cwd, title: 'Checkout' });
+  await agent(h.socketPath, '/sessions/fp-10/feedback?path=checkout.html', [{ op: 'addRound', label: 'SME' }, { op: 'addItem', title: 'Title is vague' }, { op: 'addItem', title: 'Footer is crowded' }]);
+  await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-10' });
+  await page.getByTestId('mode-review').click();
+  if (!(await page.getByTestId('output-row-0').isVisible())) await page.getByTestId('review-list-toggle').click();
+  await expect(page.getByTestId('output-row-0')).toContainText('Feedback · 2 open');
+  await expect(page.getByTestId('review-mode').locator('.draft-list')).toContainText('Session items');
+  await page.screenshot({ path: join(RESULTS, 'feedback-output-rows.png') });
 });

@@ -166,7 +166,7 @@ export function ReviewMode(props: {
             </section>
           )}
           <section>
-            <SectionHeader title="Items" count={tracking ? openItems : 0} />
+            <SectionHeader title="Session items" count={tracking ? openItems : 0} />
             <ul>
               <li>
                 <button className="ghost draft-row" aria-current={!open && !feedbackFor} onClick={pickItems} data-testid="items-row">

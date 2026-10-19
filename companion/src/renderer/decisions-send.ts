@@ -3,8 +3,8 @@
 export interface DecisionsClaim {
   /** Items with decisions since the last send. */
   count: number;
-  /** False when the session has ended. */
-  canSend: boolean;
+  /** Why nothing can be sent, such as an ended session. */
+  blocked?: string;
   send: () => void;
 }
 

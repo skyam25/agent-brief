@@ -3,6 +3,7 @@ import type { CompanionApi, InitInfo, Mode, SessionBriefEntry, Settings, Theme, 
 import { BoardCanvas } from './BoardCanvas';
 import { BoardCommentsStore } from './board-comments';
 import { CommentColumn, CommentToggle, useCommentKeys } from './BoardComments';
+import { decisionsClaim, subscribeDecisions } from './decisions-send';
 import { BoardPicker, LayoutSwitch } from './BoardPicker';
 import { fallbackBoard } from './boardScope';
 import { BoardController, parseScene, type LoadedScene } from './controller';
@@ -247,6 +248,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   const reviewError = useCallback((message: string) => notify(message, 'error'), [notify]);
   const [reviewProps] = useState(() => ({ host, voice: reviewVoice, onError: reviewError }));
 
+  // A Feedback view on show turns Send into its Send decisions.
+  const decisions = useSyncExternalStore(subscribeDecisions, decisionsClaim);
   const holder = mode === 'sketch' ? boardList.boards.find((b) => b.name === board)?.sessionId : book.selected?.sessionId;
   const sendBar = (
     <SendTo
@@ -264,6 +267,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
       loadOptions={() => host.launchOptions()}
       loadPlaces={() => host.sessionPlaces()}
       chooseFolder={() => host.chooseFolder()}
+      decisions={mode === 'review' ? decisions : undefined}
       mic={
         onMicrophone && (
           <Mic
