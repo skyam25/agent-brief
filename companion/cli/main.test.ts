@@ -94,6 +94,42 @@ describe('status, sessions, boards, open', () => {
     await run(['open']);
     expect(app.seen[0].body).toEqual({});
   });
+
+  const inSession = { CLAUDE_CODE_SESSION_ID: 's1' };
+  const liveAt = (cwd: string) => (r: { method: string }) =>
+    r.method === 'GET' ? { json: { sessionId: 's1', cwd } } : { json: { board: 'b', targetSessionId: 's1', opened: 'note' } };
+
+  it('binds a bare open to the Claude Code session running it', async () => {
+    app.handler = liveAt(app.dir);
+    const r = await run(['open'], '', inSession);
+    expect(r.stderr).toBe('');
+    expect(r.code).toBe(0);
+    expect(app.seen.map((s) => `${s.method} ${s.url}`)).toEqual(['GET /sessions/s1', 'POST /open']);
+    expect(app.seen[1].body).toEqual({ sessionId: 's1' });
+  });
+
+  it('opens without a session when the app has not met the one running it', async () => {
+    app.handler = (r) => (r.method === 'GET' ? fail('not_found', 'no session s1', 404)(r) : { json: { board: 'main' } });
+    const r = await run(['open'], '', inSession);
+    expect(r.code).toBe(0);
+    expect(app.seen[1].body).toEqual({});
+  });
+
+  it('opens an output by its path in the session project, from any folder inside it', async () => {
+    app.handler = liveAt(path.dirname(app.dir));
+    const r = await run(['open', '--output', 'docs/brief.md'], '', inSession);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(`opened ${path.basename(app.dir)}/docs/brief.md in Write, send target s1\n`);
+    expect(app.seen[1].body).toEqual({ sessionId: 's1', output: { path: `${path.basename(app.dir)}/docs/brief.md` } });
+  });
+
+  it('refuses an output outside the project, or with no session, before opening', async () => {
+    app.handler = liveAt(app.dir);
+    expect((await run(['open', '--output', '/tmp/elsewhere.md'], '', inSession)).code).toBe(2);
+    expect((await run(['open', '--output', 'docs/brief.md'])).code).toBe(2);
+    expect((await run(['open', '--output', 'docs/brief.md', '--board', 'x'], '', inSession)).code).toBe(2);
+    expect(app.seen.filter((s) => s.method === 'POST')).toHaveLength(0);
+  });
 });
 
 describe('read', () => {

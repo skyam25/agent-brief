@@ -64,8 +64,8 @@ A src without a round number is in the catalog's round.`,
     example: 'agent-brief boards',
   },
   open: {
-    usage: 'agent-brief open [--board <name> | --note <id>] [--prompt <text>] [--session <id>] [--layout freeform|stack] [--json]',
-    about: 'Shows the panel. Creates the board when missing. --note shows a saved note in Write instead; `agent-brief note` prints its id. --prompt puts text at the top of the panel. --session makes that session the Send target. --layout stack files each drop or paste of screenshots as a numbered group.',
+    usage: 'agent-brief open [--board <name> | --note <id> | --output <path>] [--prompt <text>] [--session <id>] [--layout freeform|stack] [--json]',
+    about: "Shows the panel. Creates the board when missing. --note shows a saved note in Write instead; `agent-brief note` prints its id. --output shows a session's Markdown output as a note in Write, or its HTML output in the review pane. --prompt puts text at the top of the panel. --session makes that session the Send target and picks its board; run from Claude Code, it defaults to that session. --layout stack files each drop or paste of screenshots as a numbered group.",
     example: 'agent-brief open --board login-flow --prompt "Sketch the login screens"',
   },
   read: {

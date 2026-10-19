@@ -26,6 +26,7 @@ import {
   type OpenRequest,
   type OpenResponse,
   type ReadResponse,
+  type SessionInfo,
   type SessionsResponse,
   type Skeleton,
   bashRequestLine,
@@ -80,7 +81,7 @@ interface Args {
 const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
   'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
-  'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items', 'id',
+  'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items', 'id', 'output',
 ]);
 /** Value flags that may repeat. The last value also reads as the flag's one value. */
 const LIST_FLAGS = new Set(['src', 'related', 'option', 'text']);
@@ -290,6 +291,36 @@ function initiativeSession(ctx: Ctx, verb: string): string {
   const id = str(ctx.args, 'session') ?? ctx.io.env[SESSION_ID_ENV];
   if (!id) throw new UsageError(`${verb} needs --session <id>, or run it from Claude Code`);
   return id;
+}
+
+/**
+ * The session `open` binds the panel to: --session, else the Claude Code session running the command.
+ * A session from the environment the app has not met opens without one, unless an output needs it.
+ */
+async function openSession(ctx: Ctx, isNeeded: boolean): Promise<{ sessionId: string; cwd?: string } | undefined> {
+  const flag = str(ctx.args, 'session');
+  const id = flag ?? (ctx.io.env[SESSION_ID_ENV] || undefined);
+  if (!id) {
+    if (isNeeded) throw new UsageError('--output needs --session <id>, or run it from Claude Code');
+    return undefined;
+  }
+  if (flag !== undefined && !isNeeded) return { sessionId: flag };
+  try {
+    return await callJson<SessionInfo>(ctx.socket, 'GET', `/sessions/${encodeURIComponent(id)}`);
+  } catch (e) {
+    if (isNeeded || !(e instanceof ApiError && e.code === 'not_found')) throw e;
+    return undefined;
+  }
+}
+
+/** A path as the session's project names it. Relative paths count from the shell's folder. */
+function projectPath(ctx: Ctx, root: string, file: string): string {
+  const full = path.resolve(ctx.io.cwd ?? process.cwd(), file);
+  const rel = path.relative(root, full);
+  if (rel === '' || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel)) {
+    throw new UsageError(`${file} is outside the session's project, ${root}`);
+  }
+  return rel;
 }
 
 /** `Claude · <session>` from Claude Code's shell, else `PM`. */
@@ -755,25 +786,32 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const body: OpenRequest = {};
     const board = str(ctx.args, 'board');
     const prompt = str(ctx.args, 'prompt');
-    const sessionId = str(ctx.args, 'session');
     const layout = str(ctx.args, 'layout');
+    const note = str(ctx.args, 'note');
+    const output = str(ctx.args, 'output');
     if (layout !== undefined && layout !== 'freeform' && layout !== 'stack') {
       throw new UsageError(`--layout must be freeform or stack, got "${layout}"`);
+    }
+    if (note !== undefined && (board || layout)) throw new UsageError('--note opens a note, so it takes no --board or --layout');
+    if (output !== undefined && (board || layout || note !== undefined)) {
+      throw new UsageError('--output opens an output, so it takes no --board, --layout or --note');
     }
     if (layout) body.layout = layout;
     if (board) body.board = board;
     if (prompt) body.prompt = prompt;
-    if (sessionId) body.sessionId = sessionId;
-    const note = str(ctx.args, 'note');
-    if (note !== undefined) {
-      if (board || layout) throw new UsageError('--note opens a note, so it takes no --board or --layout');
-      body.note = { id: note };
-    }
+    if (note !== undefined) body.note = { id: note };
+
+    // A note opens under its owner, so only boards and outputs take the session.
+    const session = note === undefined ? await openSession(ctx, output !== undefined) : undefined;
+    if (session) body.sessionId = session.sessionId;
+    if (output !== undefined) body.output = { path: projectPath(ctx, session!.cwd!, output) };
+
     const res = await callJson<OpenResponse>(ctx.socket, 'POST', '/open', body);
-    show(ctx, res, (r) =>
-      (r.opened === 'note' ? `opened note ${note} in Write` : `opened board ${JSON.stringify(r.board)}`) +
-      (r.targetSessionId ? `, send target ${r.targetSessionId}` : ''),
-    );
+    const what =
+      note !== undefined ? `opened note ${note} in Write`
+      : body.output ? `opened ${body.output.path} in ${res.opened === 'review' ? 'the review pane' : 'Write'}`
+      : `opened board ${JSON.stringify(res.board)}`;
+    show(ctx, res, (r) => what + (r.targetSessionId ? `, send target ${r.targetSessionId}` : ''));
   },
 
   async read(ctx) {

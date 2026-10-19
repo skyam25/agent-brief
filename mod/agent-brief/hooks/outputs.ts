@@ -210,7 +210,8 @@ The panel already lists every document-type file you write as touched. Do not de
 
 When the user asks for text they will paste somewhere else, such as a message, an email or a post, write it to an Agent Brief note instead of printing it.
 Run \`agent-brief note "<title>"\` with Bash and the Markdown on stdin, in a quoted heredoc. Then say in one line that the note is in Agent Brief.
-When the user asks to see or review a note, run the \`agent-brief open --note <id>\` line the command printed. It shows that note in Write. \`agent-brief open\` without --note shows a board.
+When the user asks to see or review a note, run the \`agent-brief open --note <id>\` line the command printed. It shows that note in Write.
+When the user asks to see an output in Agent Brief, run \`agent-brief open --output <path>\`. It shows a Markdown file as a note in Write and an HTML file in the review pane. \`agent-brief open\` with neither flag shows this session's board.
 When the user asks to change a note, run \`agent-brief note --id <id>\` with the full new text. It replaces the note in place, so the user keeps one copy. Never save a changed note as a new one.
 If the command fails, print the text instead.`
 }

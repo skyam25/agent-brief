@@ -55,3 +55,18 @@ it('talks to the real server', async () => {
   expect((await run(['boards'])).code).toBe(0);
   expect((await run(['sessions'])).stdout).toContain('no sessions');
 });
+
+it('opens an output of the session running it through the real server', async () => {
+  const project = path.join(h.dir, 'proj');
+  fs.mkdirSync(path.join(project, 'docs'), { recursive: true });
+  await h.call('POST', '/sessions', { sessionId: 's1', cwd: project });
+  const env = { CLAUDE_CODE_SESSION_ID: 's1' };
+  const inside = (argv: string[], cwd: string) =>
+    main(argv, { stdin: async () => '', stdout: () => {}, stderr: () => {}, env: { COMPANION_SOCKET: h.socketPath, ...env }, cwd });
+
+  expect(await inside(['open', '--output', 'brief.md'], path.join(project, 'docs'))).toBe(0);
+  expect(h.backend.open).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 's1', output: { path: 'docs/brief.md' } }));
+
+  expect(await inside(['open'], project)).toBe(0);
+  expect(h.backend.open).toHaveBeenLastCalledWith({ sessionId: 's1' });
+});

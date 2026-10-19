@@ -33,7 +33,8 @@ All board commands take `--board <name>`. The default is `current`, the board th
 | `agent-brief status` | Shows whether the app runs |
 | `agent-brief sessions` | Lists Claude Code sessions. A `*` marks where Send delivers |
 | `agent-brief boards` | Lists boards |
-| `agent-brief open [--board] [--prompt <text>] [--session <id>]` | Shows the panel. `--prompt` puts a note at the top of it |
+| `agent-brief open [--board] [--prompt <text>] [--session <id>]` | Shows the panel on this session's board. `--prompt` puts a note at the top of it |
+| `agent-brief open --output <path>` | Shows a Markdown output as a note in Write, or an HTML output in the review pane |
 | `agent-brief read [--board] [--region x,y,w,h]` | Prints the elements as text |
 | `agent-brief png [--board] [--region x,y,w,h] [--max-edge 1400] [--out <path>]` | Writes a PNG and prints its path |
 | `agent-brief draw [--board] [--file f.json]` | Adds elements from JSON on stdin or in a file |
