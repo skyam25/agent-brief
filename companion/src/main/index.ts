@@ -262,6 +262,15 @@ async function start(): Promise<void> {
       if (req.note) {
         const draft = drafts.get(req.note.id);
         if (!draft) throw new BadRequest(`no note with id ${req.note.id}`);
+
+        // Write shows the target's tab, so the note's tab becomes the target first.
+        const owner = draft.sessionId;
+        if (!owner) server.setTarget(undefined);
+        else if (server.sessions().sessions.some((s) => s.sessionId === owner)) {
+          if (!briefs.get(owner)) briefs.remember(owner, {});
+          server.setTarget(owner);
+        }
+
         if (req.prompt !== undefined) setPrompt(req.prompt);
         panel.show();
         briefs.showDraft(draft.sessionId, draft.id);

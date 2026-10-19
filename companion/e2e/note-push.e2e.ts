@@ -91,3 +91,25 @@ test('the open line the CLI prints shows that note in Write, not a board', async
 
   expect((await sock(socketPath, 'POST', '/open', { note: { id: 'missing' } })).status).toBe(400);
 });
+
+test('open --note leaves Unfiled for the note\'s session when the panel has no target, as after a restart', async () => {
+  const { page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's4', cwd, title: 'pm-interview' });
+  await page.getByTestId('mode-write').click();
+  await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
+  expect((await sock<{ targetSessionId?: string }>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
+
+  const env = { ...process.env, COMPANION_SOCKET: socketPath, CLAUDE_CODE_SESSION_ID: 's4' };
+  const cli = (args: string[], input = '') => execFileSync('node', [join(ROOT, 'bin/agent-brief.mjs'), ...args], { input, env }).toString();
+  const id = /agent-brief open --note (\S+)/.exec(cli(['note', 'Senior PM questions'], 'Block 1'))![1];
+  expect(cli(['open', '--note', id])).toContain('send target s4');
+
+  await expect(page.getByTestId('draft-title')).toHaveText('Senior PM questions');
+  await expect.poll(selectedBody).toBe('Block 1');
+  // Nothing replaces it once the tab switch settles.
+  await page.waitForTimeout(500);
+  expect(await selectedBody()).toBe('Block 1');
+  await page.screenshot({ path: join(RESULTS, 'note-open-unfiled.png') });
+});
+

@@ -67,7 +67,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - A `sessionId` must name a live session, else 404. The note is filed under it, and the session gets a tab if it had none. Without one, the note goes to Notes.
 - Main sends `drafts:changed`, and an open panel reloads its list. The open note and the mode stay.
 - `agent-brief note "<title>"` reads Markdown from stdin, `--text` or `--file`. It files under `--session`, else `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in its shells. A session from the environment the app does not know gets its note under Notes. When the app is not running it exits 3 and tells Claude to print the text.
-- It prints the `agent-brief open --note <draftId>` line. `POST /open` with `note: { id }` shows that draft in Write under its session and answers `opened: 'note'`. An unknown id answers 400.
+- It prints the `agent-brief open --note <draftId>` line. `POST /open` with `note: { id }` shows that draft in Write under its session and answers `opened: 'note'`. A live session becomes the Send target first, and a note with no session clears it, since Write lists only the target's tab. An unknown id answers 400.
 - The outputs prompt section tells Claude to use it for text the user will paste elsewhere, and to run the printed open line when the user asks to see the note.
 - A draft's `title` is one line, at most 200 characters. The list shows it over the body's first line, and the editor shows it above the text.
 - Copy in the note footer renders the Markdown with the editor's schema (`src/renderer/editor/rich-copy.ts`) and writes `text/html` and `text/plain` in one `clipboard.write`. Pictures go in as data URLs. Test runs record the write as `__companion.richClipboard()`.
