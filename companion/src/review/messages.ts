@@ -21,8 +21,8 @@ export type FromPage =
   | { type: 'behavior-missing' }
   /** `version` is the file's as served. `editable` is true when the page has elements edit mode can change. */
   | { type: 'ready'; path: string; title: string; version?: string; editable?: boolean }
-  /** A new pin. `view` is the box to crop, in the frame's viewport pixels. */
-  | { type: 'pin'; anchor: ReviewAnchor; view: ReviewRect }
+  /** A new pin. `view` is the box to crop, in the frame's viewport pixels. `matches` lists the `where` selectors its element sits in. */
+  | { type: 'pin'; anchor: ReviewAnchor; view: ReviewRect; matches?: string[] }
   /** The user clicked a marker. */
   | { type: 'open-pin'; id: string }
   /** Pins whose element the page no longer has. */
@@ -38,7 +38,9 @@ export type FromPage =
   /** The page's elements no longer match the file, so the pane should reload it. */
   | { type: 'reload' }
   /** The answer to `measure`: the element's visible box, or none when the page lacks it. */
-  | { type: 'measured'; id: string; view?: ReviewRect };
+  | { type: 'measured'; id: string; view?: ReviewRect }
+  /** The user clicked an element. `matches` lists the `where` selectors it sits in. */
+  | { type: 'pointed'; matches: string[] };
 
 /** From the pane to the page. */
 export type ToPage =
@@ -56,7 +58,9 @@ export type ToPage =
   | { type: 'act'; act: 'parent' | 'duplicate' | 'remove' | 'deselect' }
   | { type: 'insert'; what: InsertKind }
   /** Scrolls the element into view and answers `measured` once it painted. */
-  | { type: 'measure'; id: string; selector: string };
+  | { type: 'measure'; id: string; selector: string }
+  /** Selectors of feedback items, which clicks and pins report back as `matches`. */
+  | { type: 'where'; selectors: string[] };
 
 export type Tagged<T> = T & { source: typeof REVIEW_SOURCE };
 

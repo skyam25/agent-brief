@@ -92,4 +92,16 @@ describe('pane edits', () => {
       'Review of a.html from Agent Brief, an overall note, plus 1 edit already saved in the file. Make the changes in a.html, then say what changed.',
     );
   });
+
+  it('ties pins to feedback items in review.md, and asks for a Review line or a new item', () => {
+    const pin = (id: string, feedback?: number[]) => ({ id, text: 'Reads better', anchor: { ...anchor, tag: 'h3', fx: 0, fy: 0 }, createdAt: 1, ...(feedback ? { feedback } : {}) });
+    const review = cleanReview({ path: 'site/index.html', comments: [pin('c1', [3, 3.5, -1, 6]), pin('c2', []), pin('c3')] })!;
+    expect(review.comments.map((c) => c.feedback)).toEqual([[3, 6], [], undefined]);
+    const md = reviewMarkdown(review, () => undefined);
+    expect(md).toContain('- Feedback: items #3, #6 in site/index.html.feedback.md\n');
+    expect(md).toContain('- Feedback: no item matches this element in site/index.html.feedback.md\n');
+    expect(md.match(/- Feedback:/g)).toHaveLength(2);
+    expect(reviewAsk(review)).toMatch(/feedback-items skill.*Review line.*new item/);
+    expect(reviewAsk({ ...review, comments: [pin('c3')] })).not.toMatch(/feedback/);
+  });
 });

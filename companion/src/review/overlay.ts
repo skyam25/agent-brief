@@ -43,6 +43,14 @@ function start(): void {
   /** Where the pointer last was over the page. A scroll or pan moves the page under it. */
   let pointer: { x: number; y: number } | undefined;
   const markers = new Map<string, HTMLButtonElement>();
+  /** Feedback items' selectors, from the pane. */
+  let wheres: string[] = [];
+
+  /** The selectors in `wheres` that `el` matches or sits inside. */
+  const matching = (el: Element) =>
+    wheres.filter((s) => {
+      try { return !!el.closest(s); } catch { return false; }
+    });
 
   /** The overlay's own elements sit in a closed shadow root, out of the page's CSS. */
   function mount(): void {
@@ -188,7 +196,7 @@ function start(): void {
   };
 
   function pinElement(el: Element, x: number, y: number): void {
-    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x, y }), view: visible(el.getBoundingClientRect()) }));
+    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x, y }), view: visible(el.getBoundingClientRect()), matches: matching(el) }));
   }
 
   function pinSelection(sel: Selection): boolean {
@@ -199,7 +207,7 @@ function start(): void {
     const el = node instanceof Element ? node : node.parentElement;
     if (!el || ours(el)) return false;
     const r = range.getBoundingClientRect();
-    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x: r.right, y: r.top }, quote), view: visible(r) }));
+    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x: r.right, y: r.top }, quote), view: visible(r), matches: matching(el) }));
     return true;
   }
 
@@ -315,6 +323,7 @@ function start(): void {
       selectionPinned = false;
     }
     if (m.type === 'show') show(m.id);
+    if (m.type === 'where') wheres = m.selectors.filter((s) => typeof s === 'string').slice(0, 500);
     if (m.type === 'show-behavior') {
       let element: Element | null = null;
       try { if (document.querySelectorAll(m.selector).length === 1) element = document.querySelector(m.selector); } catch { /* stale or invalid target */ }
@@ -388,6 +397,7 @@ function start(): void {
       'click',
       (e) => {
         if (ours(e.target)) return;
+        if (wheres.length && e.target instanceof Element) post({ type: 'pointed', matches: matching(e.target) });
         if (commenting) {
           e.preventDefault();
           e.stopPropagation();

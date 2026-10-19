@@ -3,6 +3,7 @@ import { behaviorMarkdown, parseBehavior } from './behavior';
 /** Review drafts: comments pinned to elements of a project's HTML file, and the review.md a Send writes. */
 
 import { ATTACHMENT_ID } from './attachments';
+import { feedbackPath } from './feedback';
 
 export interface ReviewRect {
   x: number;
@@ -38,6 +39,8 @@ export interface ReviewComment {
   /** A crop of the element as it looked, kept as the draft attachment with this id. */
   picture?: string;
   createdAt: number;
+  /** The output's feedback items this pin is about. Empty when the output has items and none matched. */
+  feedback?: number[];
 }
 
 /** What makes a draft a review: the HTML file it looks at and the pins on it. */
@@ -106,12 +109,14 @@ export function cleanReview(raw: unknown): DraftReview | undefined {
     const anchor = cleanAnchor(c.anchor);
     if (!anchor) continue;
     const picture = typeof c.picture === 'string' && ATTACHMENT_ID.test(c.picture) ? c.picture : undefined;
+    const feedback = Array.isArray(c.feedback) ? [...new Set(c.feedback.filter((n): n is number => Number.isInteger(n) && n > 0))].slice(0, 20) : undefined;
     comments.push({
       id: c.id,
       text: typeof c.text === 'string' ? c.text.slice(0, 20_000) : '',
       anchor,
       ...(picture ? { picture } : {}),
       createdAt: num(c.createdAt),
+      ...(feedback ? { feedback } : {}),
     });
   }
   const edits = Array.isArray(raw.edits)
@@ -174,6 +179,10 @@ export function reviewMarkdown(review: ReviewPayload, picturePath: (id: string) 
     );
     const picture = c.picture && picturePath(c.picture);
     if (picture) lines.push(`- Picture: ${picture}`);
+    if (c.feedback) {
+      const file = feedbackPath(review.path);
+      lines.push(c.feedback.length ? `- Feedback: ${c.feedback.length === 1 ? 'item' : 'items'} ${c.feedback.map((n) => `#${n}`).join(', ')} in ${file}` : `- Feedback: no item matches this element in ${file}`);
+    }
   });
   const edits = review.edits ?? [];
   if (edits.length) {
@@ -194,5 +203,8 @@ export function reviewAsk(review: ReviewPayload): string {
   }
   const what = n ? `${commentCount(n)} pinned to the page` : 'an overall note';
   const saved = e ? `, plus ${editCount(e)} already saved in the file` : '';
-  return `Review of ${review.path} from Agent Brief, ${what}${saved}. Make the changes in ${review.path}, then say what changed.`;
+  const items = review.comments.some((c) => c.feedback)
+    ? ' Some pins name feedback items. Follow the feedback-items skill: log a Review line on each named item, and catalog a pin that matches no item as a new item when it is new feedback.'
+    : '';
+  return `Review of ${review.path} from Agent Brief, ${what}${saved}. Make the changes in ${review.path}, then say what changed.${items}`;
 }
