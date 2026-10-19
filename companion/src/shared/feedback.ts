@@ -454,7 +454,7 @@ export function itemWords(text: string): Set<string> {
   return new Set((text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => w.length > 2 && !STOP.has(w)).map((w) => w.replace(/s$/, '')));
 }
 
-export const feedbackItemText = (item: FeedbackItem) => [item.title, item.change ?? '', ...item.sources.map((s) => s.quote)].join(' ');
+export const feedbackItemText = (item: Pick<FeedbackItem, 'title' | 'change' | 'sources'>) => [item.title, item.change ?? '', ...item.sources.map((s) => s.quote)].join(' ');
 
 /** Items across documents that share at least two words with `query`, most shared first. */
 export function relatedCandidates(

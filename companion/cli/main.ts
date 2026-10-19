@@ -1,4 +1,5 @@
-import type { BehaviorDocument, FeedbackDocument, FeedbackOp, FeedbackProject, FeedbackSnapResult, FeedbackUpdateResult } from '../src/protocol';
+import type { BehaviorDocument, FeedbackDocument, FeedbackLine, FeedbackOp, FeedbackProject, FeedbackRound, FeedbackSnapResult, FeedbackUpdateResult } from '../src/protocol';
+import { feedbackItemText, findRound, parseSource, relatedCandidates } from '../src/shared/feedback';
 import { formatFeedbackGraph } from '../src/shared/feedback-graph';
 import type { FeedbackWorkspace } from '../src/protocol';
 import { behaviorMarkdown } from '../src/shared/behavior';
@@ -35,7 +36,7 @@ import { commandHelp, DOCS, topHelp } from './help';
 import { apply, FORCE_VAR, isOn, shellFiles } from './herdr';
 import { ApiError, call, callJson, NotRunningError } from './http';
 import { fitSize, loadImage } from './image';
-import { formatFeedback, formatProject, formatRelated, itemHead, relatedView } from './feedback';
+import { catalogEntries, formatCatalog, formatFeedback, formatProject, formatRelated, formatSimilar, itemHead, relatedOutput, relatedView, roundText, type CatalogResult, type RelatedView } from './feedback';
 import { formatWorkspace } from './feedback';
 import { DATA_DIR_ENV, defaultDataDir, formatInitiative, formatSummaries } from './initiative';
 import { InputError, parseRegion, validateDraw, validateUpdates } from './validate';
@@ -79,10 +80,10 @@ interface Args {
 const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
   'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
-  'label', 'source', 'change', 'where', 'round', 'commit',
+  'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items',
 ]);
-/** Value flags that may repeat. */
-const LIST_FLAGS = new Set(['src', 'related']);
+/** Value flags that may repeat. The last value also reads as the flag's one value. */
+const LIST_FLAGS = new Set(['src', 'related', 'option', 'text']);
 const BOOL_FLAGS = new Set(['json', 'help', 'before', 'after']);
 
 function parseArgs(argv: string[]): Args {
@@ -101,6 +102,7 @@ function parseArgs(argv: string[]): Args {
         const value = inline ?? argv[++i];
         if (value === undefined) throw new UsageError(`--${name} needs a value`);
         lists.set(name, [...(lists.get(name) ?? []), value]);
+        flags.set(name, value);
       } else if (VALUE_FLAGS.has(name)) {
         const value = inline ?? argv[++i];
         if (value === undefined) throw new UsageError(`--${name} needs a value`);
@@ -403,18 +405,106 @@ async function projectDocs(ctx: Ctx): Promise<FeedbackDocument[]> {
   return docs.filter((d): d is FeedbackDocument => !!d);
 }
 
+/** Adds the round unless the file has it. Rounds are idempotent in the store too; this read tells the two apart. */
+async function ensureRound(ctx: Ctx, output: string): Promise<{ doc: FeedbackDocument; round: FeedbackRound; existed: boolean }> {
+  const label = str(ctx.args, 'label');
+  if (!label) throw new UsageError('round needs --label, such as "SME" or "customers"');
+  const source = str(ctx.args, 'source');
+  const date = str(ctx.args, 'date');
+  const read = await readFeedbackDoc(ctx, output);
+  const existing = findRound(read.rounds, label, source);
+  if (existing) return { doc: read, round: existing, existed: true };
+  const doc = await writeFeedback(ctx, output, [{ op: 'addRound', label, ...(source ? { source } : {}), ...(date ? { date } : {}) }]);
+  return { doc, round: doc.rounds.find((r) => r.n === doc.added.rounds[0])!, existed: false };
+}
+
+const roundMessage = (r: { doc: FeedbackDocument; round: FeedbackRound; existed: boolean }) =>
+  r.existed ? `round ${r.round.n} already exists in ${r.doc.path} · ${roundText(r.round)}` : `added round ${r.round.n} · ${roundText(r.round)} to ${r.doc.path}`;
+
+/** A catalog `src` without a round number is in the catalog's round. */
+const inRound = (round: number, src: string) => (/^\d+\s*·/.test(src) ? src : `${round} · ${src}`);
+
+/** Same round, speaker, time and quote, however the line was escaped. */
+const sameSource = (a: string, b: string) => JSON.stringify(parseSource(a)) === JSON.stringify(parseSource(b));
+
+async function readItemsFile(ctx: Ctx, file: string): Promise<unknown> {
+  const text = file === '-' ? await ctx.io.stdin() : await readFile(path.resolve(ctx.io.cwd ?? process.cwd(), file), 'utf8');
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new InputError(`--items is not JSON: ${(e as Error).message}`);
+  }
+}
+
+/** Adds the round, then every point in one write: new items with their lines, and repeats as Src lines on the item they repeat. */
+async function catalog(ctx: Ctx, output: string): Promise<void> {
+  const file = str(ctx.args, 'items');
+  if (!file) throw new UsageError('catalog needs --items <JSON file>, or --items - for stdin');
+  let entries: ReturnType<typeof catalogEntries>;
+  try { entries = catalogEntries(await readItemsFile(ctx, file)); }
+  catch (e) { throw e instanceof InputError ? e : new InputError((e as Error).message); }
+  // Look-alikes come from the project as it was before this write.
+  const docs = await projectDocs(ctx);
+  const round = await ensureRound(ctx, output);
+  const { doc } = round;
+  const ops: FeedbackOp[] = [];
+  const planned: ({ kind: 'added'; like: RelatedView['similar'] } | { kind: 'joined'; n: number } | Extract<CatalogResult, { kind: 'skipped' }>)[] = [];
+  entries.forEach((e, i) => {
+    const src = e.src.map((s) => inRound(round.round.n, s));
+    if (e.same !== undefined) {
+      const item = doc.items.find((it) => it.n === e.same);
+      if (!item) throw new InputError(`item ${i + 1}: ${doc.path} has no item #${e.same}`);
+      const fresh = src.filter((s) => !item.lines.some((l) => l.key === 'Src' && sameSource(l.text, s)));
+      const change = e.change && e.change !== item.change ? [e.change] : [];
+      const lines = [...fresh.map((text) => ({ key: 'Src', text })), ...change.map((text) => ({ key: 'Change', text })), ...e.options.map((text) => ({ key: 'Option', text }))];
+      if (!fresh.length && !change.length) {
+        planned.push({ kind: 'skipped', n: item.n, why: 'has these quotes' });
+        return;
+      }
+      ops.push(...lines.map((l) => ({ op: 'append' as const, item: item.n, key: l.key, text: l.text })));
+      planned.push({ kind: 'joined', n: item.n });
+      return;
+    }
+    const title = e.title!.trim();
+    const dup = doc.items.find((it) => it.title.toLowerCase() === title.toLowerCase() && it.rounds.includes(round.round.n));
+    if (dup) {
+      planned.push({ kind: 'skipped', title, n: dup.n, why: 'has it' });
+      return;
+    }
+    const lines: FeedbackLine[] = [
+      ...src.map((text) => ({ key: 'Src', text })),
+      ...(e.change ? [{ key: 'Change', text: e.change }] : []),
+      ...(e.where ? [{ key: 'Where', text: e.where }] : []),
+      ...e.options.map((text) => ({ key: 'Option', text })),
+      ...e.related.map((text) => ({ key: 'Related', text })),
+    ];
+    ops.push({ op: 'addItem', title, round: round.round.n, ...(lines.length ? { lines } : {}) });
+    const linked = new Set(e.related.map((r) => /^(.+?)\s+#(\d+)$/.exec(r.trim())).filter((m) => !!m).map((m) => `${relatedOutput(doc.output, m[1]!)}#${m[2]}`));
+    const text = feedbackItemText({ title, change: e.change, sources: src.map((s) => parseSource(s)).filter((s) => !!s) });
+    planned.push({ kind: 'added', like: relatedCandidates(docs, text, undefined, 3).filter((h) => !linked.has(`${h.output}#${h.item.n}`)) });
+  });
+  const res = ops.length ? await writeFeedback(ctx, output, ops) : undefined;
+  const added = [...(res?.added.items ?? [])];
+  const items = res?.items ?? doc.items;
+  const results: CatalogResult[] = planned.map((p) => {
+    if (p.kind === 'skipped') return p;
+    const n = p.kind === 'added' ? added.shift()! : p.n;
+    return { ...p, n, item: items.find((it) => it.n === n) } as CatalogResult;
+  });
+  show(ctx, { round: round.round, existed: round.existed, path: doc.path, results }, (r) => formatCatalog(r, r.results));
+}
+
 const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[]) => Promise<void>> = {
   async show(ctx, output) {
     show(ctx, await readFeedbackDoc(ctx, output), formatFeedback);
   },
 
   async round(ctx, output) {
-    const label = str(ctx.args, 'label');
-    if (!label) throw new UsageError('round needs --label, such as "SME" or "customers"');
-    const source = str(ctx.args, 'source');
-    const res = await writeFeedback(ctx, output, [{ op: 'addRound', label, ...(source ? { source } : {}) }]);
-    show(ctx, res, (d) => `added round ${d.added.rounds[0]} to ${d.path}`);
+    const res = await ensureRound(ctx, output);
+    show(ctx, res.doc, () => roundMessage(res));
   },
+
+  catalog,
 
   async add(ctx, output) {
     const title = str(ctx.args, 'title');
@@ -427,6 +517,7 @@ const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[])
       ...(ctx.args.lists.get('src') ?? []).map((text) => ({ key: 'Src', text })),
       ...one('Change', 'change'),
       ...one('Where', 'where'),
+      ...(ctx.args.lists.get('option') ?? []).map((text) => ({ key: 'Option', text })),
       ...(ctx.args.lists.get('related') ?? []).map((text) => ({ key: 'Related', text })),
     ];
     const res = await writeFeedback(ctx, output, [{ op: 'addItem', title, ...(round !== undefined ? { round } : {}), ...(lines.length ? { lines } : {}) }]);
@@ -442,6 +533,14 @@ const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[])
     show(ctx, res, (d) => `logged ${key} on ${itemHead(d.items.find((i) => i.n === n)!)}`);
   },
 
+  async change(ctx, output, [rawN, ...words]) {
+    const n = itemNumber(rawN, 'change');
+    const text = words.join(' ').trim();
+    if (!text) throw new UsageError('change needs <n> <the revised change>');
+    const res = await writeFeedback(ctx, output, [{ op: 'append', item: n, key: 'Change', text }]);
+    show(ctx, res, (d) => `changed ${itemHead(d.items.find((i) => i.n === n)!)}: ${text}`);
+  },
+
   async done(ctx, output, [rawN, ...words]) {
     const n = itemNumber(rawN, 'done');
     const commit = str(ctx.args, 'commit');
@@ -451,14 +550,18 @@ const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[])
   },
 
   async related(ctx, output, [rawN]) {
-    const text = str(ctx.args, 'text');
-    if ((rawN === undefined) === (text === undefined)) throw new UsageError('related needs an item number or --text <the point>');
+    const texts = ctx.args.lists.get('text') ?? [];
+    if ((rawN === undefined) === (texts.length === 0)) throw new UsageError('related needs an item number or --text <the point>, repeated for several points');
     const n = rawN === undefined ? undefined : itemNumber(rawN, 'related');
     const docs = await projectDocs(ctx);
     const own = await readFeedbackDoc(ctx, output);
     if (!docs.some((d) => d.output === own.output)) docs.push(own);
     if (n !== undefined && !own.items.some((i) => i.n === n)) throw new ApiError('not_found', `${own.path} has no item #${n}`);
-    show(ctx, relatedView(docs, own.output, { n, text }), (v) => formatRelated(v, own.output));
+    if (texts.length > 1) {
+      show(ctx, texts.map((text) => ({ text, similar: relatedView(docs, own.output, { text }).similar })), formatSimilar);
+      return;
+    }
+    show(ctx, relatedView(docs, own.output, { n, text: texts[0] }), (v) => formatRelated(v, own.output));
   },
 
   async workspace(ctx, output, [rawN]) {
