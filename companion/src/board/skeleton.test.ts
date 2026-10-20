@@ -99,6 +99,20 @@ describe('planDraw', () => {
     expect(linear[0].skel).toMatchObject({ x: 0, y: 0, points: [[0, 0], [50, 20]], strokeColor: PALETTE.violet.stroke });
   });
 
+  it('draws like a diagram tool: clean strokes, square stickies, solid arrowheads', () => {
+    const { shapes, linear } = planDraw(
+      [
+        { type: 'rectangle', x: 0, y: 0 },
+        { type: 'sticky', x: 0, y: 0, label: 'Idea' },
+        { type: 'arrow', start: { x: 0, y: 0 }, end: { x: 100, y: 0 } },
+      ],
+      ctx(),
+    );
+    expect(shapes.map((s) => s.skel.roughness)).toEqual([0, 0]);
+    expect(shapes[1].skel.roundness).toBeUndefined();
+    expect(linear[0].skel).toMatchObject({ roughness: 0, endArrowhead: 'triangle' });
+  });
+
   it('places elements without a position to the right of the board', () => {
     const { shapes } = planDraw(
       [{ type: 'rectangle' }, { type: 'rectangle', width: 100 }],

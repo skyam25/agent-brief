@@ -61,6 +61,13 @@ export const DEFAULT_SIZE: Record<string, { width: number; height: number }> = {
   sticky: { width: 180, height: 140 },
 };
 
+/**
+ * Claude draws like a diagram tool: clean lines, square corners and solid arrowheads.
+ * The user's own tools keep Excalidraw's hand-drawn defaults.
+ */
+export const CLAUDE_ROUGHNESS = 0;
+const CLAUDE_ARROWHEAD = 'triangle';
+
 const DEFAULT_FRAME = { width: 400, height: 300 };
 const DEFAULT_LINE_LENGTH = 120;
 const LAYOUT_GAP = 60;
@@ -156,7 +163,7 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
           strokeColor: colors.stroke,
           backgroundColor: sticky ? colors.fill : 'transparent',
           fillStyle: 'solid',
-          ...(sticky ? { roundness: { type: 3 } } : {}),
+          roughness: CLAUDE_ROUGHNESS,
         };
         if (s.label) {
           skel.label = { text: s.label, strokeColor: TEXT_COLOR, fontFamily: TEXT_FONT, textAlign: labelAlign(s.label, s.align) };
@@ -200,7 +207,8 @@ export function planDraw(skeletons: Skeleton[], ctx: PlanContext): DrawPlan {
         const end = endRef(s.end, `${where}.end`, resolve);
         const relative = Array.isArray(s.points) && s.points.length >= 2 ? s.points : undefined;
         const delta: Point = [num(s.width) ?? DEFAULT_LINE_LENGTH, num(s.height) ?? 0];
-        const skel: ExSkeleton = { type: s.type, id, strokeColor: swatch(s.color).stroke };
+        const skel: ExSkeleton = { type: s.type, id, strokeColor: swatch(s.color).stroke, roughness: CLAUDE_ROUGHNESS };
+        if (s.type === 'arrow') skel.endArrowhead = CLAUDE_ARROWHEAD;
         let a: EndRef;
         let b: EndRef;
         if (start && end) {

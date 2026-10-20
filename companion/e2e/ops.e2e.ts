@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExcalidrawArrowElement, ExcalidrawElement, ExcalidrawTextElement } from '@excalidraw/excalidraw/element/types';
 import type { ReadResponse } from '../src/protocol';
+import { TEXT_FONT_NAME } from '../src/board/palette';
 import { backend, FLOW, launch, RESULTS, sceneElements, showPanel, tempDataDir, type Launched } from './helpers';
 
 let ctx: Launched;
@@ -169,6 +170,19 @@ function pngSize(b64: string): { width: number; height: number; bytes: Buffer } 
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), bytes };
 }
 
+test("Claude's shapes draw like a diagram tool: clean strokes, square stickies, solid arrowheads", async () => {
+  await board('clean-strokes');
+  await backend(ctx.app, 'draw', 'current', { elements: FLOW });
+  const { live } = await scene();
+  const drawn = live.filter((e) => e.type !== 'text' && e.type !== 'frame');
+  expect(drawn.length).toBeGreaterThan(0);
+  expect(new Set(drawn.map((e) => e.roughness))).toEqual(new Set([0]));
+  const arrows = drawn.filter((e) => e.type === 'arrow');
+  expect(arrows.map((a) => ('endArrowhead' in a ? a.endArrowhead : null))).toEqual(['triangle', 'triangle']);
+  const sticky = drawn.find((e) => e.id === 'note')!;
+  expect(sticky.roundness).toBeNull();
+});
+
 test('C4.3 png of a region keeps the long edge at 1400 or less', async () => {
   await board('png-region');
   const { app } = ctx;
@@ -314,14 +328,14 @@ test('draw lists its elements, and draw and update warn when a box grows over it
     ],
   });
   expect(drawn.elements?.map((e) => e.id)).toEqual(['top', 'next', 'fits', 'clear', 'caption', 'under']);
-  expect(drawn.elements?.[0]).toMatchObject({ type: 'rectangle', height: 86, label: 'First line of the label\nSecond line', by: 'claude' });
+  expect(drawn.elements?.[0]).toMatchObject({ type: 'rectangle', height: 78, label: 'First line of the label\nSecond line', by: 'claude' });
   expect(drawn.warnings).toEqual([
-    'rectangle top grew from 60 to 86 px tall to hold its label and now overlaps next. Move it down at least 36 px with update, or give top more width.',
+    'rectangle top grew from 60 to 78 px tall to hold its label and now overlaps next. Move it down at least 28 px with update, or give top more width.',
   ]);
 
   const updated = await backend(app, 'update', 'current', { updates: [{ id: 'fits', label: 'One\nTwo\nThree\nFour\nFive\nSix' }] });
   expect(updated.warnings).toEqual([
-    'rectangle fits grew from 100 to 194 px tall to hold its label and now overlaps clear. Move it down at least 54 px with update, or give fits more width.',
+    'rectangle fits grew from 100 to 170 px tall to hold its label and now overlaps clear. Move it down at least 30 px with update, or give fits more width.',
   ]);
 });
 
@@ -355,12 +369,12 @@ test('a label keeps its padding, the box grows to hold it, and its frame grows t
   const { page } = ctx;
   for (const id of ['a', 'b']) {
     const text = labelFor(id) as Label & { text: string; fontSize: number };
-    const widest = await page.evaluate(async ({ lines, size }) => {
-      await document.fonts.load(`${size}px Nunito`);
+    const widest = await page.evaluate(async ({ lines, size, font }) => {
+      await document.fonts.load(`${size}px ${font}`);
       const c = document.createElement('canvas').getContext('2d')!;
-      c.font = `${size}px Nunito`;
+      c.font = `${size}px ${font}`;
       return Math.max(...lines.map((l) => c.measureText(l).width));
-    }, { lines: text.text.split('\n'), size: text.fontSize });
+    }, { lines: text.text.split('\n'), size: text.fontSize, font: TEXT_FONT_NAME });
     expect(widest).toBeLessThanOrEqual(text.width + 1);
   }
   // A label with list lines lines up left, the rest center.

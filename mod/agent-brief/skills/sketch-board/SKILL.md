@@ -146,12 +146,12 @@ Work out every size before you draw. A box or sticky grows taller to hold its la
 
 ### Height of a box or sticky
 
-- A label line takes 27 px. The box adds 16 px above the label and 16 px below.
-- The height a label needs is 27 × lines + 32. Round it up to the grid of 20.
+- A label line takes 23 px. The box adds 16 px above the label and 16 px below.
+- The height a label needs is 23 × lines + 32. Round it up to the grid of 20.
 
 | Lines | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |---|---|---|---|---|---|---|---|
-| Height | 60 | 100 | 120 | 140 | 180 | 200 | 220 |
+| Height | 60 | 80 | 120 | 140 | 160 | 180 | 200 |
 
 - Count lines after wrapping. A line holds about (width − 40) ÷ 10 characters. A label in capitals holds about two thirds as many.
 
@@ -160,9 +160,9 @@ Work out every size before you draw. A box or sticky grows taller to hold its la
 | Characters per line | 16 | 22 | 26 | 34 | 42 |
 
 - Each line of the label starts a new line on the board, so a heading and three `- ` points start four lines. A line longer than the width holds wraps onto more lines. The `- ` counts as two characters.
-- For example, a sticky 260 wide holds 22 characters a line. A heading and three points of about 30 characters each take 1 + 3 × 2 = 7 lines, so the sticky needs a height of 220.
+- For example, a sticky 260 wide holds 22 characters a line. A heading and three points of about 30 characters each take 1 + 3 × 2 = 7 lines, so the sticky needs a height of 200.
 - Give long text more width rather than more lines. A 380 px box holds a 34-character label on one line.
-- Make plain boxes 200×80. That holds one line of 16 characters. Two lines need 200×100.
+- Make plain boxes 200×80. That holds two lines of 16 characters.
 - Give boxes in a row the same width, and the height of the tallest.
 
 ### Spacing

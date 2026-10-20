@@ -26,10 +26,10 @@ export const STICKY_COLOR: ColorName = 'yellow';
 /** Claude's text and labels are near-black, which the dark theme flips to near-white. */
 export const TEXT_COLOR = PALETTE.black.stroke;
 
-/** Excalidraw's Nunito, the sans font its picker calls Normal. */
-export const TEXT_FONT = 6;
+/** Excalidraw's Helvetica, a system font, so labels never measure before it loads. */
+export const TEXT_FONT = 2;
 /** TEXT_FONT's face name, which the renderer loads before it measures labels. */
-export const TEXT_FONT_NAME = 'Nunito';
+export const TEXT_FONT_NAME = 'Helvetica';
 
 export function isColorName(value: unknown): value is ColorName {
   return typeof value === 'string' && Object.hasOwn(PALETTE, value);
