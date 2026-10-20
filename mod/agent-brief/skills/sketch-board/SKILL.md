@@ -28,6 +28,8 @@ Run `agent-brief status` first if you are unsure the app is up. Exit code 3 mean
 
 All board commands take `--board <name>`. The default is `current`, the board the panel shows now. `--json` prints the raw response.
 
+Draw a new drawing on a board you name, such as `--board checkout-options`. Then `draw`, `snap` and `update` file it under your session, so it lists in the session's sidebar and in the Brief pane, and they show it to the user. A panel that shows another session stays as it is. You never need to copy a drawing into a note.
+
 | Command | Does |
 |---|---|
 | `agent-brief status` | Shows whether the app runs |

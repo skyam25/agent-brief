@@ -226,6 +226,35 @@ test('a reopen shows the session\'s last board, and leaves the panel as it is fo
   expect(await boardCount()).toBe(boards);
 });
 
+test('a board Claude draws on files under its session, and shows only when the panel is free', async () => {
+  const health = async () => (await sock<Health>(socketPath, 'GET', '/health')).body;
+  const holder = async (name: string) => (await sock<BoardsResponse>(socketPath, 'GET', '/boards')).body.boards.find((b) => b.name === name)?.sessionId;
+  const target = async () => (await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId;
+  const drawOn = async (board: string) => {
+    await sock(socketPath, 'POST', `/boards/${board}/draw`, { elements: [{ type: 'text', label: board, x: 0, y: 0 }] });
+    return sock<OpenResponse>(socketPath, 'POST', '/open', { board, sessionId: 'builder', follow: true });
+  };
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'builder', cwd: project(), title: 'Builder' });
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'writer', cwd: project(), title: 'Writer' });
+
+  // A hidden panel opens on the board.
+  await ctx.app.evaluate(() => globalThis.__companion.panel.hide());
+  expect((await drawOn('options')).body).toMatchObject({ board: 'options', opened: 'board', targetSessionId: 'builder' });
+  expect(await panelVisible()).toBe(true);
+  expect(await holder('options')).toBe('builder');
+
+  // A panel in Sketch on the same session switches to the next board.
+  expect((await drawOn('more-options')).body).toMatchObject({ board: 'more-options', opened: 'board' });
+  expect((await health()).currentBoard).toBe('more-options');
+
+  // A panel on another session stays, and the board still files under its session.
+  await sock(socketPath, 'POST', '/open', { board: 'draft', sessionId: 'writer' });
+  expect((await drawOn('later')).body).toMatchObject({ opened: 'filed', targetSessionId: 'writer' });
+  expect((await health()).currentBoard).toBe('draft');
+  expect(await target()).toBe('writer');
+  expect(await holder('later')).toBe('builder');
+});
+
 test('/sketch from a session with no brief yet selects its row without passing through Unfiled', async () => {
   const { page } = ctx;
   const cwd = project();

@@ -399,8 +399,10 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
     if (root === 'open' && parts.length === 1 && method === 'POST') {
       const body = parseOpen(await readJson(req));
       sweep();
-      if (body.output && !sessionMap.has(body.sessionId!)) throw new BadRequest('body.sessionId names no live session');
-      if (body.sessionId !== undefined && sessionMap.has(body.sessionId)) {
+      if ((body.output || body.follow) && !sessionMap.has(body.sessionId!)) throw new BadRequest('body.sessionId names no live session');
+
+      // A follow leaves the target alone when the panel shows another session, so the app decides.
+      if (body.sessionId !== undefined && sessionMap.has(body.sessionId) && !body.follow) {
         backend.claim?.(body.sessionId);
         setTarget(body.sessionId);
       }

@@ -1,6 +1,6 @@
 import type { ElementTable, RenderElement } from 'claude-code'
 
-import type { AttachedInitiative, BriefAnswer, BriefItems, BriefOutput, BriefView, PrototypeFidelity, SessionMode } from '../types'
+import type { AttachedInitiative, BriefAnswer, BriefBoard, BriefItems, BriefOutput, BriefView, PrototypeFidelity, SessionMode } from '../types'
 import { AGREE_TEXT, ago, briefCounts, inlineSummary, itemRows, outputRows } from './brief-logic'
 import type { ItemRow, OutputRow } from './brief-logic'
 import { DEFAULT_FIDELITY, FIDELITY_IDS, MODE_IDS, fidelityLabel, modeLabel } from './modes'
@@ -14,6 +14,8 @@ export type BriefPaneView = {
   fidelity: PrototypeFidelity | null
   isTracking: boolean
   outputs: BriefOutput[]
+  /** The boards the app files under this session. */
+  boards: BriefBoard[]
   /** Epoch ms the pane draws at, for each output's age. */
   now: number
   /** Open feedback items by output ref. */
@@ -36,6 +38,8 @@ export type BriefActions = {
   open: (ref: string) => Promise<void>
   /** Opens a Markdown or HTML output in the Agent Brief app, on its Feedback tab when asked. */
   openInApp: (ref: string, tab?: 'feedback') => Promise<void>
+  /** Shows one of the session's boards in the Agent Brief app. */
+  openBoard: (name: string) => Promise<void>
   pickMode: (mode: SessionMode) => Promise<void>
   pickFidelity: (fidelity: PrototypeFidelity) => Promise<void>
   attach: (id: string) => Promise<void>
@@ -57,6 +61,7 @@ export type BriefSlots = { questions?: RenderElement | null }
 
 /**
  * The Brief pane: a header with the Mode Select and the Initiative Select, Outputs, the Questions slot, then Items.
+ * Outputs lists declared outputs, the session's boards, then touched documents.
  * Without fields, or with no initiatives to pick, the Initiative line is text.
  * Seated inline above the prompt it draws one summary line and the Ready outputs, until Expand.
  */
@@ -180,15 +185,31 @@ function outputRowTree(table: ElementTable, row: OutputRow, now: number, act: Br
   )
 }
 
+function boardRowTree(table: ElementTable, board: BriefBoard, now: number, act: BriefActions) {
+  const { Box, Button, Text } = table
+  return (
+    <Box key={`board-${board.name}`} columnGap={1}>
+      <Box flexGrow={1} flexShrink={1}>
+        <Text wrap="truncate-end">{board.name}</Text>
+      </Box>
+      <Text dimColor>Board</Text>
+      <Text dimColor>{ago(now - board.updatedAt)}</Text>
+      <Button key={`board-open-${board.name}`} plain dimColor label="In Agent Brief" onPress={() => void act.openBoard(board.name)} />
+    </Box>
+  )
+}
+
 function outputsTree(table: ElementTable, pane: BriefPaneView, act: BriefActions) {
   const { Box, Button, Text } = table
   const { declared, touched } = outputRows(pane.outputs, pane.feedback)
+  const boards = [...pane.boards].sort((a, b) => b.updatedAt - a.updatedAt)
   const isOpen = pane.view.isTouchedOpen
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold>Outputs</Text>
-      {declared.length === 0 && touched.length === 0 && <Text dimColor>No outputs yet.</Text>}
+      {declared.length === 0 && boards.length === 0 && touched.length === 0 && <Text dimColor>No outputs yet.</Text>}
       {declared.map(row => outputRowTree(table, row, pane.now, act))}
+      {boards.map(board => boardRowTree(table, board, pane.now, act))}
       {touched.length > 0 && (
         <Button
           key="brief-touched"

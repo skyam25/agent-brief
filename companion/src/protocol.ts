@@ -138,6 +138,11 @@ export interface OpenRequest {
    * A session with neither leaves the panel as it is.
    */
   reopen?: boolean;
+  /**
+   * Set after Claude draws on `board`, with `sessionId`. Files the board under the session.
+   * The panel shows it when hidden or already on that session. A panel on another session stays as it is.
+   */
+  follow?: boolean;
 }
 
 export interface OpenResponse {
@@ -146,8 +151,11 @@ export interface OpenResponse {
   targetSessionId?: string;
   /** True when Write mode started the new note with the request's text. */
   noteText?: boolean;
-  /** What the panel shows now: the board, a note in Write, an HTML file in the review pane, or what it showed before a `reopen`. */
-  opened?: 'board' | 'note' | 'review' | 'panel';
+  /**
+   * What the panel shows now: the board, a note in Write, an HTML file in the review pane, or what it showed before a `reopen`.
+   * `filed` means a `follow` only filed the board, because the panel shows another session.
+   */
+  opened?: 'board' | 'note' | 'review' | 'panel' | 'filed';
 }
 
 // ── POST /notes ───────────────────────────────────────────────────────────

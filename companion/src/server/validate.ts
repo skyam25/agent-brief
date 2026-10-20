@@ -210,6 +210,7 @@ export function parseOpen(body: unknown): OpenRequest {
     output: openOutput(o),
     note: openNote(o),
     reopen: openReopen(o),
+    follow: openFollow(o),
   };
 }
 
@@ -217,6 +218,13 @@ function openReopen(o: Obj): OpenRequest['reopen'] {
   if (o.reopen === undefined) return undefined;
   if (typeof o.reopen !== 'boolean') fail('body.reopen must be true or false');
   return o.reopen || undefined;
+}
+
+function openFollow(o: Obj): OpenRequest['follow'] {
+  if (o.follow === undefined) return undefined;
+  if (typeof o.follow !== 'boolean') fail('body.follow must be true or false');
+  if (o.follow && (typeof o.board !== 'string' || typeof o.sessionId !== 'string')) fail('body.follow needs body.board and body.sessionId');
+  return o.follow || undefined;
 }
 
 function openNote(o: Obj): OpenRequest['note'] {

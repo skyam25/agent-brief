@@ -276,6 +276,26 @@ describe('update and delete', () => {
     expect(r.stdout).toContain('not found: zz');
   });
 
+  it('files a named board under the session after a draw or update, and keeps the result when that fails', async () => {
+    app.handler = (r) => (r.url === '/open' ? fail('bad_request', 'no live session', 400)(r) : { json: { ids: ['a'], batchId: 'd1' } });
+    const env = { CLAUDE_CODE_SESSION_ID: 's1' };
+    const drew = await run(['draw', '--board', 'options'], JSON.stringify([{ type: 'rectangle' }]), env);
+    expect(drew.code).toBe(0);
+    expect(drew.stdout).toContain('d1');
+    await run(['update', '--board', 'options'], JSON.stringify([{ id: 'a', x: 5 }]), env);
+    expect(app.seen.map((s) => `${s.method} ${s.url}`)).toEqual([
+      'POST /boards/options/draw', 'POST /open', 'PATCH /boards/options/elements', 'POST /open',
+    ]);
+    expect(app.seen[1].body).toEqual({ board: 'options', sessionId: 's1', follow: true });
+  });
+
+  it('leaves the panel alone after drawing on the current board, or outside a session', async () => {
+    app.handler = () => ({ json: { ids: ['a'], batchId: 'd1' } });
+    await run(['draw'], JSON.stringify([{ type: 'rectangle' }]), { CLAUDE_CODE_SESSION_ID: 's1' });
+    await run(['draw', '--board', 'options'], JSON.stringify([{ type: 'rectangle' }]));
+    expect(app.seen.map((s) => s.url)).toEqual(['/boards/current/draw', '/boards/options/draw']);
+  });
+
   it('requires an id to delete', async () => {
     const r = await run(['delete']);
     expect(r.code).toBe(2);

@@ -83,7 +83,7 @@ import {
 } from './companion-logic'
 import type { Tracking } from './companion-logic'
 import { outputsFile } from './companion-protocol'
-import type { BoardLayout, Delivery, OpenRequest, TrackingPatch } from './companion-protocol'
+import type { BoardLayout, BoardsResponse, Delivery, OpenRequest, TrackingPatch } from './companion-protocol'
 import {
   MODE_SECTION,
   MODE_USAGE,
@@ -164,6 +164,7 @@ const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
 const activeAtRef = atom({ plugin: 'agent-brief', key: 'activeAt' } as const, null)
 const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as const, false)
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
+const boardsRef = atom({ plugin: 'agent-brief', key: 'boards' } as const, [])
 const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
 const feedbackRef = atom({ plugin: 'agent-brief', key: 'feedback' } as const, {})
 const answersRef = atom({ plugin: 'agent-brief', key: 'answers' } as const, [])
@@ -588,11 +589,23 @@ async function refreshFeedback($: EngineInterface): Promise<void> {
   await update($, feedbackRef, held => (JSON.stringify(held) === JSON.stringify(counts) ? held : counts))
 }
 
-/** Reads the outputs file, the items file and the outputs' feedback into the Brief pane's state. */
+/** Reads the boards the app files under this session. Until the app is up, or when it does not answer, the list stays as it was. */
+async function refreshBoards($: EngineInterface): Promise<void> {
+  if (!isUp) return
+  const reply = await call($, 'GET', '/boards')
+  if (!reply?.ok) return
+  const sessionId = await $.session.id()
+  const listed = (reply.body as Partial<BoardsResponse> | undefined)?.boards ?? []
+  const boards = listed.filter(b => b.sessionId === sessionId).map(b => ({ name: b.name, updatedAt: b.updatedAt }))
+  await update($, boardsRef, held => (JSON.stringify(held) === JSON.stringify(boards) ? held : boards))
+}
+
+/** Reads the outputs file, the session's boards, the items file and the outputs' feedback into the Brief pane's state. */
 async function loadBrief($: EngineInterface): Promise<void> {
   const text = await $.fs.read(outputsFile(await homeCwd($), await $.session.id())).catch(() => undefined)
   const file = typeof text === 'string' ? parseOutputsFile(text) : undefined
   await update($, outputsRef, () => file?.outputs ?? [])
+  await refreshBoards($).catch(err => log($, `boards refresh failed: ${String(err)}`))
   await refreshItems($)
   await refreshFeedback($)
 }
@@ -604,7 +617,7 @@ async function loadBrief($: EngineInterface): Promise<void> {
 let isBriefOpen = false
 
 /**
- * When the Brief pane last read the initiatives and this session's attachment.
+ * When the Brief pane last read the initiatives, this session's attachment and its boards.
  * The band's open reads them once the pane is placed. A draw reads them when this is undefined, as after
  * any close, or 30 s old, which covers opens from elsewhere: a plugin's own opens skip its `ui.open` hook.
  * A draw's read can lose its answer when a newer draw replaces it, so one with no answer is tried again.
@@ -612,7 +625,7 @@ let isBriefOpen = false
 let initiativesReadAt: number | undefined
 const INITIATIVES_FRESH_MS = 30_000
 
-/** Redraws the Brief pane each minute while it is placed, so output ages and the initiatives stay current. */
+/** Redraws the Brief pane each minute while it is placed, so output ages, boards and the initiatives stay current. */
 let briefAging: { cancel(): void } | undefined
 const AGING_MS = 60_000
 
@@ -666,6 +679,18 @@ async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'
     return
   }
   if (!isOutputOpened(reply.body)) $.ui.toast(OUTPUT_NEEDS_UPDATE, { timeoutMs: 8000 })
+}
+
+/** Shows one of the session's boards in the app. */
+async function openBoardInApp($: EngineInterface, name: string): Promise<void> {
+  const failed = await readyApp($)
+  if (failed !== undefined) {
+    $.ui.toast(failed, { timeoutMs: 8000 })
+    return
+  }
+  const body: OpenRequest = { board: name, sessionId: await $.session.id() }
+  const reply = await call($, 'POST', '/open', body)
+  if (!reply?.ok) $.ui.toast(`Agent Brief did not open the board ${name}.`, { timeoutMs: 8000 })
 }
 
 /** Set while a Send runs, so a second press before it clears the answers submits nothing. */
@@ -1266,10 +1291,14 @@ export const register: Register = (on, options) => {
     const table = $.ui.resolve(e)
     const hasFields = e.surface !== 'mobile'
     const now = await $.clock.now()
-    briefAging ??= $.clock.every(AGING_MS, () => $.ui.invalidate('ui.render'))
+    briefAging ??= $.clock.every(AGING_MS, async () => {
+      await refreshBoards($).catch(() => undefined)
+      $.ui.invalidate('ui.render')
+    })
     if (initiativesReadAt === undefined || now - initiativesReadAt > INITIATIVES_FRESH_MS) {
       initiativesReadAt = now
       $.clock.after(0, async () => {
+        await refreshBoards($).catch(() => undefined)
         const isRead = await loadInitiative($, initiativeEnvironment($)).catch(() => false)
         if (!isRead && initiativesReadAt === now) initiativesReadAt = undefined
       })
@@ -1283,6 +1312,7 @@ export const register: Register = (on, options) => {
       fidelity: await read($, fidelityRef),
       isTracking: await read($, trackingRef),
       outputs: await read($, outputsRef),
+      boards: await read($, boardsRef),
       now,
       feedback: await read($, feedbackRef),
       items: await read($, itemsRef),
@@ -1303,6 +1333,7 @@ export const register: Register = (on, options) => {
     return briefTree(table, pane, {
       open: ref => openOutput($, ref),
       openInApp: (ref, tab) => openOutputInApp($, ref, tab),
+      openBoard: name => openBoardInApp($, name),
       pickMode: mode => pickBriefMode($, mode),
       pickFidelity: fidelity => pickBriefFidelity($, fidelity),
       attach: id => attachFromBand($, initiativeEnvironment($), id),
@@ -1353,6 +1384,13 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const result = await next(e)
     if (isInitiativeCommand(e.command)) await fetchInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative refresh failed: ${String(err)}`))
+    return result
+  }).catch(($, e, next) => next(e))
+
+  // An `agent-brief` command may draw on, open or file a board, so the Brief pane reads the session's boards again.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const result = await next(e)
+    if (/\bagent-brief\b/.test(e.command)) await refreshBoards($).catch(err => log($, `boards refresh failed: ${String(err)}`))
     return result
   }).catch(($, e, next) => next(e))
 

@@ -80,7 +80,7 @@ A src without a round number is in the catalog's round.`,
   },
   draw: {
     usage: 'agent-brief draw [--board <name>] [--file f.json] [--json]',
-    about: 'Adds elements. Reads {"elements":[...]} or a bare array from --file or stdin. One call is one undo step. An image element takes "file", a png, jpeg, gif or webp path, and keeps its proportions when you give only a width or height. Prints one line per new element as read does. Warnings name arrows whose label hides them, boxes that grew over a neighbour, and frames that grew over another frame.',
+    about: 'Adds elements. Reads {"elements":[...]} or a bare array from --file or stdin. One call is one undo step. An image element takes "file", a png, jpeg, gif or webp path, and keeps its proportions when you give only a width or height. Prints one line per new element as read does. Warnings name arrows whose label hides them, boxes that grew over a neighbour, and frames that grew over another frame. Run from Claude Code with --board, it files the board under that session and shows it, unless the panel shows another session.',
     example: DRAW_EXAMPLE,
   },
   snap: {

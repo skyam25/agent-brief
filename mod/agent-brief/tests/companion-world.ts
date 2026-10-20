@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import { mock } from 'claude-code/testing'
 import type { MockClock, TestBody } from 'claude-code/testing'
 
-import type { Delivery } from '../hooks/companion-protocol'
+import type { BoardsResponse, Delivery } from '../hooks/companion-protocol'
 import type { InitiativeSnapshot } from '../hooks/companion-protocol'
 import { SESSION, worldOf } from './world'
 
@@ -28,6 +28,8 @@ export type FakeCompanion = {
   outputRefusal: string | undefined
   /** Initiatives the app knows, by id, most recent first. */
   initiatives: Map<string, Omit<InitiativeSnapshot, 'attachmentRevision'>>
+  /** Every board, each with the session that holds it, as GET /boards lists them. */
+  boards: BoardsResponse['boards']
   /** Which initiative each session is attached to, with its attachment revision. */
   attachments: Map<string, { id: string; attachmentRevision: number }>
   /** Sessions the app knows, by id, with their item tracking and the mode the mod mirrored. */
@@ -79,6 +81,7 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
     isPreOutputsApp: false,
     outputRefusal: undefined,
     initiatives: new Map(),
+    boards: [],
     attachments: new Map(),
     sessions: new Map(),
     box: { text: '', cursor: 0 },
@@ -138,6 +141,7 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
       }
       return reply(200, { board: 'main', ...(tookText ? { noteText: true } : {}) })
     }
+    if (path === '/boards') return reply(200, { boards: fake.boards, current: 'main' })
     if (path === '/sessions' && method === 'POST') {
       const info = JSON.parse(text!) as { sessionId: string; cwd: string }
       const known = fake.sessions.get(info.sessionId)

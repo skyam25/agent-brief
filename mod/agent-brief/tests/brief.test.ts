@@ -217,6 +217,35 @@ describe('the pane\'s outputs', () => {
     expect(world.toasts.at(-1)).toBe('docs/spec.md is outside the session folder')
   })
 
+  test('lists the boards the app files under this session, newest first, and opens one in the app', async ($, on) => {
+    const { app, clock } = await setup($, on)
+    app.boards = [
+      { name: 'old-flow', updatedAt: clock.now() - 2 * 3_600_000, elementCount: 3, sessionId: SESSION_ID },
+      { name: 'theirs', updatedAt: clock.now(), elementCount: 1, sessionId: 'other' },
+      { name: 'case-timeline-options', updatedAt: clock.now(), elementCount: 9, sessionId: SESSION_ID },
+    ]
+    await pane($)
+    await clock.settle()
+    const drawn = await pane($)
+    expect(drawn).not.toContain('No outputs yet.')
+    expect(drawn.indexOf('case-timeline-options')).toBeLessThan(drawn.indexOf('old-flow'))
+    expect(drawn).toContain('"Board"')
+    expect(drawn).toContain('"2h ago"')
+    expect(drawn).not.toContain('theirs')
+    await press($, 'board-open-old-flow')
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ board: 'old-flow', sessionId: SESSION_ID })
+  })
+
+  test('an agent-brief command reads the boards again', async ($, on) => {
+    on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'added 3 elements', stderr: '' } }) as never)
+    const { app, clock } = await setup($, on)
+    await pane($)
+    await clock.settle()
+    app.boards = [{ name: 'options', updatedAt: clock.now(), elementCount: 4, sessionId: SESSION_ID }]
+    await $.tool.call({ tool: 'Bash', command: 'agent-brief draw --board options' } as never)
+    expect(await pane($)).toContain('"options"')
+  })
+
   test('a declared output shows without reopening the pane', async ($, on) => {
     await setup($, on)
     expect(await pane($)).toContain('No outputs yet.')

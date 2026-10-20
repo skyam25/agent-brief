@@ -21,7 +21,7 @@ import {
   systemPreferences,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { defaultSocketPath, SOCKET_ENV, type SessionsResponse } from '../protocol';
+import { defaultSocketPath, SOCKET_ENV, type OpenResponse, type SessionsResponse } from '../protocol';
 import type { BoardBackend } from '../server/contract';
 import { createCompanionServer, type CompanionServer } from '../server/index';
 import { BadRequest, parseInitiativeCreate, parseInitiativeUpdate } from '../server/validate';
@@ -69,6 +69,7 @@ import { Updater } from './updater';
 import { BoardStore, cleanName, migrateData, StateFile } from './store';
 import { mainIpc } from './ipc';
 import { transcribeClip } from '../voice/compose';
+import { isWorkspaceNotes } from '../shared/feedback-workspace';
 
 const testMode = process.env.COMPANION_TEST === '1';
 
@@ -222,6 +223,36 @@ async function start(): Promise<void> {
   let restoredBoard: string | undefined;
 
   const baseBackend = createBoardBackend({ store, state, panel, bridge, setPrompt, boards: () => briefs.boardsWithHolders() });
+
+  /**
+   * Files a board Claude drew under its session. A hidden panel opens on it.
+   * A panel in Sketch on that session switches to it. Any other panel stays as it is.
+   * A feedback workspace opens from its item, so it is left alone.
+   */
+  async function follow(sessionId: string, raw: string): Promise<OpenResponse> {
+    const board = cleanName(raw);
+    if (!store.exists(board)) throw new BadRequest(`no board named ${JSON.stringify(board)}`);
+    if (isWorkspaceNotes(store.notes(board))) return { board: state.state.currentBoard, opened: 'filed' };
+    if (!briefs.get(sessionId)) briefs.remember(sessionId, {}, false);
+    const target = server.sessions().targetSessionId;
+    if (!panel.isVisible()) {
+      server.setTarget(sessionId);
+      const res = await baseBackend.open({ board });
+      briefs.remember(sessionId, { board: res.board, last: 'board' });
+      return { ...res, targetSessionId: sessionId, opened: 'board' };
+    }
+    if (target === sessionId && state.state.mode === 'sketch') {
+      await bridge.request('show', { board });
+      briefs.remember(sessionId, { board, last: 'board' });
+      return { board, targetSessionId: sessionId, opened: 'board' };
+    }
+    if (!briefs.holderOf(board)) {
+      briefs.move([board], sessionId);
+      if (state.state.unfiledBoard === board) state.update({ unfiledBoard: undefined });
+    }
+    return { board: state.state.currentBoard, ...(target ? { targetSessionId: target } : {}), opened: 'filed' };
+  }
+
   const backend: BoardBackend = {
     ...baseBackend,
     tracking(sessionId) {
@@ -297,6 +328,7 @@ async function start(): Promise<void> {
         };
       }
       if (!req.sessionId) return baseBackend.open(req);
+      if (req.follow && req.board) return follow(req.sessionId, req.board);
 
       // A reopen shows what the session last had open, as a click on its row does, and never makes a board.
       let board = req.board;

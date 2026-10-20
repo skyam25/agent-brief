@@ -22,11 +22,19 @@ mkdirSync(project)
 mkdirSync(join(tmp, 'inbox'))
 const socketPath = join(tmp, 's.sock')
 const opens = []
+let sid
 const server = await stubServer(tmp, socketPath, {
   open: async req => {
     opens.push(req)
     return { board: 'main', ...(req.output ? { opened: 'review' } : {}) }
   },
+  listBoards: async () => ({
+    boards: [
+      { name: 'case-timeline', updatedAt: Date.now() - 3 * 60_000, elementCount: 9, sessionId: sid },
+      { name: 'not-mine', updatedAt: Date.now(), elementCount: 1, sessionId: 'other' },
+    ],
+    current: 'main',
+  }),
 })
 const term = terminal(`brief-pane-${process.pid}`)
 
@@ -37,7 +45,7 @@ try {
   console.log('claude started:', Boolean(ready))
   const registered = await until(() => server.sessions().sessions.length > 0, 20_000)
   console.log('registered:', Boolean(registered))
-  const sid = server.sessions().sessions[0]?.sessionId
+  sid = server.sessions().sessions[0]?.sessionId
   await sleep(1500)
   term.capture()
   console.log(`--- band before ---\n${term.pane.trimEnd().split('\n').slice(-8).join('\n')}\n---`)
@@ -87,13 +95,11 @@ try {
   const opened = await until(() => term.capture().includes('Brief ·'), 15_000, 500)
   await sleep(1000)
   term.capture()
-  const rows = ['Outputs', 'Pricing plan', '5m ago', 'just now', 'Feedback · 2 open', 'Items', '#2 Rows too tight', 'Send answers'].filter(t => !term.pane.includes(t))
-  const ok = Boolean(opened) && rows.length === 0
+  const rows = ['Outputs', 'Pricing plan', '5m ago', 'just now', 'case-timeline', '3m ago', 'Feedback · 2 open', 'Items', '#2 Rows too tight', 'Send answers'].filter(t => !term.pane.includes(t))
+  const ok = Boolean(opened) && rows.length === 0 && !term.pane.includes('not-mine')
   console.log(`${ok ? 'PASS' : 'FAIL'}  Brief pane at ${process.env.COLS ?? '117'} columns${opened ? '' : ': pane did not open'}${rows.length ? `: missing ${rows.join(', ')}` : ''}`)
-  if (!ok) {
-    console.log(`--- screen ---\n${term.pane.trimEnd()}\n---`)
-    process.exitCode = 1
-  }
+  if (!ok || process.env.SHOW) console.log(`--- screen ---\n${term.pane.trimEnd()}\n---`)
+  if (!ok) process.exitCode = 1
   // The landing mock is the first row, so the first In Agent Brief is its own.
   const clicked = await term.click('In Agent Brief')
   await until(() => opens.some(r => r.output), 5_000, 300)
@@ -101,6 +107,13 @@ try {
   const tabbed = clicked && asked?.path === 'mock/landing.html' && asked?.tab === 'feedback'
   console.log(`${tabbed ? 'PASS' : 'FAIL'}  In Agent Brief opens the landing mock on its Feedback tab${tabbed ? '' : `: ${JSON.stringify(asked ?? null)}`}`)
   if (!tabbed) process.exitCode = 1
+
+  await term.click('In Agent Brief', 'case-timeline')
+  await until(() => opens.some(r => r.board), 5_000, 300)
+  const board = opens.find(r => r.board)
+  const shown = board?.board === 'case-timeline' && board?.sessionId === sid
+  console.log(`${shown ? 'PASS' : 'FAIL'}  In Agent Brief on a board row opens that board for this session${shown ? '' : `: ${JSON.stringify(board ?? null)}`}`)
+  if (!shown) process.exitCode = 1
 
   // Escape hands the keys back but leaves the pane docked. The band's b closes it.
   term.keys('Escape')

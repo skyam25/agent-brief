@@ -46,6 +46,9 @@ export type BriefOutput = {
   writes?: number
 }
 
+/** A board the app files under this session, as `GET /boards` lists it. */
+export type BriefBoard = { name: string; updatedAt: number }
+
 /** The session's items file as the Brief pane last read it. `text` is null while the file does not exist. */
 export type BriefItems = { path: string; relPath: string; text: string | null }
 
@@ -96,6 +99,8 @@ declare module 'claude-code' {
       hasPrompted: boolean
       /** The session's outputs file records, kept current by each write. */
       outputs: BriefOutput[]
+      /** This session's boards in the app, read with the Brief, after each agent-brief command and each minute the pane shows. */
+      boards: BriefBoard[]
       /** Open feedback items by output ref, read with the Brief and after each turn. */
       feedback: Record<string, number>
       /** The session's items file, read at start, on each write and when the Brief pane opens. */

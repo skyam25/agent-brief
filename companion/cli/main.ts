@@ -313,6 +313,18 @@ async function openSession(ctx: Ctx, isNeeded: boolean): Promise<{ sessionId: st
   }
 }
 
+/**
+ * Files a named board Claude just drew on under its session, and shows it when the panel is free.
+ * Best effort, so the drawing's own result stands.
+ */
+async function followBoard(ctx: Ctx): Promise<void> {
+  const board = str(ctx.args, 'board');
+  const sessionId = str(ctx.args, 'session') ?? (ctx.io.env[SESSION_ID_ENV] || undefined);
+  if (!board || board === CURRENT_BOARD || !sessionId) return;
+  const body: OpenRequest = { board, sessionId, follow: true };
+  await callJson<OpenResponse>(ctx.socket, 'POST', '/open', body).catch(() => undefined);
+}
+
 /** A path as the session's project names it. Relative paths count from the shell's folder. */
 function projectPath(ctx: Ctx, root: string, file: string): string {
   const full = path.resolve(ctx.io.cwd ?? process.cwd(), file);
@@ -849,6 +861,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
   async draw(ctx) {
     const elements = await resolveImages(ctx, validateDraw(await readInput(ctx)));
     const res = await callJson<DrawResponse>(ctx.socket, 'POST', boardPath(ctx, 'draw'), { elements });
+    await followBoard(ctx);
     show(ctx, res, drawn);
   },
 
@@ -892,6 +905,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
       });
     }
     const res = await callJson<DrawResponse>(ctx.socket, 'POST', boardPath(ctx, 'draw'), { elements });
+    await followBoard(ctx);
     show(ctx, { ...res, step }, (r) => {
       const [frame, shot, sticky] = r.ids;
       return `snapshot ${step} at ${x},${y} · frame ${frame} · image ${shot}${sticky ? ` · note ${sticky}` : ''}`;
@@ -901,6 +915,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
   async update(ctx) {
     const updates = validateUpdates(await readInput(ctx));
     const res = await callJson<MutateResponse>(ctx.socket, 'PATCH', boardPath(ctx, 'elements'), { updates });
+    await followBoard(ctx);
     show(ctx, res, updated);
   },
 

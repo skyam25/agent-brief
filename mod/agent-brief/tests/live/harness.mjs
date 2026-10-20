@@ -92,10 +92,10 @@ export function terminal(session) {
       term.keys(key)
     },
 
-    /** Clicks the first visible occurrence of `text`. Returns false when it isn't on screen. */
-    async click(text) {
+    /** Clicks the first visible occurrence of `text`, on a line that also holds `row` when given. Returns false when it isn't on screen. */
+    async click(text, row = '') {
       const rowsShown = term.capture({ lines: 0 }).split('\n')
-      const y = rowsShown.findIndex(l => l.includes(text))
+      const y = rowsShown.findIndex(l => l.includes(text) && l.includes(row))
       if (y < 0) return false
       const x = [...rowsShown[y].slice(0, rowsShown[y].indexOf(text))].length + 1
       term.type(`\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`)
