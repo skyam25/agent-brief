@@ -11,6 +11,22 @@ import type { EditResult, InsertKind, ReviewEdit, SelectedElement, StyleSet } fr
 import type { FromPage } from './messages';
 
 const EDIT = '#2f7cf6';
+/** The containers HTML lets these elements sit in. */
+const HOLDERS: Record<string, readonly string[]> = {
+  tr: ['table', 'thead', 'tbody', 'tfoot'],
+  td: ['tr'],
+  th: ['tr'],
+  thead: ['table'],
+  tbody: ['table'],
+  tfoot: ['table'],
+  caption: ['table'],
+  li: ['ul', 'ol', 'menu'],
+  option: ['select', 'optgroup', 'datalist'],
+  optgroup: ['select'],
+  summary: ['details'],
+};
+/** Containers that hold only the elements HOLDERS sends them. */
+const STRICT = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'ul', 'ol', 'menu', 'select', 'optgroup', 'datalist']);
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
 /** How far a press moves before it counts as a drag. */
 const DRAG_SLOP = 4;
@@ -109,10 +125,13 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     const p = el.parentElement?.closest(`[${AT_ATTR}]`);
     return p && !isGround(p) ? p : undefined;
   };
-  const kids = (el: Element, skip?: Element) => [...el.children].filter((c) => c.hasAttribute(AT_ATTR) && c !== skip);
+  /** The editable children, looking through the table sections a browser adds around rows. */
+  const kids = (el: Element, skip?: Element): Element[] =>
+    [...el.children].flatMap((c) => (c.hasAttribute(AT_ATTR) ? (c === skip ? [] : [c]) : /^T(BODY|HEAD|FOOT)$/.test(c.tagName) ? kids(c, skip) : []));
 
   /** The words of an element: all of them for a text-only element, else its one direct run of text. */
   function wordsOf(el: Element): { text: string; node?: Text } | undefined {
+    if (VOID.has(el.tagName.toLowerCase())) return undefined;
     if (el.children.length === 0) return { text: el.textContent ?? '' };
     const runs = [...el.childNodes].filter((n): n is Text => n.nodeType === Node.TEXT_NODE && !!oneLine(n.textContent ?? ''));
     return runs.length === 1 ? { text: oneLine(runs[0]!.textContent ?? ''), node: runs[0] } : undefined;
@@ -147,6 +166,7 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
       inline,
       computed,
       isContainer: isContainer(el),
+      canInsert: !!insertTarget(el),
       hasParent: !!parentOf(el),
     };
   }
@@ -240,6 +260,9 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     if (!words || words.text === text) return;
     if (words.node) words.node.textContent = text;
     else el.textContent = text;
+
+    // A textarea someone typed in no longer shows its text, so its value changes too.
+    if (el instanceof HTMLTextAreaElement) el.value = text;
     enqueue(() => ({ kind: 'text', at: atOf(el), text }));
   }
 
@@ -247,14 +270,22 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
 
   function startTyping(el: Element): void {
     const words = wordsOf(el);
-    if (!words || words.node || !(el instanceof HTMLElement)) return;
-    typing = { el, before: el.textContent ?? '' };
-    el.setAttribute('contenteditable', 'plaintext-only');
-    el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    getSelection()?.removeAllRanges();
-    getSelection()?.addRange(range);
+    if (!words || words.node || !(el instanceof HTMLElement) || el instanceof HTMLSelectElement) return;
+
+    // A textarea types into its value, and its words in the file are that value's start.
+    if (el instanceof HTMLTextAreaElement) {
+      typing = { el, before: el.value };
+      el.focus();
+      el.select();
+    } else {
+      typing = { el, before: el.textContent ?? '' };
+      el.setAttribute('contenteditable', 'plaintext-only');
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }
     el.addEventListener('blur', () => stopTyping(true), { once: true });
     layout();
   }
@@ -263,11 +294,15 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     if (!typing) return;
     const { el, before } = typing;
     typing = undefined;
-    el.removeAttribute('contenteditable');
+    const field = el instanceof HTMLTextAreaElement ? el : undefined;
+    if (field) field.blur();
+    else el.removeAttribute('contenteditable');
     getSelection()?.removeAllRanges();
-    const text = el.textContent ?? '';
-    if (!keep) el.textContent = before;
-    else if (text !== before) enqueue(() => ({ kind: 'text', at: atOf(el), text }));
+    const text = field ? field.value : (el.textContent ?? '');
+    if (!keep) {
+      if (field) field.value = before;
+      else el.textContent = before;
+    } else if (text !== before) enqueue(() => ({ kind: 'text', at: atOf(el), text }));
     if (sel === el) select(el);
   }
 
@@ -287,6 +322,13 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
 
   const mid = (r: DOMRect, axis: Axis) => (axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2);
 
+  /** Whether HTML lets `moving` sit directly in `container`, so a row stays in a table and an item in a list. */
+  function fits(container: Element, moving: Element): boolean {
+    const holders = HOLDERS[moving.tagName.toLowerCase()];
+    const name = container.tagName.toLowerCase();
+    return holders ? holders.includes(name) : !STRICT.has(name);
+  }
+
   function dropAt(x: number, y: number, moving: Element): Drop | undefined {
     let target: Element | undefined;
     for (const hit of document.elementsFromPoint(x, y)) {
@@ -296,27 +338,31 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
         break;
       }
     }
-    if (!target) return undefined;
-    const parent = parentOf(target);
-    const r = target.getBoundingClientRect();
-    const nearEdge = () => {
-      if (!parent) return false;
+
+    // Climbs from the element under the pointer until a container can hold what moves.
+    for (; target; target = parentOf(target)) {
+      const parent = parentOf(target);
+      const r = target.getBoundingClientRect();
+      const nearEdge = () => {
+        if (!parent) return false;
+        const axis = axisOf(parent);
+        const [p, start, size] = axis === 'x' ? [x, r.left, r.width] : [y, r.top, r.height];
+        const edge = Math.min(12, size / 4);
+        return p - start < edge || start + size - p < edge;
+      };
+      if (isContainer(target) && fits(target, moving) && !nearEdge()) {
+        const axis = axisOf(target);
+        const p = axis === 'x' ? x : y;
+        const before = kids(target, moving).find((k) => mid(k.getBoundingClientRect(), axis) > p) ?? null;
+        return { container: target, before };
+      }
+      if (!parent || !fits(parent, moving)) continue;
       const axis = axisOf(parent);
-      const [p, start, size] = axis === 'x' ? [x, r.left, r.width] : [y, r.top, r.height];
-      const edge = Math.min(12, size / 4);
-      return p - start < edge || start + size - p < edge;
-    };
-    if (isContainer(target) && !nearEdge()) {
-      const axis = axisOf(target);
-      const p = axis === 'x' ? x : y;
-      const before = kids(target, moving).find((k) => mid(k.getBoundingClientRect(), axis) > p) ?? null;
-      return { container: target, before };
+      if ((axis === 'x' ? x : y) < mid(r, axis)) return { container: parent, before: target };
+      const siblings = kids(parent, moving);
+      return { container: parent, before: siblings[siblings.indexOf(target) + 1] ?? null };
     }
-    if (!parent) return undefined;
-    const axis = axisOf(parent);
-    if ((axis === 'x' ? x : y) < mid(r, axis)) return { container: parent, before: target };
-    const siblings = kids(parent, moving);
-    return { container: parent, before: siblings[siblings.indexOf(target) + 1] ?? null };
+    return undefined;
   }
 
   function drawDrop(drop: Drop | undefined, moving: Element): void {
@@ -355,7 +401,10 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     enqueue(() => {
       if (!el.isConnected || !container.isConnected) return undefined;
       const at = atOf(el);
-      container.insertBefore(el, before);
+
+      // A browser puts table rows in a tbody the file may not have, so the drop spot's own parent holds them.
+      const holder = before?.parentElement ?? kids(container, el).at(-1)?.parentElement ?? container;
+      holder.insertBefore(el, before);
       follow = true;
       return { kind: 'move', at, parent: atOf(container), before: before ? atOf(before) : null };
     });
@@ -379,6 +428,9 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
       const el = editableOf(e.target);
       if (!el) return;
       block(e);
+
+      // Blocking the press also keeps focus out of the page, so Delete, ⌘D and Enter would miss it.
+      if (!document.hasFocus()) window.focus();
       press = { el, x: e.clientX, y: e.clientY };
     },
     true,
@@ -401,8 +453,10 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
         }
       }
       if (press && !drag && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_SLOP) {
-        drag = { el: press.el };
-        if (sel !== press.el) select(press.el);
+        // A drag inside the selection moves the selection, so a table row or a full container can move.
+        const moving = sel && sel !== press.el && sel.contains(press.el) ? sel : press.el;
+        drag = { el: moving };
+        if (sel !== moving) select(moving);
         hide(hoverBox);
       }
       if (!drag) return;
@@ -550,10 +604,16 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     });
   }
 
+  /** Where Add puts markup for `el`: inside it, or after it in its parent. Undefined when HTML forbids that spot. */
+  function insertTarget(el: Element): Element | undefined {
+    const container = isContainer(el) ? el : parentOf(el);
+    return container && !STRICT.has(container.tagName.toLowerCase()) ? container : undefined;
+  }
+
   function insert(what: InsertKind): void {
     const el = sel;
     if (!el) return;
-    const container = isContainer(el) ? el : parentOf(el);
+    const container = insertTarget(el);
     if (!container) return;
     const before = container === el ? null : (kids(container)[kids(container).indexOf(el) + 1] ?? null);
     enqueue(() => {

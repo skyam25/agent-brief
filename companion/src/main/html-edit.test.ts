@@ -66,6 +66,17 @@ describe('applyEdit', () => {
     expect(out.summary).toBe('Changed the text of h1 “Pricing” to “Plans & <prices>”');
   });
 
+  it('writes a non-breaking space back as &nbsp;', () => {
+    const page = '<body><p>Fish &amp; chips&nbsp;daily</p></body>';
+    const out = applyEdit(page, { kind: 'text', at: at(page, '<p>'), text: 'Fish & chips\u00a0daily!' });
+    expect(out.html).toContain('<p>Fish &amp; chips&nbsp;daily!</p>');
+  });
+
+  it('refuses to cut out an element with no end tag, and says why', () => {
+    const page = '<body><div><p>No end tag\n</div></body>';
+    expect(() => applyEdit(page, { kind: 'remove', at: at(page, '<p>') })).toThrow('p “No end tag” has no end tag in the file, so it can\'t be moved, copied or removed here');
+  });
+
   it('changes the one text node of an element that also holds an icon', () => {
     const out = applyEdit(PAGE, { kind: 'text', at: at(PAGE, '<button>'), text: 'Stop' });
     expect(out.html).toContain('<use href="#i"/></svg>Stop</button>');

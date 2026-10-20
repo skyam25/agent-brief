@@ -19,6 +19,13 @@ const SKIP = new Set(['script', 'style', 'template', 'noscript']);
 export class EditError extends Error {}
 
 const isElement = (n: Node): n is Element => 'tagName' in n;
+
+/** The nearest ancestor written in the file, past ones the parser adds, such as a table's tbody. */
+function sourceParent(el: Element): Node | undefined {
+  let p = el.parentNode as Node | null;
+  while (p && isElement(p) && !p.sourceCodeLocation?.startTag) p = p.parentNode as Node | null;
+  return p ?? undefined;
+}
 const startOf = (el: Element) => el.sourceCodeLocation!.startTag!.startOffset;
 
 /** The body's elements that come from the source, in document order. */
@@ -57,7 +64,7 @@ export const versionOf = (html: string) => createHash('sha1').update(html).diges
 
 // ── Reading the source ───────────────────────────────────────────────────
 
-const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\u00a0/g, '&nbsp;');
 const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
@@ -79,7 +86,7 @@ function outer(html: string, el: Element): { start: number; end: number } {
   const loc = el.sourceCodeLocation!;
   const tag = loc.startTag!;
   const selfClosed = html.slice(tag.endOffset - 2, tag.endOffset) === '/>';
-  if (!loc.endTag && !VOID.has(el.tagName) && !selfClosed) throw new EditError(`${label(el)} has no end tag in the file, so it cannot move`);
+  if (!loc.endTag && !VOID.has(el.tagName) && !selfClosed) throw new EditError(`${label(el)} has no end tag in the file, so it can't be moved, copied or removed here`);
   return { start: loc.startOffset, end: loc.endOffset };
 }
 
@@ -212,7 +219,7 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
   const childOf = (parent: Element, at: number | null) => {
     if (at === null) return undefined;
     const el = byAt(at, 'drop spot');
-    if (el.parentNode !== parent) throw new EditError('The drop spot is not inside that container');
+    if (sourceParent(el) !== parent) throw new EditError('The drop spot is not inside that container');
     return el;
   };
 

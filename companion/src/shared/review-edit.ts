@@ -87,6 +87,8 @@ export interface SelectedElement {
   /** True when the element can hold other elements. */
   isContainer: boolean;
   hasParent: boolean;
+  /** False when ready-made markup cannot go where Add puts it, such as straight into a table or list. */
+  canInsert: boolean;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);

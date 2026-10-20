@@ -91,16 +91,18 @@ export function Inspector(props: {
               ))}
             </fieldset>
           ))}
-          <div className="inspector-insert">
-            <span className="section-head">{el.isContainer ? 'Add inside' : 'Add after'}</span>
-            <div className="inspector-buttons">
-              {INSERT_LABELS.map(([what, label]) => (
-                <button key={what} className="ghost small" onClick={() => props.onInsert(what)} data-testid={`insert-${what}`}>
-                  {label}
-                </button>
-              ))}
+          {el.canInsert && (
+            <div className="inspector-insert">
+              <span className="section-head">{el.isContainer ? 'Add inside' : 'Add after'}</span>
+              <div className="inspector-buttons">
+                {INSERT_LABELS.map(([what, label]) => (
+                  <button key={what} className="ghost small" onClick={() => props.onInsert(what)} data-testid={`insert-${what}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
       <footer className="muted review-foot" data-testid="review-edits-count">
