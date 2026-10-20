@@ -293,7 +293,7 @@ test('the board still answers after a review loads its page', async () => {
   expect(Date.now() - started).toBeLessThan(5000);
 });
 
-test('speech lands on the pin it was said after', async () => {
+test('Talk through page turns comment mode on, and speech lands on the pin it was said after', async () => {
   const speech = join(ROOT, 'e2e/fixtures/speech.wav');
   test.skip(!existsSync(speech), 'speech fixture missing');
   test.setTimeout(120_000);
@@ -314,7 +314,13 @@ test('speech lands on the pin it was said after', async () => {
   await frame.locator('h2').click();
   await expect(page.getByTestId('review-card')).toHaveCount(1);
 
+  // Talk through page shows the comments and turns comment mode on, from another tab with it off.
+  await page.getByTestId('review-comment').click();
+  await expect(page.getByTestId('review-comment')).toHaveAttribute('aria-pressed', 'false');
+  await page.getByTestId('feedback-tab').click();
   await page.getByTestId('mic').click();
+  await expect(page.getByRole('tab', { name: 'Comments' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('review-comment')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('mic-clock')).toHaveText('00:00');
   await expect(page.getByTestId('review-voice-state')).toHaveText('Listening');
   await page.waitForTimeout(5000);

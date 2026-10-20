@@ -224,6 +224,16 @@ export function ReviewView(props: {
     return () => void props.voice.stop();
   }, [props.voice]);
 
+  // Talking through the page shows the comments and turns comment mode on, so each click pins what you say next.
+  const wasRecording = useRef(voice.recording);
+  useEffect(() => {
+    const started = voice.recording && !wasRecording.current;
+    wasRecording.current = voice.recording;
+    if (!started) return;
+    setSide('comments');
+    setCommenting(true);
+  }, [voice.recording, setCommenting]);
+
   const post = useCallback((m: ToPage) => frame.current?.contentWindow?.postMessage({ source: REVIEW_SOURCE, ...m }, '*'), []);
 
   // The page's overlay says ready once it loads. A capture waits for that, so an early open still gets its picture.
