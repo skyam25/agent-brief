@@ -191,6 +191,35 @@ export function replyEndingWith(replies: readonly string[], block: string): stri
   return undefined
 }
 
+/** How many HTML pages the row under a reply offers to review. */
+export const REVIEWS_SHOWN = 3
+
+/** `path` with `.` and `..` segments folded away. */
+function folded(path: string): string {
+  const parts: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  return `/${parts.join('/')}`
+}
+
+/**
+ * The HTML pages a reply names inside the project at `root`, as absolute paths in the order it
+ * names them. A page is an absolute path, a file:// link, or a path relative to `root`.
+ */
+export function reviewablePages(reply: string, root: string): string[] {
+  const home = folded(root)
+  const pages: string[] = []
+  for (const m of reply.matchAll(/(?<![\w./~-])(?:file:\/\/)?([\w./-]*[\w-]\.html?)(?![\w/-])/gi)) {
+    const named = m[1]!
+    const page = folded(named.startsWith('/') ? named : `${home}/${named}`)
+    if (page.startsWith(`${home}/`) && !pages.includes(page)) pages.push(page)
+  }
+  return pages.slice(0, REVIEWS_SHOWN)
+}
+
 export type Tracking = { trackItems: boolean; itemsPath?: string }
 
 /** Tracking state from a `GET` or `PATCH /sessions/:id` body. Off when the body says nothing. */

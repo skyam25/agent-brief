@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { REPLIES_KEPT, keepReply, replyEndingWith } from '../hooks/companion-logic'
+import { REPLIES_KEPT, REVIEWS_SHOWN, keepReply, replyEndingWith, reviewablePages } from '../hooks/companion-logic'
 import { SESSION_ID, setupCompanion } from './companion-world'
-import { textOf } from './world'
+import { CWD, textOf } from './world'
 
 const REPLY = 'Here is the post:\n\nWe shipped **v2** today.'
 
@@ -50,8 +50,30 @@ describe('which block carries the row', () => {
   })
 })
 
+describe('which pages the row offers to review', () => {
+  test('finds absolute, file:// and relative HTML paths inside the project, once each, in order', () => {
+    const reply = [
+      'Files the builder wrote:',
+      '/proj/prototype/option-d.html',
+      'file:///proj/handoffs/old.htm and `mock/landing.html`',
+      'Again: /proj/prototype/option-d.html, ./mock/../mock/landing.html.',
+    ].join('\n')
+    expect(reviewablePages(reply, '/proj')).toEqual(['/proj/prototype/option-d.html', '/proj/handoffs/old.htm', '/proj/mock/landing.html'])
+  })
+
+  test('skips pages outside the project, Markdown, URLs and names inside longer words', () => {
+    const reply = '/elsewhere/a.html ../b.html notes.md https://x.com/c.html d.html5 e.htmlx /proj/f.html'
+    expect(reviewablePages(reply, '/proj/')).toEqual(['/proj/f.html'])
+  })
+
+  test(`offers at most ${REVIEWS_SHOWN}`, () => {
+    const reply = Array.from({ length: REVIEWS_SHOWN + 2 }, (_, i) => `p${i}.html`).join(' ')
+    expect(reviewablePages(reply, '/proj')).toHaveLength(REVIEWS_SHOWN)
+  })
+})
+
 describe('the row under a finished reply', () => {
-  test('draws Copy and Open in Agent Brief under the last block of a finished reply', async ($, on) => {
+  test('draws Copy and Open as note under the last block of a finished reply', async ($, on) => {
     const { clock, start } = await setup($, on)
     await start()
     await clock.settle()
@@ -59,7 +81,25 @@ describe('the row under a finished reply', () => {
     await $.turn.complete(finish(REPLY))
     const ui = await $.ui.mount(block(REPLY))
     expect(await ui.find({ key: 'reply-copy' })).toMatchObject({ text: 'Copy' })
-    expect(await ui.find({ key: 'reply-open' })).toMatchObject({ text: 'Open in Agent Brief' })
+    expect(await ui.find({ key: 'reply-open' })).toMatchObject({ text: 'Open as note' })
+    expect(textOf(await $.ui.render(block(REPLY))), 'no page, no Review').not.toContain('Review')
+    await ui.unmount()
+  })
+
+  test('Review opens each page the reply names that exists, in the review pane', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    world.files.set(`${CWD}/prototype/option-d.html`, '<h1>D</h1>')
+    const reply = `The builder is done.\n\nFiles it wrote:\n${CWD}/prototype/option-d.html\n${CWD}/prototype/option-e.html`
+    await start()
+    await clock.settle()
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-review-0' })).toMatchObject({ text: 'Review option-d.html' })
+    expect(textOf(await $.ui.render(block(reply))), 'a page not written yet').not.toContain('option-e.html ·')
+    expect(textOf(await $.ui.render(block(reply)))).not.toContain('Review option-e.html')
+    await ui.press({ key: 'reply-review-0' })
+    await clock.settle()
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: `${CWD}/prototype/option-d.html` } })
     await ui.unmount()
   })
 
@@ -92,7 +132,7 @@ describe('the row under a finished reply', () => {
     await ui.unmount()
   })
 
-  test('Open in Agent Brief opens a note with the reply, quietly', async ($, on) => {
+  test('Open as note opens a note with the reply, quietly', async ($, on) => {
     const { app, world, clock, start } = await setup($, on)
     await start()
     await clock.settle()

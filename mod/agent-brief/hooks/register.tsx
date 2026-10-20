@@ -55,6 +55,7 @@ import {
   keepReply,
   upkeep,
   replyEndingWith,
+  reviewablePages,
   SKETCH_OPENED,
   STACK_OPENED,
   TRACK_NOT_RUNNING,
@@ -679,6 +680,12 @@ async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'
     return
   }
   if (!isOutputOpened(reply.body)) $.ui.toast(OUTPUT_NEEDS_UPDATE, { timeoutMs: 8000 })
+}
+
+/** The pages that exist, so the row never offers a page the reply only plans. */
+async function pagesOnDisk($: EngineInterface, pages: readonly string[]): Promise<string[]> {
+  const found = await Promise.all(pages.map(page => $.fs.stat(page).then(() => true, () => false)))
+  return pages.filter((_, i) => found[i])
 }
 
 /** Shows one of the session's boards in the app. */
@@ -1420,13 +1427,14 @@ export const register: Register = (on, options) => {
     return done
   })
 
-  // Under the last block of a finished reply: Copy, and Open in Agent Brief as /write last does.
+  // Under the last block of a finished reply: Copy, Open as note as /write last does, and Review for each HTML page it names.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const drawn = await next(e)
     const props = e.props as { text: string; isSummary?: true }
     if (props.isSummary) return drawn
     const reply = replyEndingWith(await read($, repliesRef), props.text)
     if (reply === undefined) return drawn
+    const pages = await pagesOnDisk($, reviewablePages(reply, await homeCwd($)))
     const { Box, Button, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column">
@@ -1446,13 +1454,24 @@ export const register: Register = (on, options) => {
             key="reply-open"
             plain
             dimColor
-            label="Open in Agent Brief"
+            label="Open as note"
             onPress={() =>
               void openCompanion($, 'write', { text: reply }).then(opened => {
                 if (opened.message !== WRITE_OPENED) $.ui.toast(opened.message, { timeoutMs: 8000 })
               })
             }
           />
+          {pages.flatMap((page, i) => [
+            <Text key={`reply-review-gap-${i}`} dimColor>
+              {' · '}
+            </Text>,
+            <Button
+              key={`reply-review-${i}`}
+              plain
+              label={`Review ${page.slice(page.lastIndexOf('/') + 1)}`}
+              onPress={() => void openOutputInApp($, page)}
+            />,
+          ])}
         </Box>
       </Box>
     )
