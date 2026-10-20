@@ -180,9 +180,13 @@ export function outputsListText(file: OutputsFile): string {
   return blocks.join('\n\n')
 }
 
-export function declareResultText(record: OutputRecord): string {
+/** The reply to a declare. A Markdown or HTML file also gets the line that shows it, with its absolute path so any shell folder works. */
+export function declareResultText(record: OutputRecord, cwd: string): string {
   const title = record.title ?? fileName(record.ref)
-  return `Declared "${title}" (${record.ref}, ${record.status ?? 'drafting'}). It shows in the Agent Brief panel.`
+  const declared = `Declared "${title}" (${record.ref}, ${record.status ?? 'drafting'}). It shows in the Agent Brief panel.`
+  if (record.kind !== 'markdown' && record.kind !== 'html') return declared
+  const full = record.ref.startsWith('/') ? record.ref : `${cwd.replace(/\/+$/, '')}/${record.ref}`
+  return `${declared}\nTo show it in Agent Brief, run: agent-brief open --output "${full}"`
 }
 
 /**
@@ -211,7 +215,7 @@ The panel already lists every document-type file you write as touched. Do not de
 When the user asks for text they will paste somewhere else, such as a message, an email or a post, write it to an Agent Brief note instead of printing it.
 Run \`agent-brief note "<title>"\` with Bash and the Markdown on stdin, in a quoted heredoc. Then say in one line that the note is in Agent Brief.
 When the user asks to see or review a note, run the \`agent-brief open --note <id>\` line the command printed. It shows that note in Write.
-When the user asks to see an output in Agent Brief, run \`agent-brief open --output <path>\`. It shows a Markdown file as a note in Write and an HTML file in the review pane. \`agent-brief open\` with neither flag shows this session's board.
+When the user asks to see an output in Agent Brief, run \`agent-brief open --output <path>\`. It shows a Markdown file as a note in Write and an HTML file in the review pane, and edits there change the file. Never copy an output into a note. \`agent-brief open\` with no flag reopens this session's last board or note, and makes no new board.
 When the user asks to change a note, run \`agent-brief note --id <id>\` with the full new text. It replaces the note in place, so the user keeps one copy. Never save a changed note as a new one.
 If the command fails, print the text instead.`
 }

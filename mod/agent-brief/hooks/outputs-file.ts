@@ -66,12 +66,13 @@ function changeOutputs($: EngineInterface, change: (file: OutputsFile) => Output
 
 /** Answers `declare_output`. Never toasts. */
 async function declareOutput($: EngineInterface, input: unknown): Promise<string> {
-  const request = parseDeclare(input, await homeCwd($))
+  const cwd = await homeCwd($)
+  const request = parseDeclare(input, cwd)
   if (request === undefined) return DECLARE_USAGE
   const at = await $.clock.now()
   const file = await changeOutputs($, f => upsertDeclared(f, { ...request, at }))
   const record = file.outputs.find(o => o.ref === request.ref)
-  return record === undefined ? DECLARE_USAGE : declareResultText(record)
+  return record === undefined ? DECLARE_USAGE : declareResultText(record, cwd)
 }
 
 /**

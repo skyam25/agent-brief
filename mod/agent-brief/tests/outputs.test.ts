@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   DECLARE_USAGE,
+  declareResultText,
   emptyOutputsFile,
   isDocumentPath,
   kindOf,
@@ -156,6 +157,15 @@ describe('parseDeclare', () => {
     expect(parseDeclare({ title: 'A', url: 'ftp://x.y' }, CWD)).toBeUndefined()
     expect(parseDeclare({ title: 'A', path: 'a.md', status: 'done' }, CWD)).toBeUndefined()
     expect(DECLARE_USAGE).toContain('exactly one of path or url')
+  })
+})
+
+describe('declareResultText', () => {
+  test('names the open line for Markdown and HTML only, with an absolute path', () => {
+    const html = { ref: 'mock/a.html', title: 'Mock', kind: 'html', tier: 'declared', status: 'ready' } as const
+    expect(declareResultText(html, '/work/')).toContain('agent-brief open --output "/work/mock/a.html"')
+    const pdf = { ref: 'deck.pdf', title: 'Deck', kind: 'pdf', tier: 'declared', status: 'ready' } as const
+    expect(declareResultText(pdf, '/work')).not.toContain('open --output')
   })
 })
 

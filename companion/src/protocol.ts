@@ -133,6 +133,11 @@ export interface OpenRequest {
   output?: { path: string; tab?: 'feedback' };
   /** Opens this saved note in Write instead of a board. `POST /notes` returns the id as `draftId`. */
   note?: { id: string };
+  /**
+   * With `sessionId` and no `board`, shows the board or note the session last had open and makes no board.
+   * A session with neither leaves the panel as it is.
+   */
+  reopen?: boolean;
 }
 
 export interface OpenResponse {
@@ -141,8 +146,8 @@ export interface OpenResponse {
   targetSessionId?: string;
   /** True when Write mode started the new note with the request's text. */
   noteText?: boolean;
-  /** What the panel shows now: the board, a note in Write, or an HTML file in the review pane. */
-  opened?: 'board' | 'note' | 'review';
+  /** What the panel shows now: the board, a note in Write, an HTML file in the review pane, or what it showed before a `reopen`. */
+  opened?: 'board' | 'note' | 'review' | 'panel';
 }
 
 // ── POST /notes ───────────────────────────────────────────────────────────

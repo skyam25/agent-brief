@@ -297,7 +297,21 @@ async function start(): Promise<void> {
         };
       }
       if (!req.sessionId) return baseBackend.open(req);
-      const res = await baseBackend.open({ ...req, board: req.board ?? briefs.boardFor(req.sessionId) });
+
+      // A reopen shows what the session last had open, as a click on its row does, and never makes a board.
+      let board = req.board;
+      if (req.reopen && !board) {
+        const b = briefs.get(req.sessionId);
+        const draft = b?.draftId && drafts.get(b.draftId) ? b.draftId : undefined;
+        board = b?.board && store.exists(b.board) ? b.board : undefined;
+        if (!board || (draft && b?.last === 'draft')) {
+          if (req.prompt !== undefined) setPrompt(req.prompt);
+          panel.show();
+          if (draft) briefs.showDraft(req.sessionId, draft);
+          return { board: state.state.currentBoard, targetSessionId: req.sessionId, opened: draft ? 'note' : 'panel' };
+        }
+      }
+      const res = await baseBackend.open({ ...req, board: board ?? briefs.boardFor(req.sessionId) });
       briefs.remember(req.sessionId, { board: res.board, last: 'board' });
       return res;
     },

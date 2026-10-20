@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { DeliveriesResponse, SessionsResponse } from '../src/protocol';
+import type { BoardsResponse, DeliveriesResponse, Health, OpenResponse, SessionsResponse } from '../src/protocol';
 import { backend, type Launched, launchShown, openNotes, RESULTS, ROOT, sceneElements, sendToSession, settled, showPanel, sock } from './helpers';
 
 const run = promisify(execFile);
@@ -195,6 +195,35 @@ test('a session opened by /sketch is the named Send and the active tab until it 
   await showPanel(app, page);
   await expect(page.getByTestId('send-menu')).toHaveText('Send to…');
   expect((await sock<SessionsResponse>(socketPath, 'GET', '/sessions')).body.targetSessionId).toBeUndefined();
+});
+
+test('a reopen shows the session\'s last board, and leaves the panel as it is for a session with none', async () => {
+  const { page } = ctx;
+  const current = async () => (await sock<Health>(socketPath, 'GET', '/health')).body.currentBoard;
+  const boardCount = async () => (await sock<BoardsResponse>(socketPath, 'GET', '/boards')).body.boards.length;
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'builder', cwd: project(), title: 'Builder' });
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 'writer', cwd: project(), title: 'Writer' });
+  await sock(socketPath, 'POST', '/open', { board: 'timeline', sessionId: 'builder' });
+
+  // The user moves to a board under Unfiled.
+  const unfiled = async () => {
+    await page.getByTestId('notes-tab').getByRole('tab').click();
+    await expect(page.getByTestId('notes-tab')).toHaveAttribute('aria-current', 'true');
+    await sock(socketPath, 'POST', '/open', { board: 'elsewhere' });
+  };
+  await sock(socketPath, 'POST', '/boards/elsewhere/draw', { elements: [{ type: 'text', label: 'kept', x: 0, y: 0 }] });
+  await unfiled();
+
+  const back = await sock<OpenResponse>(socketPath, 'POST', '/open', { sessionId: 'builder', reopen: true });
+  expect(back.body).toMatchObject({ board: 'timeline', opened: 'board', targetSessionId: 'builder' });
+  expect(await current()).toBe('timeline');
+
+  await unfiled();
+  const boards = await boardCount();
+  const none = await sock<OpenResponse>(socketPath, 'POST', '/open', { sessionId: 'writer', reopen: true });
+  expect(none.body).toMatchObject({ opened: 'panel', targetSessionId: 'writer' });
+  expect(await current()).toBe('elsewhere');
+  expect(await boardCount()).toBe(boards);
 });
 
 test('/sketch from a session with no brief yet selects its row without passing through Unfiled', async () => {

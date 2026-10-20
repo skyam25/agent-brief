@@ -806,10 +806,15 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if (session) body.sessionId = session.sessionId;
     if (output !== undefined) body.output = { path: projectPath(ctx, session!.cwd!, output) };
 
+    // A bare open shows what the session last had open, never a new board.
+    if (session && output === undefined && !board && !layout) body.reopen = true;
+
     const res = await callJson<OpenResponse>(ctx.socket, 'POST', '/open', body);
     const what =
       note !== undefined ? `opened note ${note} in Write`
       : body.output ? `opened ${body.output.path} in ${res.opened === 'review' ? 'the review pane' : 'Write'}`
+      : res.opened === 'note' ? "opened this session's last note in Write"
+      : res.opened === 'panel' ? 'showed the panel as it was. This session has no board or note yet'
       : `opened board ${JSON.stringify(res.board)}`;
     show(ctx, res, (r) => what + (r.targetSessionId ? `, send target ${r.targetSessionId}` : ''));
   },

@@ -209,7 +209,14 @@ export function parseOpen(body: unknown): OpenRequest {
     layout: openLayout(o),
     output: openOutput(o),
     note: openNote(o),
+    reopen: openReopen(o),
   };
+}
+
+function openReopen(o: Obj): OpenRequest['reopen'] {
+  if (o.reopen === undefined) return undefined;
+  if (typeof o.reopen !== 'boolean') fail('body.reopen must be true or false');
+  return o.reopen || undefined;
 }
 
 function openNote(o: Obj): OpenRequest['note'] {

@@ -37,7 +37,10 @@ describe('declare_output', () => {
     const { world, start } = setup($, on)
     await start()
     const reply = await declare($, { title: 'Pricing strategy', path: 'docs/pricing.md' })
-    expect(reply).toBe('Declared "Pricing strategy" (docs/pricing.md, drafting). It shows in the Agent Brief panel.')
+    expect(reply).toBe(
+      'Declared "Pricing strategy" (docs/pricing.md, drafting). It shows in the Agent Brief panel.\n' +
+        'To show it in Agent Brief, run: agent-brief open --output "/work/docs/pricing.md"',
+    )
     expect(outputsOf(world)).toEqual({
       version: 1,
       sessionId: SESSION_ID,

@@ -68,5 +68,5 @@ it('opens an output of the session running it through the real server', async ()
   expect(h.backend.open).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 's1', output: { path: 'docs/brief.md' } }));
 
   expect(await inside(['open'], project)).toBe(0);
-  expect(h.backend.open).toHaveBeenLastCalledWith({ sessionId: 's1' });
+  expect(h.backend.open).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 's1', reopen: true }));
 });

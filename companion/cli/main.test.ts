@@ -105,7 +105,15 @@ describe('status, sessions, boards, open', () => {
     expect(r.stderr).toBe('');
     expect(r.code).toBe(0);
     expect(app.seen.map((s) => `${s.method} ${s.url}`)).toEqual(['GET /sessions/s1', 'POST /open']);
-    expect(app.seen[1].body).toEqual({ sessionId: 's1' });
+    expect(app.seen[1].body).toEqual({ sessionId: 's1', reopen: true });
+  });
+
+  it('says when a reopen left the panel as it was', async () => {
+    app.handler = (r) => (r.method === 'GET' ? { json: { sessionId: 's1', cwd: app.dir } } : { json: { board: 'x', targetSessionId: 's1', opened: 'panel' } });
+    const r = await run(['open'], '', inSession);
+    expect(r.stdout).toBe('showed the panel as it was. This session has no board or note yet, send target s1\n');
+    expect((await run(['open', '--board', 'flow'], '', inSession)).code).toBe(0);
+    expect(app.seen.at(-1)!.body).toEqual({ board: 'flow', sessionId: 's1' });
   });
 
   it('opens without a session when the app has not met the one running it', async () => {
