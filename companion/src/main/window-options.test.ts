@@ -14,4 +14,10 @@ describe('panel window', () => {
     expect(plan.allWorkspaces).toBeUndefined();
     expect(plan.options).toMatchObject({ ...OFFSCREEN, focusable: false, frame: false, enableLargerThanScreen: true });
   });
+
+  it('opens where the panel was last left, except in tests', () => {
+    const position = { x: 300, y: 200 };
+    expect(panelWindow({ ...spec, position, offscreen: false }).options).toMatchObject(position);
+    expect(panelWindow({ ...spec, position, offscreen: true }).options).toMatchObject(OFFSCREEN);
+  });
 });

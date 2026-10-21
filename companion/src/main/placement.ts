@@ -34,3 +34,15 @@ export function areaUnder<T extends { workArea: Rect; bounds: Rect }>(displays: 
   };
   return displays.reduce((best, d) => (dist(d) < dist(best) ? d : best));
 }
+
+const TITLE_BAR = 28;
+const GRIP = { width: 80, height: 20 };
+
+/** True when enough of the title bar of a window at `win` lies in a work area to drag it. */
+export function reachable(areas: Rect[], win: Rect): boolean {
+  return areas.some((a) => {
+    const width = Math.min(win.x + win.width, a.x + a.width) - Math.max(win.x, a.x);
+    const height = Math.min(win.y + TITLE_BAR, a.y + a.height) - Math.max(win.y, a.y);
+    return width >= GRIP.width && height >= GRIP.height;
+  });
+}

@@ -179,6 +179,9 @@ export interface AppState extends Settings {
   currentBoard: string;
   width: number;
   height: number;
+  /** Where the panel was last left, in screen points. */
+  x?: number;
+  y?: number;
   /** Project folders Claude Code sessions ran in, most recent first. */
   recentProjects?: string[];
   /** The mode the panel was last in. */

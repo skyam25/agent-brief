@@ -8,6 +8,8 @@ export const OFFSCREEN = { x: -20000, y: -20000 };
 export interface WindowSpec {
   preload: string;
   size: { width: number; height: number };
+  /** Where the panel was last left. Without it, the first show centres the panel. */
+  position?: { x: number; y: number };
   backgroundColor: string;
   offscreen: boolean;
 }
@@ -28,7 +30,7 @@ export function panelWindow(spec: WindowSpec): WindowPlan {
   return {
     options: {
       show: false,
-      ...(off ? OFFSCREEN : {}),
+      ...(off ? OFFSCREEN : (spec.position ?? {})),
       width: spec.size.width,
       height: spec.size.height,
       minWidth: 480,

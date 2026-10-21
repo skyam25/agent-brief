@@ -138,7 +138,8 @@ async function start(): Promise<void> {
     url: process.env.COMPANION_DEV_URL,
     file: join(__dirname, '../renderer/index.html'),
     size: { width: state.state.width, height: state.state.height },
-    onResize: (size) => state.update(size),
+    position: Number.isFinite(state.state.x) && Number.isFinite(state.state.y) ? { x: state.state.x!, y: state.state.y! } : undefined,
+    onBounds: (bounds) => state.update(bounds),
     offscreen,
     backgroundColor: BACKGROUND[theme()],
     // The page stays "visible" to itself because background throttling is off, so main says when it shows.

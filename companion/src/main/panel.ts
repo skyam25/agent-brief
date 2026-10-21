@@ -1,7 +1,7 @@
 /** The panel: one window, created hidden and kept alive. */
 
 import { app, BrowserWindow, screen } from 'electron';
-import { areaUnder, centredBounds } from './placement';
+import { areaUnder, centredBounds, reachable } from './placement';
 import { OFFSCREEN, panelWindow } from './window-options';
 
 const LONGEST_CROP = 900;
@@ -12,7 +12,10 @@ export interface PanelOptions {
   url?: string;
   file: string;
   size: { width: number; height: number };
-  onResize: (size: { width: number; height: number }) => void;
+  /** Where the panel was last left. Without it, the first show centres the panel on the display under the cursor. */
+  position?: { x: number; y: number };
+  /** Called after the panel moves or resizes. The off-screen panel reports its size alone. */
+  onBounds: (bounds: { width: number; height: number; x?: number; y?: number }) => void;
   /** Called after the panel shows or hides. */
   onVisibility?: (visible: boolean) => void;
   /**
@@ -28,29 +31,34 @@ export class Panel {
   readonly win: BrowserWindow;
   readonly offscreen: boolean;
   private quitting = false;
+  private placed: boolean;
   private readonly onVisibility: (visible: boolean) => void;
 
   constructor(opts: PanelOptions) {
     this.offscreen = !!opts.offscreen;
     this.onVisibility = opts.onVisibility ?? (() => {});
+    this.placed = !!opts.position;
     const plan = panelWindow({
       preload: opts.preload,
       size: opts.size,
+      position: opts.position,
       backgroundColor: opts.backgroundColor,
       offscreen: this.offscreen,
     });
     this.win = new BrowserWindow(plan.options);
     if (plan.allWorkspaces) this.win.setVisibleOnAllWorkspaces(true, plan.allWorkspaces);
 
-    let resizeTimer: NodeJS.Timeout | undefined;
-    this.win.on('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
+    let boundsTimer: NodeJS.Timeout | undefined;
+    const saveBounds = () => {
+      clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(() => {
         if (this.win.isDestroyed()) return;
-        const [width, height] = this.win.getSize();
-        opts.onResize({ width, height });
+        const { x, y, width, height } = this.win.getBounds();
+        opts.onBounds(this.offscreen ? { width, height } : { x, y, width, height });
       }, 300);
-    });
+    };
+    this.win.on('resize', saveBounds);
+    this.win.on('move', saveBounds);
 
     this.win.on('close', (e) => {
       if (this.quitting) return;
@@ -79,7 +87,10 @@ export class Panel {
     return !this.win.isDestroyed() && this.win.isVisible();
   }
 
-  /** Shows the panel centred on the display under the cursor. Every show path goes through here. */
+  /**
+   * Shows the panel where it was last left. An open panel stays put.
+   * Every show path goes through here.
+   */
   show(): void {
     if (this.offscreen) {
       this.win.setPosition(OFFSCREEN.x, OFFSCREEN.y);
@@ -87,13 +98,21 @@ export class Panel {
       this.onVisibility(true);
       return;
     }
-    const display = areaUnder(screen.getAllDisplays(), screen.getCursorScreenPoint());
-    const [width, height] = this.win.getSize();
-    this.win.setBounds(centredBounds(display.workArea, { width, height }));
+    if (!this.win.isVisible()) this.place();
     if (process.platform === 'darwin') app.show();
     this.win.show();
     this.win.focus();
     this.onVisibility(true);
+  }
+
+  /** Centres the panel on the display under the cursor the first time, or when its spot is off every display. */
+  private place(): void {
+    const displays = screen.getAllDisplays();
+    const bounds = this.win.getBounds();
+    if (this.placed && reachable(displays.map((d) => d.workArea), bounds)) return;
+    const display = areaUnder(displays, screen.getCursorScreenPoint());
+    this.win.setBounds(centredBounds(display.workArea, bounds));
+    this.placed = true;
   }
 
   hide(): void {
