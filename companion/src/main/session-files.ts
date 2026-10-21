@@ -4,7 +4,7 @@
  */
 
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, normalize, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { outputsFile } from '../protocol';
 import { itemsFile } from '../server/index';
 import { newDraftId } from '../shared/drafts';
@@ -175,16 +175,19 @@ export class SessionFiles {
       return;
     }
     if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) throw new Error('Agent Brief opens only http and https links');
-    const { target } = this.projectFile(sessionId, ref);
+    const { cwd, target } = this.projectFile(sessionId, ref);
+
+    // Notes and reviews key on the project-relative path, however the caller named the file.
+    const path = relative(cwd, target);
     if (isReviewable(target)) {
-      this.openReview(sessionId, ref, tab);
+      this.openReview(sessionId, path, tab);
       return;
     }
     if (!isMarkdownRef(target)) {
       await opener.openPath(target);
       return;
     }
-    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.source?.path === ref);
+    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.source?.path === path);
     if (existing) {
       briefs.showDraft(sessionId, existing.id, false);
       return;
@@ -192,7 +195,7 @@ export class SessionFiles {
     if (statSync(target).size > MAX_OUTPUT_BYTES) throw new Error(`${ref} is over 4 MB, too large to open as a note`);
     const text = readFileSync(target, 'utf8');
     if (text.length > MAX_DRAFT_BODY) throw new Error(`${ref} is longer than a note can hold (${MAX_DRAFT_BODY.toLocaleString('en-US')} characters)`);
-    briefs.startNote({ text, id: newDraftId(), sessionId, source: { path: ref, text } }, false);
+    briefs.startNote({ text, id: newDraftId(), sessionId, source: { path, text } }, false);
   }
 
   /** A Markdown output's text now, for a note opened from it. Undefined when the file is gone or too large for a note. */
@@ -213,8 +216,8 @@ export class SessionFiles {
   async openDocument(sessionId: string, path: string, tab?: ReviewTab): Promise<'note' | 'review'> {
     if (!isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file`);
     if (tab === 'feedback' && !isReviewable(path)) {
-      this.projectFile(sessionId, path);
-      const open: OpenFeedbackView = { sessionId, path: normalize(path) };
+      const { cwd, target } = this.projectFile(sessionId, path);
+      const open: OpenFeedbackView = { sessionId, path: relative(cwd, target) };
       this.deps.send(CH.openFeedbackView, open);
       return 'review';
     }

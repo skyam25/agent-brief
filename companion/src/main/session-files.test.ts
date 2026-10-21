@@ -89,6 +89,19 @@ describe('SessionFiles', () => {
     expect(opened).toEqual([join(cwd, 'deck.pdf'), 'https://example.com/doc']);
   });
 
+  it('keys an output named by its absolute path on the project-relative path', async () => {
+    mkdirSync(join(cwd, 'docs'));
+    writeFileSync(join(cwd, 'docs', 'page.html'), '<p>hi</p>');
+    writeFileSync(join(cwd, 'docs', 'plan.md'), '# Plan');
+
+    await files.openOutput('s1', join(cwd, 'docs', 'page.html'));
+    expect(last(CH.newNote)).toMatchObject({ review: { path: 'docs/page.html' } });
+    await files.openOutput('s1', join(cwd, 'docs', 'plan.md'));
+    expect(last(CH.newNote)).toMatchObject({ source: { path: 'docs/plan.md' } });
+    await files.openDocument('s1', `${cwd}/docs/./plan.md`, 'feedback');
+    expect(last(CH.openFeedbackView)).toEqual({ sessionId: 's1', path: 'docs/plan.md' });
+  });
+
   it('refuses files outside the project and links that are not http', async () => {
     await expect(files.openOutput('s1', '../escape.md')).rejects.toThrow('outside the project');
     await expect(files.openOutput('s1', 'file:///etc/hosts')).rejects.toThrow('only http and https');

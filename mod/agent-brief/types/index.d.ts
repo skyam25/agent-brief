@@ -76,6 +76,9 @@ export type AttachedInitiative = { id: string; title: string; revision: number; 
 /** A recent initiative, as `InitiativeSummary` in hooks/companion-protocol.ts. */
 export type InitiativeChoice = { id: string; title: string; line: string }
 
+/** As `FiledNote` in hooks/companion-logic.ts. */
+export type FiledNote = { id: string; title?: string }
+
 declare module 'claude-code' {
   interface PluginState {
     'agent-brief': {
@@ -89,6 +92,10 @@ declare module 'claude-code' {
       shown: ShownState | null
       /** Claude's latest finished replies, oldest first, so their last block can carry Copy and Open in Agent Brief. */
       replies: string[]
+      /** Notes Claude filed with `agent-brief note` since the last finished reply. */
+      turnNotes: FiledNote[]
+      /** The notes each kept reply's turn filed, keyed by the reply's text. */
+      replyNotes: Record<string, FiledNote[]>
       /** Dictation from the band's Talk button; null when it is off. */
       voice: VoiceState | null
       /** The folder the session started in. The shell's folder moves with each cd; this one stays. */

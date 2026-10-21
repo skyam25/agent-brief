@@ -55,7 +55,11 @@ import {
   keepReply,
   upkeep,
   replyEndingWith,
-  reviewablePages,
+  namedPages,
+  REVIEWS_SHOWN,
+  isHtmlPage,
+  filedNote,
+  keepNote,
   SKETCH_OPENED,
   STACK_OPENED,
   TRACK_NOT_RUNNING,
@@ -159,6 +163,8 @@ const modeRef = atom(MODE_STATE, 'default')
 const fidelityRef = atom({ plugin: 'agent-brief', key: 'fidelity' } as const, null)
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
 const repliesRef = atom({ plugin: 'agent-brief', key: 'replies' } as const, [])
+const turnNotesRef = atom({ plugin: 'agent-brief', key: 'turnNotes' } as const, [])
+const replyNotesRef = atom({ plugin: 'agent-brief', key: 'replyNotes' } as const, {})
 const voiceRef = atom({ plugin: 'agent-brief', key: 'voice' } as const, null)
 const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
 /** When the main loop last finished a reply, so the app can tell a busy session from an idle one. */
@@ -682,10 +688,44 @@ async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'
   if (!isOutputOpened(reply.body)) $.ui.toast(OUTPUT_NEEDS_UPDATE, { timeoutMs: 8000 })
 }
 
-/** The pages that exist, so the row never offers a page the reply only plans. */
-async function pagesOnDisk($: EngineInterface, pages: readonly string[]): Promise<string[]> {
-  const found = await Promise.all(pages.map(page => $.fs.stat(page).then(() => true, () => false)))
-  return pages.filter((_, i) => found[i])
+/**
+ * The pages the row offers: HTML pages that exist, so the row never offers a page the reply only plans,
+ * and Markdown files among the session's outputs, so a passing mention of a README offers nothing.
+ */
+async function offeredPages($: EngineInterface, reply: string): Promise<string[]> {
+  const home = await homeCwd($)
+  const named = namedPages(reply, home)
+  const outputs = new Set((await read($, outputsRef)).map(o => o.ref))
+  const found = await Promise.all(
+    named.map(page => (isHtmlPage(page) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : outputs.has(page))),
+  )
+  return named.filter((_, i) => found[i]).slice(0, REVIEWS_SHOWN)
+}
+
+/** Moves the notes this turn filed onto its reply, and forgets those of replies no longer kept. */
+async function keepTurnNotes($: EngineInterface, reply: string, kept: readonly string[]): Promise<void> {
+  const notes = await read($, turnNotesRef)
+  await update($, turnNotesRef, () => [])
+  await update($, replyNotesRef, held => {
+    const next = Object.fromEntries(Object.entries(held ?? {}).filter(([text]) => kept.includes(text)))
+    if (notes.length > 0) next[reply] = notes
+    return next
+  })
+}
+
+/** Shows a note Claude filed in Write. */
+async function openNoteInApp($: EngineInterface, id: string): Promise<void> {
+  const failed = await readyApp($)
+  if (failed !== undefined) {
+    $.ui.toast(failed, { timeoutMs: 8000 })
+    return
+  }
+  const body: OpenRequest = { note: { id } }
+  const reply = await call($, 'POST', '/open', body)
+  if (!reply?.ok) {
+    const error = (reply?.body as { error?: unknown } | undefined)?.error
+    $.ui.toast(typeof error === 'string' ? error : 'Agent Brief did not open the note.', { timeoutMs: 8000 })
+  }
 }
 
 /** Shows one of the session's boards in the app. */
@@ -1395,9 +1435,13 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   // An `agent-brief` command may draw on, open or file a board, so the Brief pane reads the session's boards again.
+  // A note it files waits for the reply, whose row offers to open it.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const result = await next(e)
     if (/\bagent-brief\b/.test(e.command)) await refreshBoards($).catch(err => log($, `boards refresh failed: ${String(err)}`))
+    const out = 'result' in result ? (result.result as { stdout?: unknown } | null | undefined) : undefined
+    const note = typeof out?.stdout === 'string' ? filedNote(out.stdout) : undefined
+    if (note) await update($, turnNotesRef, notes => keepNote(notes, note)).catch(() => undefined)
     return result
   }).catch(($, e, next) => next(e))
 
@@ -1415,7 +1459,10 @@ export const register: Register = (on, options) => {
   // The items file is read again, since the app's panel appends answers to it too.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    if (e.agentId === undefined && e.reason === 'answer') await update($, repliesRef, list => keepReply(list, e.answer)).catch(() => undefined)
+    if (e.agentId === undefined && e.reason === 'answer') {
+      const replies = await update($, repliesRef, list => keepReply(list, e.answer)).catch(() => undefined)
+      await keepTurnNotes($, e.answer.trim(), replies ?? []).catch(() => undefined)
+    }
     if (e.agentId === undefined) {
       const at = await $.clock.now()
       await update($, activeAtRef, () => at).catch(() => undefined)
@@ -1427,51 +1474,70 @@ export const register: Register = (on, options) => {
     return done
   })
 
-  // Under the last block of a finished reply: Copy, Open as note as /write last does, and Review for each HTML page it names.
+  // Under the last block of a finished reply: Copy and Open as note as /write last does, then an open for
+  // each page it names and each note its turn filed. A one-line reply carries only the opens.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const drawn = await next(e)
     const props = e.props as { text: string; isSummary?: true }
     if (props.isSummary) return drawn
     const reply = replyEndingWith(await read($, repliesRef), props.text)
     if (reply === undefined) return drawn
-    const pages = await pagesOnDisk($, reviewablePages(reply, await homeCwd($)))
+    const isLong = reply.includes('\n')
+    const pages = await offeredPages($, reply)
+    const notes = (await read($, replyNotesRef))[reply] ?? []
+    if (!isLong && pages.length === 0 && notes.length === 0) return drawn
     const { Box, Button, Text } = $.ui.resolve(e)
+    const buttons = [
+      ...(isLong
+        ? [
+            <Button
+              key="reply-copy"
+              plain
+              dimColor
+              label="Copy"
+              onPress={press =>
+                void $.ui.copy({ text: reply, surface: press.surface }).then(r => $.ui.toast(r.isCopied ? 'Reply copied' : 'Could not copy the reply'))
+              }
+            />,
+            <Button
+              key="reply-open"
+              plain
+              dimColor
+              label="Open as note"
+              onPress={() =>
+                void openCompanion($, 'write', { text: reply }).then(opened => {
+                  if (opened.message !== WRITE_OPENED) $.ui.toast(opened.message, { timeoutMs: 8000 })
+                })
+              }
+            />,
+          ]
+        : []),
+      ...pages.map((page, i) => (
+        <Button
+          key={`reply-review-${i}`}
+          plain
+          label={`${isHtmlPage(page) ? 'Review' : 'Open'} ${page.slice(page.lastIndexOf('/') + 1)}`}
+          onPress={() => void openOutputInApp($, page)}
+        />
+      )),
+      ...notes.map(note => (
+        <Button key={`reply-note-${note.id}`} plain label={`Open ${note.title ?? 'note'}`} onPress={() => void openNoteInApp($, note.id)} />
+      )),
+    ]
     return (
       <Box flexDirection="column">
         {drawn}
         <Box>
-          <Button
-            key="reply-copy"
-            plain
-            dimColor
-            label="Copy"
-            onPress={press =>
-              void $.ui.copy({ text: reply, surface: press.surface }).then(r => $.ui.toast(r.isCopied ? 'Reply copied' : 'Could not copy the reply'))
-            }
-          />
-          <Text dimColor> · </Text>
-          <Button
-            key="reply-open"
-            plain
-            dimColor
-            label="Open as note"
-            onPress={() =>
-              void openCompanion($, 'write', { text: reply }).then(opened => {
-                if (opened.message !== WRITE_OPENED) $.ui.toast(opened.message, { timeoutMs: 8000 })
-              })
-            }
-          />
-          {pages.flatMap((page, i) => [
-            <Text key={`reply-review-gap-${i}`} dimColor>
-              {' · '}
-            </Text>,
-            <Button
-              key={`reply-review-${i}`}
-              plain
-              label={`Review ${page.slice(page.lastIndexOf('/') + 1)}`}
-              onPress={() => void openOutputInApp($, page)}
-            />,
-          ])}
+          {buttons.flatMap((button, i) =>
+            i === 0
+              ? [button]
+              : [
+                  <Text key={`reply-gap-${i}`} dimColor>
+                    {' · '}
+                  </Text>,
+                  button,
+                ],
+          )}
         </Box>
       </Box>
     )

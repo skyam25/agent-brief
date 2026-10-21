@@ -21,7 +21,7 @@ export interface BriefTabsDeps {
   /** Written each render, for code that runs outside it. */
   tabScope: RefObject<TabScope>;
   changeMode: (mode: Mode) => void;
-  showDraft: (id: string) => Promise<void>;
+  showDraft: (id: string, sessionId?: string, shows?: boolean) => Promise<void>;
   report: (what: string) => (err: unknown) => void;
 }
 

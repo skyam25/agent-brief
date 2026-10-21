@@ -79,14 +79,19 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
     },
     [book, changeMode],
   );
-  /** Opens a draft main named, filing it under `sessionId` when it has no session yet. */
+  /**
+   * Opens a draft main named, filing it under `sessionId` when it has no session yet.
+   * With `shows`, the panel takes the draft's mode in the same tick as the selection. A render between
+   * the two would draw Review without its draft, and Review then opens an output of its own.
+   */
   const showDraft = useCallback(
-    async (id: string, sessionId?: string) => {
+    async (id: string, sessionId?: string, shows = false) => {
       if (!book.get(id)) await book.load();
       if (sessionId && book.get(id) && !book.get(id)!.sessionId) book.file(id, sessionId);
       book.select(id);
+      if (shows) changeMode(book.get(id)?.review ? 'review' : 'write');
     },
-    [book],
+    [book, changeMode],
   );
   const openBoard = useCallback(
     (name: string) => {
@@ -131,10 +136,9 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       }),
       host.onOpenDraft(({ id, sessionId, tab }) => {
         showTab(sessionId);
-        void showDraft(id, sessionId).then(() => {
+        void showDraft(id, sessionId, true).then(() => {
           void book.refreshSource(id);
           if (tab && book.get(id)?.review) book.askTab(id, tab);
-          changeMode(book.get(id)?.review ? 'review' : 'write');
         });
       }),
       // A note from `agent-brief note` joins the list. The open note and the mode stay.

@@ -64,6 +64,7 @@ export type BriefSlots = { questions?: RenderElement | null }
  * Outputs lists declared outputs, the session's boards, then touched documents.
  * Without fields, or with no initiatives to pick, the Initiative line is text.
  * Seated inline above the prompt it draws one summary line and the Ready outputs, until Expand.
+ * There a Markdown or HTML output opens in Agent Brief, since the inline line has no In Agent Brief button.
  */
 export function briefTree(table: ElementTable, pane: BriefPaneView, act: BriefActions, slots: BriefSlots = {}) {
   if (pane.placement === 'inline' && !pane.view.isExpanded) return inlineTree(table, pane, act)
@@ -91,7 +92,12 @@ function inlineTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
       {ready.length > 0 && (
         <Box flexWrap="wrap" columnGap={1}>
           {ready.map(row => (
-            <Button key={`inline-open-${row.ref}`} plain label={`Open ${row.label}`} onPress={() => void act.open(row.ref)} />
+            <Button
+              key={`inline-open-${row.ref}`}
+              plain
+              label={`Open ${row.label}`}
+              onPress={() => void (row.canBrief ? act.openInApp(row.ref, row.feedback === undefined ? undefined : 'feedback') : act.open(row.ref))}
+            />
           ))}
         </Box>
       )}

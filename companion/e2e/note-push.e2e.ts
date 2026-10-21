@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -130,4 +130,26 @@ test('note --id replaces the open note in place, so the user keeps one copy', as
   await expect(page.getByTestId('draft-title')).toHaveText('Interview approach');
   await expect(page.getByTestId('draft-row')).toHaveCount(1);
   expect((await sock(socketPath, 'POST', '/notes', { draftId: 'missing-id', text: 'x' })).status).toBe(400);
+});
+
+test('a note opened while Review shows a page lands in Write and stays there', async () => {
+  const { page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  mkdirSync(join(cwd, 'docs'));
+  mkdirSync(join(cwd, '.feedback/outputs'), { recursive: true });
+  writeFileSync(join(cwd, 'docs/pricing.html'), '<h1>Pricing</h1>');
+  const output = { ref: 'docs/pricing.html', kind: 'html', tier: 'declared', title: 'Pricing', status: 'ready', declaredAt: 1 };
+  writeFileSync(join(cwd, '.feedback/outputs/s4.json'), JSON.stringify({ version: 1, sessionId: 's4', outputs: [output] }));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's4', cwd, title: 'Pricing' });
+
+  await sock(socketPath, 'POST', '/open', { sessionId: 's4', output: { path: join(cwd, 'docs/pricing.html') } });
+  await expect(page.frameLocator('[data-testid="review-frame"]').locator('h1')).toHaveText('Pricing');
+
+  const note = await sock<NoteResponse>(socketPath, 'POST', '/notes', { sessionId: 's4', title: 'Slack: pricing', text: 'Hi team, the pricing page is up.' });
+  expect((await sock(socketPath, 'POST', '/open', { note: { id: note.body.draftId } })).body).toMatchObject({ opened: 'note' });
+  await expect(page.getByTestId('mode-write')).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(selectedBody).toBe('Hi team, the pricing page is up.');
+  await page.waitForTimeout(1000);
+  await expect(page.getByTestId('mode-write'), 'Review does not take the panel back').toHaveAttribute('aria-selected', 'true');
+  expect(await selectedBody()).toBe('Hi team, the pricing page is up.');
 });

@@ -360,6 +360,14 @@ describe('the inline seat', () => {
     expect(json).toContain('"label":"▸ Expand"')
   })
 
+  test('Open shows a Markdown or HTML output in Agent Brief', async ($, on) => {
+    const { app, world } = await setup($, on, { [ITEMS_PATH]: ITEMS, [OUTPUTS_PATH]: OUTPUTS })
+    await $.ui.render(briefPane('inline'))
+    await $.ui.press({ plugin: 'agent-brief', key: 'inline-open-docs/spec.md' })
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'docs/spec.md' } })
+    expect(world.runs.filter(r => r.argv[0] === 'open')).toEqual([])
+  })
+
   test('Expand draws the full Brief inline, and Collapse returns to the summary', async ($, on) => {
     await setup($, on, { [ITEMS_PATH]: ITEMS, [OUTPUTS_PATH]: OUTPUTS })
     await $.ui.render(briefPane('inline'))

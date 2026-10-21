@@ -177,21 +177,20 @@ const squash = (text: string) => text.replace(/\s+/g, ' ').trim()
 
 /**
  * The finished reply whose last block this is, or undefined. The transcript may hide part of a reply,
- * so a block matches the reply it ends and holds most of. A one-line reply gets no row.
+ * so a block matches the reply it ends and holds most of.
  */
 export function replyEndingWith(replies: readonly string[], block: string): string | undefined {
   const tail = squash(block)
   if (tail === '') return undefined
   for (let i = replies.length - 1; i >= 0; i--) {
     const reply = replies[i]!
-    if (!reply.includes('\n')) continue
     const whole = squash(reply)
     if (whole.endsWith(tail) && tail.length * 2 >= whole.length) return reply
   }
   return undefined
 }
 
-/** How many HTML pages the row under a reply offers to review. */
+/** How many pages the row under a reply offers to open. */
 export const REVIEWS_SHOWN = 3
 
 /** `path` with `.` and `..` segments folded away. */
@@ -206,18 +205,38 @@ function folded(path: string): string {
 }
 
 /**
- * The HTML pages a reply names inside the project at `root`, as absolute paths in the order it
- * names them. A page is an absolute path, a file:// link, or a path relative to `root`.
+ * The HTML and Markdown pages a reply names inside the project at `root`, as project-relative paths
+ * in the order it names them. A page is an absolute path, a file:// link, or a path relative to `root`.
  */
-export function reviewablePages(reply: string, root: string): string[] {
+export function namedPages(reply: string, root: string): string[] {
   const home = folded(root)
   const pages: string[] = []
-  for (const m of reply.matchAll(/(?<![\w./~-])(?:file:\/\/)?([\w./-]*[\w-]\.html?)(?![\w/-])/gi)) {
+  for (const m of reply.matchAll(/(?<![\w./~-])(?:file:\/\/)?([\w./-]*[\w-]\.(?:html?|md|markdown))(?![\w/-])/gi)) {
     const named = m[1]!
     const page = folded(named.startsWith('/') ? named : `${home}/${named}`)
-    if (page.startsWith(`${home}/`) && !pages.includes(page)) pages.push(page)
+    const relative = page.slice(home.length + 1)
+    if (page.startsWith(`${home}/`) && !pages.includes(relative)) pages.push(relative)
   }
-  return pages.slice(0, REVIEWS_SHOWN)
+  return pages
+}
+
+export const isHtmlPage = (path: string) => /\.html?$/i.test(path)
+
+/** A note `agent-brief note` filed. The title is unknown when Claude replaced a note in place. */
+export type FiledNote = { id: string; title?: string }
+
+/** The note a Bash command's output says `agent-brief note` filed, or undefined. */
+export function filedNote(stdout: string): FiledNote | undefined {
+  const id = /^To show it, run: agent-brief open --note (\S+)$/m.exec(stdout)?.[1]
+  if (id === undefined) return undefined
+  const title = /^Saved "(.*)" to .* in Agent Brief\b/m.exec(stdout)?.[1]
+  return { id, ...(title ? { title } : {}) }
+}
+
+/** `notes` with `note` last, once by id. A later filing keeps the earlier title when it names none. */
+export function keepNote(notes: readonly FiledNote[], note: FiledNote): FiledNote[] {
+  const earlier = notes.find(n => n.id === note.id)
+  return [...notes.filter(n => n.id !== note.id), { ...earlier, ...note }]
 }
 
 export type Tracking = { trackItems: boolean; itemsPath?: string }

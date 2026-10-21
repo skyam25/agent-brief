@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { REPLIES_KEPT, REVIEWS_SHOWN, keepReply, replyEndingWith, reviewablePages } from '../hooks/companion-logic'
+import { REPLIES_KEPT, REVIEWS_SHOWN, filedNote, keepNote, keepReply, namedPages, replyEndingWith } from '../hooks/companion-logic'
 import { SESSION_ID, setupCompanion } from './companion-world'
 import { CWD, textOf } from './world'
 
@@ -46,29 +46,37 @@ describe('which block carries the row', () => {
     expect(replyEndingWith([REPLY], 'We shipped **v2**\ntoday.')).toBe(REPLY)
     expect(replyEndingWith([REPLY], 'today.'), 'a short tail is a different block').toBeUndefined()
     expect(replyEndingWith([REPLY], 'Here is the post:'), 'a block before the end').toBeUndefined()
-    expect(replyEndingWith(['Done.'], 'Done.'), 'a one-line reply').toBeUndefined()
+    expect(replyEndingWith(['Done.'], 'Done.'), 'a one-line reply').toBe('Done.')
   })
 })
 
-describe('which pages the row offers to review', () => {
-  test('finds absolute, file:// and relative HTML paths inside the project, once each, in order', () => {
+describe('which pages and notes the row offers', () => {
+  test('finds absolute, file:// and relative pages inside the project, once each, in order, as project paths', () => {
     const reply = [
       'Files the builder wrote:',
       '/proj/prototype/option-d.html',
       'file:///proj/handoffs/old.htm and `mock/landing.html`',
-      'Again: /proj/prototype/option-d.html, ./mock/../mock/landing.html.',
+      'Again: /proj/prototype/option-d.html, ./mock/../mock/landing.html, docs/prd.md.',
     ].join('\n')
-    expect(reviewablePages(reply, '/proj')).toEqual(['/proj/prototype/option-d.html', '/proj/handoffs/old.htm', '/proj/mock/landing.html'])
+    expect(namedPages(reply, '/proj')).toEqual(['prototype/option-d.html', 'handoffs/old.htm', 'mock/landing.html', 'docs/prd.md'])
   })
 
-  test('skips pages outside the project, Markdown, URLs and names inside longer words', () => {
-    const reply = '/elsewhere/a.html ../b.html notes.md https://x.com/c.html d.html5 e.htmlx /proj/f.html'
-    expect(reviewablePages(reply, '/proj/')).toEqual(['/proj/f.html'])
+  test('skips pages outside the project, URLs and names inside longer words', () => {
+    const reply = '/elsewhere/a.html ../b.html https://x.com/c.html d.html5 e.htmlx /proj/f.html'
+    expect(namedPages(reply, '/proj/')).toEqual(['f.html'])
   })
 
-  test(`offers at most ${REVIEWS_SHOWN}`, () => {
-    const reply = Array.from({ length: REVIEWS_SHOWN + 2 }, (_, i) => `p${i}.html`).join(' ')
-    expect(reviewablePages(reply, '/proj')).toHaveLength(REVIEWS_SHOWN)
+  test('reads the note `agent-brief note` filed, and keeps one entry per note', () => {
+    const saved = [
+      'Saved "Slack: launch" to this session\'s tab in Agent Brief, Write mode. The user can edit it there and press Copy.',
+      'To show it, run: agent-brief open --note n-1',
+      'To change it later, run: agent-brief note --id n-1 with the full new text',
+    ].join('\n')
+    expect(filedNote(saved)).toEqual({ id: 'n-1', title: 'Slack: launch' })
+    const updated = filedNote('Updated note n-1 in place in Agent Brief.\nTo show it, run: agent-brief open --note n-1')
+    expect(updated).toEqual({ id: 'n-1' })
+    expect(filedNote('added 3 elements')).toBeUndefined()
+    expect(keepNote([{ id: 'n-1', title: 'Slack: launch' }], updated!)).toEqual([{ id: 'n-1', title: 'Slack: launch' }])
   })
 })
 
@@ -99,8 +107,67 @@ describe('the row under a finished reply', () => {
     expect(textOf(await $.ui.render(block(reply)))).not.toContain('Review option-e.html')
     await ui.press({ key: 'reply-review-0' })
     await clock.settle()
-    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: `${CWD}/prototype/option-d.html` } })
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'prototype/option-d.html' } })
     await ui.unmount()
+  })
+
+  test(`offers at most ${REVIEWS_SHOWN} pages`, async ($, on) => {
+    const { world, clock, start } = await setup($, on)
+    const names = Array.from({ length: REVIEWS_SHOWN + 2 }, (_, i) => `p${i}.html`)
+    for (const name of names) world.files.set(`${CWD}/${name}`, '<p>')
+    const reply = `Pages:\n${names.join(' ')}`
+    await start()
+    await clock.settle()
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: `reply-review-${REVIEWS_SHOWN - 1}` })).toMatchObject({ text: `Review p${REVIEWS_SHOWN - 1}.html` })
+    expect(await ui.find({ key: `reply-review-${REVIEWS_SHOWN}` }).catch(() => undefined)).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('Open shows a Markdown output the reply names in Write, and skips Markdown that is not an output', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    world.files.set(`${CWD}/docs/prd.md`, '# PRD')
+    world.files.set(`${CWD}/README.md`, '# Readme')
+    await start()
+    await clock.settle()
+    await $.tool.call({ tool: 'mcp__agent-brief__declare_output', title: 'PRD', path: 'docs/prd.md', status: 'ready' } as never)
+    const reply = 'I wrote the PRD to docs/prd.md and left README.md alone.'
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-review-0' })).toMatchObject({ text: 'Open prd.md' })
+    expect(textOf(await $.ui.render(block(reply))), 'a one-line reply carries only the opens').not.toContain('Copy')
+    expect(textOf(await $.ui.render(block(reply)))).not.toContain('README')
+    await ui.press({ key: 'reply-review-0' })
+    await clock.settle()
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'docs/prd.md' } })
+    await ui.unmount()
+  })
+
+  test('a note the turn filed gets an Open on its reply, which shows it in Write', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    on('tool.call', { tool: 'Bash' }, () =>
+      ({
+        result: {
+          stdout: 'Saved "Slack: launch" to this session\'s tab in Agent Brief, Write mode.\nTo show it, run: agent-brief open --note n-1',
+          stderr: '',
+        },
+      }) as never,
+    )
+    await start()
+    await clock.settle()
+    await $.tool.call({ tool: 'Bash', command: 'agent-brief note "Slack: launch" <<EOF' } as never)
+    const reply = 'The Slack message is in Agent Brief, ready to copy.'
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-note-n-1' })).toMatchObject({ text: 'Open Slack: launch' })
+    await ui.press({ key: 'reply-note-n-1' })
+    await clock.settle()
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ note: { id: 'n-1' } })
+    await ui.unmount()
+
+    await $.turn.complete(finish('Anything else?'))
+    expect(textOf(await $.ui.render(block('Anything else?'))), 'the next reply filed no note').not.toContain('Open')
   })
 
   test('draws nothing for a summary, a one-line reply or a subagent', async ($, on) => {
