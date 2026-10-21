@@ -5,7 +5,7 @@ import type { CompanionApi, Mode } from '../shared/ipc';
 import type { BoardCommentsStore } from './board-comments';
 import type { BoardController } from './controller';
 import type { DraftBook } from './drafts';
-import { OVERALL, ReviewVoice } from './review-voice';
+import { OVERALL, ReviewVoice, hostDictation } from './review-voice';
 import type { ToastKind } from './Toast';
 
 const MIC_DENIED =
@@ -54,6 +54,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     () =>
       new ReviewVoice({
         transcribe: (clip) => host.transcribeClip(clip),
+        dictate: hostDictation(host),
         onText: (target, text) => {
           const owner = voiceDraft.current;
           if (owner?.startsWith(BOARD) && (target === OVERALL || comments.owns(target))) {

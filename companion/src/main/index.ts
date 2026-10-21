@@ -3,6 +3,7 @@ import { FeedbackStore } from './feedback';
 import { resolveFeedback } from './feedback-paths';
 import { FeedbackWorkspaces } from './feedback-workspace';
 import { captureSession, FeedbackSnaps, offscreenCapture } from './feedback-snap';
+import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +29,7 @@ import { BadRequest, parseInitiativeCreate, parseInitiativeUpdate } from '../ser
 import {
   CH,
   type BoardReply,
+  type DictationEvent,
   type InitiativeDetail,
   type InitiativeSaveResult,
   type InitInfo,
@@ -68,7 +70,8 @@ import { Terminals } from './terminals';
 import { Updater } from './updater';
 import { BoardStore, cleanName, migrateData, StateFile } from './store';
 import { mainIpc } from './ipc';
-import { transcribeClip } from '../voice/compose';
+import { findTool, transcribeClip } from '../voice/compose';
+import { dictateArgv, hasDictate, startDictation, type Dictation } from '../voice/dictate';
 import { isWorkspaceNotes } from '../shared/feedback-workspace';
 
 const testMode = process.env.COMPANION_TEST === '1';
@@ -173,6 +176,27 @@ async function start(): Promise<void> {
   });
 
   const voiceDir = join(app.getPath('temp'), 'agent-brief-voice');
+
+  // Live dictation runs yap on the microphone. A reload or quit ends it, so it never outlives the panel.
+  const dictations = new Map<string, Dictation>();
+
+  // yap can end after the window closes on quit, when there is no panel left to tell.
+  const tellDictation = (e: DictationEvent) => {
+    if (!panel.win.isDestroyed()) send(CH.dictation, e);
+  };
+  const endDictations = () => {
+    for (const d of dictations.values()) d.kill();
+  };
+  panel.win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) endDictations();
+  });
+
+  /** `yap dictate`, when this yap has it. Test runs use COMPANION_TEST_DICTATE, or clips without it. */
+  const dictationArgv = async (): Promise<string[] | undefined> => {
+    if (testMode) return process.env.COMPANION_TEST_DICTATE ? [process.env.COMPANION_TEST_DICTATE] : undefined;
+    const yap = findTool('yap');
+    return yap && (await hasDictate(yap)) ? dictateArgv(yap) : undefined;
+  };
   const setPrompt = (text: string | undefined) => {
     prompt = text;
     send(CH.prompt, text);
@@ -486,6 +510,29 @@ async function start(): Promise<void> {
   ipc.handle('installUpdate', () => updater.install());
   ipc.handle('capturePanel', (rect: unknown) => panel.capture(rect));
   ipc.handle('transcribeClip', (clip: { data?: unknown; mimeType?: unknown }) => transcribeClip(clip, voiceDir));
+  ipc.handle('startDictation', async () => {
+    const argv = await dictationArgv();
+    if (!argv) return { unavailable: true as const };
+
+    // One mic listener at a time. The one it replaces still sends its last phrase and its end.
+    for (const d of dictations.values()) void d.stop();
+    const id = randomUUID();
+    dictations.set(
+      id,
+      startDictation({
+        argv,
+        onPhrase: (phrase) => tellDictation({ id, phrase }),
+        onEnd: (error) => {
+          dictations.delete(id);
+          tellDictation({ id, ended: true, ...(error ? { error } : {}) });
+        },
+      }),
+    );
+    return { id };
+  });
+  ipc.handle('stopDictation', async (id) => {
+    await dictations.get(id)?.stop();
+  });
   ipc.handle('openLink', async (url: unknown) => opener.openExternal(webUrl(String(url), 'Not a link').href));
 
   // Boards.
@@ -693,6 +740,7 @@ async function start(): Promise<void> {
 
   app.on('before-quit', (e) => quitter.beforeQuit(e));
   app.on('will-quit', () => {
+    endDictations();
     globalShortcut.unregisterAll();
     files.close();
     briefWatch.close();

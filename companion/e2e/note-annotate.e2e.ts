@@ -137,6 +137,28 @@ test('Talk and annotate: selecting while talking makes a comment, and the words 
   expect(readFileSync(join(delivery!.dir, 'draft.md'), 'utf8'), 'speech never lands in the note itself').toBe(RECAP);
 });
 
+test('Talk and annotate with live dictation: words land on the comment while still listening, and the last on Stop', async () => {
+  const speech = join(ROOT, 'e2e/fixtures/speech.wav');
+  test.skip(!existsSync(speech), 'speech fixture missing');
+  const { page } = await openRecap({
+    COMPANION_TEST_AUDIO: speech,
+    COMPANION_TEST_DICTATE: join(ROOT, 'e2e/fixtures/fake-dictate.mjs'),
+    FAKE_DICTATE: JSON.stringify({ phrases: [{ at: 3000, start: 2.5, text: 'Ask what the metric was.' }], last: 'And when it moved.' }),
+  });
+
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('note-comments-empty')).toContainText('Select a passage');
+  await dragAcross(page, 'Walk me through');
+  const comment = page.getByTestId('note-comment');
+  await expect(comment).toHaveClass(/listening/);
+  await expect(page.getByTestId('note-comment-text')).toHaveValue('Ask what the metric was.');
+  await expect(comment, 'the phrase landed before Stop').toHaveClass(/listening/);
+
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('note-comment-text')).toHaveValue('Ask what the metric was. And when it moved.');
+  await expect(page.getByTestId('review-voice-state')).toHaveCount(0);
+});
+
 test('a commented note linked to a board survives a Send from Sketch, for Claude to revise', async () => {
   const { page } = await openRecap();
   await page.getByTestId('draft-body').getByText('Walk me through').selectText();

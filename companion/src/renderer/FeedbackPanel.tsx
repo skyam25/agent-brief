@@ -18,13 +18,13 @@ import { decisionText, historyLines, inOpenFilter, isClosed, latestSaid, markSee
 import { FeedbackGraph } from './FeedbackGraph';
 import { ExternalIcon, MicIcon, ReloadIcon } from './Icons';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
-import { ReviewVoice } from './review-voice';
+import { ReviewVoice, hostDictation } from './review-voice';
 import { claimTalk } from './talk-owner';
 import { VoiceState } from './VoiceState';
 import type { FixedSend } from './useSend';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
 
-export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'requestMicrophone' | 'onVisibility' | 'openItemOutput'> & PictureHost;
+export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'startDictation' | 'stopDictation' | 'onDictation' | 'requestMicrophone' | 'onVisibility' | 'openItemOutput'> & PictureHost;
 
 /** Hands Claude what `build` makes. `build` gives a reason instead when there is nothing to send. */
 export type SendFeedback = (sessionId: string, build: () => Promise<FixedSend | string>) => void;
@@ -207,6 +207,7 @@ export function FeedbackPanel(props: {
     () =>
       new ReviewVoice({
         transcribe: (clip) => props.host.transcribeClip(clip),
+        dictate: hostDictation(props.host),
         onText: (target, text) => {
           const write = applyRef.current([{ op: 'append', item: Number(target), key: 'You', text: `voice · ${oneLine(text)}` }]);
           writes.current.add(write);

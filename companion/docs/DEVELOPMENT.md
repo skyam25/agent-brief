@@ -132,7 +132,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - HTML responses get `<script src="/__agent-brief__/overlay.js">` as the first script in `<head>`. The overlay (`src/review/overlay.ts`, built to `out/review/overlay.js`) runs in the page's main world. It draws in a closed shadow root and talks to the pane only by `postMessage`, with the types in `src/review/messages.ts`.
 - The frame is `sandbox="allow-scripts allow-same-origin allow-forms"`. The page keeps its own origin, so its storage works, and it still cannot reach the panel. The panel CSP allows `frame-src agent-brief-review:`. `will-frame-navigate` keeps the frame on the scheme. The permission handler refuses every request from it.
 - A pin's anchor holds a unique CSS selector, the tag, the element's text, any selected text, the nearest heading above, and the pin's spot as fractions of the element box. Main crops the panel with `capturePage` at the element's visible box, and the crop is saved as a draft attachment. A draft keeps 40 attachments, so pins past 36 go without a picture.
-- Voice: `ReviewVoice` records one clip at a time, and each clip belongs to the selected comment or the overall note. Selecting or pinning another comment ends the clip, and main turns it into text through ffmpeg and yap (`review:transcribe`). Send waits for pending text.
+- Voice: `ReviewVoice` sends words to the selected comment or the overall note. Main runs `yap dictate` (`voice/dictate.ts`), and each phrase lands a few seconds after a pause, on the target selected when the phrase began. Stop sends SIGINT for the phrase in progress. A yap without `dictate` falls back to clips: one at a time, ended by selecting another comment, and turned into text through ffmpeg and yap (`review:transcribe`). Send waits for pending text.
 - Send writes `review.md` and points the prompt at it:
 
   ```
@@ -230,6 +230,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - `COMPANION_TEST=1` runs the app off screen, unfocused, out of the Dock, without a tray, and with a fake hotkey registrar. It exposes `globalThis.__companion` in main and `window.__board`/`window.__excalidraw` in the renderer.
 - `COMPANION_TEST_VISIBLE=1` shows the window for debugging.
 - `COMPANION_TEST_MIC=denied` fakes a refused microphone.
+- Comment voice records clips in tests. `COMPANION_TEST_DICTATE` names a stand-in for `yap dictate`, such as `e2e/fixtures/fake-dictate.mjs`, scripted by `FAKE_DICTATE`.
 - `COMPANION_TEST_AUDIO=<file.wav>` makes Chromium's fake microphone play that file.
 - Test mode also turns off Chromium's GPU shader disk cache, which kept each test profile at several MB.
 - Each Vitest and Playwright run sets `TMPDIR` to its own folder, `abunit-<pid>` or `abe2e-<pid>` in the system temp folder. The run deletes it at the end. The next run sweeps folders left by runs that crashed or were killed. `KEEP_TEST_TMP=1` keeps the folder for inspection.

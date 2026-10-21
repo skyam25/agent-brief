@@ -16,13 +16,13 @@ import { BoardCanvas } from './BoardCanvas';
 import { CommentColumn, CommentToggle, useCommentKeys } from './BoardComments';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { Mic } from './Mic';
-import { OVERALL, ReviewVoice } from './review-voice';
+import { OVERALL, ReviewVoice, hostDictation } from './review-voice';
 import { claimTalk } from './talk-owner';
 import { fitBoard } from './viewport';
 import { holdWorkspace, workspaceComments as comments } from './workspace-boards';
 
 export type WorkspaceHost = BoardHost &
-  Pick<CompanionApi, 'openFeedbackWorkspace' | 'saveFeedbackWorkspace' | 'noteFeedbackItem' | 'transcribeClip' | 'requestMicrophone' | 'onVisibility'>;
+  Pick<CompanionApi, 'openFeedbackWorkspace' | 'saveFeedbackWorkspace' | 'noteFeedbackItem' | 'transcribeClip' | 'startDictation' | 'stopDictation' | 'onDictation' | 'requestMicrophone' | 'onVisibility'>;
 
 const MIC_DENIED = 'Microphone access is off. Turn it on in System Settings > Privacy & Security > Microphone, then try again.';
 
@@ -91,6 +91,7 @@ export function WorkspaceLayer(props: {
     () =>
       new ReviewVoice({
         transcribe: (clip) => host.transcribeClip(clip),
+        dictate: hostDictation(host),
         onText: (target, text) => comments.append(board, target, text),
         onError: props.onError,
       }),

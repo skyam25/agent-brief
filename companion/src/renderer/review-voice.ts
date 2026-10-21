@@ -1,8 +1,12 @@
 /**
- * Voice for the review pane. One clip records at a time, and each clip belongs to
- * a target: a comment, or the overall note. Pointing the voice at another target
- * ends the clip, and the finished clip turns into text for the target it belonged to.
+ * Voice for the review pane. The words belong to a target: a comment, or the overall note.
+ *
+ * Live dictation hands over each phrase a few seconds after a pause, and the phrase goes to
+ * the target the voice pointed at when it began. Without it, one clip records at a time.
+ * Pointing at another target ends the clip, and the clip turns into text for its own target.
  */
+
+import type { CompanionApi } from '../shared/ipc';
 
 /** The overall note, as a voice target. */
 export const OVERALL = '';
@@ -51,8 +55,49 @@ const browserMedia: VoiceMedia = {
   },
 };
 
+/** A running live dictation. `stop` resolves once its last phrase is in. */
+export interface LiveSession {
+  stop(): Promise<void>;
+}
+
+/** Live dictation, where yap hears the microphone itself. */
+export interface LiveDictation {
+  /** Starts listening. Undefined when live dictation is unavailable, so clips take over. */
+  start(onPhrase: (text: string, atMs: number) => void, onEnd: (error?: string) => void): Promise<LiveSession | undefined>;
+}
+
+/** Live dictation through main, which runs `yap dictate`. */
+export function hostDictation(host: Pick<CompanionApi, 'startDictation' | 'stopDictation' | 'onDictation'>): LiveDictation {
+  return {
+    async start(onPhrase, onEnd) {
+      const started = await host.startDictation();
+      if (!('id' in started)) return undefined;
+      let finish = () => {};
+      const ended = new Promise<void>((resolve) => (finish = resolve));
+
+      // Events follow the start reply, so nothing arrives before this listens.
+      const off = host.onDictation((e) => {
+        if (e.id !== started.id) return;
+        if ('phrase' in e) onPhrase(e.phrase.text, e.phrase.atMs);
+        else {
+          off?.();
+          finish();
+          onEnd(e.error);
+        }
+      });
+      return {
+        stop: async () => {
+          await host.stopDictation(started.id);
+          await ended;
+        },
+      };
+    },
+  };
+}
+
 export interface ReviewVoiceOptions {
   transcribe(clip: Clip): Promise<{ text: string } | { error: string }>;
+  dictate?: LiveDictation;
   /** Words heard for a target. */
   onText(target: string, text: string): void;
   onError(message: string): void;
@@ -71,6 +116,9 @@ export class ReviewVoice {
   readonly pending = new Map<string, number>();
   private stream?: MediaStream;
   private clip?: { recorder: ClipRecorder; target: string; startedAt: number };
+  private live?: LiveSession;
+  /** Where the voice pointed, and since when, while dictating live. */
+  private aims: { at: number; target: string }[] = [];
   /** Finished clips still turning into text. */
   private readonly inflight = new Set<Promise<void>>();
   private readonly listeners = new Set<() => void>();
@@ -101,36 +149,82 @@ export class ReviewVoice {
     for (const fn of this.listeners) fn();
   }
 
+  /** Opens the microphone, which also feeds the level meter, then listens live or records clips. */
   async start(target: string): Promise<void> {
     if (this.stream) return;
-    this.stream = await this.media.open();
+    const stream = (this.stream = await this.media.open());
     this.since = this.now();
     this.target = target;
-    this.begin();
+    const aims = (this.aims = [{ at: this.since, target }]);
+    let live: LiveSession | undefined;
+    try {
+      live = await this.opts.dictate?.start(
+        (text, at) => this.heard(aims, text, at),
+        (error) => {
+          if (error) this.opts.onError(error);
+          if (live && this.live === live) void this.stop();
+        },
+      );
+    } catch (err) {
+      this.opts.onError((err as Error).message);
+    }
+
+    // A stop while dictation started leaves nothing to listen for.
+    if (this.stream !== stream) {
+      void live?.stop();
+      return;
+    }
+    this.live = live;
+    if (!live) this.begin();
     this.emit();
   }
 
-  /** Points the words at `target`. While recording, the clip so far goes to the old one. */
+  /** Points the words at `target`. While recording clips, the clip so far goes to the old one. */
   aim(target: string): void {
     if (target === this.target) return;
     this.target = target;
-    if (this.stream) {
+    if (this.live) this.aims.push({ at: this.now(), target });
+    else if (this.stream) {
       this.track(this.finish());
       this.begin();
     }
     this.emit();
   }
 
-  /** Closes the microphone, if open, and waits until every clip has turned into text. */
+  /** Closes the microphone, if open, and waits until every word has turned into text. */
   async stop(): Promise<void> {
     if (this.stream) {
-      this.track(this.finish());
+      const live = this.live;
+      this.live = undefined;
+      if (live) this.track(this.pend(this.target, () => live.stop()));
+      else this.track(this.finish());
       this.media.close(this.stream);
       this.stream = undefined;
       this.since = undefined;
       this.emit();
     }
     await Promise.all([...this.inflight]);
+  }
+
+  /** A live phrase goes to the target the voice pointed at when it began. */
+  private heard(aims: { at: number; target: string }[], text: string, at: number): void {
+    let target = aims[0]!.target;
+    for (const a of aims) if (a.at <= at) target = a.target;
+    if (text.trim()) this.opts.onText(target, text.trim());
+  }
+
+  /** Marks `target` as still turning into text until `work` ends. */
+  private async pend(target: string, work: () => Promise<void>): Promise<void> {
+    this.pending.set(target, (this.pending.get(target) ?? 0) + 1);
+    this.emit();
+    try {
+      await work();
+    } finally {
+      const left = (this.pending.get(target) ?? 1) - 1;
+      if (left > 0) this.pending.set(target, left);
+      else this.pending.delete(target);
+      this.emit();
+    }
   }
 
   private track(done: Promise<void>): void {
@@ -150,19 +244,14 @@ export class ReviewVoice {
     const short = this.now() - clip.startedAt < SHORTEST_MS;
     const audio = await clip.recorder.stop();
     if (short || audio.data.length === 0) return;
-    this.pending.set(clip.target, (this.pending.get(clip.target) ?? 0) + 1);
-    this.emit();
-    try {
-      const result = await this.opts.transcribe(audio);
-      if ('error' in result) this.opts.onError(result.error);
-      else if (result.text.trim()) this.opts.onText(clip.target, result.text.trim());
-    } catch (err) {
-      this.opts.onError((err as Error).message);
-    } finally {
-      const left = (this.pending.get(clip.target) ?? 1) - 1;
-      if (left > 0) this.pending.set(clip.target, left);
-      else this.pending.delete(clip.target);
-      this.emit();
-    }
+    await this.pend(clip.target, async () => {
+      try {
+        const result = await this.opts.transcribe(audio);
+        if ('error' in result) this.opts.onError(result.error);
+        else if (result.text.trim()) this.opts.onText(clip.target, result.text.trim());
+      } catch (err) {
+        this.opts.onError((err as Error).message);
+      }
+    });
   }
 }

@@ -296,6 +296,12 @@ export interface Template {
 /** A subscription may provide cleanup; older host adapters can keep returning void. */
 export type Subscription = void | (() => void);
 
+/** Live dictation started, or this yap can't dictate, so voice records clips instead. */
+export type DictationStart = { id: string } | { unavailable: true };
+
+/** A phrase yap heard, or the end of that dictation. `atMs` is epoch ms when the phrase began. */
+export type DictationEvent = { id: string; phrase: { text: string; atMs: number } } | { id: string; ended: true; error?: string };
+
 /** What the preload script exposes as `window.companion`. */
 /** A new note main asks for: its starting text and, from /write, the id main records for the session. */
 export interface NewNote {
@@ -525,6 +531,11 @@ export interface CompanionApi extends BoardHost {
   capturePanel(rect: ReviewRect): Promise<string | undefined>;
   /** Transcribes one voice clip with ffmpeg and yap. */
   transcribeClip(clip: { data: Uint8Array; mimeType: string }): Promise<{ text: string } | { error: string }>;
+  /** Starts `yap dictate` on the microphone. Its phrases arrive through `onDictation`. One runs at a time. */
+  startDictation(): Promise<DictationStart>;
+  /** Stops a dictation. Its last phrase and its end still arrive through `onDictation`. */
+  stopDictation(id: string): Promise<void>;
+  onDictation(fn: (e: DictationEvent) => void): Subscription;
   /** Opens an http or https link in the browser. */
   openLink(url: string): Promise<void>;
   /** Every initiative, latest lastActiveAt first. */
@@ -629,6 +640,9 @@ export const CH = {
   reviewRedo: 'review:redo',
   capturePanel: 'review:capture',
   transcribeClip: 'review:transcribe',
+  startDictation: 'voice:dictate-start',
+  stopDictation: 'voice:dictate-stop',
+  dictation: 'voice:dictation',
   openLink: 'review:open-link',
   listInitiatives: 'initiatives:list',
   getInitiative: 'initiatives:get',
@@ -710,6 +724,8 @@ export const IPC_INVOKE = {
   reviewRedo: CH.reviewRedo,
   capturePanel: CH.capturePanel,
   transcribeClip: CH.transcribeClip,
+  startDictation: CH.startDictation,
+  stopDictation: CH.stopDictation,
   openLink: CH.openLink,
   listInitiatives: CH.listInitiatives,
   getInitiative: CH.getInitiative,
@@ -744,4 +760,5 @@ export const IPC_EVENT = {
   onBehaviorChanged: CH.behaviorChanged,
   onFeedbackChanged: CH.feedbackChanged,
   onOutputChanged: CH.outputChanged,
+  onDictation: CH.dictation,
 } as const satisfies Record<Exclude<EventMethod, 'onRequest'>, string>;
