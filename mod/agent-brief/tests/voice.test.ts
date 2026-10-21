@@ -23,10 +23,15 @@ const SAID = 'Rename the Pricing heading to Plans.'
 type FakeYap = { spawned: (readonly string[])[]; killed: string[]; copied: string[] }
 
 /**
- * Seats a yap that prints its pid, listens until `kill -INT`, then prints what it heard.
- * `code` 127 stands for a missing yap, which prints nothing.
+ * Seats a yap that prints its pid, then each `live` phrase two seconds apart while it listens.
+ * `kill -INT` makes it print `heard` and exit. `code` 127 stands for a missing yap, which prints nothing.
  */
-function fakeYap(on: On, world: World, clock: MockClock, { heard = SAID, code = 0 } = {}): FakeYap {
+function fakeYap(
+  on: On,
+  world: World,
+  clock: MockClock,
+  { heard = SAID, live = [] as string[], code = 0 } = {},
+): FakeYap {
   const yap: FakeYap = { spawned: [], killed: [], copied: [] }
   let release = () => {}
   const interrupted = new Promise<void>(resolve => (release = resolve))
@@ -41,6 +46,10 @@ function fakeYap(on: On, world: World, clock: MockClock, { heard = SAID, code = 
     yap.spawned.push(e.argv)
     if (code === 127) return { value: { code, signal: null } }
     yield { stream: 'stdout' as const, text: `${PID}\n` }
+    for (const phrase of live) {
+      await clock.sleep(2000)
+      yield { stream: 'stdout' as const, text: phrase }
+    }
     await Promise.race([interrupted, clock.sleep(60 * 60_000)])
     if (heard !== '') yield { stream: 'stdout' as const, text: `${heard}\n` }
     return { value: { code, signal: null } }
@@ -113,6 +122,43 @@ describe('the Talk button', () => {
     expect(await bandText($)).toContain('"label":"🎙 Talk"')
   })
 
+  test('fills each phrase while still listening, and the last one on Stop', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    fakeYap(on, world, clock, { live: ['Rename the Pricing heading.', ' Then shorten the intro.'], heard: ' And ship it.' })
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.settle()
+    expect(app.box.text).toBe('')
+
+    await clock.advance(2000)
+    expect(app.box.text).toBe('Rename the Pricing heading.')
+    await clock.advance(2000)
+    expect(app.box.text).toBe('Rename the Pricing heading. Then shorten the intro.')
+    expect(await bandText($)).toContain('"label":"■ Stop"')
+
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.settle()
+    expect(app.box.text).toBe('Rename the Pricing heading. Then shorten the intro. And ship it.')
+    expect(app.fills.map(f => f.mode)).toEqual(['insert', 'insert', 'insert'])
+    expect(world.toasts).toEqual([])
+  })
+
+  test('the next phrase goes in wherever the cursor moved to', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    fakeYap(on, world, clock, { live: ['First part.'], heard: ' Second part.' })
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.advance(2000)
+    app.box = { text: 'Intro: First part.', cursor: 'Intro:'.length }
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.settle()
+    expect(app.box.text).toBe('Intro: Second part. First part.')
+  })
+
   test('goes in at the cursor, spaced like typing, when the box already holds a draft', async ($, on) => {
     const { app, world, clock, start } = await setupCompanion($, on)
     fakeYap(on, world, clock)
@@ -179,6 +225,23 @@ describe('the Talk button', () => {
     await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
     await clock.settle()
     expect(yap.copied).toEqual([SAID])
+    expect(world.toasts).toEqual([DICTATION_NO_BOX])
+  })
+
+  test('after a refused phrase, nothing more goes in and the whole transcript lands on the clipboard', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    const yap = fakeYap(on, world, clock, { live: ['One.'], heard: ' Two.' })
+    app.isBoxBlocked = true
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.advance(2000)
+    app.isBoxBlocked = false
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.settle()
+    expect(app.fills).toEqual([])
+    expect(yap.copied).toEqual(['One. Two.'])
     expect(world.toasts).toEqual([DICTATION_NO_BOX])
   })
 })

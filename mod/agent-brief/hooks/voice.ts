@@ -1,7 +1,8 @@
 /**
  * Push-to-talk dictation. yap transcribes the microphone on device and the text lands in the prompt box.
  *
- * yap prints its transcript only when it stops. SIGINT makes it print and exit; SIGTERM drops the text.
+ * yap prints each phrase once it settles, a few seconds after a pause, and the band fills it in right away.
+ * SIGINT makes yap print the phrase in progress and exit; SIGTERM drops it.
  * So the band stops it with `kill -INT`, never by ending the stream, which sends SIGTERM.
  */
 

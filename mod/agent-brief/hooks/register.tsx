@@ -835,7 +835,7 @@ async function toggleDictation($: EngineInterface): Promise<void> {
   }
 }
 
-/** SIGINT makes yap print its transcript and exit. Before the pid arrives, the stop waits for it. */
+/** SIGINT makes yap print its last phrase and exit. Before the pid arrives, the stop waits for it. */
 async function stopDictation($: EngineInterface): Promise<void> {
   if (dictation === undefined) return
   dictation.isStopWanted = true
@@ -845,12 +845,14 @@ async function stopDictation($: EngineInterface): Promise<void> {
   }
 }
 
-/** Runs yap until it stops, then puts what it heard in the prompt box. */
+/** Runs yap until it stops, putting each phrase in the prompt box as yap prints it. */
 async function runDictation($: EngineInterface): Promise<void> {
   const ticking = $.clock.every(1000, () => void update($, voiceRef, addSecond).catch(() => undefined))
   const cap = $.clock.after(DICTATION_MAX_MS, () => void stopDictation($))
   let stdout = ''
   let stderr = ''
+  let placed = ''
+  let isRefused = false
   try {
     const child = $.process.spawn({ argv: DICTATE_ARGV })
     for await (const { stream, text } of child) {
@@ -859,16 +861,22 @@ async function runDictation($: EngineInterface): Promise<void> {
         continue
       }
       stdout += text
-      const { pid } = splitDictation(stdout)
+      const { pid, text: heard } = splitDictation(stdout)
       if (dictation !== undefined && dictation.pid === undefined && pid !== undefined) {
         dictation.pid = pid
         if (dictation.isStopWanted) await stopDictation($)
       }
+
+      // The collapsed transcript only grows, so the new phrase is whatever follows what was placed.
+      const phrase = heard.slice(placed.length).trim()
+      if (phrase === '') continue
+      placed = heard
+      if (!isRefused) isRefused = !(await fillPhrase($, phrase))
     }
     const ended = await child.result
-    const { text } = splitDictation(stdout)
     if (ended.code === YAP_MISSING) $.ui.toast(YAP_MISSING_TEXT, { timeoutMs: 8000 })
-    else if (text !== '') await fillDictation($, text)
+    else if (isRefused) await copyDictation($, placed)
+    else if (placed !== '') return
     else if (ended.code !== 0 && ended.signal === null && stderr.trim() !== '') $.ui.toast(failureText(stderr, ended.code), { timeoutMs: 8000 })
     else $.ui.toast(DICTATION_EMPTY)
   } catch (err) {
@@ -882,11 +890,15 @@ async function runDictation($: EngineInterface): Promise<void> {
   }
 }
 
-/** Puts the words in at the cursor. The words in the box say it worked; a box that refuses keeps them on the clipboard. */
-async function fillDictation($: EngineInterface, text: string): Promise<void> {
+/** Puts one phrase in at the cursor, as typing would. False when the box refuses it. */
+async function fillPhrase($: EngineInterface, phrase: string): Promise<boolean> {
   const box = await $.prompt.read()
-  const filled = await $.prompt.fill(dictationFill(box, text))
-  if (filled.isFilled) return
+  const filled = await $.prompt.fill(dictationFill(box, phrase))
+  return filled.isFilled
+}
+
+/** A box that refused a phrase gets nothing more. The whole transcript goes on the clipboard instead. */
+async function copyDictation($: EngineInterface, text: string): Promise<void> {
   await $.ui.copy({ text }).catch(() => undefined)
   $.ui.toast(DICTATION_NO_BOX, { timeoutMs: 8000 })
 }

@@ -28,7 +28,7 @@ export type ShownState = {
   board?: string
 }
 
-/** Band dictation: yap is listening, or has been told to stop and is printing its transcript. */
+/** Band dictation: yap is listening, or has been told to stop and is printing its last phrase. */
 export type VoiceState = { phase: 'listening' | 'finishing'; seconds: number }
 
 /** As `OutputRecord` in hooks/companion-protocol.ts: one record of the session's outputs file. */
