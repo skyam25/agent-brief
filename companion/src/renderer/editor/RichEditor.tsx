@@ -17,7 +17,7 @@ import { FindBar, findIn } from './FindBar';
 import { FormatBar } from './FormatBar';
 import { ATT, AttachmentsContext, Picture } from './ImageView';
 import { ListFormatMenu } from './ListFormatMenu';
-import { numberedListAt, setListFormat, type ListFormat } from './lists';
+import { numberedListAt, setListFormat, wordAt, type ListFormat } from './lists';
 import { PromptMarkdown, schemaExtensions } from './markdown';
 import { pictureFiles, preparePicture } from './pictures';
 import { blockItems, filterItems, SlashCommand, SlashMenu, templateItems, type SlashBridge, type SlashItem } from './SlashMenu';
@@ -234,6 +234,11 @@ export function RichEditor(props: RichEditorProps) {
             const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
             const list = hit && numberedListAt(view.state, hit.pos);
             if (!list) return false;
+
+            // A misspelled word gets the spelling menu instead.
+            const word = wordAt(view.state, hit.pos);
+            if (word && window.spelling?.isMisspelled(word)) return false;
+
             event.preventDefault();
             setListMenu({ x: event.clientX, y: event.clientY, pos: list.pos, current: list.format });
             return true;

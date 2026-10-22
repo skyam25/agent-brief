@@ -2,7 +2,7 @@ import { getSchema, type JSONContent } from '@tiptap/core';
 import { EditorState } from '@tiptap/pm/state';
 import { MarkdownManager } from '@tiptap/markdown';
 import { describe, expect, it } from 'vitest';
-import { formatForDepth, numberedListAt, setListFormat, stampDepthFormats } from './lists';
+import { formatForDepth, numberedListAt, setListFormat, stampDepthFormats, wordAt } from './lists';
 import { lightenEscapes, schemaExtensions } from './markdown';
 
 const manager = () => {
@@ -67,5 +67,27 @@ describe('list formats', () => {
   it('folds capital letters and numerals into their lowercase formats', () => {
     const state = stateOf(manager().parse('A. one\nB. two'));
     expect(numberedListAt(state, 3)!.format).toBe('a');
+  });
+});
+
+describe('wordAt', () => {
+  const state = stateOf({ type: 'doc', content: [list(item("send an eligibilty packet, 'quoted' and don't"))] });
+  const text = "send an eligibilty packet, 'quoted' and don't";
+  const at = (needle: string, offset = 0) => 3 + text.indexOf(needle) + offset;
+
+  it('finds the word inside, at the start or at the end of a word', () => {
+    expect(wordAt(state, at('eligibilty', 4))).toBe('eligibilty');
+    expect(wordAt(state, at('eligibilty'))).toBe('eligibilty');
+    expect(wordAt(state, at('packet', 6))).toBe('packet');
+  });
+
+  it('keeps apostrophes inside a word and drops quote marks around it', () => {
+    expect(wordAt(state, at("don't", 2))).toBe("don't");
+    expect(wordAt(state, at('quoted', 2))).toBe('quoted');
+  });
+
+  it('finds nothing between words or outside text', () => {
+    expect(wordAt(state, at(', ', 1))).toBe('');
+    expect(wordAt(state, 1)).toBe('');
   });
 });

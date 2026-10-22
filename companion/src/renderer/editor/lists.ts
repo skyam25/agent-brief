@@ -54,6 +54,20 @@ export function numberedListAt(state: EditorState, pos: number): NumberedListHit
   return undefined;
 }
 
+const WORD_CHAR = /[\p{L}\p{M}\p{N}'’]/u;
+
+/** The word around `pos`, without quote marks at either end. Leaf nodes count as one character, so offsets match positions. */
+export function wordAt(state: EditorState, pos: number): string {
+  const $pos = state.doc.resolve(pos);
+  if (!$pos.parent.isTextblock) return '';
+  const text = $pos.parent.textBetween(0, $pos.parent.content.size, undefined, '\ufffc');
+  let start = $pos.parentOffset;
+  let end = start;
+  while (start > 0 && WORD_CHAR.test(text[start - 1]!)) start--;
+  while (end < text.length && WORD_CHAR.test(text[end]!)) end++;
+  return text.slice(start, end).replace(/^['’]+|['’]+$/g, '');
+}
+
 export function setListFormat(state: EditorState, pos: number, format: ListFormat): Transaction {
   return state.tr.setNodeAttribute(pos, 'type', format);
 }

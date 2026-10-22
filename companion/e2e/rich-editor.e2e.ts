@@ -113,6 +113,46 @@ test('nested numbered lists go 1, a, i, and a right-click sets the format of one
   await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['1. one\n   a. two\n      1. three']);
 });
 
+/** The centre of the first occurrence of `word` in the editor. */
+async function wordCentre(page: Page, word: string): Promise<{ x: number; y: number }> {
+  return page.evaluate((word) => {
+    const walker = document.createTreeWalker(document.querySelector('[data-testid="draft-body"]')!, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.textContent!.indexOf(word);
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + word.length);
+      const r = range.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    throw new Error(`no ${word}`);
+  }, word);
+}
+
+// The off-screen window never marks misspellings, so its text menu has no guesses. Unit tests cover those.
+test('a right-click on a misspelled word in a list gets the text menu, not the list menu', async () => {
+  const { page, app } = ctx;
+  const textMenu = () => app.evaluate(() => globalThis.__companion.panel.lastTextMenu.map((i) => i.role ?? i.label ?? i.type));
+  const rightClick = async (word: string) => {
+    await app.evaluate(() => void (globalThis.__companion.panel.lastTextMenu = []));
+    const at = await wordCentre(page, word);
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+  };
+  const listMenu = page.getByTestId('list-format-menu');
+  await editor(page).click();
+  await page.keyboard.type('1. send the eligibilty packet');
+  await expect(editor(page).locator('ol > li')).toHaveText(['send the eligibilty packet']);
+
+  await rightClick('eligibilty');
+  await expect.poll(textMenu).toEqual(['cut', 'copy', 'paste', 'separator', 'selectAll']);
+  await expect(listMenu).toHaveCount(0);
+
+  await rightClick('packet');
+  await expect(listMenu).toBeVisible();
+  expect(await textMenu()).toEqual([]);
+});
+
 test('⌘B bolds a selection, and the format bar shows while text is selected', async () => {
   const { page } = ctx;
   await editor(page).click();

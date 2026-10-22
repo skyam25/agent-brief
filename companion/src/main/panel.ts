@@ -1,7 +1,8 @@
 /** The panel: one window, created hidden and kept alive. */
 
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, Menu, screen, type MenuItemConstructorOptions } from 'electron';
 import { areaUnder, centredBounds, reachable } from './placement';
+import { textMenuTemplate } from './text-menu';
 import { OFFSCREEN, panelWindow } from './window-options';
 
 const LONGEST_CROP = 900;
@@ -30,6 +31,8 @@ export interface PanelOptions {
 export class Panel {
   readonly win: BrowserWindow;
   readonly offscreen: boolean;
+  /** The last text menu the off-screen panel would have shown. Tests read it, since the menu never pops up. */
+  lastTextMenu: MenuItemConstructorOptions[] = [];
   private quitting = false;
   private placed: boolean;
   private readonly onVisibility: (visible: boolean) => void;
@@ -72,6 +75,17 @@ export class Panel {
     // A page's beforeunload handler would cancel the quit.
     this.win.webContents.on('will-prevent-unload', (e) => {
       if (this.quitting) e.preventDefault();
+    });
+
+    // Right-clicks on text get spelling fixes and the edit actions.
+    const contents = this.win.webContents;
+    contents.on('context-menu', (_e, params) => {
+      const template = textMenuTemplate(params, {
+        replace: (word) => contents.replaceMisspelling(word),
+        learn: (word) => contents.session.addWordToSpellCheckerDictionary(word),
+      });
+      if (this.offscreen) this.lastTextMenu = template;
+      else if (template.length) Menu.buildFromTemplate(template).popup({ window: this.win, frame: params.frame ?? undefined });
     });
 
     if (opts.url) void this.win.loadURL(opts.url);
