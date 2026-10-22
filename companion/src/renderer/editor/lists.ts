@@ -85,6 +85,35 @@ export function stampDepthFormats(state: EditorState): Transaction | null {
   return tr;
 }
 
+/**
+ * Joins numbered lists that touch and share a format, so numbering runs on.
+ * Markdown reads touching lists as one, so this keeps the editor and the saved text in step.
+ */
+export function joinNumberedLists(state: EditorState): Transaction | null {
+  const joins: number[] = [];
+  const scan = (parent: PMNode, start: number) => {
+    let prev: PMNode | undefined;
+    parent.forEach((child, offset) => {
+      const at = start + offset;
+      if (prev?.type.name === 'orderedList' && child.type.name === 'orderedList') {
+        const depth = numberedDepth(state, at);
+        if (listFormat(prev, depth) === listFormat(child, depth)) joins.push(at);
+      }
+      prev = child;
+    });
+  };
+  scan(state.doc, 0);
+  state.doc.descendants((node, pos) => {
+    if (node.isTextblock) return false;
+    scan(node, pos + 1);
+    return true;
+  });
+  if (joins.length === 0) return null;
+  const tr = state.tr;
+  for (const at of joins.reverse()) tr.join(at);
+  return tr;
+}
+
 /** Digits are a format too, so a nested `1.` in the Markdown stays numbers. */
 export const NumberedList = OrderedList.extend({
   parseMarkdown(token, helpers) {
@@ -94,13 +123,14 @@ export const NumberedList = OrderedList.extend({
   },
 });
 
+/** After each change, joins touching numbered lists, then stamps nested formats. */
 export const ListDepthFormats = Extension.create({
   name: 'listDepthFormats',
   addProseMirrorPlugins() {
     return [
       new Plugin({
         key: new PluginKey('listDepthFormats'),
-        appendTransaction: (trs, _old, state) => (trs.some((t) => t.docChanged) ? stampDepthFormats(state) : null),
+        appendTransaction: (trs, _old, state) => (trs.some((t) => t.docChanged) ? (joinNumberedLists(state) ?? stampDepthFormats(state)) : null),
       }),
     ];
   },

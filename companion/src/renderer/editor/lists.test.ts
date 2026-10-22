@@ -2,7 +2,7 @@ import { getSchema, type JSONContent } from '@tiptap/core';
 import { EditorState } from '@tiptap/pm/state';
 import { MarkdownManager } from '@tiptap/markdown';
 import { describe, expect, it } from 'vitest';
-import { formatForDepth, numberedListAt, setListFormat, stampDepthFormats, wordAt } from './lists';
+import { formatForDepth, joinNumberedLists, numberedListAt, setListFormat, stampDepthFormats, wordAt } from './lists';
 import { lightenEscapes, schemaExtensions } from './markdown';
 
 const manager = () => {
@@ -89,5 +89,29 @@ describe('wordAt', () => {
   it('finds nothing between words or outside text', () => {
     expect(wordAt(state, at(', ', 1))).toBe('');
     expect(wordAt(state, 1)).toBe('');
+  });
+});
+
+describe('joinNumberedLists', () => {
+  const para = (text: string): JSONContent => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+  const joined = (doc: JSONContent) => {
+    const state = stateOf(doc);
+    const tr = joinNumberedLists(state);
+    return tr ? markdownOf(state.apply(tr)) : undefined;
+  };
+
+  it('joins touching lists, so numbering runs on after a nested list', () => {
+    const doc = { type: 'doc', content: [list(item('How'), item('Setup', { ...list(item('Allow')), attrs: { type: 'a' } })), list(item('Follow up')), list(item('Release'))] };
+    expect(joined(doc)).toBe('1. How\n2. Setup\n   a. Allow\n3. Follow up\n4. Release');
+  });
+
+  it('joins touching nested lists', () => {
+    const doc = { type: 'doc', content: [list(item('one', { ...list(item('a')), attrs: { type: 'a' } }, { ...list(item('b')), attrs: { type: 'a' } }))] };
+    expect(joined(doc)).toBe('1. one\n   a. a\n   b. b');
+  });
+
+  it('leaves lists apart when text sits between them or their formats differ', () => {
+    expect(joined({ type: 'doc', content: [list(item('one')), para('Requirements:'), list(item('two'))] })).toBeUndefined();
+    expect(joined({ type: 'doc', content: [list(item('one')), { ...list(item('two')), attrs: { type: 'i' } }] })).toBeUndefined();
   });
 });

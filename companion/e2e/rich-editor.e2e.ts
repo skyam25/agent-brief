@@ -113,6 +113,25 @@ test('nested numbered lists go 1, a, i, and a right-click sets the format of one
   await expect.poll(() => draftsOnDisk().map((d) => d.body)).toEqual(['1. one\n   a. two\n      1. three']);
 });
 
+test('a list started right after another, or one that comes to touch it, keeps counting', async () => {
+  const { page } = ctx;
+  const numbers = () => editor(page).locator(':scope > .ProseMirror > ol, :scope > ol');
+  await editor(page).click();
+  await page.keyboard.type('1. How\nSetup\n');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Allow\n\n\n1. Follow up');
+  await expect.poll(() => draftBody(page)).toBe('1. How\n2. Setup\n   a. Allow\n3. Follow up');
+  await expect(numbers()).toHaveCount(1);
+
+  await page.keyboard.type('\n\nnote\n1. Release');
+  await expect(numbers()).toHaveCount(2);
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('End');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('Backspace');
+  await expect.poll(() => draftBody(page)).toBe('1. How\n2. Setup\n   a. Allow\n3. Follow up\n4. Release');
+  await expect(numbers()).toHaveCount(1);
+});
+
 /** The centre of the first occurrence of `word` in the editor. */
 async function wordCentre(page: Page, word: string): Promise<{ x: number; y: number }> {
   return page.evaluate((word) => {
