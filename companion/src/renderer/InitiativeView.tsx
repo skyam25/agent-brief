@@ -190,25 +190,38 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
   const [saving, setSaving] = useState(false);
   // A push that changed Understanding replaces the text unless the PM is mid-edit.
   const [base, setBase] = useState(i.understanding);
+  const [editRevision, setEditRevision] = useState(i.revision);
   const dirty = understanding !== base;
   // Text that would split the brief into another section cannot be saved.
   const broken = dirty ? sectionBreak(understanding) : undefined;
   useEffect(() => {
-    if (!dirty || understanding.trim() === i.understanding) setUnderstanding(i.understanding);
-    setBase(i.understanding);
-  }, [i.understanding]);
+    if (!dirty || understanding.trim() === i.understanding) {
+      setUnderstanding(i.understanding);
+      setBase(i.understanding);
+      setEditRevision(i.revision);
+    }
+  }, [i.understanding, i.revision]);
 
-  const save = async (patch: Parameters<InitiativesStore['save']>[0]) => {
+  const save = async (patch: Omit<Parameters<InitiativesStore['save']>[0], 'revision'>, revision: number) => {
     setSaving(true);
     try {
-      const result = await props.store.save(patch);
+      const result = await props.store.save({ ...patch, revision });
       if (!result.ok) props.onError(`Not saved: ${result.message}`);
-      return result.ok;
+      return result;
     } catch (err) {
       props.onError(`Could not save: ${errorText(err)}`);
-      return false;
+      return undefined;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveUnderstanding = async () => {
+    const sent = understanding;
+    const result = await save({ understanding: sent }, editRevision);
+    if (result?.ok) {
+      setBase(sent);
+      setEditRevision(result.detail.initiative.revision);
     }
   };
 
@@ -239,7 +252,7 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && e.metaKey && dirty && !broken) {
               e.preventDefault();
-              void save({ understanding });
+              void saveUnderstanding();
             }
           }}
           data-testid="initiative-understanding"
@@ -251,10 +264,10 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
         )}
         {dirty && (
           <div className="initiative-actions">
-            <button className="ghost" onClick={() => setUnderstanding(base)}>
+            <button className="ghost" onClick={() => { setUnderstanding(i.understanding); setBase(i.understanding); setEditRevision(i.revision); }}>
               Revert
             </button>
-            <button className="primary" disabled={saving || !!broken} onClick={() => void save({ understanding })} data-testid="initiative-save">
+            <button className="primary" disabled={saving || !!broken} onClick={() => void saveUnderstanding()} data-testid="initiative-save">
               Save
             </button>
           </div>
@@ -266,10 +279,11 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
 
       <FolderMap
         folders={i.folders}
+        revision={i.revision}
         home={props.home}
         chooseFolder={props.chooseFolder}
         onReveal={props.onReveal}
-        onSave={(folders) => save({ folders })}
+        onSave={async (folders, revision) => !!(await save({ folders }, revision))?.ok}
       />
 
       <section>
@@ -315,12 +329,14 @@ function Lines(props: { title: string; lines: string[]; empty: string }) {
 
 function FolderMap(props: {
   folders: InitiativeFolder[];
+  revision: number;
   home: string;
   chooseFolder: () => Promise<string | undefined>;
   onReveal: (path: string) => void;
-  onSave: (folders: InitiativeFolder[]) => Promise<boolean>;
+  onSave: (folders: InitiativeFolder[], revision: number) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState<InitiativeFolder[]>();
+  const [editRevision, setEditRevision] = useState(props.revision);
   const set = (n: number, patch: Partial<InitiativeFolder>) => setEditing((rows) => rows!.map((r, k) => (k === n ? { ...r, ...patch } : r)));
 
   if (editing) {
@@ -359,7 +375,7 @@ function FolderMap(props: {
             className="primary"
             onClick={() => {
               const rows = editing.map((f) => ({ ...f, path: f.path.trim() })).filter((f) => f.path);
-              void props.onSave(rows).then((ok) => ok && setEditing(undefined));
+              void props.onSave(rows, editRevision).then((ok) => ok && setEditing(undefined));
             }}
           >
             Save map
@@ -373,7 +389,7 @@ function FolderMap(props: {
     <section data-testid="initiative-map">
       <h3 className="section-head">
         Folders
-        <button className="ghost small" onClick={() => setEditing(props.folders.map((f) => ({ ...f })))} data-testid="initiative-edit-map">
+        <button className="ghost small" onClick={() => { setEditRevision(props.revision); setEditing(props.folders.map((f) => ({ ...f }))); }} data-testid="initiative-edit-map">
           Edit map
         </button>
       </h3>

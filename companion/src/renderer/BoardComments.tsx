@@ -173,6 +173,7 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
 
   return (
     <aside className="review-notes board-comments" aria-label="Comments" data-testid="board-comments">
+      {comments.saveError && <p className="error" role="alert">Could not save comments: {comments.saveError}. Retrying…</p>}
       <label className={comments.selected === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
         <span className="section-head">Overall</span>
         <textarea

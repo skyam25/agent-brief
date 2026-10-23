@@ -36,7 +36,7 @@ export type BriefPaneView = {
 export type BriefActions = {
   /** Opens the file in its default app, or the URL in the browser. */
   open: (ref: string) => Promise<void>
-  /** Opens a Markdown or HTML output in the Agent Brief app, on its Feedback tab when asked. */
+  /** Opens a Markdown/HTML output or a file's Feedback view in Agent Brief. */
   openInApp: (ref: string, tab?: 'feedback') => Promise<void>
   /** Shows one of the session's boards in the Agent Brief app. */
   openBoard: (name: string) => Promise<void>

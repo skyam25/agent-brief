@@ -21,6 +21,22 @@ async function agent(socketPath: string, route: string, ops: unknown[]) {
   expect(res.status).toBe(200);
 }
 
+test('opens document and PDF feedback directly without an embedded page', async () => {
+  const h = await launchShown();
+  ctx = h.ctx;
+  const cwd = tempDataDir();
+  await sock(h.socketPath, 'POST', '/sessions', { sessionId: 'files', cwd, title: 'Files' });
+  for (const path of ['brief.docx', 'deck.pdf', 'slides.pptx', 'model.xlsx']) {
+    put(cwd, path, 'output');
+    await agent(h.socketPath, `/sessions/files/feedback?path=${encodeURIComponent(path)}`, [{ op: 'addRound', label: 'review' }, { op: 'addItem', title: `Review ${path}` }]);
+    const res = await sock(h.socketPath, 'POST', '/open', { sessionId: 'files', output: { path, tab: 'feedback' } });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ opened: 'review' });
+    await expect(ctx.page.getByTestId('feedback-panel')).toContainText(`Review ${path}`);
+    await expect(ctx.page.getByTestId('review-frame')).toHaveCount(0);
+  }
+});
+
 test('opens on the Feedback tab when items are open, or when /open asks for it', async () => {
   const h = await launchShown();
   ctx = h.ctx;

@@ -1,8 +1,9 @@
 /** Boards and notes on disk: `<dataDir>/boards/<name>.excalidraw` and `<name>.notes.md`. */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CURRENT_BOARD, type BoardLayout } from '../protocol';
+import { cleanBoardComments, type BoardComments } from '../shared/board-comments';
 import { layoutOfScene } from '../board/stack';
 import type { BoardEntry, Mode, Settings } from '../shared/ipc';
 import { badRequest, notFound, BoardError } from '../board/errors';
@@ -10,6 +11,7 @@ import type { SessionBriefs } from './session-briefs';
 
 const SCENE_EXT = '.excalidraw';
 const NOTES_EXT = '.notes.md';
+const COMMENTS_EXT = '.comments.json';
 
 export const DEFAULT_BOARD = 'scratch';
 
@@ -83,6 +85,32 @@ export class BoardStore {
     return join(this.dir, cleanName(name) + NOTES_EXT);
   }
 
+  private commentsPath(name: string): string {
+    return join(this.dir, cleanName(name) + COMMENTS_EXT);
+  }
+
+  listComments(): Record<string, BoardComments> {
+    const entries: [string, BoardComments][] = [];
+    for (const { name } of this.list()) {
+      const path = this.commentsPath(name);
+      if (!existsSync(path)) continue;
+      try {
+        const comments = cleanBoardComments(JSON.parse(readFileSync(path, 'utf8')));
+        if (comments) entries.push([name, comments]);
+      } catch (err) {
+        console.warn(`[companion] skipped comments for ${name}: ${(err as Error).message}`);
+      }
+    }
+    return Object.fromEntries(entries);
+  }
+
+  saveComments(name: string, raw: BoardComments): void {
+    if (!this.exists(name)) throw notFound(`no board named ${JSON.stringify(name)}`);
+    const comments = cleanBoardComments(raw);
+    if (comments) writeAtomic(this.commentsPath(name), JSON.stringify(comments, null, 2));
+    else rmSync(this.commentsPath(name), { force: true });
+  }
+
   exists(name: string): boolean {
     return existsSync(this.scenePath(name));
   }
@@ -139,7 +167,7 @@ export class BoardStore {
   /** True when the board has no live elements and no notes. A missing board is empty. */
   isEmpty(name: string): boolean {
     const { scene, notes } = this.load(name);
-    if (notes.trim()) return false;
+    if (notes.trim() || existsSync(this.commentsPath(name))) return false;
     try {
       const elements = (JSON.parse(scene ?? '{}') as { elements?: { isDeleted?: boolean }[] }).elements ?? [];
       return !elements.some((e) => !e.isDeleted);
@@ -159,7 +187,7 @@ export class BoardStore {
   /** The board's scene and notes files that exist on disk. */
   files(raw: string): string[] {
     if (!this.exists(raw)) throw notFound(`no board named ${JSON.stringify(cleanName(raw))}`);
-    return [this.scenePath(raw), this.notesPath(raw)].filter((p) => existsSync(p));
+    return [this.scenePath(raw), this.notesPath(raw), this.commentsPath(raw)].filter((p) => existsSync(p));
   }
 
   rename(fromRaw: string, toRaw: string): string {
@@ -170,6 +198,7 @@ export class BoardStore {
     if (this.exists(to)) throw new BoardError('conflict', `a board named ${JSON.stringify(to)} exists`);
     renameSync(this.scenePath(from), this.scenePath(to));
     if (existsSync(this.notesPath(from))) renameSync(this.notesPath(from), this.notesPath(to));
+    if (existsSync(this.commentsPath(from))) renameSync(this.commentsPath(from), this.commentsPath(to));
     for (const fn of this.created) fn(to);
     return to;
   }

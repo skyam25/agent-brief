@@ -54,6 +54,13 @@ describe('ReviewVoice', () => {
     expect(voice.pending.size).toBe(0);
   });
 
+  it('opens one microphone when a second start comes while the first is opening', async () => {
+    const { voice, isOpen } = setup();
+    await Promise.all([voice.start(OVERALL), voice.start(OVERALL)]);
+    await voice.stop();
+    expect(isOpen()).toBe(false);
+  });
+
   it('drops clips too short to hold words', async () => {
     const { voice, heard, tick } = setup();
     await voice.start('c1');

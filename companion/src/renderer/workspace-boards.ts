@@ -23,4 +23,4 @@ export function workspaceReply(req: BoardRequest): Promise<BoardReply> | undefin
   return undefined;
 }
 
-export const flushWorkspaces = () => Promise.all([...held].map((c) => c.flush()));
+export const flushWorkspaces = () => Promise.all([workspaceComments.flush(), ...[...held].map((c) => c.flush())]);

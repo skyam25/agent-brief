@@ -655,10 +655,17 @@ export function registerShow(on: On): void {
     const done = await next(e)
     const out = 'result' in done ? (done.result as { stdout?: unknown } | null | undefined) : undefined
     if (!out || typeof out.stdout !== 'string') return done
-    const request = bashRequestOf(out.stdout)
-    if (request?.kind !== 'show') return done
-    const answer = await showFor($, request.input)
-    const stdout = 'result' in answer ? answer.result : answer.deny
+    const lines = out.stdout.split('\n')
+    let changed = false
+    for (let i = 0; i < lines.length; i++) {
+      const request = bashRequestOf(lines[i]!)
+      if (request?.kind !== 'show') continue
+      changed = true
+      const answer = await showFor($, request.input)
+      lines[i] = 'result' in answer ? answer.result : answer.deny
+    }
+    if (!changed) return done
+    const stdout = lines.join('\n')
     return { result: { ...out, stdout }, ...(done.context ? { context: done.context } : {}) }
   }).catch(($, e, next) => next(e))
 

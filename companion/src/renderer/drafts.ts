@@ -39,6 +39,7 @@ export function onTab(d: Draft, sessionId: string | undefined, tabs: readonly st
 
 /** What a Send took from a draft. */
 export interface SentRevision {
+  updatedAt?: number;
   body: string;
   board?: string;
 }
@@ -324,7 +325,7 @@ export class DraftBook {
     const known = source.text;
     if (sameText(draft.body, text) || (known !== undefined && sameText(known, text))) {
       if (this.changedFiles.delete(id)) this.emit();
-      if (known === undefined) this.patch(id, { source: { ...source, text } });
+      if (known === undefined || !sameText(known, text)) this.patch(id, { source: { ...source, text } });
       return 'same';
     }
     if (known !== undefined && sameText(draft.body, known)) {
@@ -339,15 +340,16 @@ export class DraftBook {
   /** Reads the note's file and syncs the note with it. A file the app cannot read leaves the note as it is. */
   async refreshSource(id: string): Promise<SourceSync> {
     const draft = this.get(id);
-    if (!draft?.source || !draft.sessionId) return 'same';
-    const text = await this.host.readSource(draft.sessionId, draft.source.path).catch(() => undefined);
+    const sessionId = draft?.source?.sessionId ?? draft?.sessionId;
+    if (!draft?.source || !sessionId) return 'same';
+    const text = await this.host.readSource(sessionId, draft.source.path).catch(() => undefined);
     return this.syncSource(id, text);
   }
 
   /** Refreshes the note now and whenever its file changes on disk, until the returned stop runs. */
   watchSource(id: string): () => void {
     const draft = this.get(id);
-    const sessionId = draft?.sessionId;
+    const sessionId = draft?.source?.sessionId ?? draft?.sessionId;
     const path = draft?.source?.path;
     if (!sessionId || !path) return () => {};
     void this.refreshSource(id);
@@ -387,7 +389,9 @@ export class DraftBook {
 
   /** Files a draft under a session, or unfiles it. */
   file(id: string, sessionId: string | undefined): void {
-    this.patch(id, { sessionId });
+    const draft = this.get(id);
+    const source = draft?.source;
+    this.patch(id, { sessionId, ...(source && !source.sessionId && draft?.sessionId ? { source: { ...source, sessionId: draft.sessionId } } : {}) });
   }
 
   /** Deletes a draft for good. */
@@ -403,7 +407,7 @@ export class DraftBook {
    */
   consume(id: string, sent: SentRevision): void {
     const draft = this.get(id);
-    if (draft && (draft.body !== sent.body || draft.board !== sent.board)) {
+    if (draft && (draft.body !== sent.body || draft.board !== sent.board || (sent.updatedAt !== undefined && draft.updatedAt !== sent.updatedAt))) {
       this.saves.schedule(id);
       this.emit();
       return;

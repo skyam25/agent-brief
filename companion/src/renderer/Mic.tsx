@@ -52,7 +52,8 @@ export function Mic(props: {
 export function VoiceStrip(props: {
   recording?: boolean;
   reviewing?: boolean;
-  elapsedMs: number;
+  /** Epoch ms when the microphone opened. */
+  since?: number;
   voiceMs: number;
   hasVoice?: boolean;
   input?: MediaStream;
@@ -61,10 +62,7 @@ export function VoiceStrip(props: {
   if (props.recording) {
     return (
       <div className="voice-strip" data-testid="voice-strip">
-        <span className="rec-clock" data-testid="mic-clock">
-          <span className="rec-dot" aria-hidden="true" />
-          {clock(props.elapsedMs)}
-        </span>
+        <RecClock since={props.since} earlierMs={props.reviewing ? 0 : props.voiceMs} />
         {props.input && <LevelMeter stream={props.input} />}
         <span className="muted hint">
           {props.reviewing ? 'Listening. Words go to the selected pin.' : 'Listening. Keep sketching.'}
@@ -88,11 +86,28 @@ export function VoiceStrip(props: {
   );
 }
 
+/** The recording clock. It ticks here, so the rest of the panel and the board never re-render with it. */
+function RecClock({ since, earlierMs }: { since?: number; earlierMs: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, []);
+  const elapsedMs = since === undefined ? 0 : earlierMs + Math.max(0, now - since);
+  return (
+    <span className="rec-clock" data-testid="mic-clock">
+      <span className="rec-dot" aria-hidden="true" />
+      {clock(elapsedMs)}
+    </span>
+  );
+}
+
 /** Recent microphone loudness as a row of bars, newest on the right. */
 function LevelMeter({ stream }: { stream: MediaStream }) {
   const [levels, setLevels] = useState<number[]>(() => Array(BARS).fill(0));
   useEffect(() => {
-    const ctx = new AudioContext();
+    // No output device. Opening one during a call can switch a headset's audio route.
+    const ctx = new AudioContext({ sinkId: { type: 'none' } } as AudioContextOptions);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     ctx.createMediaStreamSource(stream).connect(analyser);

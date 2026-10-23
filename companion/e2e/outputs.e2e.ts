@@ -53,6 +53,64 @@ function put(cwd: string, path: string, text: string): void {
 const writeOutputs = (cwd: string, outputs: OutputRecord[]) =>
   put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs }, null, 2));
 
+test('a refiled output note follows its original file and only sends within its original project', async () => {
+  const { page } = ctx;
+  const alpha = tempDataDir();
+  const beta = tempDataDir();
+  put(alpha, 'plan.md', '# Alpha original');
+  put(beta, 'plan.md', '# Beta original');
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: alpha, title: 'Alpha' });
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's2', cwd: beta, title: 'Beta' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's2' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1', output: { path: 'plan.md' } });
+  await expect(page.getByTestId('draft-body')).toContainText('Alpha original');
+  await page.getByTestId('draft-more').click();
+  await page.getByTestId('draft-file-under').click();
+  await page.getByTestId('file-under').filter({ hasText: 'Beta' }).click();
+  await page.getByTestId('brief-tab').filter({ hasText: 'Beta' }).getByRole('tab').click();
+  await page.getByTestId('mode-write').click();
+  await expect(page.getByTestId('draft-body')).toContainText('Alpha original');
+  put(alpha, 'plan.md', '# Alpha revised');
+  await expect(page.getByTestId('draft-body')).toContainText('Alpha revised');
+  await page.getByTestId('send').click();
+  await expect(page.getByTestId('send-status')).toContainText('another project');
+  expect(await deliveriesFor(socketPath, 's2')).toHaveLength(0);
+
+  // A fresh session in the original project can still receive the review.
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's3', cwd: alpha, title: 'Alpha resumed' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's3' });
+  await page.getByTestId('brief-tab').filter({ hasText: 'Beta' }).getByRole('tab').click();
+  await page.getByTestId('mode-write').click();
+  await page.getByTestId('draft-more').click();
+  await page.getByTestId('draft-file-under').click();
+  await page.getByTestId('file-under').filter({ hasText: 'Alpha resumed' }).click();
+  await page.getByTestId('brief-tab').filter({ hasText: 'Alpha resumed' }).getByRole('tab').click();
+  await page.getByTestId('mode-write').click();
+  await page.getByTestId('send').click();
+  await expect.poll(async () => (await deliveriesFor(socketPath, 's3')).length).toBe(1);
+});
+
+test('hiding an output with feedback stays hidden until its next declaration', async () => {
+  const { page } = ctx;
+  const cwd = tempDataDir();
+  put(cwd, 'docs/pricing.md', '# Pricing');
+  put(cwd, 'docs/pricing.md.feedback.md', '# Feedback · pricing.md\n\n- [ ] #1 Shorten it\n    Claude: 2026-10-22 · cataloged\n');
+  writeOutputs(cwd, [PRICING]);
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Pricing' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await page.getByTestId('mode-review').click();
+  const row = page.locator('[data-ref="docs/pricing.md"]');
+  await expect(page.getByTestId('output-feedback-0')).toBeVisible();
+  await row.hover();
+  await page.getByTestId('output-dismiss-0').click();
+  await expect(row).toHaveCount(0);
+  await page.getByTestId('mode-write').click();
+  await page.getByTestId('mode-review').click();
+  await expect(row).toHaveCount(0);
+  writeOutputs(cwd, [{ ...PRICING, declaredAt: T + 60_000 }]);
+  await expect(row).toBeVisible();
+});
+
 test('Review mode lists a session\'s outputs, opens them, and sends an edited copy back', async () => {
   const { app, page } = ctx;
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));
@@ -105,6 +163,7 @@ test('Review mode lists a session\'s outputs, opens them, and sends an edited co
   expect(delivery!.draft.startsWith('@.feedback/sketches/')).toBe(true);
   expect(delivery!.draft).toContain('Apply the changes to docs/pricing.md');
   expect(existsSync(join(delivery!.dir, 'draft.md'))).toBe(true);
+  await expect.poll(() => app.evaluate(() => globalThis.__companion.panel.isVisible())).toBe(false);
 
   // An HTML output opens in the review pane, which can still hand it to the browser.
   // A standalone show clears the target. The switch then sets it, and Review needs it.

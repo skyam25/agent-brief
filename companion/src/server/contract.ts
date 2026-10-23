@@ -44,7 +44,7 @@ export interface Region {
 export interface BoardBackend {
   health(): { panelVisible: boolean; currentBoard: string };
   /**
-   * Shows the panel. With `output`, `sessionId` is live and the path is a Markdown or HTML file;
+   * Shows the panel. With `output`, `sessionId` is live and the path is a Markdown/HTML file, or any project file for its Feedback tab;
    * the backend opens it and throws BadRequest when the file is not inside the session's folder.
    */
   open(req: OpenRequest): Promise<OpenResponse>;

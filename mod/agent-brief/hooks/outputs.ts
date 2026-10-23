@@ -7,7 +7,7 @@ export const DECLARE_TOOL = 'mcp__agent-brief__declare_output'
 
 export const DECLARE_USAGE =
   'declare_output needs a title and exactly one of path or url. ' +
-  'path is a file relative to the project; url is an http or https link to an artifact or published page. ' +
+  'path must be a file inside the project; url is an http or https link to an artifact or published page. ' +
   'status is drafting (the default) or ready.'
 
 const KIND_BY_EXTENSION: Readonly<Record<string, OutputKind>> = {
@@ -154,7 +154,9 @@ export function parseDeclare(input: unknown, cwd: string): DeclareRequest | unde
   const status = r.status === undefined ? 'drafting' : r.status
   if (title === undefined || (path === undefined) === (url === undefined) || !isOneOf(STATUSES, status)) return undefined
   if (url !== undefined) return isUrl(url) ? { ref: url, url, title, kind: 'artifact', status } : undefined
-  const ref = relRef(cwd, path!)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path!) || /[\u0000-\u001f\u007f]/.test(path!)) return undefined
+  const ref = inside(cwd, path!)
+  if (!ref) return undefined
   return { ref, title, kind: kindOf(ref), status }
 }
 

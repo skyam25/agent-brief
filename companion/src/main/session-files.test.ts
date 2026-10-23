@@ -129,6 +129,16 @@ describe('SessionFiles', () => {
     await expect(files.openDocument('s1', '../escape.md', 'feedback')).rejects.toThrow('outside the project');
   });
 
+  it('opens other project files in the Feedback view without opening an external app', async () => {
+    for (const path of ['deck.pdf', 'brief.docx', 'slides.pptx', 'model.xlsx', 'diagram.svg']) {
+      writeFileSync(join(cwd, path), 'output');
+      expect(await files.openDocument('s1', path, 'feedback')).toBe('review');
+      expect(last(CH.openFeedbackView)).toEqual({ sessionId: 's1', path });
+    }
+    expect(opened).toEqual([]);
+    await expect(files.openDocument('s1', '../escape.pdf', 'feedback')).rejects.toThrow('outside the project');
+  });
+
   it('carries the Feedback tab to a new or reopened review', async () => {
     writeFileSync(join(cwd, 'page.html'), '<p>hi</p>');
     await files.openDocument('s1', 'page.html', 'feedback');
@@ -155,9 +165,11 @@ describe('SessionFiles', () => {
     writeOutputs([{ ref: 'plan.md', kind: 'markdown', tier: 'detected', lastWriteAt: 10 }]);
     files.dismissOutput('s1', 'plan.md');
     expect(files.outputs('s1')!.outputs).toEqual([]);
+    expect(files.outputs('s1')!.hiddenRefs).toEqual(['plan.md']);
     expect(last(CH.outputs)).toMatchObject({ sessionId: 's1', outputs: [] });
 
     writeOutputs([{ ref: 'plan.md', kind: 'markdown', tier: 'detected', lastWriteAt: 20 }]);
     expect(files.outputs('s1')!.outputs.map((o) => o.ref)).toEqual(['plan.md']);
+    expect(files.outputs('s1')!.hiddenRefs).toBeUndefined();
   });
 });

@@ -146,14 +146,14 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       host.onVisibility((visible) => {
         controller.panelVisible = visible;
         if (!visible) leaveEnded();
-        if (!visible) void Promise.all([book.flush(), shelf.flush()]);
+        if (!visible) void Promise.all([book.flush(), shelf.flush(), comments.flush(), flushWorkspaces()]).catch(report('save changes'));
       }),
     ];
     controller.panelVisible = info.panelVisible;
     return () => {
       for (const off of subscriptions) if (typeof off === 'function') off();
     };
-  }, [host, controller, book, shelf, changeMode, showDraft, leaveEnded, showTab, info.panelVisible]);
+  }, [host, controller, book, shelf, comments, changeMode, showDraft, leaveEnded, showTab, info.panelVisible]);
 
   const requestSubscription = useRef<void | (() => void)>(undefined);
   useEffect(() => () => { requestSubscription.current?.(); }, []);
@@ -162,7 +162,7 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       requestSubscription.current?.();
       requestSubscription.current = host.onRequest(async (req) => {
         // Draft saves never block the board's own flush before quitting.
-        if (req.op === 'flush') await Promise.all([book.flush(), shelf.flush(), flushWorkspaces()]).catch(() => undefined);
+        if (req.op === 'flush') await Promise.all([book.flush(), shelf.flush(), comments.flush(), flushWorkspaces()]).catch(() => undefined);
         // A feedback workspace open in Review answers for its own board.
         const held = workspaceReply(req);
         if (held) return held;
@@ -173,7 +173,7 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       host.ready();
       if (info.testMode) Object.assign(window, { __board: controller, __excalidraw: api, __drafts: book, __templates: shelf });
     },
-    [controller, host, book, shelf, changeMode, info.testMode],
+    [controller, host, book, shelf, comments, changeMode, info.testMode],
   );
 
   return { ...voice, ...tabs, sessions, mode, modeRef, focusRequest, newBoardRequest, changeMode, openDraft, openBoard, onMicrophone, onReady };

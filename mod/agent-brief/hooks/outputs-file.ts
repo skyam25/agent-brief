@@ -107,9 +107,20 @@ export function registerOutputs(on: On): void {
     const done = await next(e)
     const out = 'result' in done ? (done.result as { stdout?: unknown } | null | undefined) : undefined
     if (!out || typeof out.stdout !== 'string') return done
-    const request = bashRequestOf(out.stdout)
-    if (request?.kind !== 'output') return done
-    const stdout = await declareOutput($, request.input)
+    const lines = out.stdout.split('\n')
+    let changed = false
+    for (let i = 0; i < lines.length; i++) {
+      const request = bashRequestOf(lines[i]!)
+      if (request?.kind !== 'output') continue
+      changed = true
+      try {
+        lines[i] = await declareOutput($, request.input)
+      } catch {
+        lines[i] = 'Agent Brief could not record the output. The panel will not list it until a later declare succeeds.'
+      }
+    }
+    if (!changed) return done
+    const stdout = lines.join('\n')
     return { result: { ...out, stdout }, ...(done.context ? { context: done.context } : {}) }
   }).catch(($, e, next) => next(e))
 

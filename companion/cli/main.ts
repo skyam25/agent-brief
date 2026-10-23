@@ -85,7 +85,7 @@ const VALUE_FLAGS = new Set([
 ]);
 /** Value flags that may repeat. The last value also reads as the flag's one value. */
 const LIST_FLAGS = new Set(['src', 'related', 'option', 'text']);
-const BOOL_FLAGS = new Set(['json', 'help', 'before', 'after']);
+const BOOL_FLAGS = new Set(['json', 'help', 'before', 'after', 'feedback']);
 
 function parseArgs(argv: string[]): Args {
   const flags = new Map<string, string | true>();
@@ -801,6 +801,8 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const layout = str(ctx.args, 'layout');
     const note = str(ctx.args, 'note');
     const output = str(ctx.args, 'output');
+    const feedback = ctx.args.flags.has('feedback');
+    if (feedback && output === undefined) throw new UsageError('--feedback needs --output <path>');
     if (layout !== undefined && layout !== 'freeform' && layout !== 'stack') {
       throw new UsageError(`--layout must be freeform or stack, got "${layout}"`);
     }
@@ -816,7 +818,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     // A note opens under its owner, so only boards and outputs take the session.
     const session = note === undefined ? await openSession(ctx, output !== undefined) : undefined;
     if (session) body.sessionId = session.sessionId;
-    if (output !== undefined) body.output = { path: projectPath(ctx, session!.cwd!, output) };
+    if (output !== undefined) body.output = { path: projectPath(ctx, session!.cwd!, output), ...(feedback ? { tab: 'feedback' } : {}) };
 
     // A bare open shows what the session last had open, never a new board.
     if (session && output === undefined && !board && !layout) body.reopen = true;

@@ -75,10 +75,10 @@ export class InitiativesStore {
   }
 
   /** Saves against the shown revision. A conflict shows the brief as it is now. */
-  async save(patch: Omit<InitiativePatch, 'revision'>): Promise<InitiativeSaveResult> {
+  async save(patch: InitiativePatch): Promise<InitiativeSaveResult> {
     const shown = this.detail?.initiative;
     if (!shown) return { ok: false, message: 'No initiative is open' };
-    const result = await this.host.updateInitiative(shown.id, { ...patch, revision: shown.revision });
+    const result = await this.host.updateInitiative(shown.id, patch);
     if (result.detail && this.selectedId === shown.id) {
       this.detail = result.detail;
       this.emit();

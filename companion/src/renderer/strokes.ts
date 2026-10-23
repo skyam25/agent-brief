@@ -39,6 +39,13 @@ export class StrokeLog {
     this.prev = snapshot(initial);
   }
 
+  /** Removes delivered events while retaining events extended or added during Send. */
+  consume(sent: readonly StrokeEvent[]): void {
+    const delivered = new Set(sent.map((e) => JSON.stringify(e)));
+    const kept = this.events.filter((e) => !delivered.has(JSON.stringify(e)));
+    this.events.splice(0, this.events.length, ...kept);
+  }
+
   /** Starts over from `elements`, as after a board switch or a Send. */
   reset(elements: Elements): void {
     this.events.length = 0;

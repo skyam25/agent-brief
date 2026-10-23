@@ -16,7 +16,7 @@ import type { PlannedFile } from '../board/skeleton';
 import { shrinkImages, textOf } from './images';
 import { drawElements, readElements, removeElements, updateElements } from './ops';
 import { renderPng } from './png';
-import { Recorder } from './recorder';
+import { Recorder, type RecordedSegment } from './recorder';
 import { applyPlan, imagesFor, isBusy, joinGroup, plan as planStack } from './stack';
 import { StrokeLog, rebase } from './strokes';
 import { fitBoard, revealIfHidden } from './viewport';
@@ -68,6 +68,12 @@ function binaryFiles(files: PlannedFile[] = [], now = Date.now()): BinaryFiles {
   return Object.fromEntries(files.map((f) => [f.id, { ...f, created: now }])) as unknown as BinaryFiles;
 }
 
+interface BoardSession {
+  name: string;
+  recorder: Recorder;
+  strokes: StrokeLog;
+}
+
 export class BoardController {
   api?: ExcalidrawImperativeAPI;
   board: string;
@@ -84,8 +90,18 @@ export class BoardController {
   /** When each element first appeared this session. Elements loaded from disk are known but undated. */
   private firstSeen = new Map<string, number | undefined>();
   /** Board changes since the last Send, for the timeline. */
-  readonly strokes: StrokeLog;
-  readonly recorder: Recorder;
+  private readonly sessions = new Map<string, BoardSession>();
+  private readonly receipts = new WeakMap<object, { session: BoardSession; clips: RecordedSegment[]; recordedMs: number; strokes: StrokeEvent[] }>();
+  private sessionFor(board: string): BoardSession {
+    let session = this.sessions.get(board);
+    if (!session) {
+      session = { name: board, recorder: new Recorder(), strokes: new StrokeLog() };
+      this.sessions.set(board, session);
+    }
+    return session;
+  }
+  get strokes(): StrokeLog { return this.sessionFor(this.board).strokes; }
+  get recorder(): Recorder { return this.sessionFor(this.board).recorder; }
   /** Whether the panel is on screen. Hosts without a hideable window leave it true. */
   panelVisible = true;
   private queue: Promise<unknown> = Promise.resolve();
@@ -98,8 +114,7 @@ export class BoardController {
     this.board = initial.board;
     this.notes = initial.notes;
     this.layout = initial.scene.layout;
-    this.strokes = new StrokeLog(initial.scene.elements);
-    this.recorder = new Recorder();
+    this.strokes.reset(initial.scene.elements);
     this.markLoaded(initial.scene.elements);
   }
 
@@ -272,6 +287,12 @@ export class BoardController {
       const open = from === this.board;
       if (open) await this.flush();
       const name = await this.bridge.renameBoard(from, to);
+      const session = this.sessions.get(from);
+      if (session && name !== from) {
+        this.sessions.delete(from);
+        session.name = name;
+        this.sessions.set(name, session);
+      }
       if (open) this.board = name;
       this.emit();
       return name;
@@ -291,6 +312,7 @@ export class BoardController {
         await this.show(next);
       }
       await this.bridge.deleteBoard(name);
+      this.sessions.delete(name);
       this.emit();
     });
   }
@@ -298,6 +320,7 @@ export class BoardController {
   private async show(board: string): Promise<void> {
     const api = this.api!;
     if (board === this.board) return;
+    await this.recorder.stop();
     await this.flush();
     const { scene, notes } = await this.bridge.loadBoard(board);
     const loaded = parseScene(scene);
@@ -305,7 +328,7 @@ export class BoardController {
     this.notes = notes;
     this.layout = loaded.layout;
     this.markLoaded(loaded.elements);
-    this.strokes.reset(loaded.elements);
+    this.strokes.absorb(loaded.elements);
     api.updateScene({ elements: loaded.elements, appState: loaded.appState, captureUpdate: CaptureUpdateAction.NEVER });
     const files = Object.values(loaded.files);
     if (files.length) api.addFiles(files);
@@ -344,12 +367,23 @@ export class BoardController {
   }
 
   /** Builds the hand-off. Stops recording first so the last clip is complete. Comment `pins` show on the PNG as numbered badges. */
-  async payload(pins?: readonly BoardPin[]): Promise<SendPayload> {
+  payload(pins?: readonly BoardPin[]): Promise<SendPayload> {
+    return this.enqueue(() => this.buildPayload(pins));
+  }
+
+  private async buildPayload(pins?: readonly BoardPin[]): Promise<SendPayload> {
     await this.flush();
-    if (this.recorder.recording) await this.recorder.stop();
-    const api = this.api!;
-    const elements = api.getSceneElementsIncludingDeleted();
-    const { strokes, segments } = rebase(this.strokes.events, this.recorder.segments);
+    await this.recorder.stop();
+    // Freeze all fields before rendering the PNG; drawing can continue while it renders.
+    const scene = JSON.parse(this.serializeVisible()) as { elements: El[]; files: BinaryFiles };
+    const elements = scene.elements;
+    const boardName = this.board;
+    const notes = this.notes;
+    const session = this.sessionFor(boardName);
+    const clips = [...session.recorder.segments];
+    const events = structuredClone(this.strokes.events);
+    this.receipts.set(scene, { session, clips, recordedMs: session.recorder.recordedMs, strokes: events });
+    const { strokes, segments } = rebase(events, clips);
     const liveBoxes = elements.filter((e) => !e.isDeleted).map((e) => boxOf(e as unknown as Shaped));
     const bounds = union(liveBoxes);
     const imageNames = stackNames(asStack(elements));
@@ -357,18 +391,44 @@ export class BoardController {
     const byId = new Map((elements as unknown as Pinnable[]).map((e) => [e.id, e]));
     const pinSpots = pins?.map((p) => pinSpot(p, byId).at);
     return {
-      boardName: this.board,
-      png: await renderPng(elements, api.getFiles(), {
+      boardName,
+      png: await renderPng(elements, scene.files, {
         maxEdge: SEND_MAX_EDGE,
         numbers: { ...strokeNumbers, ...imageLetters },
         ...(pinSpots?.length ? { pins: pinSpots } : {}),
       }),
-      scene: JSON.parse(this.serializeVisible()),
-      notes: this.notes,
+      scene,
+      notes,
       strokes,
       segments: segments.map((s) => ({ name: s.name, data: s.data, startMs: s.startMs, mimeType: s.mimeType })),
       bounds,
     };
+  }
+
+  /** Acknowledge exactly the captured board, clips and strokes, even after a switch or rename. */
+  finishSend(payload: SendPayload, clear: boolean, canClear: (board: string) => boolean = () => true): Promise<void> {
+    return this.enqueue(async () => {
+      const scene = payload.scene as { elements: El[] };
+      const receipt = this.receipts.get(scene);
+      if (!receipt) return;
+      const { session } = receipt;
+      if (this.sessions.get(session.name) !== session) return; // The user deleted it.
+      const h = await this.sceneFor(session.name);
+      const notes = session.name === this.board ? this.notes : (await this.bridge.loadBoard(session.name)).notes;
+      const revision = (els: readonly El[]) => JSON.stringify(els.filter((e) => !e.isDeleted).map((e) => [e.id, e.version, e.versionNonce]));
+      // A changed board remains intact for the next Send. Never erase work absent from this payload.
+      if (clear && canClear(session.name) && notes === payload.notes && revision(h.elements) === revision(scene.elements)) {
+        await h.commit(h.elements.map((e) => e.isDeleted ? e : newElementWith(e, { isDeleted: true })));
+        if (session.name === this.board) {
+          this.setNotes('');
+          this.api!.history.clear();
+          await this.flush();
+        } else await this.bridge.saveNotes(session.name, '');
+        session.strokes.reset(session.name === this.board ? this.api!.getSceneElementsIncludingDeleted() : []);
+      } else session.strokes.consume(receipt.strokes);
+      session.recorder.consume(receipt.clips, receipt.recordedMs);
+      this.receipts.delete(scene);
+    });
   }
 
   /** Starts a new sketch session after a successful Send. */
@@ -477,7 +537,7 @@ export class BoardController {
         case 'show':
           return this.show(a.board);
         case 'payload':
-          return this.payload();
+          return this.buildPayload();
         case 'resetSession':
           return this.resetSession();
         case 'flush':

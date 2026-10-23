@@ -36,6 +36,23 @@ describe('BoardStore', () => {
     expect(store.load('a').scene).toContain('"x"');
   });
 
+  it('saves board comments, moves them on rename, and skips an unreadable file', () => {
+    const dir = temp();
+    const store = new BoardStore(dir);
+    store.create('plan');
+    store.create('other');
+    const pin = { id: 'p1', x: 1, y: 2, text: 'Bigger', createdAt: 5 };
+    store.saveComments('plan', { overall: 'Looks close', pins: [pin] });
+    expect(store.isEmpty('plan')).toBe(false);
+    store.rename('plan', 'roadmap');
+    expect(store.listComments()).toEqual({ roadmap: { overall: 'Looks close', pins: [pin] } });
+    writeFileSync(join(dir, 'boards', 'other.comments.json'), '{not json');
+    expect(Object.keys(store.listComments())).toEqual(['roadmap']);
+    store.saveComments('roadmap', { overall: '', pins: [] });
+    expect(existsSync(join(dir, 'boards', 'roadmap.comments.json'))).toBe(false);
+    expect(() => store.saveComments('missing', { overall: 'x', pins: [] })).toThrow(/no board/);
+  });
+
   it('rejects unsafe and reserved names', () => {
     for (const bad of ['', '../x', 'a/b', '.hidden', 'current', 'x'.repeat(65)]) {
       expect(() => cleanName(bad)).toThrow();

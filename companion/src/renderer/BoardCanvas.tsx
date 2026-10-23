@@ -1,6 +1,6 @@
 import { Excalidraw } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { Theme } from '../shared/ipc';
 import type { BoardCommentsStore } from './board-comments';
 import { PinLayer } from './BoardComments';
@@ -25,8 +25,11 @@ export function openBoardSearch(api: ExcalidrawImperativeAPI): void {
   });
 }
 
-/** The Excalidraw canvas with pen handling, trimmed to drawing: no main menu, library or help. */
-export function BoardCanvas(props: {
+/**
+ * The Excalidraw canvas with pen handling, trimmed to drawing: no main menu, library or help.
+ * Memoized, because each render passes Excalidraw a new onChange and so re-renders all of it.
+ */
+export const BoardCanvas = memo(function BoardCanvas(props: {
   controller: BoardController;
   scene: LoadedScene;
   theme: Theme;
@@ -186,4 +189,4 @@ export function BoardCanvas(props: {
       {api && ref.current && <PinLayer api={api} root={ref.current} comments={props.comments} board={props.board} />}
     </div>
   );
-}
+});

@@ -195,15 +195,18 @@ describe('edit guard', () => {
         expect(await check($, tool, `${CWD}/src/app.ts`, agentId), tool).toEqual({ decision: 'allow' })
       }
       for (const tool of ['Edit', 'Write', 'NotebookEdit']) {
-        expect(await check($, tool, `${CWD}/src/app.ts`, agentId), tool).toEqual({
+        // The host may also attribute an ask to the plugin that supplied it.
+        expect(await check($, tool, `${CWD}/src/app.ts`, agentId), tool).toEqual(expect.objectContaining({
           decision: 'ask',
           reason: 'Product mode: this edits app.ts, which is source, not a document.',
-        })
+        }))
       }
     }
     expect(await check($, 'Edit', `${CWD}/docs/spec.md`)).toEqual({ decision: 'allow' })
     expect(await check($, 'Write', `${CWD}/.feedback/items/s1.md`)).toEqual({ decision: 'allow' })
-    expect(await edit($, `${CWD}/src/app.ts`), 'the call itself is not refused').toEqual({ result: 'ran' })
+    // Product asks through tool.check; the host decides whether to grant it.
+    // Unlike orchestrate, the plugin adds no unconditional tool.call denial.
+    expect((await edit($, `${CWD}/src/app.ts`)).deny).toBeUndefined()
   })
 
   test('product leaves a deny from beneath alone', async ($, on) => {

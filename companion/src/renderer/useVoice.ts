@@ -32,8 +32,8 @@ export interface PanelVoice {
   recording: boolean;
   /** Sketch voice is waiting for the next Send. */
   hasVoice: boolean;
-  /** The clock while recording. In Sketch it counts every take since the last Send. */
-  elapsedMs: number;
+  /** Epoch ms when the microphone opened. Undefined when off. */
+  since: number | undefined;
   /** Sketch voice waiting for the next Send, in ms. */
   voiceMs: number;
   /** The open microphone, while recording. */
@@ -90,6 +90,11 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
   useEffect(() => {
     if (voiceDraft.current && voiceDraft.current !== noteId && modeRef.current === 'write' && reviewVoice.recording) void reviewVoice.stop();
   }, [noteId, reviewVoice, modeRef]);
+  // A board switch must not keep dictating into the board left behind.
+  useEffect(() => {
+    if (voiceDraft.current?.startsWith(BOARD) && voiceDraft.current !== `${BOARD}${board}`) void reviewVoice.stop();
+  }, [board, reviewVoice]);
+
   const reviewRecording = useSyncExternalStore(
     (fn) => reviewVoice.subscribe(fn),
     () => reviewVoice.recording,
@@ -108,15 +113,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     () => controller.recorder.recordedMs,
   );
   const input = reviewing ? reviewVoice.input : controller.recorder.input;
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!recording) return;
-    const timer = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [recording]);
   const since = reviewing ? reviewVoice.since : controller.recorder.since;
-  const earlier = reviewing ? 0 : voiceMs;
-  const elapsedMs = recording && since !== undefined ? earlier + Math.max(0, now - since) : 0;
 
   // Words go to the selected board pin, so the mic follows the selection.
   const selectedPin = useSyncExternalStore(
@@ -135,6 +132,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     if (commenting && !was && controller.recorder.recording) {
       void (async () => {
         await controller.recorder.stop();
+        if (controller.board !== board || modeRef.current !== 'sketch') return;
         voiceDraft.current = `${BOARD}${board}`;
         await reviewVoice.start(comments.selected ?? OVERALL).catch((err: Error) => notify(`Could not start the microphone: ${err.message}`, 'error'));
       })();
@@ -142,7 +140,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     if (!commenting && was && reviewVoice.recording && voiceDraft.current?.startsWith(BOARD)) {
       void (async () => {
         await reviewVoice.stop();
-        if (modeRef.current !== 'sketch') return;
+        if (modeRef.current !== 'sketch' || controller.board !== board) return;
         await controller.recorder.start().catch((err: Error) => notify(`Could not start the microphone: ${err.message}`, 'error'));
       })();
     }
@@ -164,7 +162,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
       return;
     }
     if (mode === 'sketch') {
-      if (modeRef.current !== 'sketch') return;
+      if (modeRef.current !== 'sketch' || controller.board !== board) return;
       voiceDraft.current = `${BOARD}${board}`;
       try {
         await reviewVoice.start(comments.selected ?? OVERALL);
@@ -203,5 +201,5 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
 
   const discardVoice = () => controller.recorder.discard();
 
-  return { reviewVoice, reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, toggleReviewVoice, discardVoice };
+  return { reviewVoice, reviewing, commenting, recording, hasVoice, since, voiceMs, input, toggleReviewVoice, discardVoice };
 }

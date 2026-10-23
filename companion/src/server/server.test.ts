@@ -274,6 +274,10 @@ describe('open', () => {
     await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
     await h.call('POST', '/open', { sessionId: 'a', output: { path: 'page.html', tab: 'feedback' } });
     expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ output: { path: 'page.html', tab: 'feedback' } }));
+    for (const path of ['deck.pdf', 'brief.docx', 'slides.pptx', 'model.xlsx', 'diagram.svg']) {
+      expect((await h.call('POST', '/open', { sessionId: 'a', output: { path, tab: 'feedback' } })).status).toBe(200);
+      expect(h.backend.open).toHaveBeenLastCalledWith(expect.objectContaining({ output: { path, tab: 'feedback' } }));
+    }
   });
 
   it('refuses an output without a live session or of the wrong type', async () => {

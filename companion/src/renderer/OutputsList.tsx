@@ -63,9 +63,10 @@ export function OutputsList(props: {
     void store.load(sessionId).catch(() => undefined);
   }, [store, sessionId]);
 
-  const all = store.info(sessionId)?.outputs ?? [];
+  const info = store.info(sessionId);
+  const all = info?.outputs ?? [];
   // Feedback lives with the file, so another session's items show here too.
-  const listed = new Set(all.map((r) => canonicalRef(r.ref)));
+  const listed = new Set([...all.map((r) => r.ref), ...(info?.hiddenRefs ?? [])].map(canonicalRef));
   const others = [...(props.feedback?.values() ?? [])].filter((f) => f.outputExists && !listed.has(f.output)).map(feedbackRecord);
   if (all.length === 0 && others.length === 0) return null;
   const declared = all.filter((r) => r.tier === 'declared');

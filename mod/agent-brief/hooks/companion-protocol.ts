@@ -129,7 +129,7 @@ export interface OpenRequest {
   layout?: BoardLayout;
   /**
    * Opens this output of `sessionId` instead of a board: a Markdown file as a note in Write, an HTML file in the review pane. Project-relative. Needs `sessionId`.
-   * `tab: 'feedback'` opens an HTML review on its Feedback tab.
+   * `tab: 'feedback'` opens an HTML review on its Feedback tab, or any other project file in the full-width Feedback view.
    */
   output?: { path: string; tab?: 'feedback' };
   /** Opens this saved note in Write instead of a board. `POST /notes` returns the id as `draftId`. */

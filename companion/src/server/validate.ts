@@ -241,10 +241,11 @@ function openOutput(o: Obj): OpenRequest['output'] {
   if (o.output === undefined) return undefined;
   const output = object(o.output, 'body.output');
   const path = reqString(output, 'path', 'body.output').trim();
-  if (!isMarkdownRef(path) && !isReviewable(path)) fail('body.output.path must be a Markdown (.md, .markdown, .mdx) or HTML (.html, .htm) file');
-  if (o.sessionId === undefined) fail('body.output needs body.sessionId');
   const tab = optString(output, 'tab', 'body.output');
   if (tab !== undefined && tab !== 'feedback') fail('body.output.tab must be feedback');
+  if (tab !== 'feedback' && !isMarkdownRef(path) && !isReviewable(path)) fail('body.output.path must be a Markdown (.md, .markdown, .mdx) or HTML (.html, .htm) file, or request its Feedback tab');
+  if (!path) fail('body.output.path is required');
+  if (o.sessionId === undefined) fail('body.output needs body.sessionId');
   return { path, ...(tab ? { tab } : {}) };
 }
 

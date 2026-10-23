@@ -21,6 +21,28 @@ test.afterEach(async () => {
   await ctx.app.close();
 });
 
+test('an external revision conflicts with an Understanding edit already in progress', async () => {
+  const created = await sock<Initiative>(socketPath, 'POST', '/initiatives', { title: 'Concurrent', folder, updatedBy: 'PM' });
+  const id = created.body.id;
+  const { app, page } = ctx;
+  await showPanel(app, page);
+  await page.getByTestId('mode-initiative').click();
+  await expect(page.getByTestId('initiative-heading')).toHaveText('Concurrent');
+  await page.getByTestId('initiative-understanding').fill('My unsaved draft');
+  await sock(socketPath, 'PUT', `/initiatives/${id}`, { revision: 1, understanding: 'New agent work', updatedBy: 'Claude' });
+  await expect(page.getByTestId('initiative-sessions')).toContainText('revision 2');
+  await expect(page.getByTestId('initiative-understanding')).toHaveValue('My unsaved draft');
+  await page.getByTestId('initiative-save').click();
+  await expect(page.getByTestId('send-status')).toContainText('Not saved:');
+  expect((await sock<Initiative>(socketPath, 'GET', `/initiatives/${id}`)).body.understanding).toBe('New agent work');
+  await expect(page.getByTestId('initiative-understanding')).toHaveValue('My unsaved draft');
+  await page.getByRole('button', { name: 'Revert', exact: true }).click();
+  await expect(page.getByTestId('initiative-understanding')).toHaveValue('New agent work');
+  await page.getByTestId('initiative-understanding').fill('Revised from latest');
+  await page.getByTestId('initiative-save').click();
+  await expect(page.getByTestId('initiative-sessions')).toContainText('revision 3');
+});
+
 test('the Initiative tab creates a brief, saves Understanding, and follows edits from outside', async () => {
   const { app, page } = ctx;
   await showPanel(app, page);

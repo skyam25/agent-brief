@@ -546,6 +546,8 @@ async function start(): Promise<void> {
     store.saveNotes(name, text);
     briefs.touched({ board: name });
   });
+  ipc.handle('listBoardComments', () => store.listComments());
+  ipc.handle('saveBoardComments', (board, comments) => store.saveComments(board, comments));
   ipc.handle('createBoard', (name: string) => store.create(name));
   ipc.handle('renameBoard', (from: string, to: string) => {
     const name = store.rename(from, to);
@@ -618,13 +620,7 @@ async function start(): Promise<void> {
   });
 
   // Sessions and their tabs.
-  ipc.handle('setTarget', (sessionId: string | undefined) => {
-    try {
-      server.setTarget(sessionId);
-    } catch (err) {
-      console.warn(`[companion] ${(err as Error).message}`);
-    }
-  });
+  ipc.handle('setTarget', (sessionId) => server.setTarget(sessionId));
   ipc.handle('listBriefs', () => briefs.entries());
   ipc.handle('switchBrief', async (sessionId: string): Promise<SwitchResult> => {
     const b = briefs.get(sessionId);
@@ -721,7 +717,7 @@ async function start(): Promise<void> {
   });
 
   // Send.
-  ipc.handle('send', (payload: Outgoing) => sender.send(payload));
+  ipc.handle('send', (payload, sessionId) => sender.send(payload, sessionId));
   ipc.handle('sendNew', (payload: Outgoing, target: { cwd: string; via: Launcher }) => sender.sendNew(payload, target));
   ipc.handle('copyPrompt', (payload: Outgoing, cwd: string) => sender.copyPrompt(payload, String(cwd)));
   ipc.handle('sessionPlaces', () => terminals.places(server.sessions().sessions));

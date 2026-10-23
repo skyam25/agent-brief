@@ -159,7 +159,7 @@ export function WorkspaceLayer(props: {
     return () => {
       gone = true;
       release?.();
-      void controller?.flush().catch(() => undefined);
+      void Promise.all([controller?.flush(), comments.flush()]).catch((err) => props.onError(`Could not save workspace: ${cleanError(err)}`));
     };
   }, [host, board]);
 
@@ -172,8 +172,8 @@ export function WorkspaceLayer(props: {
       const kept = comments.of(board);
       await host.saveFeedbackWorkspace(props.sessionId, props.path, props.n, hasBoardComments(kept) ? kept : undefined);
       // The item has the saved words now. Words added while saving stay for the next Save.
-      for (const p of kept.pins) if (comments.of(board).pins.find((q) => q.id === p.id)?.text === p.text) comments.remove(board, p.id);
-      if (comments.of(board).overall === kept.overall) comments.setOverall(board, '');
+      comments.consume(board, kept);
+      await comments.flush();
     } catch (err) {
       props.onError(`Could not save the workspace: ${cleanError(err)}`);
     } finally {

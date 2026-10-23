@@ -1,10 +1,12 @@
 /**
- * Comment pins on the boards, kept in memory per board until a Send takes them.
+ * Comment pins on boards, autosaved separately from their scenes until sent.
  * They float over the board in their own layer and never enter the scene.
  */
 
 import type { BoardComments, BoardPin } from '../shared/board-comments';
 import { MAX_PINS } from '../shared/board-comments';
+import type { CompanionApi } from '../shared/ipc';
+import { SaveQueue } from './save-queue';
 import { OVERALL } from './review-voice';
 
 const EMPTY: BoardComments = { overall: '', pins: [] };
@@ -20,7 +22,68 @@ export class BoardCommentsStore {
   /** Bumps on every change, as the snapshot React compares. */
   version = 0;
   private readonly boards = new Map<string, BoardComments>();
+  private readonly owners = new WeakMap<BoardComments, { board?: string }>();
   private readonly listeners = new Set<() => void>();
+
+  private host?: Pick<CompanionApi, 'listBoardComments' | 'saveBoardComments'>;
+  private readonly saves = new SaveQueue(async (board) => {
+    if (!this.host) return false;
+    await this.host.saveBoardComments(board, this.of(board));
+    return true;
+  }, () => this.emit());
+
+  constructor(host?: Pick<CompanionApi, 'listBoardComments' | 'saveBoardComments'>) {
+    this.host = host;
+  }
+
+  get saveError(): string | undefined { return this.saves.error; }
+
+  async connect(host: NonNullable<BoardCommentsStore['host']>): Promise<void> {
+    this.host = host;
+    await this.load();
+  }
+
+  async load(): Promise<void> {
+    if (!this.host) return;
+    const saved = await this.host.listBoardComments();
+    for (const [board, comments] of Object.entries(saved)) {
+      if (!this.saves.has(board)) {
+        this.boards.set(board, comments);
+        this.owners.set(comments, { board });
+      }
+    }
+    this.emit();
+  }
+
+  async flush(): Promise<void> {
+    await this.saves.flush();
+    if (this.saveError) throw new Error(this.saveError);
+  }
+
+  /** Main moved the saved file; pending edits now belong to the new name too. */
+  rename(from: string, to: string): void {
+    if (from === to) return;
+    const comments = this.boards.get(from);
+    this.saves.cancel(from);
+    this.boards.delete(from);
+    if (comments) {
+      this.boards.set(to, comments);
+      const owner = this.owners.get(comments);
+      if (owner) owner.board = to;
+      if (this.host) this.saves.schedule(to);
+    }
+    this.emit();
+  }
+
+  /** Main trashed the board and its comments file. */
+  forget(board: string): void {
+    this.saves.cancel(board);
+    if (this.of(board).pins.some((p) => p.id === this.selected)) this.selected = undefined;
+    const owner = this.owners.get(this.of(board));
+    if (owner) owner.board = undefined;
+    this.boards.delete(board);
+    this.emit();
+  }
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
@@ -61,7 +124,11 @@ export class BoardCommentsStore {
   }
 
   private change(board: string, fn: (c: BoardComments) => BoardComments): void {
-    this.boards.set(board, fn(this.of(board)));
+    const owner = this.owners.get(this.of(board)) ?? { board };
+    const next = fn(this.of(board));
+    this.boards.set(board, next);
+    this.owners.set(next, owner);
+    if (this.host) this.saves.schedule(board);
     this.emit();
   }
 
@@ -99,11 +166,26 @@ export class BoardCommentsStore {
     }
   }
 
+  /** Removes only the comments that went out; later edits stay queued. */
+  consume(board: string, sent: BoardComments): string | undefined {
+    const owner = this.owners.get(sent);
+    if (owner && !owner.board) return; // The board was deleted while sending.
+    board = owner?.board ?? board;
+    const delivered = new Map(sent.pins.map((p) => [p.id, JSON.stringify(p)]));
+    const current = this.of(board);
+    const next = {
+      overall: current.overall === sent.overall ? '' : current.overall,
+      pins: current.pins.filter((p) => delivered.get(p.id) !== JSON.stringify(p)),
+    };
+    if (current.pins.some((p) => p.id === this.selected) && !next.pins.some((p) => p.id === this.selected)) this.selected = undefined;
+    this.change(board, () => next);
+    return board;
+  }
+
   /** Empties a board's comments after a Send and turns the tool off. */
   clear(board: string): void {
-    this.boards.delete(board);
     this.selected = undefined;
     this.tool = false;
-    this.emit();
+    this.change(board, () => ({ overall: '', pins: [] }));
   }
 }

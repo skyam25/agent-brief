@@ -44,7 +44,7 @@ export function cleanDraft(raw: unknown): Draft {
   if (d.sessionId !== undefined && typeof d.sessionId !== 'string') throw badRequest('draft sessionId must be a session id');
   const attachments = cleanAttachments(d.attachments);
   const source = d.source && typeof d.source === 'object' && typeof d.source.path === 'string' && d.source.path.trim()
-    ? { path: d.source.path, ...(typeof d.source.text === 'string' && d.source.text.length <= MAX_DRAFT_BODY ? { text: d.source.text } : {}) }
+    ? { path: d.source.path, ...(typeof d.source.sessionId === 'string' && d.source.sessionId ? { sessionId: d.source.sessionId } : {}), ...(typeof d.source.text === 'string' && d.source.text.length <= MAX_DRAFT_BODY ? { text: d.source.text } : {}) }
     : undefined;
   const review = d.review === undefined ? undefined : cleanReview(d.review);
   const annotations = d.annotations === undefined ? undefined : cleanAnnotations(d.annotations);

@@ -2,6 +2,7 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   esbuild: true
+  '@parcel/watcher': true
 
 # Patched versions of transitive Excalidraw and Mermaid dependencies.
 overrides:
@@ -9,3 +10,7 @@ overrides:
   nanoid@>=4.0.0 <5.1.16: ^5.1.16
   lodash-es@<4.18.1: ^4.18.1
   katex@<0.18.2: 0.18.10
+  # Excalidraw pins Sass with the vulnerable chokidar/braces chain and Radix
+  # Tabs without React 19 support. Remove these when Excalidraw updates its pins.
+  '@excalidraw/excalidraw>sass': 1.106.1
+  '@excalidraw/excalidraw>@radix-ui/react-tabs': 1.2.1

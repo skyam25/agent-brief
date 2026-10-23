@@ -465,6 +465,33 @@ describe('DraftBook reviews', () => {
 describe('a note opened from a file', () => {
   const opened = (book: DraftBook, text: string) => book.create(text, 'n1', 's1', { path: 'doc.md', text });
 
+  it('keeps reading and watching the original source after refiling or unfiling', async () => {
+    const host = fakeHost();
+    const book = new DraftBook(host, () => t++);
+    opened(book, 'Original');
+    book.file('n1', 's2');
+    book.file('n1', undefined);
+    expect(book.get('n1')!.source?.sessionId).toBe('s1');
+    host.files.set('doc.md', 'Agent revision');
+    expect(await book.refreshSource('n1')).toBe('updated');
+    expect(host.readSource).toHaveBeenCalledWith('s1', 'doc.md');
+    const stop = book.watchSource('n1');
+    expect(host.watchOutput).toHaveBeenCalledWith('s1', 'doc.md');
+    stop();
+    expect(host.unwatchOutput).toHaveBeenCalledWith('s1', 'doc.md');
+    await book.flush();
+    expect(host.disk.get('n1')!.source?.sessionId).toBe('s1');
+  });
+
+  it('advances the baseline when the file catches up to local edits', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    opened(book, 'Original');
+    book.edit('n1', 'User edit');
+    expect(book.syncSource('n1', 'User edit')).toBe('same');
+    expect(book.syncSource('n1', 'Next agent revision')).toBe('updated');
+    expect(book.get('n1')!.body).toBe('Next agent revision');
+  });
+
   it('takes the file\'s new text when nobody edited it, and keeps its comments', async () => {
     const host = fakeHost();
     const book = new DraftBook(host, () => t++);

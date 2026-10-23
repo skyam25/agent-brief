@@ -1,6 +1,6 @@
 /** Send: turns what the panel hands over into a delivery for the target session or a new one, and records it. */
 
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildDraft, cleanSourcePath, freeId, rewriteImages, writeBundle } from '../server/bundle';
@@ -122,12 +122,14 @@ export class Sender {
   }
 
   /** Delivers to the target session and records the send in the history. */
-  async send(payload: Outgoing): Promise<SendResult> {
+  async send(payload: Outgoing, requestedSessionId?: string): Promise<SendResult> {
     const { server } = this.deps;
-    if (!server.sessions().targetSessionId) return { ok: false, message: 'Choose a session to send to.' };
+    const sessionId = requestedSessionId ?? server.sessions().targetSessionId;
+    if (!sessionId) return { ok: false, message: 'Choose a session to send to.' };
     try {
+      this.checkFileProject(payload, this.deps.briefs.cwdOf(sessionId));
       const { input, warnings } = await this.compose(payload);
-      const delivery = await server.deliver(input);
+      const delivery = await server.deliver({ ...input, sessionId });
       const target = this.sessionName(delivery.sessionId);
       this.record(
         { id: delivery.id, sentAt: delivery.createdAt, target, sessionId: delivery.sessionId, dir: delivery.dir, draft: delivery.draft, ...sent(input, delivery.id) },
@@ -168,6 +170,7 @@ export class Sender {
   /** Writes the bundle and its prompt file under `cwd`'s `.feedback/sketches`. */
   private async saveBundle(payload: Outgoing, cwd: string) {
     if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error(`No folder at ${cwd}`);
+    this.checkFileProject(payload, cwd);
     const { input, warnings } = await this.compose(payload);
     const sketches = join(feedbackDir(cwd), 'sketches');
     const id = freeId(sketches, Date.now());
@@ -204,6 +207,17 @@ export class Sender {
     return s?.title || s?.cwd.split('/').filter(Boolean).pop() || id || 'the session';
   }
 
+  /** A relative file path must keep naming the project it came from after a note is refiled. */
+  private checkFileProject(payload: Outgoing, destination: string | undefined): void {
+    if (!payload.sourcePath && !payload.review) return;
+    const draft = payload.draftId ? this.deps.drafts.get(payload.draftId) : undefined;
+    const owner = payload.fileSessionId ?? draft?.source?.sessionId ?? draft?.sessionId;
+    if (!owner) throw new Error('Reopen the output in its project before sending this review.');
+    const source = this.deps.briefs.cwdOf(owner);
+    if (!source || !destination || !existsSync(source) || !existsSync(destination)) throw new Error('The source project is unavailable. Reopen the output before sending.');
+    if (realpathSync(source) !== realpathSync(destination)) throw new Error('This note reviews a file in another project. Send it to a session in its original project, or copy its text into a new note.');
+  }
+
   private record(entry: Parameters<SendHistory['add']>[0], input: DeliveryInput): void {
     try {
       this.deps.history.add(entry, { png: input.png, scene: input.scene });
@@ -216,6 +230,8 @@ export class Sender {
   private usedUp(payload: Outgoing): void {
     if (!payload.draftId) return;
     try {
+      const stored = this.deps.drafts.get(payload.draftId);
+      if (payload.draftRevision !== undefined && stored && stored.updatedAt > payload.draftRevision) return;
       this.deps.drafts.remove(payload.draftId);
       this.deps.briefs.touched({ draftId: payload.draftId });
     } catch (err) {

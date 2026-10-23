@@ -131,6 +131,12 @@ describe('upsertWrite and upsertDeclared', () => {
 })
 
 describe('parseDeclare', () => {
+  test('refuses files outside the project instead of recording unopenable or aliased paths', () => {
+    for (const path of ['/tmp/plan.md', '../plan.md', '../../tmp/plan.md', '/work', 'https://example.com/plan.md', 'bad\npath.md']) {
+      expect(parseDeclare({ title: 'Plan', path }, CWD), path).toBeUndefined()
+    }
+    expect(parseDeclare({ title: 'Plan', path: 'docs/../plan.md' }, CWD)?.ref).toBe('plan.md')
+  })
   test('takes a path relative to the project, with drafting as the default status', () => {
     expect(parseDeclare({ title: ' Plan ', path: '/work/docs/plan.md' }, CWD)).toEqual({
       ref: 'docs/plan.md',

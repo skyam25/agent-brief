@@ -2,7 +2,7 @@
 
 import { useRef, type RefObject } from 'react';
 import { hasAnnotations } from '../shared/annotations';
-import { hasBoardComments } from '../shared/board-comments';
+import { hasBoardComments, type BoardComments } from '../shared/board-comments';
 import { draftImages } from '../shared/drafts';
 import { hasReviewContent } from '../shared/review';
 import type { NoteAnnotations } from '../shared/annotations';
@@ -39,6 +39,7 @@ export interface SendDeps {
   modeRef: RefObject<Mode>;
   /** The session tab on show, which Review mode sends decisions for. */
   activeBrief: string | undefined;
+  targetSessionId?: string;
   notify: (text: string, kind?: ToastKind) => void;
   setChooserOpen: (open: boolean) => void;
 }
@@ -60,8 +61,8 @@ type DraftUse = { sent: SentRevision } | { annotated: { id: string; sent: NoteAn
 const draftOut = (draft: Draft): { own: Outgoing & { text: string }; use: DraftUse } => {
   const inPlace = hasAnnotations(draft.annotations) && !draft.source;
   return {
-    own: { text: draft.body, ...(inPlace ? {} : { draftId: draft.id }), ...fromDraft(draft) },
-    use: inPlace ? { annotated: { id: draft.id, sent: draft.annotations! } } : { sent: { body: draft.body, board: draft.board } },
+    own: { text: draft.body, ...(inPlace ? {} : { draftId: draft.id, draftRevision: draft.updatedAt }), ...fromDraft(draft) },
+    use: inPlace ? { annotated: { id: draft.id, sent: draft.annotations! } } : { sent: { body: draft.body, board: draft.board, updatedAt: draft.updatedAt } },
   };
 };
 
@@ -75,11 +76,12 @@ const fromDraft = (draft: Draft) => {
   return {
     ...(images.length ? { images } : {}),
     ...(draft.source ? { sourcePath: draft.source.path } : {}),
+    ...((draft.source || draft.review) && (draft.source?.sessionId ?? draft.sessionId) ? { fileSessionId: draft.source?.sessionId ?? draft.sessionId } : {}),
     ...(annotations ? { annotations } : {}),
   };
 };
 
-export function useSend({ host, book, controller, comments, items, reviewVoice, modeRef, activeBrief, notify, setChooserOpen }: SendDeps): PanelSend {
+export function useSend({ host, book, controller, comments, items, reviewVoice, modeRef, activeBrief, targetSessionId, notify, setChooserOpen }: SendDeps): PanelSend {
   /** The text whose empty slots were already pointed out, so a second Send goes through. */
   const slotsWarned = useRef<string>(undefined);
   /** True from the press of Send until main answers, so a second press cannot send twice. */
@@ -120,7 +122,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
         sent?: SentRevision;
         annotated?: { id: string; sent: NoteAnnotations };
         decided?: Decided;
-        pinned?: string;
+        pinned?: { board: string; sent: BoardComments };
         onSent?: () => Promise<void>;
       }
     | string
@@ -136,7 +138,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
         await book.flush();
         const d = book.get(open.id) ?? open;
         const review = { ...d.review!, ...(d.body.trim() ? { body: d.body } : {}) };
-        return { payload: { text: d.body, draftId: d.id, review, ...fromDraft(d) }, clearsBoard: false, sent: { body: d.body } };
+        return { payload: { text: d.body, draftId: d.id, draftRevision: d.updatedAt, review, ...fromDraft(d) }, clearsBoard: false, sent: { body: d.body, updatedAt: d.updatedAt } };
       }
       const blocked = itemsBlocker();
       if (blocked) return blocked;
@@ -157,7 +159,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       const pinned = comments.of(board);
       const reviewed = hasBoardComments(pinned);
       const payload = { ...(await controller.payload(reviewed ? pinned.pins : undefined)), ...(reviewed ? { comments: pinned } : {}) };
-      const kept = reviewed ? { clearsBoard: false, pinned: board } : { clearsBoard: true };
+      const kept = reviewed ? { clearsBoard: false, pinned: { board, sent: pinned } } : { clearsBoard: true };
       if (!linked) return { payload, ...kept };
       const stale = await sourceBlocker(linked.id);
       if (stale) return stale;
@@ -189,13 +191,15 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
   };
 
   /** Builds the payload, or a fixed one, hands it over, and hides the panel once it went out. */
-  const deliver = async (handOff: (payload: Outgoing) => Promise<SendResult>, fixed?: () => Promise<FixedSend | string>) => {
+  const deliver = async (handOff: (payload: Outgoing) => Promise<SendResult>, fixed?: () => Promise<FixedSend | string>, before?: () => Promise<void>) => {
     if (sending.current) return;
     sending.current = true;
     setChooserOpen(false);
     notify('Preparing…', 'progress');
     try {
       const out = fixed ? await fixedOutgoing(fixed) : await outgoing();
+      // A picked session stays the target after a warning, so the next Send reaches it.
+      await before?.();
       if (typeof out === 'string') {
         notify(out);
         return;
@@ -211,16 +215,26 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       }
       notify(result.message, result.ok ? 'sent' : 'error');
       if (result.ok) {
-        if (out.clearsBoard) controller.clearBoard();
+        let cleanupError: unknown;
+        if ('png' in out.payload) {
+          try { await controller.finishSend(out.payload, out.clearsBoard, (board) => !hasBoardComments(comments.of(board))); }
+          catch (err) { cleanupError = err; }
+        }
         if (out.pinned) {
-          comments.clear(out.pinned);
-          controller.resetSession();
+          const board = comments.consume(out.pinned.board, out.pinned.sent);
+          if (board && controller.board === board && !hasBoardComments(comments.of(board))) comments.setTool(false);
         }
         if (out.payload.draftId && out.sent) book.consume(out.payload.draftId, out.sent);
         if (out.annotated) book.clearSent(out.annotated.id, out.annotated.sent);
         if (out.decided) {
           items.clear(out.decided.sessionId, out.decided.decisions);
           void items.load(out.decided.sessionId).catch(() => undefined);
+        }
+        try { await Promise.all([book.flush(), comments.flush()]); }
+        catch (err) { cleanupError ??= err; }
+        if (cleanupError) {
+          notify(`Sent, but could not save the remaining work: ${(cleanupError as Error).message}`, 'error');
+          return;
         }
         host.hidePanel();
       }
@@ -231,28 +245,13 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     }
   };
 
-  const send = () => deliver((p) => host.send(p));
-  /** Holds the Send guard while the target changes, so a second pick cannot retarget this Send. */
-  const sendTo = async (sessionId: string) => {
-    if (sending.current) return;
-    sending.current = true;
-    try {
-      await host.setTarget(sessionId);
-    } finally {
-      sending.current = false;
-    }
-    await deliver((p) => host.send(p));
+  const send = () => {
+    if (!targetSessionId) { notify('Choose a session to send to.'); return Promise.resolve(); }
+    return deliver((p) => host.send(p, targetSessionId));
   };
-  const sendText = async (sessionId: string, build: () => Promise<FixedSend | string>) => {
-    if (sending.current) return;
-    sending.current = true;
-    try {
-      await host.setTarget(sessionId);
-    } finally {
-      sending.current = false;
-    }
-    await deliver((p) => host.send(p), build);
-  };
+  const sendTo = (sessionId: string) => deliver((p) => host.send(p, sessionId), undefined, () => host.setTarget(sessionId));
+  const sendText = (sessionId: string, build: () => Promise<FixedSend | string>) =>
+    deliver((p) => host.send(p, sessionId), build, () => host.setTarget(sessionId));
   const sendNew = (cwd: string, via: Launcher) => deliver((p) => host.sendNew(p, { cwd, via }));
   const copyPrompt = (cwd: string) => deliver((p) => host.copyPrompt(p, cwd));
   /** An empty note says so before any session is picked. */

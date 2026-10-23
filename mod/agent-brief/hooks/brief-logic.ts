@@ -50,7 +50,7 @@ export type OutputRow = {
   /** Epoch ms of the last declare or write. */
   at?: number
   isUrl: boolean
-  /** True for a Markdown or HTML file the app opens as a note or in its review pane. */
+  /** True for a Markdown/HTML file or another file with feedback to review. */
   canBrief: boolean
   /** `Feedback · N open` while the output has open or raised-again feedback items. */
   feedback?: string
@@ -61,14 +61,14 @@ const lastTouched = (o: BriefOutput) => {
   return times.length === 0 ? undefined : Math.max(...times)
 }
 
-const rowOf = (o: BriefOutput, open: number): OutputRow => ({
+const rowOf = (o: BriefOutput, open: number | undefined): OutputRow => ({
   ref: o.ref,
   label: o.tier === 'declared' ? (o.title ?? fileName(o.ref)) : o.ref,
   ...(o.tier === 'declared' ? { status: o.status === 'ready' ? ('Ready' as const) : ('Drafting' as const) } : {}),
   ...(lastTouched(o) === undefined ? {} : { at: lastTouched(o) }),
   isUrl: isUrl(o.ref),
-  canBrief: !isUrl(o.ref) && BRIEF_EXTENSIONS.includes(extensionOf(o.ref)),
-  ...(open > 0 ? { feedback: `Feedback · ${open} open` } : {}),
+  canBrief: !isUrl(o.ref) && (BRIEF_EXTENSIONS.includes(extensionOf(o.ref)) || open !== undefined),
+  ...(open !== undefined && (open > 0 || !BRIEF_EXTENSIONS.includes(extensionOf(o.ref))) ? { feedback: `Feedback · ${open} open` } : {}),
 })
 
 /**
@@ -76,7 +76,7 @@ const rowOf = (o: BriefOutput, open: number): OutputRow => ({
  * `feedback` holds each output's open feedback count by ref.
  */
 export function outputRows(outputs: readonly BriefOutput[], feedback: Readonly<Record<string, number>> = {}): { declared: OutputRow[]; touched: OutputRow[] } {
-  const row = (o: BriefOutput) => rowOf(o, feedback[o.ref] ?? 0)
+  const row = (o: BriefOutput) => rowOf(o, feedback[o.ref])
   const declared = outputs.filter(o => o.tier === 'declared').sort((a, b) => (b.declaredAt ?? 0) - (a.declaredAt ?? 0))
   const touched = outputs.filter(o => o.tier === 'detected').sort((a, b) => (b.lastWriteAt ?? 0) - (a.lastWriteAt ?? 0))
   return { declared: declared.map(row), touched: touched.map(row) }

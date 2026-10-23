@@ -40,6 +40,8 @@ agent-brief feedback catalog prototype/checkout.html --label SME --source transc
 
 5. Reply with how many items the round added or joined, and mention any praise. End with: Press ▣ Brief, then In Agent Brief on `<output>`.
 
+When the user asks to open the feedback, run `agent-brief open --output <output> --feedback`. This works for Markdown, HTML, PDF, Word, slides and spreadsheets; non-HTML files open the full-width Feedback view.
+
 What goes in:
 
 - Every point, quick ones included. Pure praise is not an item; mention it in the reply instead.

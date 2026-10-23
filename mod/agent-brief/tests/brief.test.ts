@@ -203,6 +203,16 @@ describe('the pane\'s outputs', () => {
     expect(await pane($)).toContain('Feedback · 2 open')
   })
 
+  test('PDF, office and other file feedback opens in Agent Brief, including completed feedback', async ($, on) => {
+    const files: Record<string, string> = { [OUTPUTS_PATH]: JSON.stringify({ version: 1, sessionId: SESSION_ID, outputs: ['pdf', 'docx', 'pptx', 'xlsx', 'svg'].map(ext => ({ ref: `output.${ext}`, kind: ext === 'svg' ? 'other' : ext, tier: 'declared', status: 'ready' })) }) }
+    for (const ext of ['pdf', 'docx', 'pptx', 'xlsx', 'svg']) files[`${CWD}/output.${ext}.feedback.md`] = FEEDBACK.replace('- [ ]', '- [x]')
+    const { app } = await setup($, on, files)
+    for (const ext of ['pdf', 'docx', 'pptx', 'xlsx', 'svg']) {
+      await press($, `output-app-output.${ext}`)
+      expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: `output.${ext}`, tab: 'feedback' } })
+    }
+  })
+
   test('an app that opens the board instead asks to be updated', async ($, on) => {
     const { app, world } = await setup($, on, { [OUTPUTS_PATH]: OUTPUTS })
     app.isPreOutputsApp = true

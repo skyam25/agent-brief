@@ -81,10 +81,14 @@ export interface SendPayload {
   text?: string;
   /** The draft this Send uses up. Main deletes it once the Send goes out. */
   draftId?: string;
+  /** Revision included in this Send; newer autosaves must survive delivery. */
+  draftRevision?: number;
   /** The pictures the draft text references, as `att:<id>`. */
   images?: DraftImage[];
   /** The project-relative file the draft was opened from. The prompt asks Claude to apply the draft to it. */
   sourcePath?: string;
+  /** The session owning the reviewed file, independent of where the note is filed. */
+  fileSessionId?: string;
   /** Comments pinned to an HTML file. The prompt points Claude at review.md. */
   review?: ReviewPayload;
   /** Comments pinned to the board. The prompt points Claude at comments.md. */
@@ -104,10 +108,14 @@ export interface DraftImage {
 export interface TextPayload {
   text: string;
   draftId?: string;
+  /** Revision included in this Send; newer autosaves must survive delivery. */
+  draftRevision?: number;
   /** The pictures the text references, as `att:<id>`. */
   images?: DraftImage[];
   /** The project-relative file the draft was opened from. The prompt asks Claude to apply the draft to it. */
   sourcePath?: string;
+  /** The session owning the reviewed file, independent of where the note is filed. */
+  fileSessionId?: string;
   /** Comments pinned to an HTML file. The prompt points Claude at review.md. */
   review?: ReviewPayload;
   /** Comments on passages of the draft. The prompt points Claude at annotations.md. */
@@ -171,6 +179,8 @@ export interface Draft {
 /** Where a draft came from, when it is a copy of a session's output file. */
 export interface DraftSource {
   path: string;
+  /** The original file's session. Refiling a note does not change its source project. */
+  sessionId?: string;
   /** The file's text when the note last matched it. A note whose body still equals it has no edits, so it follows the file. */
   text?: string;
 }
@@ -394,10 +404,14 @@ export interface OutputsInfo {
   exists: boolean;
   /** Well-formed records, dismissed ones left out, declared first and newest on top. */
   outputs: OutputRecord[];
+  /** Hidden records, so feedback discovery cannot add them back to the list. */
+  hiddenRefs?: string[];
 }
 
 export interface CompanionApi extends BoardHost {
   init(): Promise<InitInfo>;
+  listBoardComments(): Promise<Record<string, BoardComments>>;
+  saveBoardComments(board: string, comments: BoardComments): Promise<void>;
   setTarget(sessionId: string | undefined): Promise<void>;
   /**
    * The handler answers with a whole reply. Errors thrown across the context
@@ -425,7 +439,7 @@ export interface CompanionApi extends BoardHost {
   launchOptions(): Promise<LaunchOptions>;
   /** Asks for a project folder. Undefined when cancelled. */
   chooseFolder(): Promise<string | undefined>;
-  send(payload: Outgoing): Promise<SendResult>;
+  send(payload: Outgoing, sessionId?: string): Promise<SendResult>;
   /** Writes the bundle into `cwd` and starts Claude Code there on it. */
   sendNew(payload: Outgoing, target: { cwd: string; via: Launcher }): Promise<SendResult>;
   /** Writes the bundle into `cwd` and copies a prompt with absolute paths, for pasting into a session by hand. */
@@ -557,6 +571,8 @@ export const CH = {
   loadBoard: 'boards:load',
   saveBoard: 'boards:save',
   saveNotes: 'notes:save',
+  listBoardComments: 'board-comments:list',
+  saveBoardComments: 'board-comments:save',
   createBoard: 'boards:create',
   renameBoard: 'boards:rename',
   deleteBoard: 'boards:delete',
@@ -664,6 +680,8 @@ export const IPC_INVOKE = {
   loadBoard: CH.loadBoard,
   saveBoard: CH.saveBoard,
   saveNotes: CH.saveNotes,
+  listBoardComments: CH.listBoardComments,
+  saveBoardComments: CH.saveBoardComments,
   createBoard: CH.createBoard,
   renameBoard: CH.renameBoard,
   deleteBoard: CH.deleteBoard,

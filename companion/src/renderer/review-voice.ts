@@ -115,6 +115,8 @@ export class ReviewVoice {
   /** Targets whose words are still turning into text. */
   readonly pending = new Map<string, number>();
   private stream?: MediaStream;
+  /** The start under way, which a second press joins instead of opening another microphone. */
+  private opening?: Promise<void>;
   private clip?: { recorder: ClipRecorder; target: string; startedAt: number };
   private live?: LiveSession;
   /** Where the voice pointed, and since when, while dictating live. */
@@ -150,8 +152,13 @@ export class ReviewVoice {
   }
 
   /** Opens the microphone, which also feeds the level meter, then listens live or records clips. */
-  async start(target: string): Promise<void> {
-    if (this.stream) return;
+  start(target: string): Promise<void> {
+    if (this.stream) return Promise.resolve();
+    this.opening ??= this.open(target).finally(() => (this.opening = undefined));
+    return this.opening;
+  }
+
+  private async open(target: string): Promise<void> {
     const stream = (this.stream = await this.media.open());
     this.since = this.now();
     this.target = target;

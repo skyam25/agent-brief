@@ -10,7 +10,13 @@ How the app is built, tested and packaged. For what it does, see the [project RE
 
 `renderer/useWorkspace.ts` owns mode/tab/draft/recording transitions and their host subscriptions. `hooks/initiative-feature.ts` owns plugin initiative state and snapshot injection. The plugin engine requires statically named engine helpers, so the registry supplies an environment whose callbacks capture the engine; it never passes the engine to dynamic object methods.
 
-`renderer/save-queue.ts` owns draft/template autosave timing, per-record write ordering, retries and save-error notifications. The stores retain their persistence rules: empty drafts are deleted and templates without a title stay unsaved. Flush waits for active writes and queued edits, with one immediate retry for failures; continued failures remain scheduled for retry. Cancelling a record drops its queued work and prevents a failed active save from retrying.
+`renderer/save-queue.ts` owns draft/template/board-comment autosave timing, per-record write ordering, retries and save-error notifications. The stores retain their persistence rules: empty drafts are deleted and templates without a title stay unsaved. Flush waits for active writes and queued edits, with one immediate retry for failures; continued failures remain scheduled for retry. Cancelling a record drops its queued work and prevents a failed active save from retrying.
+
+Board comments in the panel and feedback workspaces use the same disk format and autosave queue. Startup restores them, and hide/quit flushes them. Failed saves retry and the panel reports them. Send removes only comments matching the captured copy; later comments remain saved.
+
+Send carries an explicit session ID and the draft's edit revision. Selecting a missing session rejects the send. Main preserves a newer autosaved draft; the renderer keeps newer edits to any draft field. Board payloads freeze the scene, notes and clips before PNG rendering. Completion clears the captured board only when its live elements and notes still match, follows a rename, and never clears another board. Recordings and stroke logs belong to individual boards; switching stops the microphone and keeps the take on its original board.
+
+Initiative editors retain the revision they started from. A pushed update does not advance an unsaved edit's baseline, so saving conflicts instead of overwriting newer work. Revert loads the latest Understanding.
 
 ## Scripts
 
@@ -29,6 +35,8 @@ How the app is built, tested and packaged. For what it does, see the [project RE
 
 On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own install check reads only `dist/version`, so it misses a skipped download or a truncated framework. `scripts/electron.mjs` runs the binary and reinstalls it when that fails. The CLI unit tests need the built `bin/agent-brief.mjs`.
 
+`pnpm-workspace.yaml` overrides Excalidraw's pinned Sass and Radix Tabs dependencies. Current Sass removes the old chokidar/braces chain; current Radix Tabs declares React 19 support. Keep these overrides until an Excalidraw release updates its pins.
+
 `pnpm install:local` quits the running app, moves the old bundle to the Trash, then copies the new one in. Copying over the old bundle merges stale files and breaks the code seal.
 
 ## Paths
@@ -36,6 +44,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 | What | Where |
 |---|---|
 | Boards | `<data>/boards/<name>.excalidraw`, notes in `<name>.notes.md` |
+| Board comments | `<data>/boards/<name>.comments.json`, autosaved pins and overall words; renamed and trashed with the board |
 | Settings | `<data>/state.json`: board, panel size, hotkey, delivery mode, open at login, recent projects |
 | History | `<data>/history/`: the last 10 sends, each with its PNG and scene |
 | Drafts | `<data>/drafts/<id>.json`, pasted pictures inline as data URLs under `attachments` |
@@ -93,9 +102,9 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
   - Any other file opens in its default app.
   - Files get the same check as item outputs. They must exist inside the session's folder, symlinks resolved.
   - Tests record opened files and links in `openedOutputs`.
-- `POST /open` with `output: { path }` opens a Markdown or HTML output the same way, shows the panel and makes the session the Send target. The mod's In Agent Brief button sends it, with `tab: 'feedback'` when the output has open feedback.
+- `POST /open` with `output: { path }` opens a Markdown or HTML output the same way, shows the panel and makes the session the Send target. With `tab: 'feedback'`, any other project file opens the full-width Feedback view. The mod offers In Agent Brief on those files when they have a feedback file, including completed feedback. The CLI exposes this as `agent-brief open --output <path> --feedback`.
 - A review opens on its Feedback tab when `tab: 'feedback'` asks, or when the output has open or raised-again items. Otherwise it opens on Comments.
-- It needs a live `sessionId`. An ended or missing session, another file type, or a file outside the session's folder answers 400 with the reason.
+- It needs a live `sessionId`. An ended or missing session, another file type without `tab: 'feedback'`, or a file outside the session's folder answers 400 with the reason.
 - `OpenResponse.opened` says what the panel shows: `board`, `note` or `review`. An app that predates the field leaves it out and opens the board.
 - Send with a note that has `source` writes the edited text to `draft.md`, and the prompt is two lines:
 
@@ -105,6 +114,9 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
   ```
 
   With a sketch, those lines come first and the sketch lines follow. A source path that is absolute, multi-line or climbs out with `..` is dropped, and the text goes out word for word.
+
+- A source note keeps its original `source.sessionId` when refiled or unfiled. Refresh and watches use that owner. Send carries `fileSessionId` for a source note or HTML review and checks that the destination resolves to the same project before writing or delivering a bundle. Another session in that project is allowed; another project is refused. A note whose file catches up with its local edits advances its source baseline, so later agent edits refresh normally.
+- `OutputsInfo.hiddenRefs` keeps dismissed records out of feedback discovery too. A later write or declaration restores the output. Bash output declarations replace only their own request lines, in order, preserving other commands' logs and picture requests.
 
 ## Note comments
 

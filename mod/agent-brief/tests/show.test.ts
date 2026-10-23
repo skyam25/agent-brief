@@ -527,6 +527,39 @@ describe('a policy that refuses the plugin\'s tools', () => {
     expect(JSON.parse(file![1]).outputs[0]).toMatchObject({ ref: 'docs/pricing.md', title: 'Pricing brief', tier: 'declared', status: 'ready' })
   })
 
+  test('batched declarations keep their final status, other outputs, pictures and shell logs', async ($, on) => {
+    const printed = bash(on)
+    on('session.id', () => ({ value: 's1' }))
+    const { world } = await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })
+    printed.stdout = [
+      bashRequestLine({ kind: 'output', input: { title: 'Plan', path: `${CWD}/plan.md`, status: 'drafting' } }),
+      'Build finished successfully',
+      bashRequestLine({ kind: 'show', input: { path: SHOT } }),
+      bashRequestLine({ kind: 'output', input: { title: 'Plan', path: `${CWD}/plan.md`, status: 'ready' } }),
+      bashRequestLine({ kind: 'output', input: { title: 'Deck', path: `${CWD}/deck.pdf`, status: 'ready' } }),
+    ].join('\n')
+    const reply = await run($, 'generate-and-declare')
+    const file = [...world.files].find(([path]) => /\/outputs\/[^/]+\.json$/.test(path))!
+    expect(JSON.parse(file[1]).outputs.map((o: { ref: string; status: string }) => [o.ref, o.status])).toEqual([['plan.md', 'ready'], ['deck.pdf', 'ready']])
+    expect(reply.result?.stdout).toContain('Build finished successfully')
+    expect(reply.result?.stdout).not.toContain('agent-brief:request')
+    expect(shownOf(reply.result)).not.toBeNull()
+  })
+
+  test('a failed Bash declaration reports the failure without running the command again', async ($, on) => {
+    let calls = 0
+    on('session.id', () => ({ value: 's1' }))
+    on('tool.call', { tool: 'Bash' }, () => {
+      calls++
+      return { result: { stdout: bashRequestLine({ kind: 'output', input: { title: 'Plan', path: `${CWD}/plan.md` } }), stderr: '', interrupted: false } } as never
+    })
+    const { world } = await setup($, on)
+    world.isWriteRefused = true
+    const reply = await run($, 'generate-and-declare')
+    expect(reply.result?.stdout).toContain('could not record the output')
+    expect(calls).toBe(1)
+  })
+
   test('other Bash output passes through untouched', async ($, on) => {
     const printed = bash(on)
     await setup($, on, { [SHOT]: 'png' }, { isToolRefused: true })

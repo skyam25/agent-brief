@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CompanionApi, InitInfo, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas, openBoardSearch } from './BoardCanvas';
+import { workspaceComments } from './workspace-boards';
 import { BoardCommentsStore } from './board-comments';
 import { CommentColumn, CommentToggle, useCommentKeys } from './BoardComments';
 import { decisionsClaim, subscribeDecisions } from './decisions-send';
@@ -44,6 +45,7 @@ interface Boot {
   items: ItemsStore;
   outputs: OutputsStore;
   initiatives: InitiativesStore;
+  comments: BoardCommentsStore;
 }
 
 async function boot(host: CompanionApi): Promise<Boot> {
@@ -56,11 +58,12 @@ async function boot(host: CompanionApi): Promise<Boot> {
   const items = new ItemsStore(host);
   const outputs = new OutputsStore(host);
   const initiatives = new InitiativesStore(host);
-  await Promise.all([book.load(), shelf.load()]);
+  const comments = new BoardCommentsStore(host);
+  await Promise.all([book.load(), shelf.load(), comments.load(), workspaceComments.connect(host)]);
   // A launch in Write mode opens on the Notes tab, at the top of its list.
   const first = book.drafts.find((d) => !d.sessionId);
   if (info.mode === 'write' && first) book.select(first.id);
-  return { info, controller, scene: loaded, book, shelf, items, outputs, initiatives };
+  return { info, controller, scene: loaded, book, shelf, items, outputs, initiatives, comments };
 }
 
 export function App({ host }: { host: CompanionApi }) {
@@ -155,7 +158,7 @@ function NoteCrumb(props: { book: DraftBook }) {
   );
 }
 
-function Panel({ host, info, controller, scene, book, shelf, items, outputs, initiatives }: Boot & { host: CompanionApi }) {
+function Panel({ host, info, controller, scene, book, shelf, items, outputs, initiatives, comments }: Boot & { host: CompanionApi }) {
   const board = useSyncExternalStore(
     (fn) => controller.subscribe(fn),
     () => controller.board,
@@ -181,11 +184,14 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   const [update, setUpdate] = useState<UpdateStatus>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
-  const [comments] = useState(() => new BoardCommentsStore());
+  const commentError = useSyncExternalStore((fn) => comments.subscribe(fn), () => comments.saveError);
+  useEffect(() => {
+    if (commentError) notify(`Could not save board comments: ${commentError}`, 'error');
+  }, [commentError, notify]);
   const {
     sessions, mode, modeRef, focusRequest, newBoardRequest, changeMode, openDraft, openBoard, onReady,
     briefs, activeBrief, active, switchBrief, openNotes, closeBrief, reviewVoice,
-    reviewing, commenting, recording, hasVoice, elapsedMs, voiceMs, input, discardVoice, onMicrophone,
+    reviewing, commenting, recording, hasVoice, since, voiceMs, input, discardVoice, onMicrophone,
   } = useWorkspace({ host, info, controller, book, shelf, comments, board, notify, report });
   useCommentKeys(comments, mode === 'sketch');
   const sidebar = useSidebar();
@@ -199,6 +205,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     reviewVoice,
     modeRef,
     activeBrief,
+    targetSessionId: sessions.targetSessionId,
     notify,
     setChooserOpen,
   });
@@ -306,17 +313,19 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     if (next) await controller.switchTo(next);
   };
   const renameBoard = (from: string, to: string) =>
-    void controller
-      .renameBoard(to, from)
-      .then((name) => book.renameBoard(from, name))
+    void comments.flush()
+      .then(() => controller.renameBoard(to, from))
+      .then((name) => { book.renameBoard(from, name); comments.rename(from, name); })
       .catch(report('rename the board'))
       .finally(boardList.refresh);
   const deleteBoards = async (names: string[]) => {
     try {
       await leaveBoards(names);
       for (const name of names) {
+        await comments.flush();
         await controller.deleteBoard(name);
         book.forgetBoard(name);
+        comments.forget(name);
       }
     } catch (err) {
       report('delete the board')(err);
@@ -609,7 +618,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               <VoiceStrip
                 recording={recording}
                 reviewing={reviewing}
-                elapsedMs={elapsedMs}
+                since={since}
                 voiceMs={voiceMs}
                 hasVoice={hasVoice}
                 input={input}

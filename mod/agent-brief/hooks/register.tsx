@@ -590,8 +590,7 @@ async function refreshFeedback($: EngineInterface): Promise<void> {
   for (const o of await read($, outputsRef)) {
     if (/^https?:\/\//i.test(o.ref)) continue
     const text = await $.fs.read(feedbackFileOf(cwd, o.ref)).catch(() => undefined)
-    const open = typeof text === 'string' ? openFeedback(text) : 0
-    if (open > 0) counts[o.ref] = open
+    if (typeof text === 'string') counts[o.ref] = openFeedback(text)
   }
   await update($, feedbackRef, held => (JSON.stringify(held) === JSON.stringify(counts) ? held : counts))
 }
@@ -671,7 +670,7 @@ async function openOutput($: EngineInterface, ref: string): Promise<void> {
   if (ran.exitCode !== 0) $.ui.toast(`Could not open ${ref}: ${ran.stderr.trim() || `open exited ${ran.exitCode}`}`, { timeoutMs: 8000 })
 }
 
-/** Opens a Markdown or HTML output in the app, as a note in Write or in the review pane. */
+/** Opens a Markdown/HTML output in the app, or another file's Feedback view. */
 async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'): Promise<void> {
   const failed = await readyApp($)
   if (failed !== undefined) {

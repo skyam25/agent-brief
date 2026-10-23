@@ -66,6 +66,14 @@ describe('status, sessions, boards, open', () => {
     });
   });
 
+  it('opens feedback on any file with --output --feedback', async () => {
+    app.handler = ({ method }) => ({ json: method === 'GET' ? { sessionId: 's1', cwd: '/project' } : { board: 'main', opened: 'review' } });
+    const r = await run(['open', '--output', '/project/brief.docx', '--feedback', '--session', 's1']);
+    expect(r.code).toBe(0);
+    expect(app.seen.at(-1)?.body).toEqual({ sessionId: 's1', output: { path: 'brief.docx', tab: 'feedback' } });
+    expect((await run(['open', '--feedback'])).code).toBe(2);
+  });
+
   it('opens a saved note with --note, and refuses --note with --board', async () => {
     app.handler = () => ({ json: { board: 'flow', opened: 'note', targetSessionId: 's9' } });
     const r = await run(['open', '--note', 'd7']);

@@ -131,11 +131,13 @@ export class SessionFiles {
     const dismissed = this.deps.briefs.get(sessionId)?.dismissedOutputs ?? {};
     const hidden = (ref: string, touched: number) => Object.hasOwn(dismissed, ref) && touched <= dismissed[ref];
     const records = (text === undefined ? undefined : parseOutputsFile(text))?.outputs ?? [];
+    const hiddenRefs = records.filter((r) => hidden(r.ref, outputTouchedAt(r))).map((r) => r.ref);
     return {
       sessionId,
       path,
       exists: text !== undefined,
       outputs: sortOutputs(records.filter((r) => !hidden(r.ref, outputTouchedAt(r)))),
+      ...(hiddenRefs.length ? { hiddenRefs } : {}),
     };
   }
 
@@ -195,7 +197,7 @@ export class SessionFiles {
     if (statSync(target).size > MAX_OUTPUT_BYTES) throw new Error(`${ref} is over 4 MB, too large to open as a note`);
     const text = readFileSync(target, 'utf8');
     if (text.length > MAX_DRAFT_BODY) throw new Error(`${ref} is longer than a note can hold (${MAX_DRAFT_BODY.toLocaleString('en-US')} characters)`);
-    briefs.startNote({ text, id: newDraftId(), sessionId, source: { path, text } }, false);
+    briefs.startNote({ text, id: newDraftId(), sessionId, source: { path, text, sessionId } }, false);
   }
 
   /** A Markdown output's text now, for a note opened from it. Undefined when the file is gone or too large for a note. */
@@ -210,17 +212,17 @@ export class SessionFiles {
   }
 
   /**
-   * Opens a Markdown or HTML output in the panel for POST /open, and says where it opened.
-   * `tab` applies to a review. On the Feedback tab, a Markdown output opens in Review's full-width Feedback view.
+   * Opens an output in the panel for POST /open, and says where it opened.
+   * On the Feedback tab, a non-HTML file opens in Review's full-width Feedback view.
    */
   async openDocument(sessionId: string, path: string, tab?: ReviewTab): Promise<'note' | 'review'> {
-    if (!isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file`);
     if (tab === 'feedback' && !isReviewable(path)) {
       const { cwd, target } = this.projectFile(sessionId, path);
       const open: OpenFeedbackView = { sessionId, path: relative(cwd, target) };
       this.deps.send(CH.openFeedbackView, open);
       return 'review';
     }
+    if (!isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file`);
     await this.openOutput(sessionId, path, tab);
     return isReviewable(path) ? 'review' : 'note';
   }
@@ -352,6 +354,7 @@ export class SessionFiles {
     if (!within(cwd, target)) throw new Error(`${path} is outside the project`);
     if (!existsSync(target)) throw new Error(`${path} does not exist yet`);
     if (!within(realpathSync(cwd), realpathSync(target))) throw new Error(`${path} is outside the project`);
+    if (!statSync(target).isFile()) throw new Error(`${path} is not a file`);
     return { cwd, target };
   }
 }
