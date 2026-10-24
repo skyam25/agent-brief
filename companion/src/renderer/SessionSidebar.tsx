@@ -268,7 +268,7 @@ function Children(props: ChildProps & { sessionId?: string; tabs: string[]; fili
               aria-label={`More for ${b.name}`}
               aria-haspopup="menu"
               aria-expanded={!!menu?.names.includes(b.name)}
-              title="Rename, file under a session, or delete"
+              title="Rename, copy a reference, file under a session, or delete"
               onClick={(e) => {
                 const box = e.currentTarget.getBoundingClientRect();
                 openMenu(b.name, { x: box.left, y: box.bottom + 4 });

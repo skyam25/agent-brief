@@ -145,6 +145,16 @@ test('right-clicking a draft row marks it Ready or deletes it', async () => {
   await expect(page.getByTestId('row-menu')).toHaveCount(0);
   await expect(page.getByTestId('ready-list').getByTestId('draft-row')).toHaveText([/Keep this one/]);
 
+  // Copy reference names the note and the file a new session reads it from.
+  await row('Keep this one').click({ button: 'right' });
+  await page.getByTestId('row-menu-copy').click();
+  const id = draftsOnDisk().find((d) => d.body === 'Keep this one').id;
+  await expect
+    .poll(() => ctx.app.evaluate(() => globalThis.__companion.clipboard()))
+    .toBe(
+      `Read my Agent Brief note "Keep this one" in '${join(dataDir, 'drafts', `${id}.json`)}'. Show it with agent-brief open --note '${id}', and save changes with agent-brief note --id '${id}'.`,
+    );
+
   // Delete asks once more before it deletes.
   await row('Throw this away').click({ button: 'right' });
   await page.getByTestId('row-menu-delete').click();

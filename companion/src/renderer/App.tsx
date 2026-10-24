@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { CompanionApi, InitInfo, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
+import type { CompanionApi, InitInfo, ItemReference, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas, openBoardSearch } from './BoardCanvas';
 import { workspaceComments } from './workspace-boards';
 import { BoardCommentsStore } from './board-comments';
@@ -9,6 +9,7 @@ import { BoardPicker, LayoutSwitch } from './BoardPicker';
 import { fallbackBoard } from './boardScope';
 import { BoardController, parseScene, type LoadedScene } from './controller';
 import { draftTitle } from '../shared/drafts';
+import { draftName } from './DraftList';
 import { DraftBook } from './drafts';
 import { openFind } from './editor/RichEditor';
 import { openPageFind } from './ReviewView';
@@ -179,6 +180,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   const notify = useCallback((text: string, kind: ToastKind = 'info') => setToast({ text, kind, id: ++toastId.current }), []);
   const dismissToast = useCallback(() => setToast(undefined), []);
   const report = (what: string) => (err: unknown) => notify(`Could not ${what}: ${errorText(err)}`, 'error');
+  const copyReference = (ref: ItemReference) =>
+    void host.copyReference(ref).then(() => notify('Copied. Paste it into any Claude Code session.'), report('copy the reference'));
   const [settings, setSettings] = useState<Settings>(info.settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateStatus>();
@@ -364,6 +367,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
           onNotes: () => changeMode('write'),
           actions: {
             rename: renameBoard,
+            copy: (name) => copyReference({ kind: 'board', name }),
             remove: (names) => void deleteBoards(names),
             file: (names, sessionId) => void fileBoards(names, sessionId),
           },
@@ -542,6 +546,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               voice={reviewVoice}
               talking={recording}
               onCopy={(clip) => host.copyRich(clip).then(() => true, (err) => (report('copy the note')(err), false))}
+              onCopyReference={(d) => copyReference({ kind: 'note', id: d.id, title: draftName(d) })}
               onOpenElsewhere={async (d) => {
                 if (d.sessionId && briefs.some((b) => b.sessionId === d.sessionId)) return switchBrief(d.sessionId, d.id);
                 openNotes();
@@ -577,6 +582,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               }}
               chooseFolder={() => host.chooseFolder()}
               onReveal={(path) => void host.revealPath(path).catch(report('show that in Finder'))}
+              onCopyReference={(i) => copyReference({ kind: 'initiative', id: i.id, title: i.title })}
               onError={reviewError}
             />
           )}

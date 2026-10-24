@@ -9,7 +9,7 @@ import { onTab, type DraftBook } from './drafts';
 import { focusFirstSlot, openFind, stepFind } from './editor/RichEditor';
 import { DeleteItem } from './FooterMenu';
 import { filedTab, type FilingTab } from './FilingMenu';
-import { CheckIcon, ChevronIcon, PlusIcon } from './Icons';
+import { CheckIcon, ChevronIcon, LinkIcon, PlusIcon } from './Icons';
 import { useEscape, usePointerOutside, useStore } from './hooks';
 import type { ReviewVoice } from './review-voice';
 import { TemplateEditor } from './TemplateEditor';
@@ -42,6 +42,8 @@ export function WriteView(props: {
   onFilingMenu?: () => void;
   /** Puts a note on the clipboard as rich text and Markdown. False when that failed, which the panel has reported. */
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
+  /** Puts a line on the clipboard that a new session can pick the note up from. */
+  onCopyReference: (d: Draft) => void;
   /** The target chip and Send, shown at the right end of the open draft's footer. */
   sendBar?: ReactNode;
   /** The mic, which talks to the open note's comments. */
@@ -266,6 +268,7 @@ export function WriteView(props: {
           shelf={props.shelf}
           onUse={useTemplate}
           onDeleteTemplate={deleteTemplate}
+          onCopyReference={props.onCopyReference}
           onClose={() => setRowMenu(undefined)}
         />
       )}
@@ -291,6 +294,7 @@ export function WriteView(props: {
           onSend={props.onSend}
           onOpenBoard={props.onOpenBoard}
           onCopy={props.onCopy}
+          onCopyReference={() => props.onCopyReference(selected)}
           sendBar={props.sendBar}
           voice={props.voice}
           talking={props.talking}
@@ -311,6 +315,7 @@ function RowMenuPanel(props: {
   shelf: TemplateShelf;
   onUse: (t: Template) => void;
   onDeleteTemplate: (id: string) => void;
+  onCopyReference: (d: Draft) => void;
   onClose: () => void;
 }) {
   const { menu, book, shelf, onClose } = props;
@@ -340,6 +345,9 @@ function RowMenuPanel(props: {
     <ContextMenu x={menu.x} y={menu.y} label="Note" testId="row-menu" onClose={onClose}>
       <button className="ghost" role="menuitem" onClick={run(() => book.setReady(d.id, !ready))} data-testid="row-menu-ready">
         <CheckIcon /> {ready ? 'Back to notes' : 'Mark Ready'}
+      </button>
+      <button className="ghost" role="menuitem" onClick={run(() => props.onCopyReference(d))} data-testid="row-menu-copy">
+        <LinkIcon /> Copy reference
       </button>
       <hr />
       <DeleteItem what="note" testId="row-menu-delete" onDelete={run(() => book.remove(d.id))} />

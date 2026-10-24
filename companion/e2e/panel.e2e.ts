@@ -156,7 +156,15 @@ test('with the sidebar open, the board menu holds only New, and each row has its
   // A row's ⋯ and its right-click open the same menu.
   await boardRowMenu(page, 'second');
   const menu = page.getByTestId('board-row-menu');
-  await expect(menu.getByRole('menuitem')).toHaveText(['Rename', 'File under…', 'Delete board']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Rename', 'Copy reference', 'File under…', 'Delete board']);
+
+  // Copy reference puts a line a new session can act on.
+  await page.getByTestId('board-row-copy').click();
+  await expect(page.getByTestId('send-status')).toHaveText('Copied. Paste it into any Claude Code session.');
+  await expect
+    .poll(() => app.evaluate(() => globalThis.__companion.clipboard()))
+    .toBe(`Open my Agent Brief board "second" with agent-brief open --board 'second', then read it with agent-brief read --board 'second'.`);
+  await boardRowMenu(page, 'second');
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
   await boardRow(page, 'second').getByTestId('brief-board').click({ button: 'right' });

@@ -91,6 +91,11 @@ export function ReadyQueue(props: {
   );
 }
 
+/** A draft's name in lists and references. */
+export function draftName(d: Draft): string {
+  return d.review ? `Review of ${baseName(d.review.path)}` : d.title || draftTitle(plainSlots(d.body)) || 'Empty note';
+}
+
 export function DraftRow(props: {
   draft: Draft;
   selected: boolean;
@@ -110,7 +115,7 @@ export function DraftRow(props: {
 }) {
   const { draft: d, drag } = props;
   const body = plainSlots(d.body);
-  const title = d.review ? `Review of ${baseName(d.review.path)}` : d.title || draftTitle(body) || 'Empty note';
+  const title = draftName(d);
   const preview = d.review ? commentCount(d.review.comments.length) : d.title ? draftTitle(body) : draftPreview(body);
   return (
     <li

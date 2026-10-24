@@ -146,6 +146,12 @@ export interface InitiativePatch {
 }
 
 /** A conflict carries the brief as it is now, so the view can show it. */
+/** A board, note or initiative, for a line a new session can act on. */
+export type ItemReference =
+  | { kind: 'board'; name: string }
+  | { kind: 'note'; id: string; title: string }
+  | { kind: 'initiative'; id: string; title: string };
+
 export type InitiativeSaveResult = { ok: true; detail: InitiativeDetail } | { ok: false; message: string; detail?: InitiativeDetail };
 
 /** Notes wait until you send them; Ready drafts form the queue. */
@@ -465,6 +471,8 @@ export interface CompanionApi extends BoardHost {
   onDraftsChanged(fn: () => void): Subscription;
   /** Puts rich text and its plain form on the clipboard in one write. */
   copyRich(clip: { html: string; text: string }): Promise<void>;
+  /** Puts a line on the clipboard that names the item and the `agent-brief` commands that pick it up. */
+  copyReference(ref: ItemReference): Promise<void>;
   /** Each tracked session's latest brief, newest first. */
   listBriefs(): Promise<SessionBriefEntry[]>;
   /** Fires when a brief, a session or the Send target changes. */
@@ -621,6 +629,7 @@ export const CH = {
   deleteDraft: 'drafts:delete',
   draftsChanged: 'drafts:changed',
   copyRich: 'clipboard:copy-rich',
+  copyReference: 'clipboard:copy-reference',
   listTemplates: 'templates:list',
   saveTemplate: 'templates:save',
   deleteTemplate: 'templates:delete',
@@ -710,6 +719,7 @@ export const IPC_INVOKE = {
   forgetBrief: CH.forgetBrief,
   listDrafts: CH.listDrafts,
   copyRich: CH.copyRich,
+  copyReference: CH.copyReference,
   saveDraft: CH.saveDraft,
   deleteDraft: CH.deleteDraft,
   listTemplates: CH.listTemplates,

@@ -54,6 +54,7 @@ import { createControls } from './controls';
 import { DraftStore } from './drafts';
 import { restoredBoardName, SendHistory } from './history';
 import { expandHome, InitiativeStore } from './initiatives';
+import { referenceText } from './references';
 import { createInstalls } from './installs';
 import { ItemsWatcher } from './items-watch';
 import { trayMenuTemplate } from './menus';
@@ -598,6 +599,7 @@ async function start(): Promise<void> {
     if (testMode) copiedRich = rich;
     else await clipboard.write([new ClipboardItem({ 'text/html': rich.html, 'text/plain': rich.text })]);
   });
+  ipc.handle('copyReference', (ref) => terminals.copy(referenceText(ref, join(dataDir, 'drafts'))));
   ipc.handle('listTemplates', () => templates.list());
   ipc.handle('saveTemplate', (template: unknown) => templates.save(template));
   ipc.handle('deleteTemplate', (id: string) => templates.remove(id));

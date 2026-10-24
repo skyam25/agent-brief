@@ -1,13 +1,15 @@
-/** What the sidebar does to the active container's boards: rename, file under a session, delete, one or many at a time. */
+/** What the sidebar does to the active container's boards: rename, copy a reference, file under a session, delete, one or many at a time. */
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { FileUnder, FilingList, type FilingTab } from './FilingMenu';
 import { DeleteItem } from './FooterMenu';
-import { CloseIcon, PencilIcon, TrashIcon } from './Icons';
+import { CloseIcon, LinkIcon, PencilIcon, TrashIcon } from './Icons';
 
 export interface BoardActions {
   rename: (from: string, to: string) => void;
+  /** Puts a line on the clipboard that a new session can pick the board up from. */
+  copy: (name: string) => void;
   /** Moves boards to the Trash. */
   remove: (names: string[]) => void;
   /** Files boards under a session, or under Unfiled when `sessionId` is undefined. */
@@ -80,17 +82,31 @@ export function BoardMenu(props: {
       {many ? (
         <h4>{boardCount(names.length)}</h4>
       ) : (
-        <button
-          className="ghost"
-          role="menuitem"
-          onClick={() => {
-            props.onClose();
-            props.onRename(names[0]);
-          }}
-          data-testid="board-row-rename"
-        >
-          <PencilIcon /> <span className="label-text">Rename</span>
-        </button>
+        <>
+          <button
+            className="ghost"
+            role="menuitem"
+            onClick={() => {
+              props.onClose();
+              props.onRename(names[0]);
+            }}
+            data-testid="board-row-rename"
+          >
+            <PencilIcon /> <span className="label-text">Rename</span>
+          </button>
+          <button
+            className="ghost"
+            role="menuitem"
+            title="Copy a line to paste into any Claude Code session"
+            onClick={() => {
+              props.onClose();
+              actions.copy(names[0]);
+            }}
+            data-testid="board-row-copy"
+          >
+            <LinkIcon /> <span className="label-text">Copy reference</span>
+          </button>
+        </>
       )}
       <FileUnder
         filed={props.container}

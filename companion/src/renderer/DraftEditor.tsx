@@ -58,6 +58,8 @@ export function DraftEditor(props: {
   onSend: () => void;
   onOpenBoard: (board: string) => void;
   onCopy: (clip: { html: string; text: string }) => Promise<boolean>;
+  /** Puts a line on the clipboard that a new session can pick the note up from. */
+  onCopyReference: () => void;
   /** The target chip and Send, last in the footer. */
   sendBar?: ReactNode;
   /** The mic, which talks to this note's comments. */
@@ -267,6 +269,18 @@ export function DraftEditor(props: {
                 data-testid="save-template"
               >
                 <PlusIcon /> Save as template…
+              </button>
+              <button
+                className="ghost"
+                role="menuitem"
+                title="Copy a line to paste into any Claude Code session"
+                onClick={() => {
+                  close();
+                  props.onCopyReference();
+                }}
+                data-testid="draft-copy-reference"
+              >
+                <LinkIcon /> Copy reference
               </button>
               <DeleteItem what="note" testId="draft-delete" onDelete={() => book.remove(draft.id)} />
             </>

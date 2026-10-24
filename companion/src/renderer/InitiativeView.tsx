@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { INITIATIVE_ROLES, type InitiativeFolder, type InitiativeRole } from '../protocol';
+import { INITIATIVE_ROLES, type Initiative, type InitiativeFolder, type InitiativeRole } from '../protocol';
 import { sectionBreak } from '../shared/brief-sections';
 import type { InitiativeDetail, SessionBriefEntry } from '../shared/ipc';
 import { shortPath } from '../shared/sessions';
@@ -31,6 +31,8 @@ interface Props {
   onDiscover: () => void;
   chooseFolder: () => Promise<string | undefined>;
   onReveal: (path: string) => void;
+  /** Puts a line on the clipboard that a new session can attach the initiative from. */
+  onCopyReference: (i: Initiative) => void;
   onError: (message: string) => void;
 }
 
@@ -304,6 +306,14 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
         </span>
         <button className="ghost small" onClick={() => props.onReveal(i.path)}>
           Reveal in Finder
+        </button>
+        <button
+          className="ghost small"
+          title="Copy a line to paste into any Claude Code session"
+          onClick={() => props.onCopyReference(i)}
+          data-testid="initiative-copy-reference"
+        >
+          Copy reference
         </button>
       </footer>
     </article>

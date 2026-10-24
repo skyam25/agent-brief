@@ -58,6 +58,13 @@ test('the Initiative tab creates a brief, saves Understanding, and follows edits
   await expect(page.getByTestId('initiative-row')).toHaveText(/Pricing/);
   const brief = join(folder, 'Pricing brief.md');
   expect(readFileSync(brief, 'utf8')).toMatch(/^---\nagent_brief_id: "[0-9a-f]+"\n---\n# Pricing\n/);
+
+  // Copy reference attaches by id, so a shared title cannot pick the wrong brief.
+  const id = readFileSync(brief, 'utf8').match(/agent_brief_id: "([0-9a-f]+)"/)![1];
+  await page.getByTestId('initiative-copy-reference').click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.__companion.clipboard()))
+    .toBe(`Attach my Agent Brief initiative "Pricing" with agent-brief initiative attach '${id}', then read it with agent-brief initiative show '${id}'.`);
   await expect(page.getByTestId('initiative-sessions')).toContainText('No session attached · revision 1 by PM');
 
   await page.getByTestId('initiative-understanding').fill('Monthly-first wins on trials. Legal next.');
