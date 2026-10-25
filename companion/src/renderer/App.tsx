@@ -26,7 +26,7 @@ import { OutputsStore } from './outputs';
 import { PullIn } from './PullIn';
 import { ResumeRow } from './ResumeRow';
 import { ReviewMode } from './ReviewMode';
-import { SessionSidebar, sidebarOrder, useSidebar } from './SessionSidebar';
+import { SessionDot, SessionSidebar, sessionState, sidebarOrder, useSidebar } from './SessionSidebar';
 import { SendTo } from './SendTo';
 import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
@@ -116,10 +116,10 @@ function SessionCrumb(props: { brief?: SessionBriefEntry; onFocus: (sessionId: s
       </span>
     );
   }
-  const state = b.isLive ? 'Running in Claude Code' : 'Session ended';
+  const state = sessionState(b).tip;
   const label = (
     <>
-      <span className={b.isLive ? 'dot live' : 'dot'} aria-label={state} />
+      <SessionDot brief={b} />
       <span className="name">{b.title}</span>
     </>
   );

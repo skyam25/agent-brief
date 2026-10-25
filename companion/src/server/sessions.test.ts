@@ -133,6 +133,20 @@ describe('sessions', () => {
     expect((await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', activeAt: 'soon' })).status).toBe(400);
   });
 
+  it('keeps startedAt and promptAt and reports a change in either', async () => {
+    const h = await start();
+    const seen: (number | undefined)[][] = [];
+    h.server.onSessionsChange((s) => seen.push([s.sessions[0]?.startedAt, s.sessions[0]?.promptAt]));
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', startedAt: 5 });
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', startedAt: 5 });
+    await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', startedAt: 5, promptAt: 5 });
+    expect(seen).toEqual([
+      [5, undefined],
+      [5, 5],
+    ]);
+    expect((await h.call('POST', '/sessions', { sessionId: 'a', cwd: '/x', promptAt: 'now' })).status).toBe(400);
+  });
+
   it('fires onSessionsChange on real changes only, and unsubscribes', async () => {
     const h = await start();
     const seen: (string | undefined)[] = [];

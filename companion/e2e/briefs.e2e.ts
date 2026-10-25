@@ -1,8 +1,9 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DeliveriesResponse, SessionInfo, SessionsResponse } from '../src/protocol';
-import { boardMenu, boardRow, boardRowMenu, briefTab, launch, type Launched, openPanelFor, registerSession, showPanel, showEnded, sock, tempDataDir, themeShots } from './helpers';
+import { projectSlug } from '../src/main/session-names';
+import { boardMenu, boardRow, boardRowMenu, briefTab, launch, type Launched, openPanelFor, projectDir, registerSession, showPanel, showEnded, sock, tempDataDir, themeShots } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -408,4 +409,39 @@ test('switching to Unfiled opens an unfiled board, never one a session holds', a
   await expect(page.getByTestId('board-picker')).toHaveText('scratch');
   await page.keyboard.press('Control+1');
   await expect(page.getByTestId('board-picker')).toHaveText('scratch 2');
+});
+
+test("a session row reads its transcript's name and shows whether Claude is working", async () => {
+  const { page } = ctx;
+  const cwd = projectDir('app');
+  const dir = join(dataDir, 'claude-projects', projectSlug(cwd));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 's1.jsonl'), `${JSON.stringify({ type: 'ai-title', aiTitle: 'Fix the login bug', sessionId: 's1' })}\n`);
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'app', startedAt: 5 });
+  await openFor({ sessionId: 's1' });
+
+  const row = briefTab(page, 'Fix the login bug');
+  await expect(row).toContainText('Working');
+  await expect(row.getByTestId('session-dot')).toHaveClass(/working/);
+  await expect(page.getByTestId('crumb-session')).toContainText('Fix the login bug');
+
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'app', startedAt: 5, activeAt: Date.now() });
+  await expect(row).toContainText('Idle now');
+  await expect(row.getByTestId('session-dot')).not.toHaveClass(/working/);
+});
+
+test('the Ended group lists its newest five until Show more', async () => {
+  const { page } = ctx;
+  for (let i = 1; i <= 7; i++) {
+    await register(`s${i}`, `Session ${i}`);
+    await openFor({ sessionId: `s${i}` });
+  }
+  await openFor({ sessionId: 's7' });
+  for (let i = 1; i <= 6; i++) await sock(socketPath, 'DELETE', `/sessions/s${i}`);
+  await expect(page.getByTestId('ended-toggle')).toHaveText('Ended 6');
+  await showEnded(page);
+  await expect(page.getByTestId('brief-tab')).toHaveCount(6);
+  await page.getByTestId('ended-more').click();
+  await expect(page.getByTestId('brief-tab')).toHaveCount(7);
+  await expect(page.getByTestId('ended-more')).toHaveText('Show fewer');
 });

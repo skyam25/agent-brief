@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type MouseEvent } from 'react';
 import type { BoardEntry, Mode, SessionBriefEntry } from '../shared/ipc';
-import { modeLabel, shortPath } from '../shared/sessions';
+import { folderName, modeLabel, shortPath } from '../shared/sessions';
 import { boardsOf, childrenOf } from './boardScope';
 import type { MenuPoint } from './ContextMenu';
 import type { DraftBook } from './drafts';
@@ -31,16 +31,20 @@ function writeFlag(key: string, on: boolean): void {
   }
 }
 
-/** A long path cut to its last two folders, which tell sessions apart. */
-export function folderTail(path: string): string {
-  const parts = path.split('/').filter(Boolean);
-  return path.length <= 28 || parts.length <= 2 ? path : `…/${parts.slice(-2).join('/')}`;
+/** What a session is doing: working, idle, or ended. */
+export function sessionState(b: Pick<SessionBriefEntry, 'isLive' | 'isWorking' | 'activeAt' | 'at'>, now = Date.now()): { label: string; tip: string } {
+  if (b.isWorking) return { label: 'Working', tip: 'Working: Claude is replying' };
+  if (b.isLive) return { label: b.activeAt ? `Idle ${ago(b.activeAt, now)}` : 'Idle', tip: 'Idle: waiting for your next prompt' };
+  return { label: ago(b.at, now), tip: 'Ended: Claude Code closed. Resume it from here' };
 }
 
-/** A session's second line: how long ago it ended, and its folder. */
-function whereLine(b: SessionBriefEntry, home?: string): string {
-  return [!b.isLive && ago(b.at), b.cwd && folderTail(shortPath(b.cwd, home))].filter(Boolean).join(' · ');
+/** A session's second line: its state, and its folder's name. */
+function whereLine(b: SessionBriefEntry): string {
+  return [sessionState(b).label, b.cwd && folderName(b.cwd)].filter(Boolean).join(' · ');
 }
+
+/** Ended sessions shown before "Show more". */
+export const ENDED_SHOWN = 5;
 
 /** Splits the briefs into running and ended sessions, each newest first. */
 export function groupBriefs(briefs: SessionBriefEntry[]): { running: SessionBriefEntry[]; ended: SessionBriefEntry[] } {
@@ -120,11 +124,14 @@ export function SessionSidebar(props: {
   contents: ChildProps;
 }) {
   const [endedOpen, setEndedOpen] = useState(() => readFlag(ENDED_KEY));
+  const [allEnded, setAllEnded] = useState(false);
   const { running, ended } = groupBriefs(props.briefs);
   const { sidebar } = props;
 
-  // A folded group still shows the ended session on show.
-  const endedShown = endedOpen ? ended : ended.filter((b) => b.sessionId === props.activeId);
+  // The group shows its newest few until "Show more". A folded or cut group still shows the ended session on show.
+  const endedListed = !endedOpen ? [] : allEnded ? ended : ended.slice(0, ENDED_SHOWN);
+  const endedShown = ended.filter((b) => endedListed.includes(b) || b.sessionId === props.activeId);
+  const endedMore = endedOpen && ended.length > ENDED_SHOWN;
   /** A pick in the drawer closes it. */
   const picked = (go: () => void) => {
     go();
@@ -139,7 +146,7 @@ export function SessionSidebar(props: {
   };
   const tabs = props.briefs.map((b) => b.sessionId);
   const { contents } = props;
-  const filing: FilingTab[] = [...running, ...ended].map((b) => ({ sessionId: b.sessionId, title: b.title, where: whereLine(b, props.home) }));
+  const filing: FilingTab[] = [...running, ...ended].map((b) => ({ sessionId: b.sessionId, title: b.title, where: whereLine(b) }));
   const names = boardsOf(contents.boards, props.activeId).map((b) => b.name);
   const selection = useBoardSelection(names, contents.board, props.activeId);
   const childList = (sessionId: string | undefined) => (
@@ -198,6 +205,11 @@ export function SessionSidebar(props: {
             </button>
           )}
           {endedShown.map(row)}
+          {endedMore && (
+            <button className="ghost group more" onClick={() => setAllEnded(!allEnded)} data-testid="ended-more">
+              {allEnded ? 'Show fewer' : `Show ${ended.length - ENDED_SHOWN} more`}
+            </button>
+          )}
         </div>
         {selection.selected.length > 0 && (
           <SelectionBar selection={selection} container={props.activeId} tabs={filing} actions={contents.actions} />
@@ -313,18 +325,19 @@ function Row(props: {
 }) {
   const b = props.brief;
   const isActive = b.sessionId === props.activeId;
-  const state = b.isLive ? 'Running in Claude Code' : 'Session ended';
-  const where = whereLine(b, props.home);
+  const state = sessionState(b).tip;
+  const where = whereLine(b);
+  const path = b.cwd ? `\n${shortPath(b.cwd, props.home)}` : '';
   return (
     <div className="tab" aria-current={isActive} data-testid="brief-tab" data-session={b.sessionId}>
       <button
         className="ghost label"
         role="tab"
         aria-selected={isActive}
-        title={`${b.title}\n${state}${isActive && b.isLive ? '\nClick to bring its terminal forward' : ''}`}
+        title={`${b.title}${path}\n${state}${isActive && b.isLive ? '\nClick to bring its terminal forward' : ''}`}
         onClick={() => (isActive && b.isLive ? props.onFocus(b.sessionId) : props.onSwitch(b.sessionId))}
       >
-        <span className={b.isLive ? 'dot live' : 'dot'} aria-label={state} />
+        <SessionDot brief={b} />
         <span className="lines">
           <span className="line">
             <span className="title">{b.title}</span>
@@ -349,6 +362,13 @@ function Row(props: {
       </button>
     </div>
   );
+}
+
+/** Filled while the session runs, pulsing while Claude works, hollow once it ended. */
+export function SessionDot(props: { brief: SessionBriefEntry }) {
+  const b = props.brief;
+  const kind = b.isWorking ? 'dot live working' : b.isLive ? 'dot live' : 'dot';
+  return <span className={kind} aria-label={sessionState(b).tip} data-testid="session-dot" />;
 }
 
 /** The session's mode, mirrored from Claude Code. The panel only shows it. */

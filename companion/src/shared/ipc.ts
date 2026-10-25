@@ -363,8 +363,12 @@ export type SwitchResult = { draftId: string } | { board: string };
 /** One Claude Code session's latest brief, for switching between them. */
 export interface SessionBriefEntry {
   sessionId: string;
-  /** The session's title, or its folder. */
+  /** The session's name from its transcript, else its folder. */
   title: string;
+  /** Claude is replying in this live session. */
+  isWorking?: boolean;
+  /** When the live session last finished a reply, in ms since the epoch. */
+  activeAt?: number;
   /** Where the session ran. */
   cwd?: string;
   board?: string;

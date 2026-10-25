@@ -169,6 +169,9 @@ const voiceRef = atom({ plugin: 'agent-brief', key: 'voice' } as const, null)
 const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
 /** When the main loop last finished a reply, so the app can tell a busy session from an idle one. */
 const activeAtRef = atom({ plugin: 'agent-brief', key: 'activeAt' } as const, null)
+/** When the main loop last began a turn, and when a typed prompt last began one. The app reads Claude as working until the reply. */
+const startedAtRef = atom({ plugin: 'agent-brief', key: 'startedAt' } as const, null)
+const promptAtRef = atom({ plugin: 'agent-brief', key: 'promptAt' } as const, null)
 const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as const, false)
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const boardsRef = atom({ plugin: 'agent-brief', key: 'boards' } as const, [])
@@ -257,7 +260,9 @@ async function sessionExtras($: EngineInterface) {
   }
   const messages = await $.session.messages().catch(() => [])
   const activeAt = (await read($, activeAtRef).catch(() => null)) ?? undefined
-  return { host: hostOf(env), summary: summaryOf(Array.isArray(messages) ? messages : []), activeAt }
+  const startedAt = (await read($, startedAtRef).catch(() => null)) ?? undefined
+  const promptAt = (await read($, promptAtRef).catch(() => null)) ?? undefined
+  return { host: hostOf(env), summary: summaryOf(Array.isArray(messages) ? messages : []), activeAt, startedAt, promptAt }
 }
 
 /**
@@ -1466,6 +1471,20 @@ export const register: Register = (on, options) => {
     return result
   }).catch(($, e, next) => next(e))
 
+  // The app shows a session as working from a main-loop turn's start until its end.
+  // A typed prompt also tells the app the user is in this session's terminal now.
+  on('turn.start', async ($, e, next) => {
+    const started = await next(e)
+    if (e.agentId === undefined) {
+      const at = await $.clock.now()
+      await update($, startedAtRef, () => at).catch(() => undefined)
+      if (e.text !== '') await update($, promptAtRef, () => at).catch(() => undefined)
+      // A slow app must not hold up the turn.
+      if (isUp) void registerSession($).catch(() => undefined)
+    }
+    return started
+  })
+
   // Each finished main-loop reply is kept, so its last block can carry the row below.
   // The items file is read again, since the app's panel appends answers to it too.
   on('turn.complete', async ($, e, next) => {
@@ -1477,6 +1496,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       const at = await $.clock.now()
       await update($, activeAtRef, () => at).catch(() => undefined)
+      if (isUp) await registerSession($).catch(() => undefined)
       await keepRegistered($, companionSettings).catch(() => undefined)
     }
     if (e.agentId === undefined) await refreshItems($).catch(() => undefined)

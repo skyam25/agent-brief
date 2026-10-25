@@ -51,7 +51,7 @@ export function toastFor(mode: Delivery['mode']): string {
 export function sessionInfo(
   sessionId: string,
   cwd: string,
-  extra: { summary?: string; activeAt?: number; host?: SessionHost } = {},
+  extra: { summary?: string; activeAt?: number; startedAt?: number; promptAt?: number; host?: SessionHost } = {},
 ): SessionInfo {
   return {
     sessionId,
@@ -59,6 +59,8 @@ export function sessionInfo(
     title: cwd.split('/').filter(Boolean).at(-1) ?? cwd,
     ...(extra.summary ? { summary: extra.summary } : {}),
     ...(extra.activeAt ? { activeAt: extra.activeAt } : {}),
+    ...(extra.startedAt ? { startedAt: extra.startedAt } : {}),
+    ...(extra.promptAt ? { promptAt: extra.promptAt } : {}),
     ...(extra.host ? { host: extra.host } : {}),
   }
 }

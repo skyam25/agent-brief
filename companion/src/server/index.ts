@@ -187,6 +187,8 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       prev.pid !== info.pid ||
       prev.summary !== info.summary ||
       prev.activeAt !== info.activeAt ||
+      prev.startedAt !== info.startedAt ||
+      prev.promptAt !== info.promptAt ||
       JSON.stringify(prev.host) !== JSON.stringify(info.host);
     if (changed) emitSessions();
   }

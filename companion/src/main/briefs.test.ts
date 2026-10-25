@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { outputsFile, type SessionInfo } from '../protocol';
-import { Briefs, type BriefsDeps } from './briefs';
+import { Briefs, isWorking, type BriefsDeps } from './briefs';
 import { workspaceBinding } from '../shared/feedback-workspace';
 import type { SessionBriefs } from './session-briefs';
 import { BoardStore } from './store';
@@ -15,7 +15,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
-function briefsWith(sessionBriefs: SessionBriefs, live: SessionInfo[] = []): Briefs {
+function briefsWith(sessionBriefs: SessionBriefs, live: SessionInfo[] = [], nameOf?: BriefsDeps['nameOf']): Briefs {
   const state = { state: { sessionBriefs }, update: (patch: { sessionBriefs: SessionBriefs }) => Object.assign(state.state, patch) };
   const deps = {
     state,
@@ -24,6 +24,7 @@ function briefsWith(sessionBriefs: SessionBriefs, live: SessionInfo[] = []): Bri
     sessions: () => ({ sessions: live }),
     send: () => undefined,
     onPublish: () => undefined,
+    nameOf,
   } as unknown as BriefsDeps;
   return new Briefs(deps);
 }
@@ -61,5 +62,23 @@ describe('Briefs', () => {
     const briefs = new Briefs({ state: { state: { sessionBriefs: {} } }, store, drafts: { get: () => undefined }, sessions: () => ({ sessions: [] }), send: () => undefined, onPublish: () => undefined } as unknown as BriefsDeps);
     expect(briefs.boardsWithHolders().map((b) => b.name)).toEqual(['fb-checkout-1', 'fb-planning', 'notes-say-fb', 'scratch']);
     expect(briefs.panelBoards().map((b) => b.name)).toEqual(['fb-planning', 'notes-say-fb', 'scratch']);
+  });
+});
+
+describe('session names and state', () => {
+  it("titles a brief by the session's name, else its folder", () => {
+    const names: Record<string, string> = { a: 'Fix the login bug' };
+    const entries = briefsWith({ a: { cwd, title: 'app', at: 2 }, b: { cwd, title: 'app', at: 1 } }, [], (id) => names[id]).entries();
+    expect(entries.map((e) => e.title)).toEqual(['Fix the login bug', 'app']);
+  });
+
+  it('reads a live session as working from a turn start until its reply', () => {
+    expect(isWorking({ startedAt: 5, activeAt: 3 })).toBe(true);
+    expect(isWorking({ startedAt: 5, activeAt: 7 })).toBe(false);
+    expect(isWorking({ startedAt: 5 })).toBe(true);
+    expect(isWorking({ activeAt: 7 })).toBe(false);
+    const live = { sessionId: 'a', cwd, title: 'app', startedAt: 9, activeAt: 4 };
+    const [entry] = briefsWith({ a: { cwd, at: 1 } }, [live]).entries();
+    expect(entry).toMatchObject({ isLive: true, isWorking: true, activeAt: 4 });
   });
 });

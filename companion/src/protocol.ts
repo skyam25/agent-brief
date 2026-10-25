@@ -52,6 +52,12 @@ export interface SessionInfo {
   summary?: string;
   /** Epoch ms when the session last finished a reply. Absent before its first one. */
   activeAt?: number;
+  /** Epoch ms when the session's latest main-loop turn began. Later than `activeAt` while Claude works. */
+  startedAt?: number;
+  /** Epoch ms when the user's latest typed prompt began a turn, while that session's terminal is in front. */
+  promptAt?: number;
+  /** Set by the app for the panel. The session's rename, else Claude Code's title for it, from its transcript. */
+  name?: string;
   /** Where the session runs, for its label and for jumping back to it. */
   host?: SessionHost;
   /** Set by the app. Epoch ms of the last register or poll. */

@@ -102,6 +102,10 @@ declare module 'claude-code' {
       home: string | null
       /** Epoch ms when the main loop last finished a reply. */
       activeAt: number | null
+      /** Epoch ms when the main loop last began a turn. */
+      startedAt: number | null
+      /** Epoch ms when a typed prompt last began a main-loop turn. */
+      promptAt: number | null
       /** True once the session has a submitted prompt. The band drops its Mode button then. */
       hasPrompted: boolean
       /** The session's outputs file records, kept current by each write. */

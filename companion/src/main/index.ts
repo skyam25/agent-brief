@@ -64,6 +64,7 @@ import { Quitter } from './quit';
 import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './review-protocol';
 import { rememberProjects, Sender } from './sender';
 import { unfiledBoardChoice } from './session-briefs';
+import { SessionNames } from './session-names';
 import { SessionFiles, webUrl, type Opener } from './session-files';
 import { SessionModes } from './session-modes';
 import { TemplateStore } from './templates';
@@ -217,7 +218,34 @@ async function start(): Promise<void> {
     },
   };
 
-  const briefs = new Briefs({ state, store, drafts, sessions: () => server.sessions(), send, onPublish: () => files.sync() });
+  // Tests read transcripts under the data folder, never the user's Claude Code config.
+  const names = new SessionNames(testMode ? join(dataDir, 'claude-projects') : undefined);
+  const briefs = new Briefs({
+    state,
+    store,
+    drafts,
+    sessions: () => server.sessions(),
+    send,
+    onPublish: () => files.sync(),
+    nameOf: (id) => names.name(id),
+  });
+  /** Rereads the transcripts of every listed session, and republishes when a name changed. */
+  const rename = () => {
+    const listed = briefs.entries().map((b) => ({ sessionId: b.sessionId, cwd: b.cwd }));
+    names.keepOnly([...listed.map((b) => b.sessionId), ...sessions.sessions.map((s) => s.sessionId)]);
+    void names.update([...listed, ...sessions.sessions]).then((changed) => {
+      if (!changed) return;
+      briefs.publish();
+      send(CH.sessions, named(sessions));
+    });
+  };
+  const named = (s: SessionsResponse): SessionsResponse => ({
+    ...s,
+    sessions: s.sessions.map((x) => {
+      const name = names.name(x.sessionId);
+      return name ? { ...x, name } : x;
+    }),
+  });
   const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
   // Outputs the panel shows. Store and pane writes settle it first, so only outside edits report.
   const outputWatch = new OutputWatch(
@@ -412,7 +440,7 @@ async function start(): Promise<void> {
   let liveKey = '';
   server.onSessionsChange((s) => {
     sessions = s;
-    send(CH.sessions, s);
+    send(CH.sessions, named(s));
     rememberProjects(state, s.sessions.map((x) => x.cwd));
     briefs.refresh(s.sessions);
     const live = s.sessions.map((x) => x.sessionId);
@@ -422,11 +450,14 @@ async function start(): Promise<void> {
       send(CH.initiativesChanged, initiatives.list());
     }
     terminals.keepOnly(live);
+    void terminals.notePrompts(s.sessions);
     modes.keepOnly(live);
+    rename();
   });
   try {
     await server.listen();
     sessions = server.sessions();
+    rename();
   } catch (err) {
     console.error(`[companion] socket server did not start: ${(err as Error).message}`);
   }
@@ -484,7 +515,7 @@ async function start(): Promise<void> {
       currentBoard: state.state.currentBoard,
       home: homedir(),
       prompt,
-      sessions,
+      sessions: named(sessions),
       testMode,
       theme: theme(),
       settings: controls.settings(),

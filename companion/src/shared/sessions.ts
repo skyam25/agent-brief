@@ -57,9 +57,9 @@ export function shortPath(path: string, home?: string): string {
   return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
-/** The project and where it runs, as in `agent-brief · Ghostty`. */
+/** The session's name, else its project, and where it runs, as in `agent-brief · Ghostty`. */
 export function sessionTitle(s: SessionInfo): string {
-  return [s.title || folderName(s.cwd), hostLabel(s.host)].filter(Boolean).join(' · ');
+  return [s.name || s.title || folderName(s.cwd), hostLabel(s.host)].filter(Boolean).join(' · ');
 }
 
 /** The last two folders, from `~` when that is all there is: `~/Projects/app`, `…/web/app`. */

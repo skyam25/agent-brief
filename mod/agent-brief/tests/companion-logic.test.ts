@@ -71,6 +71,7 @@ describe('session label', () => {
 
   test('carries when the session last replied', () => {
     expect(sessionInfo('s1', '/Users/me/app', { activeAt: 42 })).toMatchObject({ activeAt: 42 })
+    expect(sessionInfo('s1', '/Users/me/app', { startedAt: 50, promptAt: 50 })).toMatchObject({ startedAt: 50, promptAt: 50 })
   })
 
   test('reads the terminal, its app and the herdr pane from the environment', () => {

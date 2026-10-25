@@ -11,6 +11,8 @@ import { exec, focusSession, frontGhosttyTerminal, resumeCommand, resumeSession,
 
 export const LAUNCHER_NAMES: Record<Launcher, string> = { ghostty: 'Ghostty', terminal: 'Terminal', herdr: 'herdr', copy: 'the clipboard' };
 
+const PROMPT_FRESH_MS = 5000;
+
 const herdrPath = () => findTool('herdr', [join(homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']);
 
 /** Workspace id to sidebar number, from `herdr workspace list`. Empty when the output does not parse. */
@@ -34,8 +36,10 @@ export class Terminals {
   /** What a test run copied, in place of the clipboard. */
   copied: string | undefined;
   private readonly run: Exec;
-  /** Ghostty terminal ids captured when a session runs /sketch, for jumping back to it. */
+  /** Ghostty terminal ids captured when a session runs /sketch or takes a typed prompt, for jumping back to it. */
   private readonly ghostty = new Map<string, string>();
+  /** Each session's last typed prompt seen, so each new one captures once. */
+  private readonly prompted = new Map<string, number>();
 
   constructor(private readonly opts: { testMode: boolean; writeClipboard: (text: string) => void }) {
     this.run = opts.testMode
@@ -60,9 +64,22 @@ export class Terminals {
     if (id) this.ghostty.set(session.sessionId, id);
   }
 
+  /**
+   * Records the Ghostty terminal of each session that just took a typed prompt, since the user is still there.
+   * A prompt older than a few seconds, as on an app start, captures nothing.
+   */
+  async notePrompts(sessions: SessionInfo[], now = Date.now()): Promise<void> {
+    for (const s of sessions) {
+      if (!s.promptAt || s.promptAt === this.prompted.get(s.sessionId)) continue;
+      this.prompted.set(s.sessionId, s.promptAt);
+      if (!s.host?.herdrPane && now - s.promptAt < PROMPT_FRESH_MS) await this.capture(s);
+    }
+  }
+
   /** Forgets the terminals of sessions that ended. */
   keepOnly(live: string[]): void {
     for (const id of this.ghostty.keys()) if (!live.includes(id)) this.ghostty.delete(id);
+    for (const id of this.prompted.keys()) if (!live.includes(id)) this.prompted.delete(id);
   }
 
   async focus(session: SessionInfo): Promise<void> {

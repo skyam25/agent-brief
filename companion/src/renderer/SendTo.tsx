@@ -46,7 +46,7 @@ export function SendTo(props: {
   decisions?: DecisionsClaim;
 }) {
   const target = props.sessions.sessions.find((s) => s.sessionId === props.sessions.targetSessionId);
-  const name = target && (target.title || folderName(target.cwd));
+  const name = target && (target.name || target.title || folderName(target.cwd));
   const d = props.decisions;
   if (d) {
     return (
@@ -154,11 +154,11 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
                 data-testid="send-to-session"
               >
                 <span className="avatar" aria-hidden="true" style={{ '--hue': hueOf(s.sessionId) } as CSSProperties}>
-                  {(s.title || folderName(s.cwd)).charAt(0).toUpperCase() || <TerminalIcon />}
+                  {(s.name || s.title || folderName(s.cwd)).charAt(0).toUpperCase() || <TerminalIcon />}
                 </span>
                 <span className="lines">
                   <span className="name">
-                    <span>{[s.title || folderName(s.cwd), places[s.sessionId] ?? hostLabel(s.host)].filter(Boolean).join(' · ')}</span>
+                    <span>{[s.name || s.title || folderName(s.cwd), places[s.sessionId] ?? hostLabel(s.host)].filter(Boolean).join(' · ')}</span>
                     {s.sessionId === props.holder && (
                       <span className="holds" data-testid="send-holder">
                         Has this {props.holds}

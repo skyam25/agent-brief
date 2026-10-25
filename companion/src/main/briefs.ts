@@ -30,6 +30,13 @@ export interface BriefsDeps {
   send: (channel: string, ...args: unknown[]) => void;
   /** Runs after each publish, for the file watches that follow the briefs. */
   onPublish: () => void;
+  /** The session's name from its transcript. */
+  nameOf?: (sessionId: string) => string | undefined;
+}
+
+/** A turn began after the last reply finished. */
+export function isWorking(s: Pick<SessionInfo, 'startedAt' | 'activeAt'>): boolean {
+  return s.startedAt !== undefined && s.startedAt > (s.activeAt ?? 0);
 }
 
 export class Briefs {
@@ -65,7 +72,9 @@ export class Briefs {
         const { title, cwd, host } = { title: b.title ?? 'Ended session', cwd: b.cwd, host: b.host, ...(live ? liveFields(live) : {}) };
         return {
           sessionId,
-          title,
+          title: this.deps.nameOf?.(sessionId) ?? title,
+          ...(live && isWorking(live) ? { isWorking: true } : {}),
+          ...(live?.activeAt ? { activeAt: live.activeAt } : {}),
           ...(cwd ? { cwd } : {}),
           ...(host ? { host } : {}),
           ...(!live && cwd ? { resume: resumeCommand(cwd, sessionId) } : {}),
