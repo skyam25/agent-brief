@@ -1,7 +1,7 @@
 /** Drafts on disk: one `<dataDir>/drafts/<id>.json` per draft. */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { badRequest } from '../board/errors';
 import { ATTACHMENT_ID } from '../shared/attachments';
 import { newDraftId, sortDrafts } from '../shared/drafts';
@@ -9,6 +9,7 @@ import type { Draft, DraftImage } from '../shared/ipc';
 import type { DeliveryInput } from '../server/contract';
 import { cleanAnnotations } from '../shared/annotations';
 import { cleanReview } from '../shared/review';
+import { isOutlinePath } from '../shared/outline';
 
 const ID = /^[\w-]{1,64}$/;
 /** The longest draft body, in characters. */
@@ -47,6 +48,8 @@ export function cleanDraft(raw: unknown): Draft {
     ? { path: d.source.path, ...(typeof d.source.sessionId === 'string' && d.source.sessionId ? { sessionId: d.source.sessionId } : {}), ...(typeof d.source.text === 'string' && d.source.text.length <= MAX_DRAFT_BODY ? { text: d.source.text } : {}) }
     : undefined;
   const review = d.review === undefined ? undefined : cleanReview(d.review);
+  const outlinePath = typeof d.outline?.path === 'string' ? d.outline.path.trim() : '';
+  const outline = isOutlinePath(outlinePath) && !isAbsolute(outlinePath) && !outlinePath.split(/[\\/]/).includes('..') ? { path: outlinePath } : undefined;
   const annotations = d.annotations === undefined ? undefined : cleanAnnotations(d.annotations);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   const title = typeof d.title === 'string' ? d.title.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE) : '';
@@ -61,6 +64,7 @@ export function cleanDraft(raw: unknown): Draft {
     ...(source ? { source } : {}),
     ...(review ? { review } : {}),
     ...(annotations ? { annotations } : {}),
+    ...(outline ? { outline } : {}),
     rank: num(d.rank),
     createdAt: num(d.createdAt),
     updatedAt: num(d.updatedAt),

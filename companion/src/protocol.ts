@@ -805,3 +805,167 @@ export interface FeedbackWorkspace {
   /** This call added the round's frame. */
   framed: boolean;
 }
+
+/**
+ * Outline-first authoring. An outline lives in the project as `<name>.outline.md`, beside the
+ * document or page it generates. The panel and Claude both write it through version-checked ops.
+ * GET /sessions/:id/outline?path=<project-relative .outline.md> answers OutlineDocument, with version `missing` when absent.
+ * POST takes OutlineUpdate and answers OutlineUpdateResult; 409 on a stale version. Version `missing` creates the file.
+ * GET /sessions/:id/outline/project answers OutlineProject.
+ */
+export type OutlineKind = 'document' | 'page';
+
+/** What a check found: the source supports the point, partly does, does not, or could not be opened. Absent means unchecked. */
+export type CiteMark = 'supports' | 'partly' | 'not' | 'unknown';
+
+export interface OutlineCite {
+  /** A source id, such as `S1`. */
+  source: string;
+  /** Where in the source, such as `p.3` or `wait times`. */
+  location?: string;
+  mark?: CiteMark;
+  /** Why the mark, such as `pilot of 12 accounts only`. */
+  note?: string;
+}
+
+export interface OutlinePoint {
+  /** `p1`, `p2`, … unique in the file. */
+  id: string;
+  /** `open` is a question the document must not silently answer. */
+  kind: 'point' | 'open';
+  text: string;
+  cites: OutlineCite[];
+  /** How to express the point: tone, emphasis, qualification. */
+  guide?: string;
+  /** A fact, decision or exact wording that must survive any rewrite. */
+  keep?: string;
+  /** For an open point, the default the draft adopts until it is answered. */
+  default?: string;
+  /** Sub-lines the parser did not recognize, kept verbatim. */
+  extra?: string[];
+}
+
+export interface OutlineSection {
+  /** `s1`, `s2`, … unique in the file. */
+  id: string;
+  title: string;
+  points: OutlinePoint[];
+  extra?: string[];
+}
+
+export interface OutlineSource {
+  /** `S1`, `S2`, … unique in the file. */
+  id: string;
+  title: string;
+  /** A project path or URL. */
+  ref?: string;
+  /** What the source establishes. */
+  supports?: string;
+  /** What it does not establish. */
+  notShown?: string;
+  /** The date of the last check, `YYYY-MM-DD`. */
+  checked?: string;
+  extra?: string[];
+}
+
+/** An intent line, such as `Reader: …`, `Goal: …`, `Message: …` or `Guide: …`. */
+export interface OutlineIntentLine {
+  key: string;
+  text: string;
+}
+
+/** How far a revision reaches: edit passages, rewrite affected sections, or regenerate the whole target. */
+export type DirectionScope = 'edit' | 'sections' | 'regenerate';
+
+/** Claude's reading of a round of feedback on the target, before the target changes. */
+export interface OutlineDirection {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  state: 'proposed' | 'accepted';
+  scope: DirectionScope;
+  /** Where the feedback came from, such as `3 comments on docs/memo.md`. */
+  from?: string;
+  /** The revised direction, 3 to 6 bullets. */
+  bullets: string[];
+  /** What changed in the outline, such as `replaced · Intent goal`. */
+  changes: string[];
+}
+
+export interface OutlineDoc {
+  title: string;
+  /** The document or page Generate writes, relative to the project. */
+  target?: string;
+  kind: OutlineKind;
+  intent: OutlineIntentLine[];
+  direction?: OutlineDirection;
+  sections: OutlineSection[];
+  sources: OutlineSource[];
+  /** Top-level lines the parser did not recognize, kept verbatim. */
+  extra?: string[];
+}
+
+export interface OutlineDocument extends OutlineDoc {
+  /** The outline file, relative to the project. */
+  path: string;
+  /** A hash of the file, or `missing`. */
+  version: string;
+  /** False when `target` is set and the file is not there yet. */
+  targetExists?: boolean;
+}
+
+export type OutlineOp =
+  | { op: 'setMeta'; title?: string; target?: string | null; kind?: OutlineKind }
+  | { op: 'setIntent'; lines: OutlineIntentLine[] }
+  /**
+   * `after` is a section id; `null` puts it first; absent puts it last.
+   * `label` names the new id for later ops in the same batch, which refer to it as `@<label>`. Each add op takes one.
+   */
+  | { op: 'addSection'; title: string; after?: string | null; label?: string }
+  | { op: 'editSection'; id: string; title: string }
+  | { op: 'moveSection'; id: string; after: string | null }
+  | { op: 'removeSection'; id: string }
+  /** `after` is a point id in `section`; `null` puts it first; absent puts it last. */
+  | { op: 'addPoint'; section: string; text: string; kind?: 'point' | 'open'; after?: string | null; cites?: OutlineCite[]; guide?: string; keep?: string; default?: string; label?: string }
+  /** Given fields replace the old ones whole; `null` clears one. */
+  | { op: 'editPoint'; id: string; text?: string; kind?: 'point' | 'open'; cites?: OutlineCite[]; guide?: string | null; keep?: string | null; default?: string | null }
+  | { op: 'movePoint'; id: string; section: string; after: string | null }
+  | { op: 'removePoint'; id: string }
+  /** Without `id`, the next free `S<n>`. */
+  | { op: 'addSource'; title: string; id?: string; ref?: string; supports?: string; notShown?: string; label?: string }
+  | { op: 'editSource'; id: string; title?: string; ref?: string | null; supports?: string | null; notShown?: string | null; checked?: string | null }
+  /** Also drops the cites that name it. */
+  | { op: 'removeSource'; id: string }
+  /** Without `date`, today. */
+  | { op: 'setDirection'; direction: Omit<OutlineDirection, 'date'> & { date?: string } }
+  | { op: 'clearDirection' };
+
+export interface OutlineUpdate {
+  version: string;
+  ops: OutlineOp[];
+}
+
+export interface OutlineUpdateResult extends OutlineDocument {
+  /** Ids the ops created, in op order. */
+  added: string[];
+}
+
+export interface OutlineSummary {
+  path: string;
+  title: string;
+  target?: string;
+  kind: OutlineKind;
+  sections: number;
+  points: number;
+  open: number;
+  cites: number;
+  /** Cites with no mark. */
+  unchecked: number;
+  /** Cites marked `partly`, `not` or `unknown`. */
+  flagged: number;
+  direction?: OutlineDirection['state'];
+}
+
+export interface OutlineProject {
+  files: OutlineSummary[];
+  truncated?: boolean;
+}

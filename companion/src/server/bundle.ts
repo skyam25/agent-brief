@@ -7,7 +7,9 @@ import { basename, isAbsolute, join } from 'node:path';
 import { boardCommentsAsk, boardCommentsMarkdown } from '../shared/board-comments';
 import { imageRefs } from '../shared/drafts';
 import { annotationsAsk, annotationsMarkdown } from '../shared/annotations';
-import { reviewAsk, reviewMarkdown } from '../shared/review';
+import { outlinePathFor } from '../shared/outline';
+import { outlineFeedbackAsk } from '../shared/outline-prompts';
+import { commentCount, reviewAsk, reviewMarkdown } from '../shared/review';
 import type { DeliveryInput } from './contract';
 
 const pad = (n: number, width = 2) => String(n).padStart(width, '0');
@@ -83,17 +85,43 @@ export function cleanSourcePath(raw: unknown): string | undefined {
 }
 
 /**
+ * The ask line for comments on `path` when the file has an outline in `cwd`, so Claude revises
+ * the outline first. Undefined when there is no outline or no project folder to look in.
+ */
+function outlineAsk(cwd: string | undefined, path: string | undefined, what: string): string | undefined {
+  if (!cwd || !path) return undefined;
+  const outline = outlinePathFor(path);
+  return existsSync(join(cwd, outline)) ? outlineFeedbackAsk(path, outline, what) : undefined;
+}
+
+/** A review's comments or overall note, as the ask line counts them. Undefined for a review that holds neither, or behavior decisions. */
+function reviewWhat(review: NonNullable<DeliveryInput['review']>): string | undefined {
+  if (review.behavior) return undefined;
+  const n = review.comments.length;
+  if (n) return `${commentCount(n)} pinned to the page`;
+  return review.body?.trim() ? 'an overall note' : undefined;
+}
+
+/** A note's passage comments, as the ask line counts them. */
+function annotationsWhat(a: NonNullable<DeliveryInput['annotations']>): string {
+  const n = a.comments.length;
+  return n ? `${commentCount(n)} on passages` : 'an overall comment';
+}
+
+/**
  * The prompt Claude Code receives. A written draft goes first, word for word, then the sketch lines.
  * A draft opened from a project file is not repeated. Its lines point at draft.md and ask Claude to apply it to the file.
  * A review's lines point at review.md instead. A draft with comments on its passages points at draft.md and annotations.md.
+ * Comments on a file with an outline in `cwd` ask Claude to revise the outline and propose a direction instead.
  */
-export function buildDraft(id: string, input: DeliveryInput): string {
+export function buildDraft(id: string, input: DeliveryInput, cwd?: string): string {
   const rel = `.feedback/sketches/${id}`;
   const source = cleanSourcePath(input.sourcePath);
+  const reviewed = input.review && reviewWhat(input.review);
   const sourceLines = input.review
-    ? [`@${rel}/review.md`, reviewAsk(input.review)]
+    ? [`@${rel}/review.md`, (reviewed && outlineAsk(cwd, cleanSourcePath(input.review.path), reviewed)) || reviewAsk(input.review)]
     : input.annotations
-      ? [`@${rel}/draft.md`, `@${rel}/annotations.md`, annotationsAsk(input.annotations, source)]
+      ? [`@${rel}/draft.md`, `@${rel}/annotations.md`, outlineAsk(cwd, source, annotationsWhat(input.annotations)) ?? annotationsAsk(input.annotations, source)]
       : source
       ? [`@${rel}/draft.md`, `My edited copy of ${source} from Agent Brief. Apply the changes to ${source}, keep what I did not touch, then say what changed.`]
       : undefined;

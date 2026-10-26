@@ -53,6 +53,20 @@ describe('DraftBook', () => {
     expect(book.get(other.id)).toBeUndefined();
   });
 
+  it('keeps an outline draft, whose file holds its words, and follows its title', async () => {
+    const host = fakeHost([saved('memo', { body: '', title: 'Memo', sessionId: 's1', outline: { path: 'docs/memo.outline.md' } })]);
+    const book = new DraftBook(host, () => t++);
+    await book.load();
+    book.select('memo');
+    book.select(book.create('', undefined, 's1').id);
+    expect(book.get('memo')).toBeDefined();
+    expect(host.deleteDraft).not.toHaveBeenCalledWith('memo');
+
+    book.retitle('memo', 'Onboarding memo');
+    await vi.advanceTimersByTimeAsync(DRAFT_SAVE_MS);
+    expect(host.disk.get('memo')).toMatchObject({ title: 'Onboarding memo', outline: { path: 'docs/memo.outline.md' } });
+  });
+
   it('takes the id main asks for, in place of the open empty note', () => {
     const book = new DraftBook(fakeHost(), () => t++);
     const empty = book.create();

@@ -93,6 +93,7 @@ export function ReadyQueue(props: {
 
 /** A draft's name in lists and references. */
 export function draftName(d: Draft): string {
+  if (d.outline) return d.title || baseName(d.outline.path);
   return d.review ? `Review of ${baseName(d.review.path)}` : d.title || draftTitle(plainSlots(d.body)) || 'Empty note';
 }
 
@@ -116,7 +117,7 @@ export function DraftRow(props: {
   const { draft: d, drag } = props;
   const body = plainSlots(d.body);
   const title = draftName(d);
-  const preview = d.review ? commentCount(d.review.comments.length) : d.title ? draftTitle(body) : draftPreview(body);
+  const preview = d.outline ? d.outline.path : d.review ? commentCount(d.review.comments.length) : d.title ? draftTitle(body) : draftPreview(body);
   return (
     <li
       className={drag?.dropBefore ? 'drop-before' : undefined}
@@ -143,10 +144,15 @@ export function DraftRow(props: {
         )}
         <span className="lines">
           <span className="title-line">
-            <span className={d.body.trim() || d.review ? 'title' : 'title muted'}>{title}</span>
+            <span className={d.body.trim() || d.review || d.outline ? 'title' : 'title muted'}>{title}</span>
             <span className="muted when">{ago(d.updatedAt)}</span>
           </span>
           <span className="muted preview">
+            {d.outline && (
+              <span className="board-tag outline-tag" title="An outline. Generate writes its document or page." data-testid="draft-outline-tag">
+                Outline
+              </span>
+            )}
             {props.place && (
               <span className="board-tag" title={`Filed under ${props.place}`}>
                 {props.place}

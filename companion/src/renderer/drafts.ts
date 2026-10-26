@@ -25,7 +25,7 @@ const sameText = (a: string, b: string) => a.trimEnd() === b.trimEnd();
  * A draft with nothing in it stays in memory, so leaving it leaves nothing behind.
  * Its attachments need no check, because `edit` keeps only the ones the body and comments use.
  */
-const isEmpty = (d: Draft) => !d.body.trim() && !d.board && !(d.review && hasReviewContent(d.review, d.body));
+const isEmpty = (d: Draft) => !d.outline && !d.body.trim() && !d.board && !(d.review && hasReviewContent(d.review, d.body));
 
 /**
  * Whether a draft belongs on a tab: a session tab holds the notes filed under it,
@@ -385,6 +385,11 @@ export class DraftBook {
   link(id: string, board: string | undefined): void {
     if (board) for (const d of this.drafts) if (d.board === board && d.id !== id) this.patch(d.id, { board: undefined }, false);
     this.patch(id, { board });
+  }
+
+  /** Names a draft, as an outline's title changes. */
+  retitle(id: string, title: string): void {
+    if (this.get(id)?.title !== title) this.patch(id, { title });
   }
 
   /** Files a draft under a session, or unfiles it. */

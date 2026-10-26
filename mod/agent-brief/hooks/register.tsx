@@ -1162,6 +1162,11 @@ export const register: Register = (on, options) => {
         argumentHint: '[text | last]',
       })
       await $.command.register({
+        name: 'outline',
+        description: 'Start an outline-first document or page: shape the points and sources in Agent Brief before Claude writes it',
+        argumentHint: '[what the document or page is]',
+      })
+      await $.command.register({
         name: 'track',
         description: "Track this session's items in the Agent Brief panel",
         argumentHint: '[on|off]',
@@ -1583,6 +1588,13 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'sketch' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim() })).message }))
   on('command.run', { command: 'stack' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim(), layout: 'stack' })).message }))
   on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
+  on('command.run', { command: 'outline' }, async ($, e) => {
+    const what = e.args.trim()
+    const text = what ? `Start an outline (outline-first) for: ${what}` : "Start an outline (outline-first) for what we've been discussing."
+    // A command.run hook cannot submit; a timer runs after the hook returns.
+    $.clock.after(0, () => submitPrompt($, text))
+    return { text: 'Starting an outline…' }
+  })
   on('command.run', { command: 'track' }, async ($, e) => ({ text: await trackCommand($, e.args) }))
   on('command.run', { command: 'mode' }, async ($, e) => ({ text: await modeCommand($, e.args) }))
   on('command.run', { command: 'initiative' }, async ($, e) => initiativeCommand($, initiativeEnvironment($), e.args))

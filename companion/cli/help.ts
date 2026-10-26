@@ -48,6 +48,20 @@ A src without a round number is in the catalog's round.`,
       'Keeps feedback items beside an output in <output>.feedback.md. Every write only adds: a round, an item, a line, or a closed checkbox. Dates are added for you. Claude writes Claude lines; You lines come from the panel. Requires the app and a registered session.',
     example: `agent-brief feedback catalog prototype/checkout.html --label customers --source transcripts/cust-1.md --date 2026-10-12 --items round-1.json\nagent-brief feedback add prototype/checkout.html --title "Hard to find the filters" --src '1 · Ana · 03:02 · "Where do I filter?"' --where '#filters'\nagent-brief feedback change prototype/checkout.html 6 "Put the filters in a sticky bar"\nagent-brief feedback done prototype/checkout.html 6 --commit 3f2a91c`,
   },
+  outline: {
+    usage: `agent-brief outline <verb> [--session <id>] [--json]
+  list                                   outlines in the project, with counts of sections, points, open, unchecked and flagged
+  new "<title>" [--target <path>] [--kind document|page] [--path <x.outline.md>] [--no-open]
+                                         makes the file and opens it in Write. Prints the path first
+  show <path>                            the outline and its ids, after its version
+  apply <path> --ops <file.json | ->     applies a JSON list of ops, or {"ops": [...]}. Prints the ids it added
+
+A new outline's path is --path, else the target's with .outline.md for its extension, else the title as a slug.
+Ops target ids (s1, p3, S2). apply reads the version first and retries once when the file changed under it.`,
+    about:
+      'Shapes a document or page as an outline in <name>.outline.md before it is written. Changes go through id-targeted ops the app checks against the file version, and the Write view reloads live. Requires the app and a registered session.',
+    example: `agent-brief outline new "Onboarding memo" --target docs/memo.md\nagent-brief outline show docs/memo.outline.md\nagent-brief outline apply docs/memo.outline.md --ops .feedback/outline-ops.json`,
+  },
   status: {
     usage: 'agent-brief status [--json]',
     about: 'Shows whether the app runs. Exits 3 when it does not.',
@@ -135,7 +149,7 @@ A src without a round number is in the catalog's round.`,
 };
 
 /** Commands that use no board and print no JSON. */
-const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output', 'note', 'initiative', 'feedback']);
+const NO_COMMON = new Set(['status', 'sessions', 'boards', 'herdr-pictures', 'show', 'output', 'note', 'initiative', 'feedback', 'outline']);
 
 export function commandHelp(name: string): string {
   const d = DOCS[name];

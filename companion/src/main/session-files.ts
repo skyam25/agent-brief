@@ -4,12 +4,13 @@
  */
 
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { outputsFile } from '../protocol';
 import { itemsFile } from '../server/index';
 import { newDraftId } from '../shared/drafts';
 import { CH, type Decision, type ItemsDocInfo, type OpenFeedbackView, type OutputsInfo, type ReviewTab } from '../shared/ipc';
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
+import { isOutlinePath, parseOutline } from '../shared/outline';
 import { isMarkdownRef, isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { cleanEdit, type EditResult, type HistoryResult } from '../shared/review-edit';
@@ -166,8 +167,9 @@ export class SessionFiles {
 
   /**
    * Opens an output. A link opens in the browser. An HTML file opens in the review pane.
-   * A Markdown file opens in Write mode as a note filed under the session, reusing the note
-   * already open on that file. Any other file opens in its default app.
+   * An outline opens in Write mode's outline editor. A Markdown file opens in Write mode as a
+   * note filed under the session, reusing the note already open on that file. Any other file
+   * opens in its default app.
    */
   async openOutput(sessionId: string, ref: unknown, tab?: ReviewTab): Promise<void> {
     const { briefs, drafts, opener } = this.deps;
@@ -185,6 +187,11 @@ export class SessionFiles {
       this.openReview(sessionId, path, tab);
       return;
     }
+    if (isOutlinePath(path)) {
+      if (statSync(target).size > MAX_OUTPUT_BYTES) throw new Error(`${ref} is over 4 MB, too large to open as an outline`);
+      this.showOutline(sessionId, path, parseOutline(readFileSync(target, 'utf8')).title || basename(path));
+      return;
+    }
     if (!isMarkdownRef(target)) {
       await opener.openPath(target);
       return;
@@ -198,6 +205,19 @@ export class SessionFiles {
     const text = readFileSync(target, 'utf8');
     if (text.length > MAX_DRAFT_BODY) throw new Error(`${ref} is longer than a note can hold (${MAX_DRAFT_BODY.toLocaleString('en-US')} characters)`);
     briefs.startNote({ text, id: newDraftId(), sessionId, source: { path, text, sessionId } }, false);
+  }
+
+  /**
+   * Shows the session's outline draft on `path` in Write, saving a new one when there is none.
+   * The file holds the outline, so the draft keeps an empty body. Answers the draft id.
+   */
+  showOutline(sessionId: string, path: string, title: string): string {
+    const { briefs, drafts } = this.deps;
+    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.outline?.path === path);
+    const now = Date.now();
+    const draft = existing ?? drafts.save({ id: newDraftId(now), body: '', status: 'note', title, sessionId, outline: { path }, rank: 0, createdAt: now, updatedAt: now });
+    briefs.showDraft(sessionId, draft.id, false);
+    return draft.id;
   }
 
   /** A Markdown output's text now, for a note opened from it. Undefined when the file is gone or too large for a note. */

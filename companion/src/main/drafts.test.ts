@@ -51,6 +51,16 @@ describe('DraftStore', () => {
     expect(() => store.save({ ...draft('b'), sessionId: 7 } as unknown as Draft)).toThrow(/sessionId/);
   });
 
+  it('keeps the outline a draft edits, and drops one that is not a project .outline.md path', () => {
+    const store = new DraftStore(temp());
+    expect(store.save(draft('a', { body: '', outline: { path: 'docs/memo.outline.md' } })).outline).toEqual({ path: 'docs/memo.outline.md' });
+    expect(store.get('a')?.outline).toEqual({ path: 'docs/memo.outline.md' });
+    for (const path of ['docs/memo.md', '../memo.outline.md', '/tmp/memo.outline.md', '.outline.md', '']) {
+      expect(store.save(draft('b', { outline: { path } })), path).not.toHaveProperty('outline');
+    }
+    expect(store.save({ ...draft('c'), outline: 'x.outline.md' } as unknown as Draft)).not.toHaveProperty('outline');
+  });
+
   it('keeps the source file a note was opened from, and drops a malformed one', () => {
     const store = new DraftStore(temp());
     store.save(draft('a', { source: { path: 'docs/plan.md' } }));

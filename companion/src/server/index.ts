@@ -277,7 +277,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       id,
       sessionId,
       dir,
-      draft: buildDraft(id, input),
+      draft: buildDraft(id, input, session.cwd),
       mode: input.mode ?? 'fill',
       createdAt: now(),
     };
@@ -341,6 +341,14 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       if (parts.length === 4 && method === 'GET') return { json: opts.feedback.project(session.cwd) };
       if (method === 'GET') return { json: opts.feedback.read(session.cwd, q.get('path'), { orphan: true }) };
       if (method === 'POST') return { json: opts.feedback.update(session.cwd, q.get('path'), await readJson(req), 'Claude') };
+    }
+
+    if (root === 'sessions' && sub === 'outline' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'project'))) {
+      const session = liveSession(id);
+      if (!opts.outlines) throw new HttpError(503, 'unavailable', 'this app does not keep outlines');
+      if (parts.length === 4 && method === 'GET') return { json: opts.outlines.project(session.cwd) };
+      if (parts.length === 3 && method === 'GET') return { json: opts.outlines.read(session.cwd, q.get('path')) };
+      if (parts.length === 3 && method === 'POST') return { json: opts.outlines.update(session.cwd, q.get('path'), await readJson(req)) };
     }
 
     if (root === 'sessions') {

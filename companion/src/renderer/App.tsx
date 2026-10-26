@@ -552,6 +552,9 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
                 openNotes();
                 book.select(d.id);
               }}
+              outlineHost={host}
+              onSendText={(sessionId, build) => void sendText(sessionId, build)}
+              onError={reviewError}
             />
           )}
           {mode === 'review' && (

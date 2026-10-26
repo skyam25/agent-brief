@@ -177,7 +177,7 @@ export class Sender {
     const dir = join(sketches, id);
     await writeBundle(dir, input);
     pruneBundles(sketches, Date.now());
-    const draft = buildDraft(id, input);
+    const draft = buildDraft(id, input, cwd);
     const promptPath = join(dir, 'prompt.md');
     await writeFile(promptPath, draft);
     rememberProjects(this.deps.state, [cwd]);

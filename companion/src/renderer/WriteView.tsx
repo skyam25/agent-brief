@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import type { OutlineKind } from '../protocol';
 import { draftTitle } from '../shared/drafts';
-import type { BoardEntry, Draft, Template } from '../shared/ipc';
+import type { BoardEntry, CompanionApi, Draft, OutlineCreate, Template } from '../shared/ipc';
 import { plainSlots } from '../shared/slots';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { DraftEditor } from './DraftEditor';
 import { DraftRow, ReadyQueue, SectionHeader } from './DraftList';
+import type { SendFeedback } from './FeedbackPanel';
 import { onTab, type DraftBook } from './drafts';
 import { focusFirstSlot, openFind, stepFind } from './editor/RichEditor';
 import { DeleteItem } from './FooterMenu';
 import { filedTab, type FilingTab } from './FilingMenu';
 import { CheckIcon, ChevronIcon, LinkIcon, PlusIcon } from './Icons';
 import { useEscape, usePointerOutside, useStore } from './hooks';
+import { cleanError, kindFor } from './outline-edit';
+import { OutlineEditor, type OutlineHost } from './OutlineEditor';
 import type { ReviewVoice } from './review-voice';
 import { TemplateEditor } from './TemplateEditor';
 import type { TemplateShelf } from './templates';
@@ -52,6 +56,11 @@ export function WriteView(props: {
   talking: boolean;
   /** Opens a draft filed under another tab, on its tab. */
   onOpenElsewhere: (d: Draft) => Promise<void>;
+  /** Reads and writes outline files, for outline drafts and New → Outline. */
+  outlineHost: OutlineHost & Pick<CompanionApi, 'createOutline'>;
+  /** Hands Claude a fixed prompt for a session, as Review's Feedback does. */
+  onSendText: SendFeedback;
+  onError: (message: string) => void;
 }) {
   const book = useStore(props.book);
   const shelf = useStore(props.shelf);
@@ -70,7 +79,7 @@ export function WriteView(props: {
   }, [book.selectedId]);
 
   // ⌘F finds in the open note wherever focus sits in Write. ⌘G steps through the matches.
-  const noteOpen = !!selected && !template;
+  const noteOpen = !!selected && !selected.outline && !template;
   useEffect(() => {
     if (!noteOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -105,6 +114,19 @@ export function WriteView(props: {
     book.create(t.body, undefined, props.sessionId);
     focusFirstSlot('draft-body');
   };
+  /** Makes the outline file and its draft in the session on show, then opens it. */
+  const createOutline = async (create: OutlineCreate) => {
+    if (!props.sessionId) return;
+    try {
+      const { draftId } = await props.outlineHost.createOutline(props.sessionId, create);
+      setNewMenu(false);
+      setTemplateId(undefined);
+      if (!book.get(draftId)) await book.load();
+      book.select(draftId);
+    } catch (err) {
+      props.onError(`Could not create the outline: ${cleanError(err)}`);
+    }
+  };
   const newTemplate = async () => {
     setNewMenu(false);
     const created = await shelf.create('New template', '');
@@ -122,10 +144,10 @@ export function WriteView(props: {
   const here = (d: Draft) => onTab(d, props.sessionId, tabIds);
   const ready = book.ready.filter((d) => here(d) && matches(d, query));
   const notes = book.drafts.filter(
-    (d) => d.status === 'note' && !d.review && here(d) && matches(d, query) && (d.body.trim() || d.board || d.id === selected?.id),
+    (d) => d.status === 'note' && !d.review && here(d) && matches(d, query) && (d.body.trim() || d.board || d.outline || d.id === selected?.id),
   );
   /** While searching, matches filed under other tabs, so a note never hides behind the wrong tab. */
-  const elsewhere = query.trim() ? book.drafts.filter((d) => !d.review && !here(d) && d.body.trim() && matches(d, query)) : [];
+  const elsewhere = query.trim() ? book.drafts.filter((d) => !d.review && !here(d) && (d.body.trim() || d.outline) && matches(d, query)) : [];
   const placeOf = (d: Draft) => filedTab(d, props.tabs)?.title ?? 'Unfiled';
   const openElsewhere = async (d: Draft) => {
     setTemplateId(undefined);
@@ -189,7 +211,14 @@ export function WriteView(props: {
               <ChevronIcon />
             </button>
             {newMenu && (
-              <NewMenu templates={shelf.templates} onUse={useTemplate} onNewTemplate={() => void newTemplate()} onClose={() => setNewMenu(false)} />
+              <NewMenu
+                templates={shelf.templates}
+                sessionId={props.sessionId}
+                onUse={useTemplate}
+                onNewTemplate={() => void newTemplate()}
+                onCreateOutline={createOutline}
+                onClose={() => setNewMenu(false)}
+              />
             )}
           </div>
         </div>
@@ -280,6 +309,15 @@ export function WriteView(props: {
           onUse={() => useTemplate(template)}
           onDeleted={() => setTemplateId(undefined)}
         />
+      ) : selected?.outline ? (
+        <OutlineEditor
+          key={selected.id}
+          host={props.outlineHost}
+          draft={selected}
+          onSend={props.onSendText}
+          onError={props.onError}
+          onRetitle={(title) => book.retitle(selected.id, title)}
+        />
       ) : selected ? (
         <DraftEditor
           key={selected.id}
@@ -298,6 +336,7 @@ export function WriteView(props: {
           sendBar={props.sendBar}
           voice={props.voice}
           talking={props.talking}
+          outlineHost={props.outlineHost}
         />
       ) : (
         <div className="editor empty-editor">
@@ -355,13 +394,39 @@ function RowMenuPanel(props: {
   );
 }
 
-/** Blank notes come from ⌘N; this menu starts one from a template. */
-function NewMenu(props: { templates: Template[]; onUse: (t: Template) => void; onNewTemplate: () => void; onClose: () => void }) {
+/** Blank notes come from ⌘N; this menu starts an outline, or a note from a template. */
+function NewMenu(props: {
+  templates: Template[];
+  sessionId?: string;
+  onUse: (t: Template) => void;
+  onNewTemplate: () => void;
+  onCreateOutline: (create: OutlineCreate) => Promise<void>;
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const [outline, setOutline] = useState(false);
   usePointerOutside(ref, props.onClose, { parent: true });
   useEscape(props.onClose);
+  if (outline) {
+    return (
+      <div className="popover-panel new-menu new-outline" ref={ref} role="dialog" aria-label="New outline" data-escape-owner data-testid="new-menu">
+        <h3>New outline</h3>
+        {props.sessionId ? (
+          <OutlineForm onCreate={props.onCreateOutline} />
+        ) : (
+          <p className="muted" data-testid="outline-new-no-session">
+            Pick a session first. An outline lives in a session's project, beside what it generates.
+          </p>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="popover-panel new-menu" ref={ref} role="menu" aria-label="New from a template" data-escape-owner data-testid="new-menu">
+      <button className="ghost" role="menuitem" title="Shape the points, cites and open questions, then generate a document or page" onClick={() => setOutline(true)} data-testid="new-menu-outline">
+        <PlusIcon /> Outline…
+      </button>
+      <hr />
       <h3>New from a template</h3>
       {props.templates.length === 0 && <p className="muted">No templates yet.</p>}
       <ul>
@@ -378,5 +443,41 @@ function NewMenu(props: { templates: Template[]; onUse: (t: Template) => void; o
       </button>
       <p className="muted hint">Or type / at the start of a line in any note.</p>
     </div>
+  );
+}
+
+/** Asks for an outline's title, an optional target and its kind. A target ending .html suggests Page. */
+function OutlineForm(props: { onCreate: (create: OutlineCreate) => Promise<void> }) {
+  const [title, setTitle] = useState('');
+  const [target, setTarget] = useState('');
+  const [picked, setPicked] = useState<OutlineKind>();
+  const [busy, setBusy] = useState(false);
+  const kind = picked ?? kindFor(target) ?? 'document';
+  const create = async () => {
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    await props.onCreate({ title: title.trim(), kind, ...(target.trim() ? { target: target.trim() } : {}) });
+    setBusy(false);
+  };
+  const onEnter = (e: { key: string; preventDefault: () => void }) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    void create();
+  };
+  return (
+    <>
+      <input autoFocus aria-label="Outline title" placeholder="Title, such as Onboarding memo" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={onEnter} data-testid="outline-new-title" />
+      <input aria-label="Target" placeholder="Target path (optional), such as docs/memo.md" value={target} onChange={(e) => setTarget(e.target.value)} onKeyDown={onEnter} data-testid="outline-new-target" />
+      <span className="outline-kind" role="group" aria-label="Kind">
+        {(['document', 'page'] as const).map((k) => (
+          <button key={k} className={kind === k ? 'ghost on' : 'ghost'} aria-pressed={kind === k} onClick={() => setPicked(k)} data-testid={`outline-new-kind-${k}`}>
+            {k === 'document' ? 'Document' : 'Page'}
+          </button>
+        ))}
+      </span>
+      <button className="primary" disabled={!title.trim() || busy} onClick={() => void create()} data-testid="outline-new-create">
+        Create outline
+      </button>
+    </>
   );
 }

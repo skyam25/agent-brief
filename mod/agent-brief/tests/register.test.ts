@@ -13,7 +13,7 @@ describe('ingest on /apply-feedback', () => {
 
     await $.session.start(SESSION)
     expect(world.tools.sort()).toEqual(['ask_questions', 'declare_output', 'feedback_latest', 'feedback_list', 'show_image'])
-    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'stack', 'write', 'track', 'mode', 'outputs', 'grill', 'initiative', 'show'])
+    expect(world.commands).toEqual(['apply-feedback', 'sketch', 'stack', 'write', 'outline', 'track', 'mode', 'outputs', 'grill', 'initiative', 'show'])
     await clock.advance(60_000)
 
     expect(world.runs.some(r => r.argv[1]?.endsWith('/bin/ingest.mjs'))).toBe(false)
@@ -144,6 +144,23 @@ describe('hand-off', () => {
     await clock.settle()
     expect(world.submitted).toEqual([
       'Read .feedback/manual/report.md and the screenshots it references. Blockquotes and annotations are my feedback. Summarize what I asked for, then do it.',
+    ])
+  })
+
+  test('/outline submits the outline-first prompt after the hook returns', async ($, on) => {
+    const world = worldOf(on)
+    const clock = mock.clock(on)
+    mock.store(on)
+
+    await $.session.start(SESSION)
+    expect(await $.command.run(command('outline', ' onboarding memo for the CRO '))).toEqual({ text: 'Starting an outline…' })
+    expect(world.submitted).toEqual([])
+    await clock.settle()
+    await $.command.run(command('outline'))
+    await clock.settle()
+    expect(world.submitted).toEqual([
+      'Start an outline (outline-first) for: onboarding memo for the CRO',
+      "Start an outline (outline-first) for what we've been discussing.",
     ])
   })
 

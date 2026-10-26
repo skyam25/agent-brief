@@ -89,6 +89,19 @@ describe('SessionFiles', () => {
     expect(opened).toEqual([join(cwd, 'deck.pdf'), 'https://example.com/doc']);
   });
 
+  it('opens an outline in a draft titled from the file, once per session', async () => {
+    mkdirSync(join(cwd, 'docs'));
+    writeFileSync(join(cwd, 'docs', 'memo.outline.md'), '# Onboarding memo\n\nKind: document\n');
+    expect(await files.openDocument('s1', 'docs/memo.outline.md')).toBe('note');
+    const shown = last(CH.openDraft)!;
+    expect(drafts.get(shown.id as string)).toMatchObject({ body: '', title: 'Onboarding memo', sessionId: 's1', outline: { path: 'docs/memo.outline.md' } });
+    expect(briefs.get('s1')).toMatchObject({ draftId: shown.id, last: 'draft' });
+    await files.openOutput('s1', join(cwd, 'docs', 'memo.outline.md'));
+    expect(last(CH.openDraft)).toEqual({ id: shown.id, sessionId: 's1' });
+    expect(drafts.list()).toHaveLength(1);
+    expect(last(CH.newNote)).toBeUndefined();
+  });
+
   it('keys an output named by its absolute path on the project-relative path', async () => {
     mkdirSync(join(cwd, 'docs'));
     writeFileSync(join(cwd, 'docs', 'page.html'), '<p>hi</p>');

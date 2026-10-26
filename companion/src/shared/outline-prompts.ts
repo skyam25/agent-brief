@@ -1,0 +1,32 @@
+/**
+ * The prompts the outline panel sends. Each names `(outline-first)`, which the outline-first skill keys on.
+ */
+
+import type { DirectionScope, OutlineDocument } from '../protocol';
+
+const targetOf = (doc: Pick<OutlineDocument, 'target' | 'kind'>) => doc.target ?? `the ${doc.kind}`;
+
+export function checkCitesPrompt(doc: Pick<OutlineDocument, 'path'>): string {
+  return `Check the cites in ${doc.path} (outline-first). Open each source, mark every cite, and record what each source supports.`;
+}
+
+export function generatePrompt(doc: Pick<OutlineDocument, 'path' | 'target' | 'kind'>): string {
+  if (doc.target) return `Generate ${doc.target} from ${doc.path} (outline-first). Write it fresh from the outline, then check it against the outline.`;
+  return `Generate the ${doc.kind} from ${doc.path} (outline-first). Pick a target path beside the outline, set it with setMeta, write it, then check it against the outline.`;
+}
+
+/** A question or request about the outline, scoped to one section when `sectionId` names one. */
+export function askPrompt(doc: Pick<OutlineDocument, 'path' | 'target' | 'sections'>, sectionId: string | undefined, text: string): string {
+  const section = sectionId ? doc.sections.find((s) => s.id === sectionId) : undefined;
+  const where = section ? `, section "${section.title}" (${section.id})` : '';
+  return `On ${doc.path} (outline-first)${where}: ${text.trim()}\nUpdate the outline only, through agent-brief outline apply. Do not write ${doc.target ?? 'the target'}.`;
+}
+
+export function acceptDirectionPrompt(doc: Pick<OutlineDocument, 'path' | 'target' | 'kind'>, scope: DirectionScope): string {
+  return `Direction accepted for ${doc.path} (outline-first). Revise ${targetOf(doc)} at scope ${scope} from the updated outline, check it against the outline, then clear the direction.`;
+}
+
+/** The ask line for a Send of comments on a target that has an outline. */
+export function outlineFeedbackAsk(source: string, outlinePath: string, what: string): string {
+  return `Comments on ${source} from Agent Brief, ${what}. ${source} has an outline at ${outlinePath} (outline-first). Do not change ${source} yet. Read the comments together, update the outline, and propose a direction with setDirection. The user accepts it in Agent Brief.`;
+}

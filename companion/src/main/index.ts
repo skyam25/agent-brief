@@ -3,6 +3,7 @@ import { FeedbackStore } from './feedback';
 import { resolveFeedback } from './feedback-paths';
 import { FeedbackWorkspaces } from './feedback-workspace';
 import { captureSession, FeedbackSnaps, offscreenCapture } from './feedback-snap';
+import { OutlineStore } from './outline';
 import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -260,6 +261,14 @@ async function start(): Promise<void> {
     outputWatch.settle();
     send(CH.feedbackChanged);
   });
+  // One event per session in the project, so a panel matches on its own session and path.
+  const outlines = new OutlineStore((root, path) => {
+    outputWatch.settle();
+    const ids = new Set([...Object.keys(briefs.all()), ...sessions.sessions.map((s) => s.sessionId)]);
+    const here = [...ids].filter((id) => briefs.cwdOf(id) === root);
+    if (!here.length) send(CH.outlineChanged, { path });
+    for (const sessionId of here) send(CH.outlineChanged, { sessionId, path });
+  });
   const captures = captureSession(session.fromPartition('feedback-capture'), (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
   const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow, captures) });
   const behaviorRoot = (sessionId: string) => {
@@ -417,7 +426,7 @@ async function start(): Promise<void> {
       },
     },
   });
-  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, feedbackSnaps, workspaces });
+  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, feedbackSnaps, workspaces, outlines });
 
   // Writes pending saves and closes the socket once before quitting.
   const quitter = new Quitter({
@@ -710,6 +719,14 @@ async function start(): Promise<void> {
   ipc.handle('readFeedback', (sessionId: string, path: unknown) => feedback.read(behaviorRoot(sessionId), path, { orphan: true }));
   ipc.handle('updateFeedback', (sessionId: string, path: unknown, update: unknown) => feedback.update(behaviorRoot(sessionId), path, update, 'You'));
   ipc.handle('listFeedback', (sessionId: string) => feedback.project(behaviorRoot(sessionId)));
+  ipc.handle('readOutline', (sessionId: string, path: unknown) => outlines.read(behaviorRoot(sessionId), path));
+  ipc.handle('updateOutline', (sessionId: string, path: unknown, update: unknown) => outlines.update(behaviorRoot(sessionId), path, update));
+  ipc.handle('listOutlines', (sessionId: string) => outlines.project(behaviorRoot(sessionId)));
+  ipc.handle('createOutline', (sessionId: string, create: unknown) => {
+    const root = behaviorRoot(sessionId);
+    const path = outlines.create(root, create);
+    return { draftId: files.showOutline(sessionId, path, outlines.read(root, path).title), path };
+  });
   ipc.handle('openFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, snapshot?: unknown) => workspaces.open(behaviorRoot(sessionId), path, n, snapshot));
   ipc.handle('saveFeedbackWorkspace', (sessionId: string, path: unknown, n: unknown, comments?: unknown) => workspaces.save(behaviorRoot(sessionId), path, n, 'You', comments));
   ipc.handle('noteFeedbackItem', (sessionId: string, path: unknown, n: unknown) => workspaces.note(behaviorRoot(sessionId), path, n, sessionId));

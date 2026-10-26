@@ -40,6 +40,7 @@ import { fitSize, loadImage } from './image';
 import { catalogEntries, formatCatalog, formatFeedback, formatProject, formatRelated, formatSimilar, itemHead, relatedOutput, relatedView, roundText, type CatalogResult, type RelatedView } from './feedback';
 import { formatWorkspace } from './feedback';
 import { DATA_DIR_ENV, defaultDataDir, formatInitiative, formatSummaries } from './initiative';
+import { runOutline } from './outline';
 import { InputError, parseRegion, validateDraw, validateUpdates } from './validate';
 import { InitiativeStore, resolveInitiative } from '../src/main/initiatives';
 
@@ -82,10 +83,11 @@ const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
   'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
   'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items', 'id', 'output',
+  'target', 'kind', 'ops',
 ]);
 /** Value flags that may repeat. The last value also reads as the flag's one value. */
 const LIST_FLAGS = new Set(['src', 'related', 'option', 'text']);
-const BOOL_FLAGS = new Set(['json', 'help', 'before', 'after', 'feedback']);
+const BOOL_FLAGS = new Set(['json', 'help', 'before', 'after', 'feedback', 'no-open']);
 
 function parseArgs(argv: string[]): Args {
   const flags = new Map<string, string | true>();
@@ -777,6 +779,19 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if (!run) throw new UsageError(`feedback takes list, graph, ${Object.keys(FEEDBACK_VERBS).join(', ')}. Run "agent-brief feedback --help".`);
     if (!output) throw new UsageError(`feedback ${verb} needs a project-relative output path`);
     await run(ctx, output, words);
+  },
+
+  async outline(ctx) {
+    await runOutline({
+      socket: ctx.socket,
+      positional: ctx.positional,
+      flag: (name) => str(ctx.args, name),
+      has: (name) => ctx.args.flags.has(name),
+      session: str(ctx.args, 'session') ?? (ctx.io.env[SESSION_ID_ENV] || undefined),
+      cwd: ctx.io.cwd ?? process.cwd(),
+      stdin: ctx.io.stdin,
+      out: ctx.out,
+    });
   },
 
   async status(ctx) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { hasAnnotations } from '../shared/annotations';
-import type { BoardEntry, Draft } from '../shared/ipc';
+import type { BoardEntry, CompanionApi, Draft } from '../shared/ipc';
+import { outlinePathFor } from '../shared/outline';
 import type { DraftBook } from './drafts';
 import { FileUnder, type FilingTab } from './FilingMenu';
 import { DeleteItem, MoreMenu } from './FooterMenu';
@@ -10,6 +11,7 @@ import type { Passage } from './editor/annotations';
 import { RichEditor, type RichEditorHandle } from './editor/RichEditor';
 import { newPictureId } from './editor/pictures';
 import { NoteComments } from './NoteComments';
+import { sourceLine } from './outline-edit';
 import { OVERALL, type ReviewVoice } from './review-voice';
 import type { TemplateShelf } from './templates';
 
@@ -43,6 +45,25 @@ function TemplateNamer(props: { shelf: TemplateShelf; body: string; onDone: (mes
 
 const NO_PICTURES: Record<string, string> = {};
 
+/** The outline beside a note's source file, once a read finds it there. */
+function useSourceOutline(host: Pick<CompanionApi, 'readOutline'>, sessionId: string | undefined, path: string | undefined): string | undefined {
+  const [found, setFound] = useState<string>();
+  useEffect(() => {
+    setFound(undefined);
+    if (!sessionId || !path) return;
+    const outline = outlinePathFor(path);
+    let live = true;
+    host
+      .readOutline(sessionId, outline)
+      .then((doc) => live && doc.version !== 'missing' && setFound(outline))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [host, sessionId, path]);
+  return found;
+}
+
 const newCommentId = () => `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 /** The open draft: its text, its board, where it is filed, Ready and Delete. */
@@ -66,6 +87,8 @@ export function DraftEditor(props: {
   voice: ReviewVoice;
   /** The mic is on, so a selection becomes a comment at once. */
   talking: boolean;
+  /** Finds an outline beside the note's source file. */
+  outlineHost: Pick<CompanionApi, 'readOutline'>;
 }) {
   const { book, draft, voice } = props;
   useSyncExternalStore(
@@ -101,6 +124,7 @@ export function DraftEditor(props: {
 
   useEffect(() => book.watchSource(draft.id), [book, draft.id, draft.sessionId, draft.source?.path]);
   const fileChanged = book.changedSource(draft.id) !== undefined;
+  const sourceOutline = useSourceOutline(props.outlineHost, draft.sessionId, draft.source?.path);
 
   const ready = draft.status === 'ready';
   const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -164,7 +188,7 @@ export function DraftEditor(props: {
       )}
       {draft.source && (
         <p className="draft-source muted" data-testid="draft-source">
-          From {draft.source.path}. Send asks Claude to apply your changes to the file.
+          {sourceLine(draft.source.path, sourceOutline)}
         </p>
       )}
       {draft.source && fileChanged && (

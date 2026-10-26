@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -213,5 +213,41 @@ describe('a sketch with comments pinned to the board', () => {
     const dir = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'b1');
     await writeBundle(dir, { ...sketch, comments });
     expect(readFileSync(join(dir, 'comments.md'), 'utf8')).toContain('## 1. rectangle “Open the app”\n\nSay what opens.\n\n- Element: `start`');
+  });
+});
+
+describe('comments on a file with an outline', () => {
+  const project = () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'outline-'));
+    mkdirSync(join(cwd, 'docs'));
+    writeFileSync(join(cwd, 'docs/memo.outline.md'), '# Memo\n\nKind: document\n');
+    return cwd;
+  };
+  const annotations = { title: 'memo.md', comments: [{ id: 'n1', quote: 'Ship it.', occurrence: 0, text: 'Which day?', createdAt: 1 }] };
+  const note = { boardName: '', text: '# Memo\n\nShip it.', annotations, sourcePath: 'docs/memo.md' };
+  const anchor = { selector: 'h2', tag: 'h2', text: 'Plans', fx: 0.5, fy: 0.5, rect: { x: 0, y: 0, width: 1, height: 1 }, scrollY: 0, viewport: { width: 800, height: 600 } };
+
+  it('asks Claude to revise the outline for passage comments on a file-backed note', () => {
+    expect(buildDraft('id1', note, project()).split('\n')).toEqual([
+      '@.feedback/sketches/id1/draft.md',
+      '@.feedback/sketches/id1/annotations.md',
+      'Comments on docs/memo.md from Agent Brief, 1 comment on passages. docs/memo.md has an outline at docs/memo.outline.md (outline-first). Do not change docs/memo.md yet. Read the comments together, update the outline, and propose a direction with setDirection. The user accepts it in Agent Brief.',
+    ]);
+  });
+
+  it('asks the same for review comments on an HTML file', () => {
+    const cwd = project();
+    writeFileSync(join(cwd, 'docs/page.outline.md'), '# Page\n\nKind: page\n');
+    const review = { path: 'docs/page.html', comments: [{ id: 'c1', text: 'Bigger.', anchor, createdAt: 1 }] };
+    expect(buildDraft('id1', { boardName: '', review }, cwd).split('\n')[1]).toBe(
+      'Comments on docs/page.html from Agent Brief, 1 comment pinned to the page. docs/page.html has an outline at docs/page.outline.md (outline-first). Do not change docs/page.html yet. Read the comments together, update the outline, and propose a direction with setDirection. The user accepts it in Agent Brief.',
+    );
+    const edits = { ...review, comments: [], edits: [{ id: 'e1', kind: 'text', selector: 'h2', before: 'a', after: 'b', createdAt: 1 }] };
+    expect(buildDraft('id1', { boardName: '', review: edits } as never, cwd)).toContain('made in the pane');
+  });
+
+  it('keeps the usual ask without an outline or a project folder', () => {
+    expect(buildDraft('id1', note, mkdtempSync(join(tmpdir(), 'plain-'))).split('\n')[2]).toMatch(/^Comments on docs\/memo\.md from Agent Brief, 1 comment on passages\. Make the changes/);
+    expect(buildDraft('id1', note).split('\n')[2]).toMatch(/Make the changes in docs\/memo\.md/);
   });
 });

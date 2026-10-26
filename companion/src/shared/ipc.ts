@@ -1,5 +1,5 @@
 import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
-import type { FeedbackWorkspace } from '../protocol';
+import type { FeedbackWorkspace, OutlineDocument, OutlineKind, OutlineProject, OutlineUpdate, OutlineUpdateResult } from '../protocol';
 import type { WorkspaceSnapshot } from './feedback-workspace';
 /** IPC between the main process and the panel renderer. */
 
@@ -176,10 +176,25 @@ export interface Draft {
   review?: DraftReview;
   /** Comments on passages of the note, made in Write. */
   annotations?: NoteAnnotations;
+  /** Set when the draft is an outline. Write shows the outline editor, and the file holds the content, not `body`. */
+  outline?: DraftOutline;
   /** Position in the Ready queue, lowest first. */
   rank: number;
   createdAt: number;
   updatedAt: number;
+}
+
+/** The outline file a draft edits, relative to the session's project. */
+export interface DraftOutline {
+  path: string;
+}
+
+/** What Write → New → Outline asks for. Without `path`, main derives it from `target`, or from the title at the project root. */
+export interface OutlineCreate {
+  title: string;
+  target?: string;
+  kind?: OutlineKind;
+  path?: string;
 }
 
 /** Where a draft came from, when it is a copy of a session's output file. */
@@ -534,6 +549,16 @@ export interface CompanionApi extends BoardHost {
   updateFeedback(sessionId: string, path: string, update: FeedbackUpdate): Promise<FeedbackUpdateResult>;
   /** Every feedback file in the session's project, with counts. */
   listFeedback(sessionId: string): Promise<FeedbackProject>;
+  /** An outline file, parsed. Version `missing` when the file is not there. */
+  readOutline(sessionId: string, path: string): Promise<OutlineDocument>;
+  /** Applies ops in one version-checked write. Rejects with a message containing `changed since` on a stale version. */
+  updateOutline(sessionId: string, path: string, update: OutlineUpdate): Promise<OutlineUpdateResult>;
+  /** Every outline in the session's project, with counts. */
+  listOutlines(sessionId: string): Promise<OutlineProject>;
+  /** Creates the outline file and a Write draft on it, filed under the session, and selects the draft. */
+  createOutline(sessionId: string, create: OutlineCreate): Promise<{ draftId: string; path: string }>;
+  /** Any outline changed through the store, from the panel or from Claude. */
+  onOutlineChanged(fn: (change: { sessionId?: string; path: string }) => void): () => void;
   /** A `Before:` or `After:` picture, relative to the output's folder, as a data URL. Undefined when the file is gone. */
   readFeedbackPicture(sessionId: string, output: string, picture: string): Promise<string | undefined>;
   onFeedbackChanged(fn: () => void): () => void;
@@ -653,6 +678,11 @@ export const CH = {
   decideBehavior: 'behavior:decide',
   behaviorChanged: 'behavior:changed',
   readFeedback: 'feedback:read',
+  readOutline: 'outline:read',
+  updateOutline: 'outline:update',
+  listOutlines: 'outline:list',
+  createOutline: 'outline:create',
+  outlineChanged: 'outline:changed',
   updateFeedback: 'feedback:update',
   listFeedback: 'feedback:list',
   readFeedbackPicture: 'feedback:picture',
@@ -744,6 +774,10 @@ export const IPC_INVOKE = {
   readFeedback: CH.readFeedback,
   updateFeedback: CH.updateFeedback,
   listFeedback: CH.listFeedback,
+  readOutline: CH.readOutline,
+  updateOutline: CH.updateOutline,
+  listOutlines: CH.listOutlines,
+  createOutline: CH.createOutline,
   openFeedbackWorkspace: CH.openFeedbackWorkspace,
   saveFeedbackWorkspace: CH.saveFeedbackWorkspace,
   noteFeedbackItem: CH.noteFeedbackItem,
@@ -791,6 +825,7 @@ export const IPC_EVENT = {
   onInitiativesChanged: CH.initiativesChanged,
   onBehaviorChanged: CH.behaviorChanged,
   onFeedbackChanged: CH.feedbackChanged,
+  onOutlineChanged: CH.outlineChanged,
   onOutputChanged: CH.outputChanged,
   onDictation: CH.dictation,
 } as const satisfies Record<Exclude<EventMethod, 'onRequest'>, string>;

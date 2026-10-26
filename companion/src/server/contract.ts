@@ -3,6 +3,7 @@ import type { BehaviorStore } from '../main/behavior';
 import type { FeedbackStore } from '../main/feedback';
 import type { FeedbackWorkspaces } from '../main/feedback-workspace';
 import type { FeedbackSnaps } from '../main/feedback-snap';
+import type { OutlineStore } from '../main/outline';
 /**
  * Seams between the socket server (src/server) and the Electron app (src/main).
  * The server owns sessions, deliveries and routing. The app owns the board.
@@ -129,6 +130,8 @@ export interface CompanionServerOptions {
   workspaces?: Pick<FeedbackWorkspaces, 'open'>;
   /** Absent, POST /sessions/:id/feedback/snap answers 503. */
   feedbackSnaps?: Pick<FeedbackSnaps, 'snap'>;
+  /** Absent, the outline routes answer 503. */
+  outlines?: Pick<OutlineStore, 'read' | 'update' | 'project'>;
   now?: () => number;
 }
 
