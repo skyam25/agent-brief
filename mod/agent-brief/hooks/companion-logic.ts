@@ -224,6 +224,9 @@ export function namedPages(reply: string, root: string): string[] {
 
 export const isHtmlPage = (path: string) => /\.html?$/i.test(path)
 
+/** An Agent Brief outline. Claude edits one through the CLI, so it never shows up as a written output. */
+export const isOutlineFile = (path: string) => /\.outline\.md$/i.test(path)
+
 /** A note `agent-brief note` filed. The title is unknown when Claude replaced a note in place. */
 export type FiledNote = { id: string; title?: string }
 

@@ -144,6 +144,22 @@ describe('the row under a finished reply', () => {
     await ui.unmount()
   })
 
+  test('Open shows an outline the reply names, though Claude changed it through the CLI', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    world.files.set(`${CWD}/plan/story.outline.md`, '# Story')
+    await start()
+    await clock.settle()
+    const reply = `I've proposed a direction in the outline.\n\nFile changed:\n${CWD}/plan/story.outline.md\nAlso see plan/missing.outline.md`
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-review-0' })).toMatchObject({ text: 'Open story.outline.md' })
+    expect(textOf(await $.ui.render(block(reply))), 'an outline that does not exist').not.toContain('missing.outline.md ·')
+    await ui.press({ key: 'reply-review-0' })
+    await clock.settle()
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'plan/story.outline.md' } })
+    await ui.unmount()
+  })
+
   test('a note the turn filed gets an Open on its reply, which shows it in Write', async ($, on) => {
     const { app, clock, start } = await setup($, on)
     on('tool.call', { tool: 'Bash' }, () =>

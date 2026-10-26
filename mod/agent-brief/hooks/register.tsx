@@ -58,6 +58,7 @@ import {
   namedPages,
   REVIEWS_SHOWN,
   isHtmlPage,
+  isOutlineFile,
   filedNote,
   keepNote,
   SKETCH_OPENED,
@@ -695,15 +696,15 @@ async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'
 }
 
 /**
- * The pages the row offers: HTML pages that exist, so the row never offers a page the reply only plans,
- * and Markdown files among the session's outputs, so a passing mention of a README offers nothing.
+ * The pages the row offers: HTML pages and outlines that exist, so the row never offers one the reply only plans,
+ * and other Markdown files among the session's outputs, so a passing mention of a README offers nothing.
  */
 async function offeredPages($: EngineInterface, reply: string): Promise<string[]> {
   const home = await homeCwd($)
   const named = namedPages(reply, home)
   const outputs = new Set((await read($, outputsRef)).map(o => o.ref))
   const found = await Promise.all(
-    named.map(page => (isHtmlPage(page) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : outputs.has(page))),
+    named.map(page => (isHtmlPage(page) || isOutlineFile(page) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : outputs.has(page))),
   )
   return named.filter((_, i) => found[i]).slice(0, REVIEWS_SHOWN)
 }
