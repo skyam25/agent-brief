@@ -74,7 +74,7 @@ import { Updater } from './updater';
 import { BoardStore, cleanName, migrateData, StateFile } from './store';
 import { mainIpc } from './ipc';
 import { findTool, transcribeClip } from '../voice/compose';
-import { dictateArgv, hasDictate, startDictation, type Dictation } from '../voice/dictate';
+import { dictateArgv, startDictation, type Dictation } from '../voice/dictate';
 import { isWorkspaceNotes } from '../shared/feedback-workspace';
 
 const testMode = process.env.COMPANION_TEST === '1';
@@ -198,7 +198,7 @@ async function start(): Promise<void> {
   const dictationArgv = async (): Promise<string[] | undefined> => {
     if (testMode) return process.env.COMPANION_TEST_DICTATE ? [process.env.COMPANION_TEST_DICTATE] : undefined;
     const yap = findTool('yap');
-    return yap && (await hasDictate(yap)) ? dictateArgv(yap) : undefined;
+    return yap ? dictateArgv(yap) : undefined;
   };
   const setPrompt = (text: string | undefined) => {
     prompt = text;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OVERALL, ReviewVoice, type LiveDictation, type VoiceMedia } from './review-voice';
+import { OVERALL, ReviewVoice, type HeardWord, type LiveDictation, type VoiceMedia } from './review-voice';
 
 /** A fake microphone whose clips hold the clock time they started at. `delay` sets how long each clip takes to transcribe. */
 function setup(delay: (clip: string) => number = () => 0) {
@@ -124,7 +124,7 @@ function liveSetup({ last = '', available = true, gate = Promise.resolve() } = {
     records++;
     return record(stream);
   };
-  let phrase: ((text: string, at: number) => void) | undefined;
+  let phrase: ((text: string, at: number, words?: HeardWord[]) => void) | undefined;
   let end: ((error?: string) => void) | undefined;
   let stops = 0;
   const dictate: LiveDictation = {
@@ -144,7 +144,7 @@ function liveSetup({ last = '', available = true, gate = Promise.resolve() } = {
     },
   };
   (base.voice as any).opts.dictate = dictate;
-  return { ...base, say: (text: string, at: number) => phrase!(text, at), fail: (error: string) => end!(error), records: () => records, stops: () => stops };
+  return { ...base, say: (text: string, at: number, words?: HeardWord[]) => phrase!(text, at, words), fail: (error: string) => end!(error), records: () => records, stops: () => stops };
 }
 
 describe('ReviewVoice with live dictation', () => {
@@ -173,6 +173,38 @@ describe('ReviewVoice with live dictation', () => {
     expect(heard.at(-1)).toEqual(['c1', 'And the footer.']);
     expect(voice.pending.size).toBe(0);
     expect(isOpen()).toBe(false);
+  });
+
+  it('splits speech that runs on across a click at the word where the voice moved', async () => {
+    const { voice, heard, tick, say } = liveSetup();
+    await voice.start('c1');
+    tick(3000);
+    voice.aim('c2');
+    tick(3000);
+    voice.aim('c3');
+    tick(3000);
+    const words = (pairs: [number, string][]) => pairs.map(([atMs, text]) => ({ text, atMs }));
+    say('The header is too small, and this button is low contrast, and the footer is cramped.', 500, words([
+      [500, 'The'], [900, 'header'], [1300, 'is'], [1500, 'too'], [1700, 'small,'],
+      [2900, 'and'], [3100, 'this'], [3400, 'button'], [3800, 'is'], [4000, 'low'], [4300, 'contrast,'],
+      [6000, 'and'], [6300, 'the'], [6600, 'footer'], [7000, 'is'], [7300, 'cramped.'],
+    ]));
+    expect(heard).toEqual([
+      ['c1', 'The header is too small, and'],
+      ['c2', 'this button is low contrast,'],
+      ['c3', 'and the footer is cramped.'],
+    ]);
+    await voice.stop();
+  });
+
+  it('keeps the phrase text as yap printed it when every word lands on one target', async () => {
+    const { voice, heard, tick, say } = liveSetup();
+    await voice.start('c1');
+    tick(5000);
+    voice.aim('c2');
+    say('Make it  bigger.', 1000, [{ text: 'Make', atMs: 1000 }, { text: 'it', atMs: 1200 }, { text: 'bigger.', atMs: 1400 }]);
+    expect(heard).toEqual([['c1', 'Make it  bigger.']]);
+    await voice.stop();
   });
 
   it('records clips when live dictation is unavailable', async () => {

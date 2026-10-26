@@ -150,6 +150,46 @@ test('a click on the board while talking points the words at that element', asyn
   await app.close();
 });
 
+test('live dictation splits speech that runs on across a new pin', async () => {
+  test.skip(!existsSync(SPEECH), 'speech fixture missing');
+
+  // One phrase with no pause in it, heard after both pins exist. Its words straddle the second pin.
+  const words = [[2.5, 'Make'], [2.7, 'it'], [2.9, 'bolder,'], [8, 'and'], [8.2, 'add'], [8.4, 'links.']];
+  const { app, page } = await launch(tempDataDir(), {
+    COMPANION_TEST_AUDIO: SPEECH,
+    COMPANION_TEST_DICTATE: join(ROOT, 'e2e/fixtures/fake-dictate.mjs'),
+    FAKE_DICTATE: JSON.stringify({ phrases: [{ at: 11_000, start: 2.5, text: 'Make it bolder, and add links.', words }] }),
+  });
+  await showPanel(app, page);
+  await backend(app, 'draw', 'current', {
+    elements: [
+      { type: 'rectangle', id: 'a', x: 100, y: 100, label: 'Header' },
+      { type: 'rectangle', id: 'b', x: 400, y: 100, label: 'Footer' },
+    ],
+  });
+  const centre = (id: string) =>
+    page.evaluate((id) => {
+      const s = window.__excalidraw.getAppState();
+      const e = window.__excalidraw.getSceneElements().find((x) => x.id === id)!;
+      return { x: (e.x + e.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (e.y + e.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop };
+    }, id);
+  const a = await centre('a');
+  const b = await centre('b');
+
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('comment-tool')).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.click(a.x, a.y);
+  await page.waitForTimeout(5000);
+  await page.mouse.click(b.x, b.y);
+
+  const cards = page.getByTestId('board-comment-text');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toHaveValue('Make it bolder,', { timeout: 15_000 });
+  await expect(cards.nth(1)).toHaveValue('and add links.');
+  await page.getByTestId('mic').click();
+  await app.close();
+});
+
 test('Send while talking carries the words for every pin and the overall note', async () => {
   test.skip(!existsSync(SPEECH), 'speech fixture missing');
   test.setTimeout(150_000);

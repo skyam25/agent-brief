@@ -1,12 +1,18 @@
 /**
  * Voice for the review pane. The words belong to a target: a comment, or the overall note.
  *
- * Live dictation hands over each phrase a few seconds after a pause, and the phrase goes to
- * the target the voice pointed at when it began. Without it, one clip records at a time.
+ * Live dictation hands over each phrase a few seconds after a pause. Each word goes to the target
+ * the voice pointed at when the word began, so speech that runs on across a click splits there. Without it, one clip records at a time.
  * Pointing at another target ends the clip, and the clip turns into text for its own target.
  */
 
 import type { CompanionApi } from '../shared/ipc';
+
+/** A heard word and the epoch ms it began. */
+export interface HeardWord {
+  text: string;
+  atMs: number;
+}
 
 /** The overall note, as a voice target. */
 export const OVERALL = '';
@@ -63,7 +69,7 @@ export interface LiveSession {
 /** Live dictation, where yap hears the microphone itself. */
 export interface LiveDictation {
   /** Starts listening. Undefined when live dictation is unavailable, so clips take over. */
-  start(onPhrase: (text: string, atMs: number) => void, onEnd: (error?: string) => void): Promise<LiveSession | undefined>;
+  start(onPhrase: (text: string, atMs: number, words?: HeardWord[]) => void, onEnd: (error?: string) => void): Promise<LiveSession | undefined>;
 }
 
 /** Live dictation through main, which runs `yap dictate`. */
@@ -78,7 +84,7 @@ export function hostDictation(host: Pick<CompanionApi, 'startDictation' | 'stopD
       // Events follow the start reply, so nothing arrives before this listens.
       const off = host.onDictation((e) => {
         if (e.id !== started.id) return;
-        if ('phrase' in e) onPhrase(e.phrase.text, e.phrase.atMs);
+        if ('phrase' in e) onPhrase(e.phrase.text, e.phrase.atMs, e.phrase.words);
         else {
           off?.();
           finish();
@@ -166,7 +172,7 @@ export class ReviewVoice {
     let live: LiveSession | undefined;
     try {
       live = await this.opts.dictate?.start(
-        (text, at) => this.heard(aims, text, at),
+        (text, at, words) => this.heard(aims, text, at, words),
         (error) => {
           if (error) this.opts.onError(error);
           if (live && this.live === live) void this.stop();
@@ -213,11 +219,26 @@ export class ReviewVoice {
     await Promise.all([...this.inflight]);
   }
 
-  /** A live phrase goes to the target the voice pointed at when it began. */
-  private heard(aims: { at: number; target: string }[], text: string, at: number): void {
-    let target = aims[0]!.target;
-    for (const a of aims) if (a.at <= at) target = a.target;
-    if (text.trim()) this.opts.onText(target, text.trim());
+  /** Each word goes to the target the voice pointed at when it began. Without word times, the whole phrase does. */
+  private heard(aims: { at: number; target: string }[], text: string, at: number, words?: HeardWord[]): void {
+    const aimedAt = (ms: number) => {
+      let target = aims[0]!.target;
+      for (const a of aims) if (a.at <= ms) target = a.target;
+      return target;
+    };
+    const runs: { target: string; words: string[] }[] = [];
+    for (const w of words ?? []) {
+      const target = aimedAt(w.atMs);
+      if (runs.at(-1)?.target === target) runs.at(-1)!.words.push(w.text);
+      else runs.push({ target, words: [w.text] });
+    }
+
+    // One run keeps yap's text as printed.
+    if (runs.length < 2) {
+      if (text.trim()) this.opts.onText(runs[0]?.target ?? aimedAt(at), text.trim());
+      return;
+    }
+    for (const run of runs) this.opts.onText(run.target, run.words.join(' '));
   }
 
   /** Marks `target` as still turning into text until `work` ends. */

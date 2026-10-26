@@ -330,8 +330,10 @@ export type Subscription = void | (() => void);
 /** Live dictation started, or this yap can't dictate, so voice records clips instead. */
 export type DictationStart = { id: string } | { unavailable: true };
 
-/** A phrase yap heard, or the end of that dictation. `atMs` is epoch ms when the phrase began. */
-export type DictationEvent = { id: string; phrase: { text: string; atMs: number } } | { id: string; ended: true; error?: string };
+/** A phrase yap heard, or the end of that dictation. `atMs` is epoch ms when the phrase or word began. */
+export type DictationEvent =
+  | { id: string; phrase: { text: string; atMs: number; words?: { text: string; atMs: number }[] } }
+  | { id: string; ended: true; error?: string };
 
 /** What the preload script exposes as `window.companion`. */
 /** A new note main asks for: its starting text and, from /write, the id main records for the session. */

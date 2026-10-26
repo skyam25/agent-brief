@@ -1,16 +1,31 @@
 /**
  * Live dictation. `yap dictate --json` listens to the microphone and prints each phrase once it settles,
  * a few seconds after a pause. Its times count from launch, so a phrase's start lands on the wall clock.
+ * Speech without a pause arrives as one phrase. Word times let the renderer split it where the voice moved.
  *
  * SIGINT makes yap print the phrase in progress and exit; SIGTERM drops it.
  */
 
 import { execFile, spawn } from 'node:child_process';
 
+export interface DictationWord {
+  text: string;
+  /** Epoch ms when the word began. */
+  atMs: number;
+}
+
 export interface DictationPhrase {
   text: string;
   /** Epoch ms when the phrase began. */
   atMs: number;
+  /** The phrase's words in order, with its punctuation. Absent when yap gave no word times. */
+  words?: DictationWord[];
+}
+
+interface Segment {
+  start: number;
+  text: string;
+  words?: { start: number; text: string }[];
 }
 
 export interface DictationOptions {
@@ -35,8 +50,8 @@ export function startDictation({ argv, onPhrase, onEnd, now = Date.now }: Dictat
   let stderr = '';
   child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
     for (const s of reader.push(chunk)) {
-      const text = s.text.trim();
-      if (text) onPhrase({ text, atMs: startedAt + Math.round(s.start * 1000) });
+      const phrase = toPhrase(s, startedAt);
+      if (phrase) onPhrase(phrase);
     }
   });
   child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
@@ -66,6 +81,20 @@ export function startDictation({ argv, onPhrase, onEnd, now = Date.now }: Dictat
   };
 }
 
+function toPhrase(s: Segment, startedAt: number): DictationPhrase | undefined {
+  const text = s.text.trim();
+  if (!text) return undefined;
+  const at = (seconds: number) => startedAt + Math.round(seconds * 1000);
+  const phrase: DictationPhrase = { text, atMs: at(s.start) };
+  if (!s.words?.length) return phrase;
+
+  // Word texts drop punctuation. Borrow the phrase's own tokens when they line up one to one.
+  const tokens = text.split(/\s+/);
+  const aligned = tokens.length === s.words.length;
+  phrase.words = s.words.map((w, i) => ({ text: aligned ? tokens[i]! : w.text, atMs: at(w.start) }));
+  return phrase;
+}
+
 /** Why yap failed, from the end of its stderr. */
 function failureText(stderr: string, code: number | null): string {
   const why = stderr.trim().split('\n').slice(-2).join(' ').replace(/^Error: /, '').slice(0, 200);
@@ -82,9 +111,9 @@ export class SegmentReader {
   private inString = false;
   private escaped = false;
 
-  push(chunk: string): { start: number; text: string }[] {
+  push(chunk: string): Segment[] {
     this.buf += chunk;
-    const found: { start: number; text: string }[] = [];
+    const found: Segment[] = [];
     if (this.at < 0) {
       const key = this.buf.indexOf('"segments"');
       const open = key < 0 ? -1 : this.buf.indexOf('[', key);
@@ -100,24 +129,33 @@ export class SegmentReader {
       } else if (c === '"') this.inString = true;
       else if (c === '{' && this.depth++ === 0) this.start = this.at;
       else if (c === '}' && --this.depth === 0) {
-        const segment = JSON.parse(this.buf.slice(this.start, this.at + 1)) as { start?: unknown; text?: unknown };
-        if (typeof segment.text === 'string' && typeof segment.start === 'number') found.push({ start: segment.start, text: segment.text });
+        const segment = JSON.parse(this.buf.slice(this.start, this.at + 1)) as { start?: unknown; text?: unknown; words?: unknown };
+        if (typeof segment.text !== 'string' || typeof segment.start !== 'number') continue;
+        const words = Array.isArray(segment.words) ? segment.words.filter(isWord) : [];
+        found.push({ start: segment.start, text: segment.text, ...(words.length ? { words } : {}) });
       }
     }
     return found;
   }
 }
 
-const supported = new Map<string, Promise<boolean>>();
+const isWord = (w: unknown): w is { start: number; text: string } =>
+  typeof (w as { start?: unknown })?.start === 'number' && typeof (w as { text?: unknown })?.text === 'string';
 
-/** True when this yap has the `dictate` command. Older builds only transcribe files. */
-export function hasDictate(yapPath: string): Promise<boolean> {
-  let known = supported.get(yapPath);
+const argvs = new Map<string, Promise<string[] | undefined>>();
+
+/** The `yap dictate` command line, or undefined when this yap only transcribes files. Word times need a newer yap. */
+export function dictateArgv(yapPath: string): Promise<string[] | undefined> {
+  let known = argvs.get(yapPath);
   if (!known) {
-    known = new Promise((resolve) => execFile(yapPath, ['dictate', '--help'], { timeout: 10_000 }, (err) => resolve(!err)));
-    supported.set(yapPath, known);
+    known = new Promise((resolve) =>
+      execFile(yapPath, ['dictate', '--help'], { timeout: 10_000 }, (err, stdout) => {
+        if (err) return resolve(undefined);
+        const words = String(stdout).includes('--word-timestamps') ? ['--word-timestamps'] : [];
+        resolve([yapPath, 'dictate', '--json', '--max-length', '400', ...words]);
+      }),
+    );
+    argvs.set(yapPath, known);
   }
   return known;
 }
-
-export const dictateArgv = (yapPath: string) => [yapPath, 'dictate', '--json', '--max-length', '400'];

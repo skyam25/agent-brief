@@ -159,6 +159,32 @@ test('Talk and annotate with live dictation: words land on the comment while sti
   await expect(page.getByTestId('review-voice-state')).toHaveCount(0);
 });
 
+test('Talk and annotate with live dictation: speech that runs on across a new comment splits between the two', async () => {
+  const speech = join(ROOT, 'e2e/fixtures/speech.wav');
+  test.skip(!existsSync(speech), 'speech fixture missing');
+
+  // One phrase with no pause in it, heard after both comments exist. Its words straddle the second one.
+  const words = [[2.5, 'Ask'], [2.7, 'for'], [2.9, 'the'], [3.1, 'metric,'], [8, 'and'], [8.2, 'what'], [8.4, 'changed.']];
+  const { page } = await openRecap({
+    COMPANION_TEST_AUDIO: speech,
+    COMPANION_TEST_DICTATE: join(ROOT, 'e2e/fixtures/fake-dictate.mjs'),
+    FAKE_DICTATE: JSON.stringify({ phrases: [{ at: 10_000, start: 2.5, text: 'Ask for the metric, and what changed.', words }] }),
+  });
+
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('note-comments-empty')).toContainText('Select a passage');
+  await dragAcross(page, 'Walk me through');
+  await expect(page.getByTestId('note-comment')).toHaveCount(1);
+  await page.waitForTimeout(5000);
+  await dragAcross(page, 'What did you learn');
+  await expect(page.getByTestId('note-comment')).toHaveCount(2);
+
+  const texts = page.getByTestId('note-comment-text');
+  await expect(texts.nth(0)).toHaveValue('Ask for the metric,', { timeout: 15_000 });
+  await expect(texts.nth(1)).toHaveValue('and what changed.');
+  await page.getByTestId('mic').click();
+});
+
 test('a commented note linked to a board survives a Send from Sketch, for Claude to revise', async () => {
   const { page } = await openRecap();
   await page.getByTestId('draft-body').getByText('Walk me through').selectText();

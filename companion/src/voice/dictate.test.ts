@@ -58,6 +58,28 @@ describe('startDictation', () => {
     expect(ended()).toEqual({});
   });
 
+  it('passes word times on, with the punctuation from the phrase text', async () => {
+    const words = [[0.4, 'Bigger'], [0.9, 'header'], [1.5, 'and'], [1.7, 'a'], [1.9, 'darker'], [2.3, 'button']];
+    const { dictation, phrases } = run({ phrases: [{ at: 50, start: 0.4, text: 'Bigger header, and a darker button.', words }] });
+    await expect.poll(() => phrases.length).toBe(1);
+    expect(phrases[0]!.words).toEqual([
+      { text: 'Bigger', atMs: 1_000_400 },
+      { text: 'header,', atMs: 1_000_900 },
+      { text: 'and', atMs: 1_001_500 },
+      { text: 'a', atMs: 1_001_700 },
+      { text: 'darker', atMs: 1_001_900 },
+      { text: 'button.', atMs: 1_002_300 },
+    ]);
+    await dictation.stop();
+  });
+
+  it('keeps yap\'s word texts when the phrase text does not line up with them', async () => {
+    const { dictation, phrases } = run({ phrases: [{ at: 50, start: 0, text: 'Pay $5 now.', words: [[0, 'Pay'], [0.3, 'five'], [0.6, 'dollars'], [0.9, 'now']] }] });
+    await expect.poll(() => phrases.length).toBe(1);
+    expect(phrases[0]!.words!.map((w) => w.text)).toEqual(['Pay', 'five', 'dollars', 'now']);
+    await dictation.stop();
+  });
+
   it('reports why yap failed', async () => {
     const { ended } = run({}, ['sh', '-c', 'echo "Error: Microphone permission is required." >&2; exit 1']);
     await expect.poll(() => ended()).toBeDefined();
