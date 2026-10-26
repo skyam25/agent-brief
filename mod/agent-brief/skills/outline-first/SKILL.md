@@ -65,7 +65,7 @@ On `/outline` or an outline-first ask:
 5. If the prose says a point differently from the outline, for example to soften a cite marked `partly`, edit that point in the same turn. The outline stays the record the next round builds on.
 6. Declare the output with `declare_output`, or `agent-brief output "<title>" --path <target> --status ready`.
 
-An Ask from the outline says "Update the outline only". Change the outline and leave the target alone. A request to check the cites alone runs step 1 and stops.
+An Ask from the outline says "Update the outline only". Change the outline and leave the target alone, and name the outline's path in your reply. A request to check the cites alone runs step 1 and stops.
 
 ## Feedback on a target with an outline
 
@@ -74,7 +74,7 @@ Leave the target alone.
 1. Read the comments together.
 2. Replace superseded content in the outline rather than adding beside it.
 3. Run `setDirection` with state `proposed`, a scope (`edit`, `sections` or `regenerate`), `from`, 3 to 6 bullets, and one `changes` line per outline change.
-4. Reply in two or three lines. The user accepts the direction in Agent Brief.
+4. Reply in two or three lines, and name the outline's path so the row under the reply offers to open it. The user accepts the direction in Agent Brief, where your changes show marked.
 
 When "Direction accepted" arrives, revise the target at that scope, check it as Generate does, then run `clearDirection`.
 

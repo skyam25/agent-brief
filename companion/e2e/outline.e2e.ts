@@ -190,6 +190,51 @@ test("Claude's ops show at once, and a point being typed in keeps its words", as
   await page.screenshot({ path: join(RESULTS, 'outline-live.png') });
 });
 
+test("Claude's changes show in place until Mark reviewed, and a row you edit drops its mark", async () => {
+  const { page } = ctx;
+  const cwd = await session(page, 'o9', 'Marks');
+  put(cwd, 'docs/memo.outline.md', MEMO);
+  await openPanelFor(socketPath, { sessionId: 'o9', output: { path: 'docs/memo.outline.md' } });
+  const editor = page.getByTestId('outline-editor');
+  await expect(editor.locator('[data-point="p1"]')).toBeVisible();
+  await expect(page.getByTestId('outline-changes')).toHaveCount(0);
+
+  // p2's id goes to the new point, so p2 shows once removed and once new.
+  await agent('o9', 'docs/memo.outline.md', [
+    { op: 'editPoint', id: 'p1', text: 'New accounts wait six business days.' },
+    { op: 'removePoint', id: 'p2' },
+    { op: 'addSection', title: 'What to do', label: 'do' },
+    { op: 'addPoint', section: '@do', text: 'Offer a self-serve start.' },
+    { op: 'editSource', id: 'S1', supports: 'Wait times by account' },
+  ]);
+  const strip = page.getByTestId('outline-changes');
+  await expect(strip).toContainText('Claude changed 5 rows');
+  const p1 = editor.locator('[data-point="p1"]');
+  await expect(p1).toHaveAttribute('data-change', 'edited');
+  await expect(p1.getByTestId('outline-was')).toHaveText('Was New accounts wait a median 6 business days for the kickoff call.');
+  await expect(editor.locator('[data-section="s1"]').getByTestId('outline-removed-point')).toContainText('Self-serve cut time to first value from 9 to 4 days.');
+  await expect(editor.locator('[data-section="s2"]')).toHaveAttribute('data-change', 'added');
+  await expect(editor.locator('[data-point="p2"]')).toHaveAttribute('data-change', 'added');
+  await expect(editor.locator('[data-source="S1"]')).toHaveAttribute('data-change', 'edited');
+  await expect(editor.locator('[data-source="S1"]').getByTestId('outline-was')).toHaveText('Was Supports · none');
+  await page.getByTestId('outline-changes-next').click();
+  await expect(editor.locator('[data-change].flash')).toHaveCount(1);
+  await page.screenshot({ path: join(RESULTS, 'outline-changes.png') });
+
+  // Your rewrite makes p1 yours.
+  await p1.getByTestId('outline-point-input').click();
+  await page.keyboard.press('ControlOrMeta+ArrowDown');
+  await page.keyboard.type(' Median.');
+  await page.keyboard.press('Tab');
+  await expect(strip).toContainText('Claude changed 4 rows');
+  await expect(p1).not.toHaveAttribute('data-change');
+
+  await page.getByTestId('outline-changes-reviewed').click();
+  await expect(strip).toHaveCount(0);
+  await expect(editor.locator('[data-change]')).toHaveCount(0);
+  await expect(editor.getByTestId('outline-removed-point')).toHaveCount(0);
+});
+
 test('a proposed direction shows its banner, and Accept sends it and marks it accepted', async () => {
   const { page } = ctx;
   const cwd = await session(page, 'o3', 'Memo');

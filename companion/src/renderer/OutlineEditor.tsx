@@ -5,9 +5,10 @@
  * The header and the Ask field hand Claude fixed prompts through the session's Send.
  */
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import type { CiteMark, DirectionScope, OutlineCite, OutlineDocument, OutlineOp, OutlinePoint, OutlineSection, OutlineSource, OutlineUpdateResult } from '../protocol';
 import type { CompanionApi, Draft } from '../shared/ipc';
+import type { OutlineChanges, OutlineRowChange, RowChangeKind } from '../shared/outline-changes';
 import { acceptDirectionPrompt, askPrompt, generatePrompt } from '../shared/outline-prompts';
 import type { SendFeedback } from './FeedbackPanel';
 import { CloseIcon, ExternalIcon, PlusIcon } from './Icons';
@@ -43,7 +44,11 @@ import {
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import type { FixedSend } from './useSend';
 
-export type OutlineHost = Pick<CompanionApi, 'readOutline' | 'updateOutline' | 'onOutlineChanged' | 'openOutput' | 'onOutputs' | 'onVisibility'> & OutputWatchHost;
+export type OutlineHost = Pick<
+  CompanionApi,
+  'readOutline' | 'updateOutline' | 'onOutlineChanged' | 'outlineChanges' | 'markOutlineReviewed' | 'openOutput' | 'onOutputs' | 'onVisibility'
+> &
+  OutputWatchHost;
 
 type Ops = OutlineOp[] | (() => OutlineOp[]);
 
@@ -143,6 +148,78 @@ export function useOutlineDoc(host: OutlineHost, sessionId: string | undefined, 
   );
   return { doc, error, current: () => live.current, reload: load, apply, settle: () => chain.current };
 }
+
+/** What Claude changed since you last marked the outline reviewed, read again whenever the file changes. */
+function useOutlineChanges(host: OutlineHost, sessionId: string | undefined, path: string, version: string | undefined) {
+  const [changes, setChanges] = useState<OutlineChanges>();
+  const request = useRef(0);
+  useEffect(() => {
+    if (!sessionId || !version) return;
+    const n = ++request.current;
+    void host
+      .outlineChanges(sessionId, path)
+      .catch(() => undefined)
+      .then((next) => n === request.current && setChanges(next));
+  }, [host, sessionId, path, version]);
+  const markReviewed = async () => {
+    if (!sessionId) return;
+    ++request.current;
+    await host.markOutlineReviewed(sessionId, path);
+    setChanges(undefined);
+  };
+  return { changes, markReviewed };
+}
+
+const CHANGE_LABEL: Record<RowChangeKind, string> = { added: 'New', edited: 'Edited', removed: 'Removed' };
+
+function ChangeBadge(props: { change: RowChangeKind }) {
+  return <span className={`outline-change-badge ${props.change}`} data-testid="outline-change-badge">{CHANGE_LABEL[props.change]}</span>;
+}
+
+/** The old wording of an edited row. */
+function WasLines(props: { change?: OutlineRowChange }) {
+  if (props.change?.change !== 'edited' || !props.change.was.length) return null;
+  return (
+    <div className="outline-was" data-testid="outline-was">
+      {props.change.was.map((w, i) => (
+        <p key={i}>
+          <span>Was</span> {w}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** A removed point, struck through where it stood. */
+function RemovedPoint(props: { change: OutlineRowChange }) {
+  return (
+    <li className="outline-point removed" data-change="removed" data-testid="outline-removed-point">
+      <div className="outline-point-line">
+        <span className="outline-marker" aria-hidden="true" />
+        <s className="outline-removed-text">{props.change.was[0]}</s>
+        <ChangeBadge change="removed" />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * `rows` with each removed row drawn after the row it followed, in the old order.
+ * It goes first when it led, and last when the row it followed is gone or moved.
+ */
+function placeRemoved(rows: { id?: string; node: ReactNode }[], removed: OutlineRowChange[], draw: (c: OutlineRowChange) => ReactNode): ReactNode[] {
+  const out = rows.map((r) => r.node);
+  const ids = rows.map((r) => r.id);
+  for (const r of removed) {
+    const prior = r.after === null || r.after === undefined ? -1 : ids.lastIndexOf(r.after);
+    const at = r.after === null ? 0 : prior < 0 ? out.length : prior + 1;
+    out.splice(at, 0, draw(r));
+    ids.splice(at, 0, r.id);
+  }
+  return out;
+}
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 type FieldElement = HTMLInputElement | HTMLTextAreaElement;
 
@@ -297,6 +374,9 @@ export function OutlineEditor(props: {
   const path = props.draft.outline!.path;
   const outline = useOutlineDoc(props.host, sessionId, path);
   const { doc, apply } = outline;
+  const { changes: changed, markReviewed } = useOutlineChanges(props.host, sessionId, path, doc?.version);
+  /** The mark Next change showed last. */
+  const nextMark = useRef(-1);
   // Claude writing the target shows its tab.
   useOutputWatch(props.host, doc?.target ? sessionId : undefined, doc?.target ?? '', () => void outline.reload());
 
@@ -476,6 +556,19 @@ export function OutlineEditor(props: {
 
   const direction = doc.direction;
   const changes = shownChanges(direction?.changes ?? [], allChanges);
+  const rowChanges = changed?.rows ?? [];
+  const live = new Map(rowChanges.filter((c) => c.change !== 'removed').map((c) => [c.id, c]));
+  const removed = (row: OutlineRowChange['row']) => rowChanges.filter((c) => c.change === 'removed' && c.row === row);
+  const removedSections = removed('section');
+  const showNextChange = () => {
+    const marks = [...(root.current?.querySelectorAll<HTMLElement>('[data-change]') ?? [])];
+    if (!marks.length) return;
+    nextMark.current = (nextMark.current + 1) % marks.length;
+    const mark = marks[nextMark.current]!;
+    mark.scrollIntoView({ block: 'center' });
+    mark.classList.remove('flash');
+    requestAnimationFrame(() => mark.classList.add('flash'));
+  };
   const hasPoints = doc.sections.some((s) => s.points.length);
   const sourceTitle = (id: string) => doc.sources.find((s) => s.id === id)?.title;
   const askTitle = doc.sections.find((s) => s.id === askSection)?.title;
@@ -494,8 +587,15 @@ export function OutlineEditor(props: {
     const open = point.kind === 'open';
     const more = expanded === point.id;
     const edit = (field: 'guide' | 'keep' | 'default') => (t: string) => void apply([{ op: 'editPoint', id: point.id, [field]: t.trim() || null } as OutlineOp]);
+    const change = live.get(point.id);
     return (
-      <li key={point.id} className={`outline-point${open ? ' open' : ''}${more ? ' expanded' : ''}`} data-point={point.id} data-testid="outline-point">
+      <li
+        key={point.id}
+        className={`outline-point${open ? ' open' : ''}${more ? ' expanded' : ''}${change ? ` changed ${change.change}` : ''}`}
+        data-point={point.id}
+        data-change={change?.change}
+        data-testid="outline-point"
+      >
         <div className="outline-point-line">
           <button
             className={open ? 'outline-marker open' : 'outline-marker'}
@@ -538,6 +638,7 @@ export function OutlineEditor(props: {
               {citeLabel(c)}
             </button>
           ))}
+          {change && <ChangeBadge change={change.change} />}
           <button
             className="ghost small outline-more"
             aria-expanded={more}
@@ -548,6 +649,7 @@ export function OutlineEditor(props: {
             {more ? '▾' : '▸'}
           </button>
         </div>
+        <WasLines change={change} />
         {!more && (point.guide || point.keep || (open && point.default)) && (
           <div className="outline-point-notes">
             {point.guide && <p data-testid="outline-guide">Guide · {point.guide}</p>}
@@ -649,6 +751,12 @@ export function OutlineEditor(props: {
   const sectionBlock = (section: OutlineSection) => {
     const folded = collapsed.has(section.id);
     const rows = sectionRows(section, pending);
+    const change = live.get(section.id);
+    const nodes = placeRemoved(
+      rows.map((r) => (r.kind === 'point' ? { id: r.point.id, node: pointRow(section, r.point) } : { node: pendingRow(r.pending) })),
+      removedSections.some((r) => r.id === section.id) ? [] : removed('point').filter((c) => c.section === section.id),
+      (c) => <RemovedPoint key={`removed-${c.id}`} change={c} />,
+    );
     const toggle = () => setCollapsed((c) => {
       const next = new Set(c);
       if (!next.delete(section.id)) next.add(section.id);
@@ -660,6 +768,7 @@ export function OutlineEditor(props: {
         className={askSection === section.id ? 'outline-section current' : 'outline-section'}
         onFocus={() => setAskSection(section.id)}
         data-section={section.id}
+        data-change={change?.change}
         data-testid="outline-section"
       >
         <header className="outline-section-head">
@@ -687,12 +796,14 @@ export function OutlineEditor(props: {
             }}
             testId="outline-section-title"
           />
+          {change && <ChangeBadge change={change.change} />}
           <span className="muted outline-count">{section.points.length || ''}</span>
           <RemoveButton label={`Remove section ${section.title} and its points`} testId="outline-remove-section" onRemove={() => void apply([{ op: 'removeSection', id: section.id }])} />
         </header>
+        <WasLines change={change} />
         {!folded && (
           <>
-            <ul className="outline-points">{rows.map((r) => (r.kind === 'point' ? pointRow(section, r.point) : pendingRow(r.pending)))}</ul>
+            <ul className="outline-points">{nodes}</ul>
             <button className="ghost small link outline-add" onClick={() => newPending(section.id, { id: section.points.at(-1)?.id ?? null })} data-testid="outline-add-point">
               <PlusIcon /> Point
             </button>
@@ -701,6 +812,22 @@ export function OutlineEditor(props: {
       </section>
     );
   };
+
+  const removedSectionBlock = (c: OutlineRowChange) => (
+    <section key={`removed-${c.id}`} className="outline-section removed" data-change="removed" data-testid="outline-removed-section">
+      <header className="outline-section-head">
+        <s className="outline-removed-text">{c.was[0]}</s>
+        <ChangeBadge change="removed" />
+      </header>
+      <ul className="outline-points">
+        {removed('point')
+          .filter((p) => p.section === c.id)
+          .map((p) => (
+            <RemovedPoint key={`removed-${p.id}`} change={p} />
+          ))}
+      </ul>
+    </section>
+  );
 
   return (
     <section className="editor outline-editor" ref={root} data-testid="outline-editor">
@@ -752,6 +879,20 @@ export function OutlineEditor(props: {
         <p role="alert" className="outline-error" data-testid="outline-error">
           {outline.error}
         </p>
+      )}
+      {rowChanges.length > 0 && changed && (
+        <div className="outline-changes" role="status" data-testid="outline-changes">
+          <span>
+            Claude changed {rowChanges.length} {rowChanges.length === 1 ? 'row' : 'rows'} · {clock(changed.at)}
+          </span>
+          <span className="spacer" />
+          <button className="ghost small" onClick={showNextChange} data-testid="outline-changes-next">
+            Next change
+          </button>
+          <button className="ghost small" title="Clear the marks. Later changes of Claude's are marked from here." onClick={() => void markReviewed().catch((err) => props.onError(`Could not clear the marks: ${cleanError(err)}`))} data-testid="outline-changes-reviewed">
+            Mark reviewed
+          </button>
+        </div>
       )}
       {direction?.state === 'proposed' && (
         <div className="outline-direction" role="status" data-testid="outline-direction">
@@ -834,7 +975,7 @@ export function OutlineEditor(props: {
           </div>
           <dl className="outline-intent" aria-label="Intent">
             {intentRows(doc.intent).map((l) => (
-              <div key={l.key} className="outline-intent-row">
+              <div key={l.key} className="outline-intent-row" data-change={live.get(`intent:${l.key}`)?.change}>
                 <dt>{l.key}</dt>
                 <dd>
                   <Field
@@ -851,11 +992,12 @@ export function OutlineEditor(props: {
                     onKey={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                     testId={`outline-intent-${l.key.toLowerCase()}`}
                   />
+                  <WasLines change={live.get(`intent:${l.key}`)} />
                 </dd>
               </div>
             ))}
           </dl>
-          {doc.sections.map(sectionBlock)}
+          {placeRemoved(doc.sections.map((sec) => ({ id: sec.id, node: sectionBlock(sec) })), removedSections, removedSectionBlock)}
           {addingSection ? (
             <div className="outline-section-head new">
               <Field
@@ -895,7 +1037,16 @@ export function OutlineEditor(props: {
           <h3>Sources</h3>
           {!doc.sources.length && <p className="muted">No sources yet. A cite names one.</p>}
           {doc.sources.map((s) => (
-            <SourceCard key={s.id} source={s} highlighted={highlight === s.id} onSelect={() => setHighlight(highlight === s.id ? undefined : s.id)} onOpen={openRef} apply={apply} />
+            <SourceCard key={s.id} source={s} change={live.get(s.id)} highlighted={highlight === s.id} onSelect={() => setHighlight(highlight === s.id ? undefined : s.id)} onOpen={openRef} apply={apply} />
+          ))}
+          {removed('source').map((c) => (
+            <div key={`removed-${c.id}`} className="outline-source removed" data-change="removed" data-testid="outline-removed-source">
+              <div className="outline-source-head">
+                <span className="outline-source-id">{c.id}</span>
+                <s className="outline-removed-text">{c.was[0]}</s>
+                <ChangeBadge change="removed" />
+              </div>
+            </div>
           ))}
           {addingSource ? (
             <NewSource
@@ -956,12 +1107,12 @@ const INTENT_HINTS: Record<string, string> = {
   Guide: 'Tone and how to handle numbers',
 };
 
-function SourceCard(props: { source: OutlineSource; highlighted: boolean; onSelect: () => void; onOpen: (ref: string) => void; apply: OutlineDocState['apply'] }) {
+function SourceCard(props: { source: OutlineSource; change?: OutlineRowChange; highlighted: boolean; onSelect: () => void; onOpen: (ref: string) => void; apply: OutlineDocState['apply'] }) {
   const { source: s, apply } = props;
   const ref = openableRef(s.ref) ? s.ref.trim() : undefined;
   const edit = (field: 'ref' | 'supports' | 'notShown') => (t: string) => void apply([{ op: 'editSource', id: s.id, [field]: t.trim() || null } as OutlineOp]);
   return (
-    <div className={props.highlighted ? 'outline-source on' : 'outline-source'} data-source={s.id} data-testid="outline-source">
+    <div className={`outline-source${props.highlighted ? ' on' : ''}${props.change ? ` changed ${props.change.change}` : ''}`} data-source={s.id} data-change={props.change?.change} data-testid="outline-source">
       <div className="outline-source-head">
         <button className="ghost small outline-source-id" aria-pressed={props.highlighted} title="Highlight this source" onClick={props.onSelect}>
           {s.id}
@@ -979,8 +1130,10 @@ function SourceCard(props: { source: OutlineSource; highlighted: boolean; onSele
             <ExternalIcon />
           </button>
         )}
+        {props.change && <ChangeBadge change={props.change.change} />}
         <RemoveButton label={`Remove ${s.id} and the cites that name it`} testId="outline-remove-source" onRemove={() => void apply([{ op: 'removeSource', id: s.id }])} />
       </div>
+      <WasLines change={props.change} />
       {s.checked && (
         <span className="outline-checked" data-testid="outline-source-checked">
           ✓ Checked {s.checked}

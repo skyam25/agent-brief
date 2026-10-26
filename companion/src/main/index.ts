@@ -268,7 +268,7 @@ async function start(): Promise<void> {
     const here = [...ids].filter((id) => briefs.cwdOf(id) === root);
     if (!here.length) send(CH.outlineChanged, { path });
     for (const sessionId of here) send(CH.outlineChanged, { sessionId, path });
-  });
+  }, undefined, join(dataDir, 'outline-changes'));
   const captures = captureSession(session.fromPartition('feedback-capture'), (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
   const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow, captures) });
   const behaviorRoot = (sessionId: string) => {
@@ -722,6 +722,8 @@ async function start(): Promise<void> {
   ipc.handle('readOutline', (sessionId: string, path: unknown) => outlines.read(behaviorRoot(sessionId), path));
   ipc.handle('updateOutline', (sessionId: string, path: unknown, update: unknown) => outlines.update(behaviorRoot(sessionId), path, update));
   ipc.handle('listOutlines', (sessionId: string) => outlines.project(behaviorRoot(sessionId)));
+  ipc.handle('outlineChanges', (sessionId: string, path: unknown) => outlines.changes(behaviorRoot(sessionId), path));
+  ipc.handle('markOutlineReviewed', (sessionId: string, path: unknown) => outlines.markReviewed(behaviorRoot(sessionId), path));
   ipc.handle('createOutline', (sessionId: string, create: unknown) => {
     const root = behaviorRoot(sessionId);
     const path = outlines.create(root, create);

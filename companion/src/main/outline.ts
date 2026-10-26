@@ -5,6 +5,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { OutlineDoc, OutlineDocument, OutlineOp, OutlineProject, OutlineUpdate, OutlineUpdateResult } from '../protocol';
 import { isoDate } from '../shared/feedback';
 import type { OutlineCreate } from '../shared/ipc';
+import { isBlankOutline, outlineRowChanges, type OutlineChanges } from '../shared/outline-changes';
 import { applyOutlineOps, isOutlinePath, OUTLINE_SUFFIX, OutlineOpError, outlinePathFor, outlineSlugPath, outlineSummary, parseOutline } from '../shared/outline';
 import { plainRelative, within } from './feedback-paths';
 
@@ -56,6 +57,25 @@ function resolveOutline(root: string, path: unknown): OutlineFile {
 
 const EMPTY: OutlineDoc = { title: '', kind: 'document', intent: [], sections: [], sources: [] };
 
+/** Who wrote: the panel's user, or Claude through the socket. */
+export type OutlineAuthor = 'you' | 'claude';
+
+/**
+ * The outline as it stood before Claude's first unreviewed change, and the rows you edited since,
+ * which no longer count as Claude's. Kept per outline until you mark the changes reviewed.
+ */
+interface ChangeRecord {
+  baseline: string;
+  touched: string[];
+  /** Ids Claude gave to new rows after removing the baseline's rows of that id. */
+  reused?: string[];
+  /** ISO time of Claude's latest change. */
+  at: string;
+}
+
+/** The ids of a doc's sections, points and sources. */
+const rowIds = (doc: OutlineDoc) => [...doc.sections.flatMap((s) => [s.id, ...s.points.map((p) => p.id)]), ...doc.sources.map((s) => s.id)];
+
 /** Whether the target is on disk, when the outline names one inside the project. */
 function targetState(realRoot: string, doc: OutlineDoc): { targetExists?: boolean } {
   if (!doc.target) return {};
@@ -67,7 +87,78 @@ export class OutlineStore {
   constructor(
     private readonly changed: (root: string, path: string) => void = () => {},
     private readonly now: () => Date = () => new Date(),
+    /** Where change records live. Without it, changes are not tracked. */
+    private readonly changesDir?: string,
   ) {}
+
+  private recordFile(where: OutlineFile): string | undefined {
+    return this.changesDir && join(this.changesDir, `${hash(`${where.realRoot}\n${where.path}`).slice(0, 32)}.json`);
+  }
+
+  private record(where: OutlineFile): ChangeRecord | undefined {
+    const file = this.recordFile(where);
+    if (!file || !existsSync(file)) return undefined;
+    try {
+      const r = JSON.parse(readFileSync(file, 'utf8')) as Partial<ChangeRecord>;
+      if (typeof r.baseline !== 'string' || !Array.isArray(r.touched) || typeof r.at !== 'string') return undefined;
+      const strings = (list: unknown) => (Array.isArray(list) ? list.filter((t): t is string => typeof t === 'string') : []);
+      return { baseline: r.baseline, touched: strings(r.touched), reused: strings(r.reused), at: r.at };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private saveRecord(where: OutlineFile, record: ChangeRecord | undefined): void {
+    const file = this.recordFile(where);
+    if (!file) return;
+    if (!record) {
+      if (existsSync(file)) unlinkSync(file);
+      return;
+    }
+    mkdirSync(this.changesDir!, { recursive: true });
+    writeFileSync(file, JSON.stringify(record));
+  }
+
+  /**
+   * Claude's first change keeps the outline as it was, unless it was blank, since a first draft is all new.
+   * A later change of Claude's counts again on rows you had touched. A change of yours takes its rows off the list.
+   */
+  private track(where: OutlineFile, before: string | undefined, after: OutlineDoc, added: string[], by: OutlineAuthor): void {
+    const old = before === undefined ? EMPTY : parseOutline(before);
+    const ids = outlineRowChanges(old, after).map((c) => c.id);
+    if (!ids.length) return;
+    const record = this.record(where);
+    if (by === 'you') {
+      if (record) this.saveRecord(where, { ...record, touched: [...new Set([...record.touched, ...ids])] });
+      return;
+    }
+    const at = this.now().toISOString();
+    const baseline = record?.baseline ?? before;
+    if (baseline === undefined || (!record && isBlankOutline(old))) return;
+    const had = new Set(rowIds(parseOutline(baseline)));
+    const reused = [...new Set([...(record?.reused ?? []), ...added.filter((id) => had.has(id))])];
+    this.saveRecord(where, { baseline, touched: (record?.touched ?? []).filter((t) => !ids.includes(t)), ...(reused.length ? { reused } : {}), at });
+  }
+
+  /** What Claude changed since you last marked the outline reviewed. Undefined when nothing is left to review. */
+  changes(root: string, path: unknown): OutlineChanges | undefined {
+    const where = resolveOutline(root, path);
+    const record = this.record(where);
+    if (!record) return undefined;
+    const text = this.text(where);
+    const current = text === undefined ? EMPTY : parseOutline(text);
+    const touched = new Set(record.touched);
+    const rows = outlineRowChanges(parseOutline(record.baseline), current, new Set(record.reused)).filter((c) => !touched.has(c.id));
+    return rows.length ? { at: record.at, rows } : undefined;
+  }
+
+  /** Forgets Claude's changes, so the outline as it stands is what you last saw. */
+  markReviewed(root: string, path: unknown): void {
+    const where = resolveOutline(root, path);
+    if (!this.record(where)) return;
+    this.saveRecord(where, undefined);
+    this.changed(root, where.path);
+  }
 
   private text(where: OutlineFile): string | undefined {
     if (!existsSync(where.file)) return undefined;
@@ -84,7 +175,7 @@ export class OutlineStore {
   }
 
   /** Version `missing` creates the file, which then needs a setMeta with a title. */
-  update(root: string, path: unknown, raw: unknown): OutlineUpdateResult {
+  update(root: string, path: unknown, raw: unknown, by: OutlineAuthor = 'you'): OutlineUpdateResult {
     const req = raw as OutlineUpdate | undefined;
     if (!req || typeof req !== 'object' || typeof req.version !== 'string' || !Array.isArray(req.ops)) return bad('Expected version and ops');
     const where = resolveOutline(root, path);
@@ -102,6 +193,8 @@ export class OutlineStore {
       const tmp = `${where.file}.${randomUUID()}.tmp`;
       try { writeFileSync(tmp, next.text, { flag: 'wx' }); renameSync(tmp, where.file); }
       finally { if (existsSync(tmp)) unlinkSync(tmp); }
+      // Change marks are a convenience, so a failure never fails the write.
+      try { this.track(where, before, next.doc, next.added, by); } catch {}
       this.changed(root, where.path);
     }
     return { ...next.doc, path: where.path, version: hash(next.text), ...targetState(where.realRoot, next.doc), added: next.added };

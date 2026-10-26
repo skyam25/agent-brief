@@ -1,5 +1,6 @@
 import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
 import type { FeedbackWorkspace, OutlineDocument, OutlineKind, OutlineProject, OutlineUpdate, OutlineUpdateResult } from '../protocol';
+import type { OutlineChanges } from './outline-changes';
 import type { WorkspaceSnapshot } from './feedback-workspace';
 /** IPC between the main process and the panel renderer. */
 
@@ -557,6 +558,10 @@ export interface CompanionApi extends BoardHost {
   updateOutline(sessionId: string, path: string, update: OutlineUpdate): Promise<OutlineUpdateResult>;
   /** Every outline in the session's project, with counts. */
   listOutlines(sessionId: string): Promise<OutlineProject>;
+  /** What Claude changed in the outline since you last marked it reviewed. Undefined when nothing is left. */
+  outlineChanges(sessionId: string, path: string): Promise<OutlineChanges | undefined>;
+  /** Clears the outline's change marks. */
+  markOutlineReviewed(sessionId: string, path: string): Promise<void>;
   /** Creates the outline file and a Write draft on it, filed under the session, and selects the draft. */
   createOutline(sessionId: string, create: OutlineCreate): Promise<{ draftId: string; path: string }>;
   /** Any outline changed through the store, from the panel or from Claude. */
@@ -683,6 +688,8 @@ export const CH = {
   readOutline: 'outline:read',
   updateOutline: 'outline:update',
   listOutlines: 'outline:list',
+  outlineChanges: 'outline:changes',
+  markOutlineReviewed: 'outline:reviewed',
   createOutline: 'outline:create',
   outlineChanged: 'outline:changed',
   updateFeedback: 'feedback:update',
@@ -779,6 +786,8 @@ export const IPC_INVOKE = {
   readOutline: CH.readOutline,
   updateOutline: CH.updateOutline,
   listOutlines: CH.listOutlines,
+  outlineChanges: CH.outlineChanges,
+  markOutlineReviewed: CH.markOutlineReviewed,
   createOutline: CH.createOutline,
   openFeedbackWorkspace: CH.openFeedbackWorkspace,
   saveFeedbackWorkspace: CH.saveFeedbackWorkspace,

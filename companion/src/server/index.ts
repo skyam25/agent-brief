@@ -348,7 +348,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       if (!opts.outlines) throw new HttpError(503, 'unavailable', 'this app does not keep outlines');
       if (parts.length === 4 && method === 'GET') return { json: opts.outlines.project(session.cwd) };
       if (parts.length === 3 && method === 'GET') return { json: opts.outlines.read(session.cwd, q.get('path')) };
-      if (parts.length === 3 && method === 'POST') return { json: opts.outlines.update(session.cwd, q.get('path'), await readJson(req)) };
+      if (parts.length === 3 && method === 'POST') return { json: opts.outlines.update(session.cwd, q.get('path'), await readJson(req), 'claude') };
     }
 
     if (root === 'sessions') {
