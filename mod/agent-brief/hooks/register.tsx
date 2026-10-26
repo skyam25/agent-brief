@@ -143,6 +143,8 @@ import {
   failureText,
   listening,
   splitDictation,
+  SUBMIT_HOLD_MS,
+  withDictation,
 } from './voice'
 
 /** The band's picture probe is waiting for its answer. */
@@ -823,14 +825,20 @@ async function pickBriefFidelity($: EngineInterface, fidelity: PrototypeFidelity
   $.ui.toast(await applyMode($, { mode: 'prototype', fidelity }), { timeoutMs: 8000 })
 }
 
-/** The running yap: its pid once printed, and whether Stop came before the pid did. */
-let dictation: { pid?: string; isStopWanted: boolean } | undefined
+/**
+ * The running yap: its pid once printed, and whether Stop came before the pid did.
+ * `held` collects phrases for a submit waiting on them, and `ended` settles once yap has exited.
+ */
+type DictationRun = { pid?: string; isStopWanted: boolean; held?: string[]; ended: Promise<void>; end: () => void }
+let dictation: DictationRun | undefined
 
 /** The band's Talk button: starts dictation, or stops it while listening. */
 async function toggleDictation($: EngineInterface): Promise<void> {
   const voice = await read($, voiceRef)
   if (voice === null && dictation === undefined) {
-    dictation = { isStopWanted: false }
+    let end = () => {}
+    const ended = new Promise<void>(resolve => (end = resolve))
+    dictation = { isStopWanted: false, ended, end }
     await update($, voiceRef, () => listening())
     // A timer, so the press returns while yap listens.
     $.clock.after(0, () => void runDictation($))
@@ -849,8 +857,25 @@ async function stopDictation($: EngineInterface): Promise<void> {
   }
 }
 
+/**
+ * Stops yap and waits for what it still held, so Enter sends the words spoken before it.
+ * Phrases that come later than SUBMIT_HOLD_MS go in the prompt box as usual.
+ */
+async function takeDictation($: EngineInterface): Promise<string> {
+  const run = dictation
+  if (run === undefined) return ''
+  const held: string[] = (run.held = [])
+  await stopDictation($)
+  let timer: { cancel(): void } | undefined
+  await Promise.race([run.ended, new Promise<void>(resolve => (timer = $.clock.after(SUBMIT_HOLD_MS, resolve)))])
+  timer?.cancel()
+  run.held = undefined
+  return held.join(' ')
+}
+
 /** Runs yap until it stops, putting each phrase in the prompt box as yap prints it. */
 async function runDictation($: EngineInterface): Promise<void> {
+  const run = dictation
   const ticking = $.clock.every(1000, () => void update($, voiceRef, addSecond).catch(() => undefined))
   const cap = $.clock.after(DICTATION_MAX_MS, () => void stopDictation($))
   let stdout = ''
@@ -875,12 +900,13 @@ async function runDictation($: EngineInterface): Promise<void> {
       const phrase = heard.slice(placed.length).trim()
       if (phrase === '') continue
       placed = heard
-      if (!isRefused) isRefused = !(await fillPhrase($, phrase))
+      if (run?.held !== undefined) run.held.push(phrase)
+      else if (!isRefused) isRefused = !(await fillPhrase($, phrase))
     }
     const ended = await child.result
     if (ended.code === YAP_MISSING) $.ui.toast(YAP_MISSING_TEXT, { timeoutMs: 8000 })
     else if (isRefused) await copyDictation($, placed)
-    else if (placed !== '') return
+    else if (placed !== '' || run?.held !== undefined) return
     else if (ended.code !== 0 && ended.signal === null && stderr.trim() !== '') $.ui.toast(failureText(stderr, ended.code), { timeoutMs: 8000 })
     else $.ui.toast(DICTATION_EMPTY)
   } catch (err) {
@@ -890,6 +916,7 @@ async function runDictation($: EngineInterface): Promise<void> {
     ticking.cancel()
     cap.cancel()
     dictation = undefined
+    run?.end()
     await update($, voiceRef, () => null).catch(() => undefined)
   }
 }
@@ -1421,7 +1448,12 @@ export const register: Register = (on, options) => {
   // A typed prompt carries the attached initiative's snapshot after the user's text whenever its token moved.
   // While none is attached, the first typed prompt after the recent initiatives load names them, once per session.
   // Never the system prompt.
+  // Enter while Talk listens waits for yap's last words and sends them with the prompt.
   on('prompt.submit', async ($, e, next) => {
+    if (e.origin?.kind === 'composer' && e.command === undefined && e.isMeta === undefined && dictation !== undefined) {
+      const said = await takeDictation($).catch(() => '')
+      if (said !== '') e = { ...e, text: withDictation(e.text, said) }
+    }
     let appended: Appended = { context: [] }
     if (e.isMeta === undefined && e.command === undefined) {
       appended = await initiativeContext($, initiativeEnvironment($)).catch((err: unknown) => {

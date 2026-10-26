@@ -12,6 +12,8 @@ import {
   clockText,
   dictationFill,
   splitDictation,
+  SUBMIT_HOLD_MS,
+  withDictation,
 } from '../hooks/voice'
 import { setupCompanion } from './companion-world'
 import type { World } from './world'
@@ -24,13 +26,13 @@ type FakeYap = { spawned: (readonly string[])[]; killed: string[]; copied: strin
 
 /**
  * Seats a yap that prints its pid, then each `live` phrase two seconds apart while it listens.
- * `kill -INT` makes it print `heard` and exit. `code` 127 stands for a missing yap, which prints nothing.
+ * `kill -INT` makes it print `heard` `lag` ms later and exit. `code` 127 stands for a missing yap, which prints nothing.
  */
 function fakeYap(
   on: On,
   world: World,
   clock: MockClock,
-  { heard = SAID, live = [] as string[], code = 0 } = {},
+  { heard = SAID, live = [] as string[], code = 0, lag = 0 } = {},
 ): FakeYap {
   const yap: FakeYap = { spawned: [], killed: [], copied: [] }
   let release = () => {}
@@ -51,6 +53,7 @@ function fakeYap(
       yield { stream: 'stdout' as const, text: phrase }
     }
     await Promise.race([interrupted, clock.sleep(60 * 60_000)])
+    if (lag > 0) await clock.sleep(lag)
     if (heard !== '') yield { stream: 'stdout' as const, text: `${heard}\n` }
     return { value: { code, signal: null } }
   })
@@ -60,6 +63,9 @@ function fakeYap(
   })
   return yap
 }
+
+/** A prompt the user typed and sent. */
+const typed = (text: string) => ({ text, wait: false, origin: { kind: 'composer' as const } })
 
 const bandText = async ($: Parameters<TestBody>[0]) => JSON.stringify(await $.ui.render(BAND))
 
@@ -84,6 +90,13 @@ describe('voice helpers', () => {
     expect(splitDictation('42')).toEqual({ text: '' })
     expect(splitDictation('42\n')).toEqual({ pid: '42', text: '' })
     expect(splitDictation('42\nOne.  Two\nthree. \n')).toEqual({ pid: '42', text: 'One. Two three.' })
+  })
+
+  test('withDictation adds the last words after the typed prompt', () => {
+    expect(withDictation('Rename it.', 'And ship it.')).toBe('Rename it. And ship it.')
+    expect(withDictation('Rename it. ', 'And ship it.')).toBe('Rename it. And ship it.')
+    expect(withDictation('', 'And ship it.')).toBe('And ship it.')
+    expect(withDictation('Rename it.', '')).toBe('Rename it.')
   })
 
   test('clockText reads minutes and seconds', () => {
@@ -243,5 +256,53 @@ describe('the Talk button', () => {
     expect(app.fills).toEqual([])
     expect(yap.copied).toEqual(['One. Two.'])
     expect(world.toasts).toEqual([DICTATION_NO_BOX])
+  })
+
+  test('Enter while listening waits for the words yap still holds and sends them with the prompt', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    const yap = fakeYap(on, world, clock, { live: ['Rename the Pricing heading.'], heard: ' And ship it.' })
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.settle()
+    await clock.advance(2000)
+    expect(app.box.text).toBe('Rename the Pricing heading.')
+
+    await $.prompt.submit(typed(app.box.text))
+    expect(yap.killed).toEqual([`-INT ${PID}`])
+    expect(world.submitted.at(-1)).toBe('Rename the Pricing heading. And ship it.')
+    await clock.settle()
+    expect(app.fills).toHaveLength(1)
+    expect(world.toasts).toEqual([])
+    expect(await bandText($)).toContain('"label":"🎙 Talk"')
+  })
+
+  test('Enter sends the prompt as typed when Talk is off', async ($, on) => {
+    const { world, clock, start } = await setupCompanion($, on)
+    const yap = fakeYap(on, world, clock)
+    await start()
+    await clock.settle()
+    await $.prompt.submit(typed('Rename it.'))
+    expect(world.submitted.at(-1)).toBe('Rename it.')
+    expect(yap.killed).toEqual([])
+  })
+
+  test('a yap too slow for Enter leaves its last words in the prompt box', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    fakeYap(on, world, clock, { heard: 'And ship it.', lag: SUBMIT_HOLD_MS + 2000 })
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'talk' })
+    await clock.settle()
+
+    const sent = $.prompt.submit(typed('Rename it.'))
+    await clock.advance(SUBMIT_HOLD_MS)
+    await sent
+    expect(world.submitted.at(-1)).toBe('Rename it.')
+    await clock.advance(2000)
+    expect(app.box.text).toBe('And ship it.')
+    expect(await bandText($)).toContain('"label":"🎙 Talk"')
   })
 })

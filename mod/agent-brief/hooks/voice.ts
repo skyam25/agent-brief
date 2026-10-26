@@ -37,6 +37,16 @@ export function dictationFill(box: { text: string; cursor: number }, said: strin
   return { text: `${lead}${said}${trail}`, mode: 'insert' }
 }
 
+/** How long Enter waits for yap's last words before sending without them. */
+export const SUBMIT_HOLD_MS = 3000
+
+/** The submitted prompt with the words yap still held when Enter went, after a space. */
+export function withDictation(text: string, said: string): string {
+  if (said === '') return text
+  const typed = text.trimEnd()
+  return typed === '' ? said : `${typed} ${said}`
+}
+
 export const DICTATION_EMPTY = 'Dictation heard nothing'
 export const DICTATION_NO_BOX = 'Could not fill the prompt box, so the dictation is on the clipboard'
 export const YAP_MISSING_TEXT = 'Voice needs yap, which transcribes on device: brew install yap'
