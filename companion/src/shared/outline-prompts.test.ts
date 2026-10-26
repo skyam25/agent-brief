@@ -1,17 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { acceptDirectionPrompt, askPrompt, checkCitesPrompt, generatePrompt, outlineFeedbackAsk } from './outline-prompts';
+import { acceptDirectionPrompt, askPrompt, generatePrompt, outlineFeedbackAsk } from './outline-prompts';
 
 const doc = { path: 'docs/memo.outline.md', target: 'docs/memo.md', kind: 'document' as const, sections: [{ id: 's1', title: 'Why now', points: [] }] };
 const untargeted = { ...doc, target: undefined, kind: 'page' as const };
 
 describe('outline prompts', () => {
-  it('checks cites', () => {
-    expect(checkCitesPrompt(doc)).toBe('Check the cites in docs/memo.outline.md (outline-first). Open each source, mark every cite, and record what each source supports.');
-  });
-
   it('generates the target, or asks Claude to pick one', () => {
-    expect(generatePrompt(doc)).toBe('Generate docs/memo.md from docs/memo.outline.md (outline-first). Write it fresh from the outline, then check it against the outline.');
-    expect(generatePrompt(untargeted)).toBe('Generate the page from docs/memo.outline.md (outline-first). Pick a target path beside the outline, set it with setMeta, write it, then check it against the outline.');
+    expect(generatePrompt(doc)).toBe('Generate docs/memo.md from docs/memo.outline.md (outline-first). Read each source and mark its cites, write it fresh from the outline, then check it against the outline.');
+    expect(generatePrompt(untargeted)).toBe('Generate the page from docs/memo.outline.md (outline-first). Read each source and mark its cites, pick a target path beside the outline, set it with setMeta, write it, then check it against the outline.');
   });
 
   it('asks about a section or the whole outline', () => {

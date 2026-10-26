@@ -51,6 +51,7 @@ Kind: document
 - S1 · CS ops dashboard export
     Checked: 2026-10-25
 - S2 · Self-serve pilot readout
+    Ref: https://example.com/pilot-readout
 `;
 
 const DIRECTED = MEMO.replace(
@@ -144,6 +145,17 @@ test("Claude's ops show at once, and a point being typed in keeps its words", as
   await expect(first).toHaveValue('New accounts wait a median 6 business days for the kickoff call.');
   await expect(editor.locator('[data-point="p2"]').getByTestId('outline-cite')).toHaveText('S2 ~');
   await expect(editor.locator('[data-source="S1"]').getByTestId('outline-source-checked')).toHaveText('✓ Checked 2026-10-25');
+
+  // Only a checked source shows a check, and only a source with a ref opens.
+  const s2 = editor.locator('[data-source="S2"]');
+  await expect(s2.getByTestId('outline-source-checked')).toHaveCount(0);
+  await expect(editor.locator('[data-source="S1"]').getByTestId('outline-source-open')).toHaveCount(0);
+  await s2.getByTestId('outline-source-open').click();
+  await editor.locator('[data-point="p2"]').getByTestId('outline-cite').click({ modifiers: ['ControlOrMeta'] });
+  await expect
+    .poll(() => ctx.app.evaluate(() => globalThis.__companion.openedOutputs.filter((o) => o === 'https://example.com/pilot-readout').length))
+    .toBe(2);
+  await page.screenshot({ path: join(RESULTS, 'outline-sources.png') });
 
   // You type into p1 without leaving it.
   await first.click();

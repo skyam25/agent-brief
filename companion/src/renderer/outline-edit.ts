@@ -16,6 +16,9 @@ export function citeTitle(c: OutlineCite, sourceTitle?: string): string {
   return [sourceTitle ? `${c.source} · ${sourceTitle}` : c.source, c.location, c.mark ?? 'unchecked', c.note].filter(Boolean).join(' · ');
 }
 
+/** Whether a source ref opens from the outline: a web link or a project path. A `board:` ref does not. */
+export const openableRef = (ref: string | undefined): ref is string => !!ref?.trim() && (/^https?:\/\//i.test(ref.trim()) || !/^[a-z][a-z0-9+.-]*:/i.test(ref.trim()));
+
 /** A cite as the file can hold it. A note needs a mark, so a cite without one drops its note. */
 export function cleanCite(c: OutlineCite): OutlineCite {
   const location = c.location?.trim();

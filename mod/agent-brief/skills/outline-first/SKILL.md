@@ -51,22 +51,21 @@ On `/outline` or an outline-first ask:
 
 1. Run `outline new "<title>"`, with `--target` when the path is known and `--kind page` for a page.
 2. Seed it in one apply. Add the intent (Reader, Goal, Message, Guide), sections with substantive points, and the sources you know.
+   - Include external sources beside project files. A Slack thread, Google Doc, ticket or web page you read or the user named goes in with its URL as `ref`.
+   - Give every source a `ref` when one exists. The user opens sources from the outline by their ref.
 3. Keep it to about one page. Add at most three open points, each with a `default`.
 4. Do not write the target yet. Tell the user the outline is open in Write.
 
-## Check cites
-
-Open and read each source before you mark a cite. Mark it `supports`, `partly`, `not` or `unknown` (could not open it), with a note when the mark needs one. Record what the source establishes in `supports` and `notShown`, and set `checked` to today with `editSource`.
-
 ## Generate
 
-1. Write the target fresh from the outline and its sources. Without a target, pick a path beside the outline and set it with `setMeta`.
-2. Honor every Guide, Keep and Default. Add no claim the outline lacks. Flag a gap instead of filling it.
-3. Check the result. Each point and each Keep is present. No outline language leaks into the prose, such as "the outline", "per the plan" or "judging by".
-4. If the prose says a point differently from the outline, for example to soften a cite marked `partly`, edit that point in the same turn. The outline stays the record the next round builds on.
-5. Declare the output with `declare_output`, or `agent-brief output "<title>" --path <target> --status ready`.
+1. Check the cites. Open and read each source, through a connector or web fetch when its ref is a URL. Mark each cite `supports`, `partly`, `not` or `unknown` (could not open it), with a note when the mark needs one. Record what the source establishes in `supports` and `notShown`, and set `checked` to today with `editSource`. Skip a source already checked today.
+2. Write the target fresh from the outline and its sources. Without a target, pick a path beside the outline and set it with `setMeta`.
+3. Honor every Guide, Keep and Default. Add no claim the outline lacks. Flag a gap instead of filling it. Soften or drop a point whose cite came back `not`, and tell the user which.
+4. Check the result. Each point and each Keep is present. No outline language leaks into the prose, such as "the outline", "per the plan" or "judging by".
+5. If the prose says a point differently from the outline, for example to soften a cite marked `partly`, edit that point in the same turn. The outline stays the record the next round builds on.
+6. Declare the output with `declare_output`, or `agent-brief output "<title>" --path <target> --status ready`.
 
-An Ask from the outline says "Update the outline only". Change the outline and leave the target alone.
+An Ask from the outline says "Update the outline only". Change the outline and leave the target alone. A request to check the cites alone runs step 1 and stops.
 
 ## Feedback on a target with an outline
 

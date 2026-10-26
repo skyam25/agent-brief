@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
 import type { CiteMark, DirectionScope, OutlineCite, OutlineDocument, OutlineOp, OutlinePoint, OutlineSection, OutlineSource, OutlineUpdateResult } from '../protocol';
 import type { CompanionApi, Draft } from '../shared/ipc';
-import { acceptDirectionPrompt, askPrompt, checkCitesPrompt, generatePrompt } from '../shared/outline-prompts';
+import { acceptDirectionPrompt, askPrompt, generatePrompt } from '../shared/outline-prompts';
 import type { SendFeedback } from './FeedbackPanel';
 import { CloseIcon, ExternalIcon, PlusIcon } from './Icons';
 import {
@@ -27,6 +27,7 @@ import {
   leavesRow,
   MARK_GLYPH,
   oneLine,
+  openableRef,
   pointMoveOp,
   pointTextOp,
   resolvePending,
@@ -476,15 +477,17 @@ export function OutlineEditor(props: {
   const direction = doc.direction;
   const changes = shownChanges(direction?.changes ?? [], allChanges);
   const hasPoints = doc.sections.some((s) => s.points.length);
-  const hasCites = doc.sections.some((s) => s.points.some((p) => p.cites.length));
   const sourceTitle = (id: string) => doc.sources.find((s) => s.id === id)?.title;
   const askTitle = doc.sections.find((s) => s.id === askSection)?.title;
   const showSource = (id: string) => {
     setHighlight(id);
     requestAnimationFrame(() => root.current?.querySelector(`[data-source="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' }));
   };
-  const openTarget = () => {
-    if (doc.target) void props.host.openOutput(sessionId, doc.target).catch((err) => props.onError(`Could not open ${doc.target}: ${cleanError(err)}`));
+  const openRef = (ref: string) => void props.host.openOutput(sessionId, ref).catch((err) => props.onError(`Could not open ${ref}: ${cleanError(err)}`));
+  const openTarget = () => doc.target && openRef(doc.target);
+  const sourceRef = (id: string) => {
+    const ref = doc.sources.find((s) => s.id === id)?.ref;
+    return openableRef(ref) ? ref.trim() : undefined;
   };
 
   const pointRow = (section: OutlineSection, point: OutlinePoint) => {
@@ -524,8 +527,12 @@ export function OutlineEditor(props: {
             <button
               key={i}
               className={`outline-cite ${c.mark ?? 'unchecked'}${highlight === c.source ? ' on' : ''}`}
-              title={citeTitle(c, sourceTitle(c.source))}
-              onClick={() => showSource(c.source)}
+              title={citeTitle(c, sourceTitle(c.source)) + (sourceRef(c.source) ? ' · ⌘-click to open' : '')}
+              onClick={(e) => {
+                const ref = sourceRef(c.source);
+                if (ref && (e.metaKey || e.ctrlKey)) openRef(ref);
+                else showSource(c.source);
+              }}
               data-testid="outline-cite"
             >
               {citeLabel(c)}
@@ -731,15 +738,6 @@ export function OutlineEditor(props: {
         </div>
         <div className="outline-actions">
           <button
-            className="ghost chip"
-            disabled={!hasCites}
-            title={hasCites ? 'Claude opens each source and marks every cite' : 'Cite a source on a point first'}
-            onClick={() => send((fresh) => ({ text: checkCitesPrompt(fresh) }))}
-            data-testid="outline-check-cites"
-          >
-            Check cites
-          </button>
-          <button
             className="primary chip"
             disabled={!hasPoints}
             title={hasPoints ? `Claude writes ${doc.target ?? `the ${doc.kind}`} fresh from the outline` : 'Add a point first'}
@@ -897,7 +895,7 @@ export function OutlineEditor(props: {
           <h3>Sources</h3>
           {!doc.sources.length && <p className="muted">No sources yet. A cite names one.</p>}
           {doc.sources.map((s) => (
-            <SourceCard key={s.id} source={s} highlighted={highlight === s.id} onSelect={() => setHighlight(highlight === s.id ? undefined : s.id)} apply={apply} />
+            <SourceCard key={s.id} source={s} highlighted={highlight === s.id} onSelect={() => setHighlight(highlight === s.id ? undefined : s.id)} onOpen={openRef} apply={apply} />
           ))}
           {addingSource ? (
             <NewSource
@@ -958,8 +956,9 @@ const INTENT_HINTS: Record<string, string> = {
   Guide: 'Tone and how to handle numbers',
 };
 
-function SourceCard(props: { source: OutlineSource; highlighted: boolean; onSelect: () => void; apply: OutlineDocState['apply'] }) {
+function SourceCard(props: { source: OutlineSource; highlighted: boolean; onSelect: () => void; onOpen: (ref: string) => void; apply: OutlineDocState['apply'] }) {
   const { source: s, apply } = props;
+  const ref = openableRef(s.ref) ? s.ref.trim() : undefined;
   const edit = (field: 'ref' | 'supports' | 'notShown') => (t: string) => void apply([{ op: 'editSource', id: s.id, [field]: t.trim() || null } as OutlineOp]);
   return (
     <div className={props.highlighted ? 'outline-source on' : 'outline-source'} data-source={s.id} data-testid="outline-source">
@@ -975,11 +974,18 @@ function SourceCard(props: { source: OutlineSource; highlighted: boolean; onSele
           onCommit={(t) => t.trim() && t.trim() !== s.title && void apply([{ op: 'editSource', id: s.id, title: t.trim() }])}
           onKey={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         />
+        {ref && (
+          <button className="ghost icon-button small outline-source-open" aria-label={`Open ${s.id}`} title={`Open ${ref}`} onClick={() => props.onOpen(ref)} data-testid="outline-source-open">
+            <ExternalIcon />
+          </button>
+        )}
         <RemoveButton label={`Remove ${s.id} and the cites that name it`} testId="outline-remove-source" onRemove={() => void apply([{ op: 'removeSource', id: s.id }])} />
       </div>
-      <span className={s.checked ? 'outline-checked' : 'outline-checked none'} data-testid="outline-source-checked">
-        {s.checked ? `✓ Checked ${s.checked}` : 'Not checked'}
-      </span>
+      {s.checked && (
+        <span className="outline-checked" data-testid="outline-source-checked">
+          ✓ Checked {s.checked}
+        </span>
+      )}
       <Field className={s.ref ? 'outline-source-ref' : 'outline-source-ref empty'} label={`Ref of ${s.id}`} placeholder="Path or URL" value={s.ref ?? ''} onCommit={edit('ref')} />
       <label className={s.supports ? undefined : 'empty'}>
         <span>Supports</span>

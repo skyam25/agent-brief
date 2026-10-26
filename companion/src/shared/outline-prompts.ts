@@ -6,13 +6,9 @@ import type { DirectionScope, OutlineDocument } from '../protocol';
 
 const targetOf = (doc: Pick<OutlineDocument, 'target' | 'kind'>) => doc.target ?? `the ${doc.kind}`;
 
-export function checkCitesPrompt(doc: Pick<OutlineDocument, 'path'>): string {
-  return `Check the cites in ${doc.path} (outline-first). Open each source, mark every cite, and record what each source supports.`;
-}
-
 export function generatePrompt(doc: Pick<OutlineDocument, 'path' | 'target' | 'kind'>): string {
-  if (doc.target) return `Generate ${doc.target} from ${doc.path} (outline-first). Write it fresh from the outline, then check it against the outline.`;
-  return `Generate the ${doc.kind} from ${doc.path} (outline-first). Pick a target path beside the outline, set it with setMeta, write it, then check it against the outline.`;
+  if (doc.target) return `Generate ${doc.target} from ${doc.path} (outline-first). Read each source and mark its cites, write it fresh from the outline, then check it against the outline.`;
+  return `Generate the ${doc.kind} from ${doc.path} (outline-first). Read each source and mark its cites, pick a target path beside the outline, set it with setMeta, write it, then check it against the outline.`;
 }
 
 /** A question or request about the outline, scoped to one section when `sectionId` names one. */

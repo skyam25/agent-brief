@@ -13,6 +13,7 @@ import {
   kindFor,
   leavesRow,
   oneLine,
+  openableRef,
   pointMoveOp,
   pointTextOp,
   resolvePending,
@@ -40,6 +41,17 @@ describe('cite chips', () => {
     const cites = [{ source: 'S1', mark: 'supports' as const }, { source: 'S2' }];
     expect(citesWith(cites, 1, { source: 'S2', location: ' p.3 ', note: 'why' })).toEqual([{ source: 'S1', mark: 'supports' }, { source: 'S2', location: 'p.3' }]);
     expect(citesWith(cites, 0)).toEqual([{ source: 'S2' }]);
+  });
+});
+
+describe('source refs', () => {
+  it('opens web links and project paths, not boards or other schemes', () => {
+    expect(openableRef('https://files.slack.com/files-pri/T1/x')).toBe(true);
+    expect(openableRef('08-evidence/meetings/2026-10-08.md')).toBe(true);
+    expect(openableRef('board:velocity')).toBe(false);
+    expect(openableRef('file:///etc/hosts')).toBe(false);
+    expect(openableRef('  ')).toBe(false);
+    expect(openableRef(undefined)).toBe(false);
   });
 });
 
