@@ -6,8 +6,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { parse, type DefaultTreeAdapterMap } from 'parse5';
-import { AT_ATTR, INSERTS, type ReviewEdit, type StyleSet } from '../shared/review-edit';
+import { parse, parseFragment, type DefaultTreeAdapterMap } from 'parse5';
+import { AT_ATTR, INLINE_TAGS, INSERTS, type ReviewEdit, type StyleSet } from '../shared/review-edit';
 
 type Node = DefaultTreeAdapterMap['node'];
 type Element = DefaultTreeAdapterMap['element'];
@@ -74,6 +74,35 @@ function textOf(node: Node): string {
   if (!isElement(node) || SKIP.has(node.tagName)) return '';
   return node.childNodes.map(textOf).join(' ');
 }
+
+/** Whether the element holds only words and inline tags, so its insides can be replaced as a whole. */
+function inlineOnly(el: Element): boolean {
+  return el.childNodes.every((n) => n.nodeName === '#text' || n.nodeName === '#comment' || (isElement(n) && INLINE_TAGS.has(n.tagName) && !!n.sourceCodeLocation && inlineOnly(n)));
+}
+
+/**
+ * Markup from a retyped element, cut down to words and inline tags. Other tags give up
+ * their words, comments go, and event handlers and script links never pass.
+ */
+export function cleanInline(html: string): string {
+  const out = (node: Node): string => {
+    if (node.nodeName === '#text') return escapeText((node as DefaultTreeAdapterMap['textNode']).value);
+    if (!isElement(node)) return '';
+    const inner = node.childNodes.map(out).join('');
+    if (SKIP.has(node.tagName)) return '';
+    if (!INLINE_TAGS.has(node.tagName)) return inner;
+    const attrs = node.attrs
+      .filter((a) => a.name !== AT_ATTR && !a.name.startsWith('on') && !(a.name === 'href' && /^\s*(javascript|vbscript|data):/i.test(a.value)))
+      .map((a) => ` ${a.name}="${escapeAttr(a.value)}"`)
+      .join('');
+    return VOID.has(node.tagName) ? `<${node.tagName}${attrs}>` : `<${node.tagName}${attrs}>${inner}</${node.tagName}>`;
+  };
+  return parseFragment(html).childNodes.map(out).join('');
+}
+
+/** The words of inline markup, run together as a reader sees them. */
+const plainOf = (node: Node): string =>
+  node.nodeName === '#text' ? (node as DefaultTreeAdapterMap['textNode']).value : isElement(node) ? node.childNodes.map(plainOf).join('') : '';
 
 /** `button “Talk”`, the way summaries name an element. */
 function label(el: Element): string {
@@ -242,6 +271,17 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
       const trail = /\s*$/.exec(raw)![0];
       const next = `${html.slice(0, range.startOffset)}${lead}${escapeText(edit.text)}${trail}${html.slice(range.endOffset)}`;
       return { html: next, at: edit.at, summary: `Changed the text of ${before} to “${cut(oneLine(edit.text), 80)}”` };
+    }
+    case 'inline': {
+      const el = byAt(edit.at);
+      const loc = el.sourceCodeLocation!;
+      const before = label(el);
+      if (!loc.endTag) throw new EditError(`${before} has no end tag in the file, so its text cannot change here`);
+      if (!inlineOnly(el)) throw new EditError(`${before} holds more than words and inline tags, so its text cannot change here`);
+      const inner = cleanInline(edit.html);
+      const words = oneLine(parseFragment(inner).childNodes.map(plainOf).join(''));
+      const next = html.slice(0, loc.startTag!.endOffset) + inner + html.slice(loc.endTag.startOffset);
+      return { html: next, at: edit.at, summary: `Changed the text of ${before} to “${cut(words, 80)}”` };
     }
     case 'style': {
       const el = byAt(edit.at);

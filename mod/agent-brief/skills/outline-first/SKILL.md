@@ -78,8 +78,11 @@ Leave the target alone.
 
 When "Direction accepted" arrives, revise the target at that scope, check it as Generate does, then run `clearDirection`.
 
+A review can also list edits the user made in Review's Edit mode. They are already saved in the target, so keep them. Write each one's wording back into its point with `editPoint`, and the next Generate keeps it. In your reply, flag any edit that changes a claim, number or cite.
+
 ## Pages
 
 - Sections are screens or regions.
 - Points are content and behavior.
 - Sources may be boards (`Ref: board:<name>`, read with `agent-brief read --board <name>`) or screenshots.
+- Write every visible word as static markup. Text a script shows, such as modal captions, goes in hidden elements the script reads, so Review's Edit mode can retype it.

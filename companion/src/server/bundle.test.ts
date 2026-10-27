@@ -242,8 +242,21 @@ describe('comments on a file with an outline', () => {
     expect(buildDraft('id1', { boardName: '', review }, cwd).split('\n')[1]).toBe(
       'Comments on docs/page.html from Agent Brief, 1 comment pinned to the page. docs/page.html has an outline at docs/page.outline.md (outline-first). Do not change docs/page.html yet. Read the comments together, update the outline, and propose a direction with setDirection. The user accepts it in Agent Brief.',
     );
-    const edits = { ...review, comments: [], edits: [{ id: 'e1', kind: 'text', selector: 'h2', before: 'a', after: 'b', createdAt: 1 }] };
-    expect(buildDraft('id1', { boardName: '', review: edits } as never, cwd)).toContain('made in the pane');
+  });
+
+  it('asks Claude to fold pane edits back into the outline', () => {
+    const cwd = project();
+    writeFileSync(join(cwd, 'docs/page.outline.md'), '# Page\n\nKind: page\n');
+    const fold = 'Write their wording back into the matching outline points with agent-brief outline apply, so the next Generate keeps it, and flag any edit that changes a claim, number or cite.';
+    const edits = { path: 'docs/page.html', comments: [], edits: ['Changed the text of p “a” to “b”', 'Changed the text of h2 “c” to “d”'] };
+    expect(buildDraft('id1', { boardName: '', review: edits }, cwd).split('\n')[1]).toBe(
+      `Edits to docs/page.html from Agent Brief, 2 edits made in the pane and already saved in the file. docs/page.html has an outline at docs/page.outline.md (outline-first). Keep the edits in docs/page.html. ${fold}`,
+    );
+    const both = { ...edits, comments: [{ id: 'c1', text: 'Bigger.', anchor, createdAt: 1 }] };
+    expect(buildDraft('id1', { boardName: '', review: both }, cwd).split('\n')[1]).toBe(
+      `Comments on docs/page.html from Agent Brief, 1 comment pinned to the page. docs/page.html has an outline at docs/page.outline.md (outline-first). Do not change docs/page.html yet. Read the comments together, update the outline, and propose a direction with setDirection. The user accepts it in Agent Brief. The review also lists 2 edits already saved in docs/page.html. ${fold}`,
+    );
+    expect(buildDraft('id1', { boardName: '', review: edits }, mkdtempSync(join(tmpdir(), 'plain-'))).split('\n')[1]).toMatch(/^Review of docs\/page\.html from Agent Brief: 2 edits made in the pane/);
   });
 
   it('keeps the usual ask without an outline or a project folder', () => {

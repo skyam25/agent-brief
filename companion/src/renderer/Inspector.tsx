@@ -58,6 +58,9 @@ export function Inspector(props: {
           <ul className="muted inspector-help">
             <li>Drag it to move it, into another container too</li>
             <li>Double-click or press Enter to retype its words</li>
+            <li>
+              While retyping, <kbd>⌘B</kbd> bolds, <kbd>⌘I</kbd> italicizes, <kbd>⇧↵</kbd> breaks the line
+            </li>
             <li>Drag the corner handle to resize it</li>
             <li>
               <kbd>⌘D</kbd> duplicates, <kbd>⌫</kbd> deletes, <kbd>⌘Z</kbd> undoes

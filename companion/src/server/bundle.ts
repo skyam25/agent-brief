@@ -8,8 +8,8 @@ import { boardCommentsAsk, boardCommentsMarkdown } from '../shared/board-comment
 import { imageRefs } from '../shared/drafts';
 import { annotationsAsk, annotationsMarkdown } from '../shared/annotations';
 import { outlinePathFor } from '../shared/outline';
-import { outlineFeedbackAsk } from '../shared/outline-prompts';
-import { commentCount, reviewAsk, reviewMarkdown } from '../shared/review';
+import { outlineEditsAsk, outlineFeedbackAsk } from '../shared/outline-prompts';
+import { commentCount, editCount, reviewAsk, reviewMarkdown } from '../shared/review';
 import type { DeliveryInput } from './contract';
 
 const pad = (n: number, width = 2) => String(n).padStart(width, '0');
@@ -94,6 +94,17 @@ function outlineAsk(cwd: string | undefined, path: string | undefined, what: str
   return existsSync(join(cwd, outline)) ? outlineFeedbackAsk(path, outline, what) : undefined;
 }
 
+/** The ask line for a review of a file with an outline in `cwd`. Undefined when there is no outline, nothing to fold in, or behavior decisions. */
+function reviewOutlineAsk(cwd: string | undefined, review: NonNullable<DeliveryInput['review']>): string | undefined {
+  const path = cleanSourcePath(review.path);
+  if (!cwd || !path || review.behavior || !existsSync(join(cwd, outlinePathFor(path)))) return undefined;
+  const outline = outlinePathFor(path);
+  const what = reviewWhat(review);
+  const edits = review.edits?.length ?? 0;
+  if (edits) return outlineEditsAsk(path, outline, editCount(edits), what);
+  return what ? outlineFeedbackAsk(path, outline, what) : undefined;
+}
+
 /** A review's comments or overall note, as the ask line counts them. Undefined for a review that holds neither, or behavior decisions. */
 function reviewWhat(review: NonNullable<DeliveryInput['review']>): string | undefined {
   if (review.behavior) return undefined;
@@ -117,9 +128,8 @@ function annotationsWhat(a: NonNullable<DeliveryInput['annotations']>): string {
 export function buildDraft(id: string, input: DeliveryInput, cwd?: string): string {
   const rel = `.feedback/sketches/${id}`;
   const source = cleanSourcePath(input.sourcePath);
-  const reviewed = input.review && reviewWhat(input.review);
   const sourceLines = input.review
-    ? [`@${rel}/review.md`, (reviewed && outlineAsk(cwd, cleanSourcePath(input.review.path), reviewed)) || reviewAsk(input.review)]
+    ? [`@${rel}/review.md`, reviewOutlineAsk(cwd, input.review) ?? reviewAsk(input.review)]
     : input.annotations
       ? [`@${rel}/draft.md`, `@${rel}/annotations.md`, outlineAsk(cwd, source, annotationsWhat(input.annotations)) ?? annotationsAsk(input.annotations, source)]
       : source

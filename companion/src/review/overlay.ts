@@ -459,6 +459,12 @@ function start(): void {
         }
         const link = e.target instanceof Element ? e.target.closest('a[href]') : null;
         if (!(link instanceof HTMLAnchorElement)) return;
+
+        // A link in words being retyped is text to edit, not a place to go.
+        if (link.isContentEditable) {
+          e.preventDefault();
+          return;
+        }
         const url = new URL(link.href, location.href);
         if (url.protocol === location.protocol) return;
         e.preventDefault();

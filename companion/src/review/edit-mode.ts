@@ -1,12 +1,12 @@
 /**
  * Edit mode for the page in the review pane. A click selects an element, a drag
  * moves it into another place or container, the corner handle resizes it, and a
- * double click retypes its words. Each change shows at once and goes to the pane
+ * double click retypes its words, keeping their bold, italics and links. Each change shows at once and goes to the pane
  * as one edit, one at a time. Main's answer renumbers the page's `data-ab-at`
  * values so the next edit names elements as the file now has them.
  */
 
-import { AT_ATTR, GROUND_ATTR, INSERTS, INSPECTOR_PROPS, PAGE_EDIT_EVENT, PASS_ATTR } from '../shared/review-edit';
+import { AT_ATTR, GROUND_ATTR, INLINE_TAGS, INSERTS, INSPECTOR_PROPS, PAGE_EDIT_EVENT, PASS_ATTR } from '../shared/review-edit';
 import type { EditResult, InsertKind, ReviewEdit, SelectedElement, StyleSet } from '../shared/review-edit';
 import type { FromPage } from './messages';
 
@@ -34,6 +34,9 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+const tagOf = (el: Element) => el.tagName.toLowerCase();
+const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\u00a0/g, '&nbsp;');
+const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 type Axis = 'x' | 'y';
 type Drop = { container: Element; before: Element | null };
@@ -58,7 +61,8 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
   let hovered: Element | undefined;
   /** Where the pointer last was over the page. A scroll or pan moves the page under it. */
   let pointer: { x: number; y: number } | undefined;
-  let typing: { el: Element; before: string } | undefined;
+  /** `before` is the raw markup Esc puts back. `clean` is the same words as the file holds them. */
+  let typing: { el: Element; before: string; clean?: string; tags?: boolean } | undefined;
   let press: { el: Element; x: number; y: number } | undefined;
   let drag: { el: Element; drop?: Drop } | undefined;
   let sizing: { el: HTMLElement; x: number; y: number; w: number; h: number; scale: number } | undefined;
@@ -135,6 +139,44 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     if (el.children.length === 0) return { text: el.textContent ?? '' };
     const runs = [...el.childNodes].filter((n): n is Text => n.nodeType === Node.TEXT_NODE && !!oneLine(n.textContent ?? ''));
     return runs.length === 1 ? { text: oneLine(runs[0]!.textContent ?? ''), node: runs[0] } : undefined;
+  }
+
+  /** Whether the element holds only words and inline tags from the file, so typing can keep its bold, italics and links. */
+  function isRich(el: Element): el is HTMLElement {
+    if (!(el instanceof HTMLElement) || VOID.has(tagOf(el)) || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return false;
+    const inline = (n: Node): boolean =>
+      n.nodeType === Node.TEXT_NODE || n.nodeType === Node.COMMENT_NODE || (n instanceof HTMLElement && INLINE_TAGS.has(tagOf(n)) && n.hasAttribute(AT_ATTR) && [...n.childNodes].every(inline));
+    return [...el.childNodes].every(inline);
+  }
+
+  /** Where typing goes: the paragraph a bold word or link sits in, else the element itself. */
+  function typeTarget(el: Element): Element {
+    let at = el;
+    for (let p = parentOf(at); p && INLINE_TAGS.has(tagOf(at)) && isRich(p); p = parentOf(at)) at = p;
+    return at;
+  }
+
+  /**
+   * The typed element's insides as the file will hold them. Tags the browser added
+   * keep only a link's address, and other tags give up their words.
+   */
+  function inlineHtml(el: Element, keepNbsp: boolean): string {
+    const out = (n: Node): string => {
+      if (n.nodeType === Node.TEXT_NODE) {
+        const t = n.textContent ?? '';
+        return escapeText(keepNbsp ? t : t.replace(/\u00a0/g, ' '));
+      }
+      if (!(n instanceof Element)) return '';
+      const inner = [...n.childNodes].map(out).join('');
+      const tag = tagOf(n);
+      if (!INLINE_TAGS.has(tag)) return inner;
+      const fromFile = n.hasAttribute(AT_ATTR);
+      const attrs = [...n.attributes].filter((a) => a.name !== AT_ATTR && (fromFile || a.name === 'href'));
+      if (!fromFile && tag === 'span' && !attrs.length) return inner;
+      const open = `<${tag}${attrs.map((a) => ` ${a.name}="${escapeAttr(a.value)}"`).join('')}>`;
+      return VOID.has(tag) ? open : `${open}${inner}</${tag}>`;
+    };
+    return [...el.childNodes].map(out).join('');
   }
 
   function isContainer(el: Element): boolean {
@@ -268,41 +310,53 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
 
   // ── Typing in place ────────────────────────────────────────────────────
 
-  function startTyping(el: Element): void {
-    const words = wordsOf(el);
-    if (!words || words.node || !(el instanceof HTMLElement) || el instanceof HTMLSelectElement) return;
+  function startTyping(from: Element): void {
+    const el = typeTarget(from);
+    if (sel !== el) select(el);
 
     // A textarea types into its value, and its words in the file are that value's start.
     if (el instanceof HTMLTextAreaElement) {
       typing = { el, before: el.value };
       el.focus();
       el.select();
-    } else {
-      typing = { el, before: el.textContent ?? '' };
-      el.setAttribute('contenteditable', 'plaintext-only');
+    } else if (isRich(el)) {
+      typing = { el, before: el.innerHTML, clean: inlineHtml(el, true), tags: el.children.length > 0 };
+      el.setAttribute('contenteditable', 'true');
       el.focus();
       const range = document.createRange();
       range.selectNodeContents(el);
       getSelection()?.removeAllRanges();
       getSelection()?.addRange(range);
-    }
+    } else return;
     el.addEventListener('blur', () => stopTyping(true), { once: true });
     layout();
   }
 
   function stopTyping(keep: boolean): void {
     if (!typing) return;
-    const { el, before } = typing;
+    const { el, before, clean, tags } = typing;
     typing = undefined;
-    const field = el instanceof HTMLTextAreaElement ? el : undefined;
-    if (field) field.blur();
-    else el.removeAttribute('contenteditable');
     getSelection()?.removeAllRanges();
-    const text = field ? field.value : (el.textContent ?? '');
-    if (!keep) {
-      if (field) field.value = before;
-      else el.textContent = before;
-    } else if (text !== before) enqueue(() => ({ kind: 'text', at: atOf(el), text }));
+    if (el instanceof HTMLTextAreaElement) {
+      el.blur();
+      const text = el.value;
+      if (!keep) el.value = before;
+      else if (text !== before) enqueue(() => ({ kind: 'text', at: atOf(el), text }));
+    } else {
+      el.removeAttribute('contenteditable');
+      const html = keep ? inlineHtml(el, clean!.includes('&nbsp;')) : clean;
+
+      // The page shows the file's markup until the edit's turn, so its marks match main's answers.
+      el.innerHTML = before;
+      if (html !== clean) {
+        enqueue(() => {
+          if (!el.isConnected) return undefined;
+          el.innerHTML = html!;
+          el.querySelectorAll('*').forEach((k) => k.setAttribute(AT_ATTR, '-1'));
+          return tags || el.children.length ? { kind: 'inline', at: atOf(el), html: html! } : { kind: 'text', at: atOf(el), text: el.textContent ?? '' };
+        });
+      }
+    }
     if (sel === el) select(el);
   }
 
@@ -419,6 +473,17 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
   };
   const inTyping = (t: EventTarget | null) => !!typing && t instanceof Node && typing.el.contains(t);
 
+  // Pasted words come in plain, so another page's markup never reaches the file.
+  addEventListener(
+    'paste',
+    (e) => {
+      if (!typing || typing.el instanceof HTMLTextAreaElement || !inTyping(e.target)) return;
+      block(e);
+      document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') ?? '');
+    },
+    true,
+  );
+
   // Window capture runs before any listener the page adds, so presses on editable elements never reach it.
   addEventListener(
     'pointerdown',
@@ -501,7 +566,6 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
       const el = editableOf(e.target);
       if (!el) return;
       block(e);
-      select(el);
       startTyping(el);
     },
     true,

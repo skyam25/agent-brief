@@ -249,3 +249,69 @@ test('edit mode handles keys after a click, tables, lists, form fields and loose
   await expect(frame.locator('#loose')).toBeVisible();
   expect(file()).toBe(before);
 });
+
+const COPY = `<!doctype html>
+<html>
+<body>
+  <p id="rich">Every <b>plan</b> has <a href="https://example.com/x">exports</a>.</p>
+  <p id="plain">Fish and chips</p>
+  <p id="paste">Paste here</p>
+</body>
+</html>
+`;
+
+test('retyping keeps inline tags, takes bold, pastes plain words and cancels with Esc', async () => {
+  const { app, page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  put(cwd, 'site/index.html', COPY);
+  put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs: [PAGE] }));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Copy' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await showPanel(app, page);
+  await page.getByTestId('mode-review').click();
+  const frame = page.frameLocator('[data-testid="review-frame"]');
+  await expect(frame.locator('#plain')).toHaveText('Fish and chips');
+  const file = () => readFileSync(join(cwd, 'site/index.html'), 'utf8');
+  await page.keyboard.press('e');
+
+  // A double click on a bold word retypes its whole paragraph, and the bold and the link stay.
+  await frame.locator('#rich b').dblclick();
+  await expect(page.getByTestId('inspector-label')).toHaveText('p “Every plan has exports.”');
+  await page.keyboard.press('End');
+  await page.keyboard.type(' Today');
+  await page.keyboard.press('Enter');
+  await expect.poll(file).toContain('<p id="rich">Every <b>plan</b> has <a href="https://example.com/x">exports</a>. Today</p>');
+
+  // ⌘B bolds the selected word.
+  await frame.locator('#plain').dblclick();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+Alt+ArrowRight');
+  await page.keyboard.press('Meta+b');
+  await page.keyboard.press('Enter');
+  await expect.poll(file).toContain('<p id="plain"><b>Fish</b> and chips</p>');
+
+  // A paste brings words, not the other page's markup.
+  await frame.locator('#paste').dblclick();
+  await frame.locator('#paste').evaluate((el) => {
+    const data = new DataTransfer();
+    data.setData('text/html', '<div style="color: red"><h2>Big</h2></div>');
+    data.setData('text/plain', 'Plain words');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await page.keyboard.press('Enter');
+  await expect.poll(file).toContain('<p id="paste">Plain words</p>');
+
+  // Esc puts the words back and saves nothing, and the next edit still lands.
+  const before = file();
+  await frame.locator('#rich').dblclick();
+  await page.keyboard.type('Gone');
+  await page.keyboard.press('Escape');
+  await expect(frame.locator('#rich')).toHaveText('Every plan has exports. Today');
+  expect(file()).toBe(before);
+  await frame.locator('#rich a').dblclick();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+  await page.keyboard.press('Enter');
+  await expect.poll(file).toContain('<a href="https://example.com/x">exports</a>. Today!</p>');
+  await page.screenshot({ path: join(RESULTS, 'review-edit-copy.png') });
+});

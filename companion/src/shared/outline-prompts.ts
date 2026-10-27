@@ -26,3 +26,14 @@ export function acceptDirectionPrompt(doc: Pick<OutlineDocument, 'path' | 'targe
 export function outlineFeedbackAsk(source: string, outlinePath: string, what: string): string {
   return `Comments on ${source} from Agent Brief, ${what}. ${source} has an outline at ${outlinePath} (outline-first). Do not change ${source} yet. Read the comments together, update the outline, and propose a direction with setDirection. The user accepts it in Agent Brief.`;
 }
+
+/**
+ * The ask line for a Send that carries pane edits on a target with an outline. The edits stay in
+ * the target, and their wording goes back into the outline so the next Generate keeps it.
+ * `what` counts comments sent with them, if any.
+ */
+export function outlineEditsAsk(source: string, outlinePath: string, edits: string, what?: string): string {
+  const fold = 'Write their wording back into the matching outline points with agent-brief outline apply, so the next Generate keeps it, and flag any edit that changes a claim, number or cite.';
+  if (what) return `${outlineFeedbackAsk(source, outlinePath, what)} The review also lists ${edits} already saved in ${source}. ${fold}`;
+  return `Edits to ${source} from Agent Brief, ${edits} made in the pane and already saved in the file. ${source} has an outline at ${outlinePath} (outline-first). Keep the edits in ${source}. ${fold}`;
+}

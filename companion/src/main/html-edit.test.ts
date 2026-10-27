@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { annotate, applyEdit, EditError, editableOffsets, mergeStyle, parseStyle, versionOf } from './html-edit';
+import { annotate, applyEdit, cleanInline, EditError, editableOffsets, mergeStyle, parseStyle, versionOf } from './html-edit';
 
 const PAGE = `<!doctype html>
 <html>
@@ -82,6 +82,19 @@ describe('applyEdit', () => {
     expect(out.html).toContain('<use href="#i"/></svg>Stop</button>');
   });
 
+  it('retypes words that hold inline tags, keeping their markup', () => {
+    const page = '<body>\n  <p class="lede">Every <b>plan</b> has <a href="/x">exports</a>.</p>\n  <i>tail</i>\n</body>';
+    const out = applyEdit(page, { kind: 'inline', at: at(page, '<p'), html: 'Each <b>plan</b> has <a href="/x">CSV exports</a> &amp; <em>more</em>.' });
+    expect(out.html).toBe('<body>\n  <p class="lede">Each <b>plan</b> has <a href="/x">CSV exports</a> &amp; <em>more</em>.</p>\n  <i>tail</i>\n</body>');
+    expect(out.summary).toBe('Changed the text of p “Every plan has exports .” to “Each plan has CSV exports & more.”');
+    expect(editableOffsets(out.html)).toHaveLength(5);
+  });
+
+  it('refuses inline markup for an element that holds blocks', () => {
+    const page = '<body><div>Lead <p>Block</p></div></body>';
+    expect(() => applyEdit(page, { kind: 'inline', at: at(page, '<div>'), html: 'Lead' })).toThrow(EditError);
+  });
+
   it('merges inline style, and adds the attribute when there is none', () => {
     const merged = applyEdit(PAGE, { kind: 'style', at: at(PAGE, '<main'), set: { gap: '16px' } });
     expect(merged.html).toContain('<main class="stack" style="display: flex; gap: 16px">');
@@ -158,5 +171,14 @@ describe('applyEdit', () => {
       const annotated = annotate(html);
       for (const o of editableOffsets(html)) expect(annotated).toContain(`data-ab-at="${o}"`);
     }
+  });
+});
+
+describe('cleanInline', () => {
+  it('keeps words and inline tags, and drops blocks, scripts, handlers and script links', () => {
+    expect(cleanInline('<div>A <b onclick="x()">B</b></div><script>bad()</script><a href="javascript:x()">C</a> <a href="https://e.com" data-ab-at="4">D</a>')).toBe(
+      'A <b>B</b><a>C</a> <a href="https://e.com">D</a>',
+    );
+    expect(cleanInline('One<br>two &lt;3&nbsp;!<!-- note -->')).toBe('One<br>two &lt;3&nbsp;!');
   });
 });

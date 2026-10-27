@@ -89,7 +89,7 @@ A timeline reads like this:
 ## Review
 
 - A Markdown output opens as a note. Edit it or comment on passages, press Send, and Claude applies your changes to the file.
-- An HTML output opens live. Pin comments to its elements, or talk instead of typing. Edit mode moves, resizes and retypes elements in the file itself. Send hands Claude a `review.md`.
+- An HTML output opens live. Pin comments to its elements, or talk instead of typing. Edit mode moves, resizes and retypes elements in the file itself, keeping bold, italics and links. Send hands Claude a `review.md`.
 - A prototype can carry behavior rules. Confirm or reword them in the Behavior tab, then export acceptance criteria for engineering.
 
 ## Feedback rounds

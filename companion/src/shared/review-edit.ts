@@ -18,6 +18,12 @@ export const PAGE_EDIT_EVENT = 'agent-brief:edit';
 
 export type StyleSet = Record<string, string | null>;
 
+/** Inline tags a retyped element may hold. Its words keep their bold, italics and links. */
+export const INLINE_TAGS: ReadonlySet<string> = new Set([
+  'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'del', 'dfn', 'em', 'i', 'ins', 'kbd',
+  'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr',
+]);
+
 /** Ready-made markup the inspector inserts. */
 export const INSERTS = {
   text: '<p>Text</p>',
@@ -31,6 +37,8 @@ export type InsertKind = keyof typeof INSERTS;
 export type ReviewEdit =
   /** Replaces the words of an element that holds only text. */
   | { kind: 'text'; at: number; text: string }
+  /** Replaces the insides of an element that holds only text and inline tags. */
+  | { kind: 'inline'; at: number; html: string }
   /** Sets or, with null, removes inline style properties. */
   | { kind: 'style'; at: number; set: StyleSet }
   /** Sets or, with null, removes attributes. */
@@ -114,6 +122,8 @@ export function cleanEdit(raw: unknown): ReviewEdit | undefined {
   switch (raw.kind) {
     case 'text':
       return isAt(raw.at) && typeof raw.text === 'string' && raw.text.length <= 20_000 ? { kind: 'text', at: raw.at, text: raw.text } : undefined;
+    case 'inline':
+      return isAt(raw.at) && typeof raw.html === 'string' && raw.html.length <= 50_000 ? { kind: 'inline', at: raw.at, html: raw.html } : undefined;
     case 'style': {
       const set = cleanSet(raw.set, PROP);
       return isAt(raw.at) && set ? { kind: 'style', at: raw.at, set } : undefined;
