@@ -394,6 +394,7 @@ function start(): void {
     if (m.type === 'text') edit?.text(m.text);
     if (m.type === 'act') edit?.act(m.act);
     if (m.type === 'insert') edit?.insert(m.what);
+    if (m.type === 'insert-drag') edit?.dragInsert(m.what, m.x, m.y, m.phase);
     if (m.type === 'find' && typeof m.query === 'string') post({ type: 'found', ...finder.find(m.query) });
     if (m.type === 'find-step' && (m.dir === 1 || m.dir === -1)) post({ type: 'found', ...finder.step(m.dir) });
   });
@@ -466,7 +467,15 @@ function start(): void {
           return;
         }
         const url = new URL(link.href, location.href);
-        if (url.protocol === location.protocol) return;
+
+        // The project's own pages open here, even from ⌘-click or a link that asks for a new window.
+        if (url.protocol === location.protocol) {
+          if (e.metaKey || e.ctrlKey || link.target === '_blank') {
+            e.preventDefault();
+            location.assign(url.href);
+          }
+          return;
+        }
         e.preventDefault();
         if (url.protocol === 'http:' || url.protocol === 'https:') post({ type: 'link', href: url.href });
       },
@@ -516,7 +525,7 @@ function start(): void {
       type: 'ready',
       path: decodeURIComponent(location.pathname).replace(/^\/+/, ''),
       title: document.title,
-      ...(VERSION ? { version: VERSION, editable: !!document.querySelector(`[${AT_ATTR}]`) } : {}),
+      ...(VERSION ? { version: VERSION, editable: !!document.body?.querySelector(`[${AT_ATTR}]`) } : {}),
     });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once: true });

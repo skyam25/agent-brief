@@ -28,7 +28,7 @@ function sourceParent(el: Element): Node | undefined {
 }
 const startOf = (el: Element) => el.sourceCodeLocation!.startTag!.startOffset;
 
-/** The body's elements that come from the source, in document order. */
+/** The body, when the file writes its tag, then the body's elements that come from the source, in document order. */
 function editable(html: string): Element[] {
   const doc = parse(html, { sourceCodeLocationInfo: true });
   const htmlEl = doc.childNodes.find(isElement);
@@ -41,6 +41,7 @@ function editable(html: string): Element[] {
       walk(child);
     }
   };
+  if (body?.sourceCodeLocation?.startTag) out.push(body);
   if (body) walk(body);
   return out;
 }
@@ -245,6 +246,13 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
     if (!el) throw new EditError(`The ${what} is not in the file any more. Reload the page.`);
     return el;
   };
+
+  // The body holds what goes in and out of it, but never changes itself.
+  const own = (at: number) => {
+    const el = byAt(at);
+    if (el.tagName === 'body') throw new EditError('The page body holds elements, but cannot change itself here');
+    return el;
+  };
   const childOf = (parent: Element, at: number | null) => {
     if (at === null) return undefined;
     const el = byAt(at, 'drop spot');
@@ -254,7 +262,7 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
 
   switch (edit.kind) {
     case 'text': {
-      const el = byAt(edit.at);
+      const el = own(edit.at);
       const loc = el.sourceCodeLocation!;
       const kids = el.childNodes.filter((n) => isElement(n) || oneLine((n as { value?: string }).value ?? ''));
       const before = label(el);
@@ -273,7 +281,7 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
       return { html: next, at: edit.at, summary: `Changed the text of ${before} to “${cut(oneLine(edit.text), 80)}”` };
     }
     case 'inline': {
-      const el = byAt(edit.at);
+      const el = own(edit.at);
       const loc = el.sourceCodeLocation!;
       const before = label(el);
       if (!loc.endTag) throw new EditError(`${before} has no end tag in the file, so its text cannot change here`);
@@ -284,13 +292,13 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
       return { html: next, at: edit.at, summary: `Changed the text of ${before} to “${cut(words, 80)}”` };
     }
     case 'style': {
-      const el = byAt(edit.at);
+      const el = own(edit.at);
       const style = mergeStyle(attrOf(el, 'style') ?? '', edit.set);
       const next = setAttr(html, el, 'style', style || null);
       return { html: next, at: edit.at, summary: `Set ${describeSet(edit.set, '; ', (k, v) => `${k}: ${v}`)} on ${label(el)}` };
     }
     case 'attrs': {
-      const el = byAt(edit.at);
+      const el = own(edit.at);
       // Later attributes first, so earlier ranges stay put.
       const names = Object.keys(edit.set).sort((a, b) => (el.sourceCodeLocation!.attrs?.[b]?.startOffset ?? -1) - (el.sourceCodeLocation!.attrs?.[a]?.startOffset ?? -1));
       let next = html;
@@ -301,13 +309,13 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
       return { html: next, at: edit.at, summary: `Set ${describeSet(edit.set, ', ', (k, v) => `${k}="${v}"`)} on ${label(el)}` };
     }
     case 'remove': {
-      const el = byAt(edit.at);
+      const el = own(edit.at);
       const { start, end } = outer(html, el);
       const from = lineOf(html, start).from;
       return { html: html.slice(0, from) + html.slice(end), summary: `Removed ${label(el)}` };
     }
     case 'duplicate': {
-      const el = byAt(edit.at);
+      const el = own(edit.at);
       const { start, end } = outer(html, el);
       const line = lineOf(html, start);
       const block = html.slice(start, end);
@@ -323,7 +331,7 @@ export function applyEdit(html: string, edit: ReviewEdit): Applied {
       return { html: next, at: place.at + place.lead, summary: `Added ${edit.what} to ${label(parent)}` };
     }
     case 'move': {
-      const el = byAt(edit.at);
+      const el = own(edit.at);
       const parent = byAt(edit.parent, 'container');
       const before = childOf(parent, edit.before);
       if (before === el) return { html, at: edit.at, summary: `Left ${label(el)} where it was` };

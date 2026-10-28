@@ -116,11 +116,44 @@ test('edit mode changes the page and saves each change to the file, with undo', 
   await frame.locator('li', { hasText: 'Team' }).click();
   await page.getByTestId('inspector-parent').click();
   await expect(page.getByTestId('inspector-label')).toHaveText(/^ul/);
-  await expect(page.getByTestId('insert-text')).toHaveCount(0);
+  await expect(page.getByTestId('insert-hint')).toHaveText(/^Nothing can go next to this element/);
   await frame.locator('#board').click({ position: { x: 300, y: 10 } });
   await expect(page.getByTestId('inspector-label')).toHaveText(/^section/);
   await page.getByTestId('insert-text').click();
   await expect.poll(file).toContain('<button id="nudge" data-ab-pass type="button">Nudge</button>\n    <p>Text</p>\n  </section>');
+
+  // Add after puts a divider below the selected line. Its press area reaches past the hairline, so it can be grabbed.
+  await page.getByTestId('insert-divider').click();
+  await expect.poll(file).toContain('<p>Text</p>\n    <hr>\n  </section>');
+  await expect(page.getByTestId('inspector-label')).toHaveText('hr');
+  await frame.locator('h1').click();
+  await expect(page.getByTestId('inspector-label')).toHaveText(/^h1/);
+  await frame.locator('hr').click({ position: { x: 40, y: -4 }, force: true });
+  await expect(page.getByTestId('inspector-label')).toHaveText('hr');
+  await page.getByTestId('inspector-remove').click();
+  await expect.poll(file).not.toContain('<hr>');
+
+  // A line straight in the body takes a divider after it too.
+  await frame.locator('h1').click();
+  await expect(page.getByTestId('insert-hint')).toHaveText(/^Click adds after/);
+  await page.getByTestId('insert-divider').click();
+  await expect.poll(file).toContain('Acme analytics</h1>\n  <hr>\n  <p class="lede">');
+  await page.getByTestId('inspector-remove').click();
+  await expect.poll(file).not.toContain('<hr>');
+
+  // A drag from Add drops the markup where the line shows.
+  const source = (await page.getByTestId('insert-text').boundingBox())!;
+  const lede = (await frame.locator('p.lede').boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(lede.x + 40, lede.y + lede.height - 3, { steps: 10 });
+  await page.screenshot({ path: join(RESULTS, 'review-edit-palette-drag.png') });
+  await page.mouse.up();
+  await expect.poll(file).toContain('exports.</p>\n  <p>Text</p>\n  <ul id="plans">');
+  await expect(page.getByTestId('inspector-label')).toHaveText('p “Text”');
+  await page.screenshot({ path: join(RESULTS, 'review-edit-divider.png') });
+  await page.getByTestId('inspector-remove').click();
+  await expect.poll(file).not.toContain('<p>Text</p>\n  <ul');
 
   // A page's own edit event saves attributes.
   await frame.locator('#nudge').click();
@@ -206,7 +239,7 @@ test('edit mode handles keys after a click, tables, lists, form fields and loose
   await expect.poll(file).toContain('<li id="apple">Green apple</li>');
 
   // Add stays away from a list, where a paragraph or button cannot go.
-  await expect(page.getByTestId('insert-text')).toHaveCount(0);
+  await expect(page.getByTestId('insert-hint')).toHaveText(/^Nothing can go next to this element/);
 
   // A retyped line keeps its entities.
   await frame.locator('#ent').dblclick();
@@ -314,4 +347,41 @@ test('retyping keeps inline tags, takes bold, pastes plain words and cancels wit
   await page.keyboard.press('Enter');
   await expect.poll(file).toContain('<a href="https://example.com/x">exports</a>. Today!</p>');
   await page.screenshot({ path: join(RESULTS, 'review-edit-copy.png') });
+});
+
+test('edit mode follows a ⌘-clicked link and edits the page it opens', async () => {
+  const { app, page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  const home = '<!doctype html>\n<html>\n<body>\n  <h1>Home</h1>\n  <nav><a id="to-pricing" href="pricing.html">Pricing</a></nav>\n</body>\n</html>\n';
+  const pricing = '<!doctype html>\n<html>\n<body>\n  <h1>Pricing</h1>\n  <p>Plans</p>\n</body>\n</html>\n';
+  put(cwd, 'site/index.html', home);
+  put(cwd, 'site/pricing.html', pricing);
+  put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs: [PAGE] }));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Site' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await showPanel(app, page);
+  await page.getByTestId('mode-review').click();
+  const frame = page.frameLocator('[data-testid="review-frame"]');
+  await expect(frame.locator('h1')).toHaveText('Home');
+  const read = (name: string) => readFileSync(join(cwd, 'site', name), 'utf8');
+  await page.keyboard.press('e');
+
+  // A plain click selects the link. ⌘-click follows it, and edit mode stays on.
+  await frame.locator('#to-pricing').click();
+  await expect(page.getByTestId('inspector-label')).toHaveText('a “Pricing”');
+  await frame.locator('#to-pricing').click({ modifiers: ['Meta'] });
+  await expect(frame.locator('h1')).toHaveText('Pricing');
+  await expect(page.getByTestId('review-elsewhere')).toContainText('Showing site/pricing.html');
+  await expect(page.getByTestId('review-edit')).toHaveAttribute('aria-pressed', 'true');
+
+  // Edits and undo go to the page on screen, and the output stays as it was.
+  await frame.locator('h1').click();
+  await expect(page.getByTestId('inspector-label')).toHaveText('h1 “Pricing”');
+  await page.getByTestId('insert-divider').click();
+  await expect.poll(() => read('pricing.html')).toContain('<h1>Pricing</h1>\n  <hr>\n  <p>Plans</p>');
+  expect(read('index.html')).toBe(home);
+  await page.screenshot({ path: join(RESULTS, 'review-edit-linked-page.png') });
+  await frame.locator('p').click();
+  await page.keyboard.press('Meta+z');
+  await expect.poll(() => read('pricing.html')).toBe(pricing);
 });

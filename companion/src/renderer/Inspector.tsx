@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { editCount } from '../shared/review';
 import type { InsertKind, InspectorProp, SelectedElement, StyleSet } from '../shared/review-edit';
 import { TrashIcon } from './Icons';
@@ -34,6 +34,7 @@ const INSERT_LABELS: [InsertKind, string][] = [
   ['row', 'Row'],
   ['column', 'Column'],
   ['button', 'Button'],
+  ['divider', 'Divider'],
 ];
 
 /**
@@ -47,10 +48,12 @@ export function Inspector(props: {
   onText: (text: string) => void;
   onAct: (act: 'parent' | 'duplicate' | 'remove') => void;
   onInsert: (what: InsertKind) => void;
+  onDragInsert: (what: InsertKind, clientX: number, clientY: number, phase: 'move' | 'drop' | 'cancel') => void;
 }) {
   const el = props.selected;
   return (
     <aside className="review-notes inspector" aria-label="Inspector" data-testid="inspector">
+      <AddPalette selected={el} onInsert={props.onInsert} onDragInsert={props.onDragInsert} />
       {!el ? (
         <div className="inspector-empty">
           <span className="section-head">Edit</span>
@@ -64,6 +67,9 @@ export function Inspector(props: {
             <li>Drag the corner handle to resize it</li>
             <li>
               <kbd>⌘D</kbd> duplicates, <kbd>⌫</kbd> deletes, <kbd>⌘Z</kbd> undoes
+            </li>
+            <li>
+              <kbd>⌘</kbd>-click follows a link or presses a button, and edits go on to the page it opens
             </li>
           </ul>
         </div>
@@ -94,24 +100,90 @@ export function Inspector(props: {
               ))}
             </fieldset>
           ))}
-          {el.canInsert && (
-            <div className="inspector-insert">
-              <span className="section-head">{el.isContainer ? 'Add inside' : 'Add after'}</span>
-              <div className="inspector-buttons">
-                {INSERT_LABELS.map(([what, label]) => (
-                  <button key={what} className="ghost small" onClick={() => props.onInsert(what)} data-testid={`insert-${what}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
       <footer className="muted review-foot" data-testid="review-edits-count">
         {props.edits ? `${editCount(props.edits)} saved to the file · ⌘Z undoes` : 'Edits save to the file as you make them.'}
       </footer>
     </aside>
+  );
+}
+
+/** How far a press on an Add button moves before it counts as a drag. */
+const DRAG_SLOP = 4;
+
+/**
+ * Ready-made markup. A click adds it next to the selection, and a drag places it
+ * anywhere on the page, showing the drop spot as a move does.
+ */
+function AddPalette(props: {
+  selected: SelectedElement | null;
+  onInsert: (what: InsertKind) => void;
+  onDragInsert: (what: InsertKind, clientX: number, clientY: number, phase: 'move' | 'drop' | 'cancel') => void;
+}) {
+  const el = props.selected;
+  const canClick = !!el?.canInsert;
+  const hint = !el
+    ? 'Drag onto the page, or select an element to add next to it.'
+    : el.canInsert
+      ? `Click adds ${el.isContainer ? 'inside' : 'after'} the selection. Drag to place it anywhere.`
+      : 'Nothing can go next to this element. Drag to place it anywhere.';
+
+  // The page's frame runs apart from the panel, so it stops taking the pointer while a drag crosses it.
+  const down = (what: InsertKind) => (e: PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    const start = { x: e.clientX, y: e.clientY };
+    let moved = false;
+    const end = () => {
+      document.documentElement.classList.remove('inserting');
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      removeEventListener('keydown', key, true);
+    };
+    const move = (m: globalThis.PointerEvent) => {
+      if (!moved && Math.hypot(m.clientX - start.x, m.clientY - start.y) < DRAG_SLOP) return;
+      moved = true;
+      props.onDragInsert(what, m.clientX, m.clientY, 'move');
+    };
+    const up = (u: globalThis.PointerEvent) => {
+      end();
+      if (moved) props.onDragInsert(what, u.clientX, u.clientY, 'drop');
+      else if (canClick) props.onInsert(what);
+    };
+    const key = (k: globalThis.KeyboardEvent) => {
+      if (k.key !== 'Escape') return;
+      k.preventDefault();
+      k.stopPropagation();
+      end();
+      if (moved) props.onDragInsert(what, -1, -1, 'cancel');
+    };
+    document.documentElement.classList.add('inserting');
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', up, true);
+    addEventListener('keydown', key, true);
+  };
+
+  return (
+    <div className="inspector-insert">
+      <span className="section-head">Add</span>
+      <div className="inspector-buttons">
+        {INSERT_LABELS.map(([what, label]) => (
+          <button
+            key={what}
+            className={canClick ? 'ghost small' : 'ghost small drag-only'}
+            onPointerDown={down(what)}
+            // A key press has no pointer, so it adds by click.
+            onClick={(e) => e.detail === 0 && canClick && props.onInsert(what)}
+            data-testid={`insert-${what}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted inspector-hint" data-testid="insert-hint">
+        {hint}
+      </p>
+    </div>
   );
 }
 

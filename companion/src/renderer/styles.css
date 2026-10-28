@@ -3485,6 +3485,29 @@ button.stop-talk:hover {
   border-radius: 6px;
 }
 
+.inspector-buttons button {
+  cursor: grab;
+  touch-action: none;
+}
+
+.inserting iframe {
+  pointer-events: none;
+}
+
+.inserting,
+.inserting * {
+  cursor: grabbing !important;
+}
+
+.inspector-buttons button.drag-only {
+  color: var(--muted);
+}
+
+.inspector-hint {
+  margin: 4px 2px 0;
+  font-size: 11px;
+}
+
 /* Board comments: pins float over the canvas; their cards sit in a column beside it. */
 
 .pin-layer {

@@ -1,7 +1,9 @@
 /**
  * Edit mode for the page in the review pane. A click selects an element, a drag
  * moves it into another place or container, the corner handle resizes it, and a
- * double click retypes its words, keeping their bold, italics and links. Each change shows at once and goes to the pane
+ * double click retypes its words, keeping their bold, italics and links. A drag
+ * from the pane's Add buttons drops new markup in. ⌘-click reaches the page, so
+ * links and buttons still work. Each change shows at once and goes to the pane
  * as one edit, one at a time. Main's answer renumbers the page's `data-ab-at`
  * values so the next edit names elements as the file now has them.
  */
@@ -49,6 +51,8 @@ export interface EditMode {
   text(text: string): void;
   act(act: 'parent' | 'duplicate' | 'remove' | 'deselect'): void;
   insert(what: InsertKind): void;
+  /** A drag from the pane's Add buttons, at a point in the page's viewport. */
+  dragInsert(what: InsertKind, x: number, y: number, phase: 'move' | 'drop' | 'cancel'): void;
   /** Moves the boxes to their elements. The overlay calls it on scroll, resize and a timer. */
   layout(): void;
 }
@@ -106,6 +110,10 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
   page.textContent = `
     html[data-agent-brief-editing] body, html[data-agent-brief-editing] body * { user-select: none; -webkit-user-select: none; }
     html[data-agent-brief-editing] [contenteditable] { user-select: text; -webkit-user-select: text; cursor: text; outline: none; }
+    html[data-agent-brief-editing] hr[${AT_ATTR}] { position: relative; overflow: visible; }
+
+    /* A divider is a hairline, so its press area reaches a few pixels past it. */
+    html[data-agent-brief-editing] hr[${AT_ATTR}]::after { content: ''; position: absolute; inset: -6px 0; }
   `;
 
   const put = (el: HTMLElement, r: { left: number; top: number; width: number; height: number }, pad = 0) =>
@@ -122,12 +130,17 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     if (!(target instanceof Element) || target === deps.host()) return undefined;
     if (target.closest(`[${PASS_ATTR}]`)) return undefined;
     const el = target.closest(`[${AT_ATTR}]`);
-    return el && !isGround(el) ? el : undefined;
+    return el && !isGround(el) && el !== document.body ? el : undefined;
   }
 
-  const parentOf = (el: Element): Element | undefined => {
+  /** What `el` sits in for drops and adds. The body counts here, though it never takes a selection. */
+  const holderOf = (el: Element): Element | undefined => {
     const p = el.parentElement?.closest(`[${AT_ATTR}]`);
     return p && !isGround(p) ? p : undefined;
+  };
+  const parentOf = (el: Element): Element | undefined => {
+    const p = holderOf(el);
+    return p === document.body ? undefined : p;
   };
   /** The editable children, looking through the table sections a browser adds around rows. */
   const kids = (el: Element, skip?: Element): Element[] =>
@@ -385,7 +398,12 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
 
   function dropAt(x: number, y: number, moving: Element): Drop | undefined {
     let target: Element | undefined;
+    let ground = false;
     for (const hit of document.elementsFromPoint(x, y)) {
+      if (hit.closest(`[${GROUND_ATTR}]`)) {
+        ground = true;
+        break;
+      }
       const el = editableOf(hit);
       if (el && !moving.contains(el)) {
         target = el;
@@ -393,9 +411,12 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
       }
     }
 
+    // Bare page around the content drops into the body. A canvas's ground never takes drops.
+    if (!target && !ground && document.body?.hasAttribute(AT_ATTR)) target = document.body;
+
     // Climbs from the element under the pointer until a container can hold what moves.
-    for (; target; target = parentOf(target)) {
-      const parent = parentOf(target);
+    for (; target; target = holderOf(target)) {
+      const parent = holderOf(target);
       const r = target.getBoundingClientRect();
       const nearEdge = () => {
         if (!parent) return false;
@@ -488,7 +509,7 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
   addEventListener(
     'pointerdown',
     (e) => {
-      if (!editing || e.button !== 0 || inTyping(e.target)) return;
+      if (!editing || e.button !== 0 || inTyping(e.target) || e.metaKey) return;
       if (typing) stopTyping(true);
       const el = editableOf(e.target);
       if (!el) return;
@@ -554,7 +575,7 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     addEventListener(
       type,
       (e) => {
-        if (editing && !inTyping(e.target) && editableOf(e.target)) block(e);
+        if (editing && !inTyping(e.target) && !(e as MouseEvent).metaKey && editableOf(e.target)) block(e);
       },
       true,
     );
@@ -670,9 +691,15 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
 
   /** Where Add puts markup for `el`: inside it, or after it in its parent. Undefined when HTML forbids that spot. */
   function insertTarget(el: Element): Element | undefined {
-    const container = isContainer(el) ? el : parentOf(el);
+    const container = isContainer(el) ? el : holderOf(el);
     return container && !STRICT.has(container.tagName.toLowerCase()) ? container : undefined;
   }
+
+  const sample = (what: InsertKind) => {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = INSERTS[what];
+    return tpl.content.firstElementChild!;
+  };
 
   function insert(what: InsertKind): void {
     const el = sel;
@@ -680,13 +707,37 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     const container = insertTarget(el);
     if (!container) return;
     const before = container === el ? null : (kids(container)[kids(container).indexOf(el) + 1] ?? null);
+    insertAt(what, container, before);
+  }
+
+  /** The drop a drag from the Add buttons would make now. */
+  let adding: Drop | undefined;
+
+  function dragInsert(what: InsertKind, x: number, y: number, phase: 'move' | 'drop' | 'cancel'): void {
+    if (!editing) return;
+    const inside = x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight;
+    const node = sample(what);
+    adding = phase !== 'cancel' && inside ? dropAt(x, y, node) : undefined;
+    if (phase === 'move') {
+      hide(hoverBox);
+      if (inside) put(ghost, { left: x + 8, top: y + 8, width: 96, height: 24 });
+      else hide(ghost);
+      drawDrop(adding, node);
+      return;
+    }
+    hide(intoBox, line, ghost);
+    if (phase === 'drop' && adding) insertAt(what, adding.container, adding.before);
+    adding = undefined;
+  }
+
+  function insertAt(what: InsertKind, container: Element, before: Element | null): void {
     enqueue(() => {
-      if (!container.isConnected) return undefined;
-      const tpl = document.createElement('template');
-      tpl.innerHTML = INSERTS[what];
-      const node = tpl.content.firstElementChild!;
+      if (!container.isConnected || (before && !before.isConnected)) return undefined;
+      const node = sample(what);
       node.setAttribute(AT_ATTR, '-1');
-      container.insertBefore(node, before);
+
+      // Rows go in the tbody a browser added, as moves do.
+      (before?.parentElement ?? container).insertBefore(node, before);
       follow = true;
       return { kind: 'insert', parent: atOf(container), before: before ? atOf(before) : null, what };
     });
@@ -718,6 +769,7 @@ export function createEditMode(deps: { post: (m: FromPage) => void; root: Shadow
     text: (text) => sel && saveText(sel, text),
     act,
     insert,
+    dragInsert,
     layout,
   };
 }

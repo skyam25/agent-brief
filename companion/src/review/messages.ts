@@ -61,6 +61,8 @@ export type ToPage =
   | { type: 'text'; text: string }
   | { type: 'act'; act: 'parent' | 'duplicate' | 'remove' | 'deselect' }
   | { type: 'insert'; what: InsertKind }
+  /** A drag from the Add buttons, in the page's viewport pixels. `drop` adds the markup where the drag ends. */
+  | { type: 'insert-drag'; what: InsertKind; x: number; y: number; phase: 'move' | 'drop' | 'cancel' }
   /** Scrolls the element into view and answers `measured` once it painted. */
   | { type: 'measure'; id: string; selector: string }
   /** Selectors of feedback items, which clicks and pins report back as `matches`. */

@@ -4,7 +4,7 @@ import { FeedbackPanel, openCount, useFeedbackDoc, type FeedbackHost, type SendF
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { CompanionApi, Draft } from '../shared/ipc';
 import { anchorLabel, baseName, commentCount, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
-import type { ReviewEdit, SelectedElement } from '../shared/review-edit';
+import type { InsertKind, ReviewEdit, SelectedElement } from '../shared/review-edit';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from '../review/messages';
 import type { DraftBook } from './drafts';
 import { newPictureId } from './editor/pictures';
@@ -190,6 +190,8 @@ export function ReviewView(props: {
   const [activeId, setActiveId] = useState<string>();
   const [missing, setMissing] = useState<string[]>([]);
   const [pagePath, setPagePath] = useState<string>();
+  /** Counts page loads, so a page a link opened hears the pane's modes too. */
+  const [pageLoads, setPageLoads] = useState(0);
   const onPage = pagePath === undefined || pagePath === review.path;
   /** The feedback items on the element clicked last. */
   const [pointed, setPointed] = useState<number[]>();
@@ -198,8 +200,10 @@ export function ReviewView(props: {
   const items = feedback.doc?.items ?? [];
 
   // The latest values, for the message handler.
-  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage, items, picked });
-  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, commenting, editing, onPage, items, picked };
+  // Edits go to the page the frame shows, which a link may have moved off the output.
+  const editPath = pagePath ?? review.path;
+  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, editPath, commenting, editing, onPage, items, picked });
+  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, editPath, commenting, editing, onPage, items, picked };
   /** The items whose `Where:` is among the selectors an element matched. */
   const itemsAt = useCallback((matches: string[] = []) => live.current.items.filter((i) => i.where && matches.includes(i.where)).map((i) => i.n), []);
 
@@ -235,6 +239,15 @@ export function ReviewView(props: {
   }, [voice.recording, setCommenting]);
 
   const post = useCallback((m: ToPage) => frame.current?.contentWindow?.postMessage({ source: REVIEW_SOURCE, ...m }, '*'), []);
+
+  /** Hands a drag from the inspector's Add buttons to the page, in the frame's own pixels. */
+  const dragInsert = useCallback(
+    (what: InsertKind, clientX: number, clientY: number, phase: 'move' | 'drop' | 'cancel') => {
+      const r = frame.current?.getBoundingClientRect();
+      if (r) post({ type: 'insert-drag', what, x: clientX - r.left, y: clientY - r.top, phase });
+    },
+    [post],
+  );
 
   // The page's overlay says ready once it loads. A capture waits for that, so an early open still gets its picture.
   const ready = useRef(false);
@@ -315,11 +328,11 @@ export function ReviewView(props: {
   /** Saves one page edit and hands main's answer back to the page. A refused edit reloads the page. */
   const saveEdit = useCallback(
     async (version: string, edit: ReviewEdit) => {
-      const { sessionId, path, draftId } = live.current;
+      const { sessionId, editPath, onPage, draftId } = live.current;
       if (!sessionId) return;
-      const result = await host.reviewEdit(sessionId, path, version, edit).catch((err: Error) => ({ ok: false as const, error: err.message }));
+      const result = await host.reviewEdit(sessionId, editPath, version, edit).catch((err: Error) => ({ ok: false as const, error: err.message }));
       post({ type: 'edited', result });
-      if (result.ok) book.addEdit(draftId, result.summary);
+      if (result.ok) book.addEdit(draftId, onPage ? result.summary : `${editPath}: ${result.summary}`);
       else {
         props.onError(result.error);
         reload();
@@ -330,14 +343,14 @@ export function ReviewView(props: {
 
   const history = useCallback(
     async (way: 'undo' | 'redo') => {
-      const { sessionId, path, draftId } = live.current;
+      const { sessionId, editPath, onPage, draftId } = live.current;
       if (!sessionId) return;
-      const result = await (way === 'undo' ? host.reviewUndo(sessionId, path) : host.reviewRedo(sessionId, path)).catch((err: Error) => ({ ok: false as const, error: err.message }));
+      const result = await (way === 'undo' ? host.reviewUndo(sessionId, editPath) : host.reviewRedo(sessionId, editPath)).catch((err: Error) => ({ ok: false as const, error: err.message }));
       if (!result.ok) {
         props.onError(result.error);
         return;
       }
-      book.addEdit(draftId, result.summary);
+      book.addEdit(draftId, onPage ? result.summary : `${editPath}: ${result.summary}`);
       reload();
     },
     [host, book, reload, props.onError],
@@ -373,6 +386,8 @@ export function ReviewView(props: {
         setSilent(false);
         setPagePath(m.path);
         setPageEditable(!!m.editable);
+        setSelected(null);
+        setPageLoads((n) => n + 1);
         if (restore.current && m.path === live.current.path) post({ type: 'scroll-to', ...restore.current });
         restore.current = undefined;
       }
@@ -461,11 +476,11 @@ export function ReviewView(props: {
   }, [loaded, pinKey, post]);
   useEffect(() => {
     if (loaded) post({ type: 'commenting', on: commenting && onPage });
-  }, [loaded, commenting, onPage, post]);
-  const isEditing = editing && onPage && pageEditable;
+  }, [loaded, pageLoads, commenting, onPage, post]);
+  const isEditing = editing && pageEditable;
   useEffect(() => {
     if (loaded) post({ type: 'editing', on: isEditing });
-  }, [loaded, isEditing, post]);
+  }, [loaded, pageLoads, isEditing, post]);
   const settled = useRef({ reloads, loaded });
   settled.current = { reloads, loaded };
   /** A page whose overlay never says hello blocks added scripts. */
@@ -523,7 +538,7 @@ export function ReviewView(props: {
         <button
           className={isEditing ? 'chip on' : 'chip'}
           aria-pressed={isEditing}
-          disabled={!onPage || silent || !pageEditable}
+          disabled={silent || !pageEditable}
           title={!pageEditable && loaded ? 'This page has no markup edit mode can change' : isEditing ? 'Stop editing (Esc)' : 'Select, move, resize and retype elements; each change saves to the file (E)'}
           onClick={() => setEditing((on) => !on)}
           data-testid="review-edit"
@@ -560,7 +575,7 @@ export function ReviewView(props: {
         )}
         {!onPage && (
           <div className="review-banner" data-testid="review-elsewhere">
-            Showing {pagePath}. Pins belong to {baseName(review.path)}.
+            Showing {pagePath}. Edits save to it, and pins stay on {baseName(review.path)}.
             <button className="ghost link" onClick={reload}>
               Go back
             </button>
@@ -600,6 +615,7 @@ export function ReviewView(props: {
           onText={(text) => post({ type: 'text', text })}
           onAct={(act) => post({ type: 'act', act })}
           onInsert={(what) => post({ type: 'insert', what })}
+          onDragInsert={dragInsert}
         />
       ) : (
         <aside className="review-notes" aria-label="Review details">

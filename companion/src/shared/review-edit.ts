@@ -30,6 +30,7 @@ export const INSERTS = {
   row: '<div style="display: flex; gap: 8px; align-items: center"></div>',
   column: '<div style="display: flex; flex-direction: column; gap: 8px"></div>',
   button: '<button type="button">Button</button>',
+  divider: '<hr>',
 } as const;
 
 export type InsertKind = keyof typeof INSERTS;

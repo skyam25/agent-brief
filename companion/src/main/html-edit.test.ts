@@ -31,7 +31,7 @@ describe('annotate', () => {
     expect(out).toContain(`<h1 data-ab-at="${at(PAGE, '<h1>')}">Pricing</h1>`);
     expect(out).toContain(`<img data-ab-at="${at(PAGE, '<img')}" src="a.png">`);
     expect(out).toContain('<title>T</title>');
-    expect(out).not.toContain('<body data-ab-at');
+    expect(out).toContain(`<body data-ab-at="${at(PAGE, '<body>')}">`);
   });
 
   it('lists offsets in document order, svg children included', () => {
@@ -87,7 +87,7 @@ describe('applyEdit', () => {
     const out = applyEdit(page, { kind: 'inline', at: at(page, '<p'), html: 'Each <b>plan</b> has <a href="/x">CSV exports</a> &amp; <em>more</em>.' });
     expect(out.html).toBe('<body>\n  <p class="lede">Each <b>plan</b> has <a href="/x">CSV exports</a> &amp; <em>more</em>.</p>\n  <i>tail</i>\n</body>');
     expect(out.summary).toBe('Changed the text of p “Every plan has exports .” to “Each plan has CSV exports & more.”');
-    expect(editableOffsets(out.html)).toHaveLength(5);
+    expect(editableOffsets(out.html)).toHaveLength(6);
   });
 
   it('refuses inline markup for an element that holds blocks', () => {
@@ -159,6 +159,23 @@ describe('applyEdit', () => {
     const out = applyEdit(PAGE, { kind: 'insert', parent: at(PAGE, '<footer>'), before: null, what: 'button' });
     expect(out.html).toContain('<span>Left</span>\n    <button type="button">Button</button>\n  </footer>');
     expect(editableOffsets(out.html)).toContain(out.at);
+  });
+
+  it('inserts a divider between two lines of a section', () => {
+    const out = applyEdit(PAGE, { kind: 'insert', parent: at(PAGE, '<main'), before: at(PAGE, '<p>'), what: 'divider' });
+    expect(out.html).toContain('<h1>Pricing</h1>\n    <hr>\n    <p>Every plan</p>');
+    expect(out.html.slice(out.at!, out.at! + 4)).toBe('<hr>');
+    expect(editableOffsets(out.html)).toContain(out.at);
+  });
+
+  it('inserts into the body beside its top-level elements', () => {
+    const out = applyEdit(PAGE, { kind: 'insert', parent: at(PAGE, '<body>'), before: at(PAGE, '<footer>'), what: 'divider' });
+    expect(out.html).toContain('</main>\n  <hr>\n  <footer>');
+  });
+
+  it('never changes the body itself', () => {
+    expect(() => applyEdit(PAGE, { kind: 'remove', at: at(PAGE, '<body>') })).toThrow(EditError);
+    expect(() => applyEdit(PAGE, { kind: 'style', at: at(PAGE, '<body>'), set: { color: 'red' } })).toThrow(EditError);
   });
 
   it('keeps offsets consistent with a fresh annotation after each edit', () => {
