@@ -4,9 +4,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { Draft, SessionBriefEntry } from '../shared/ipc';
+import type { Draft, ItemReference, SessionBriefEntry } from '../shared/ipc';
 import { awaitsUser } from '../shared/items';
-import { reviewStart } from '../shared/outputs';
+import { outputLabel, reviewStart } from '../shared/outputs';
 import { hasReviewContent } from '../shared/review';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { DraftRow, SectionHeader } from './DraftList';
@@ -40,6 +40,7 @@ export function ReviewMode(props: {
   onOpenItemOutput: (sessionId: string, path: string) => void;
   onSend: () => void;
   onSendFeedback: SendFeedback;
+  onCopyReference: (ref: ItemReference) => void;
 }) {
   const book = useStore(props.book);
   const items = useStore(props.items);
@@ -137,6 +138,12 @@ export function ReviewMode(props: {
     if (open) book.select(undefined);
   };
 
+  /** A reference named by the output's title when the session lists it, else by its file name. */
+  const outputReference = (sessionId: string, path: string): ItemReference => {
+    const record = props.outputs.info(sessionId)?.outputs.find((r) => canonicalRef(r.ref) === canonicalRef(path));
+    return { kind: 'output', sessionId, ref: path, title: record ? outputLabel(record) : (path.split('/').at(-1) ?? path) };
+  };
+
   return (
     <div className="write review-mode" ref={root} data-testid="review-mode">
       <nav className="draft-list" aria-label="Outputs, reviews and items" hidden={!listOpen}>
@@ -150,6 +157,7 @@ export function ReviewMode(props: {
               onDismiss={(ref) => props.onDismissOutput(sessionId, ref)}
               feedback={feedbackFiles}
               onFeedback={(ref) => openFeedback(ref)}
+              onCopyReference={(ref, title) => props.onCopyReference({ kind: 'output', sessionId, ref, title })}
             />
           )}
           {reviews.length > 0 && (
@@ -220,6 +228,7 @@ export function ReviewMode(props: {
           canSend={!!props.brief?.isLive}
           onError={props.review.onError}
           onOpenFeedbackItem={openFeedback}
+          onCopyReference={() => open.sessionId && props.onCopyReference(outputReference(open.sessionId, open.review!.path))}
         />
       ) : feedbackFor && sessionId ? (
         <div className="review-side">
@@ -231,6 +240,7 @@ export function ReviewMode(props: {
             canSend={!!props.brief?.isLive}
             onSend={props.onSendFeedback}
             onOpenFile={() => props.onOpenOutput(sessionId, feedbackFor)}
+            onCopyReference={() => props.onCopyReference(outputReference(sessionId, feedbackFor))}
             onError={props.review.onError}
             focus={feedbackItem}
             onOpenItem={openFeedback}

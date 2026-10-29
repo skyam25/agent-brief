@@ -151,7 +151,9 @@ export interface InitiativePatch {
 export type ItemReference =
   | { kind: 'board'; name: string }
   | { kind: 'note'; id: string; title: string }
-  | { kind: 'initiative'; id: string; title: string };
+  | { kind: 'initiative'; id: string; title: string }
+  /** `ref` is the output's project-relative path or link, as its row holds it. */
+  | { kind: 'output'; sessionId: string; ref: string; title: string };
 
 export type InitiativeSaveResult = { ok: true; detail: InitiativeDetail } | { ok: false; message: string; detail?: InitiativeDetail };
 
@@ -333,6 +335,8 @@ export type DictationStart = { id: string } | { unavailable: true };
 
 /** A phrase yap heard, or the end of that dictation. `atMs` is epoch ms when the phrase or word began. */
 export type DictationEvent =
+  /** yap hears the microphone. Words said before this are not heard. */
+  | { id: string; ready: true }
   | { id: string; phrase: { text: string; atMs: number; words?: { text: string; atMs: number }[] } }
   | { id: string; ended: true; error?: string };
 

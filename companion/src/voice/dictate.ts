@@ -1,12 +1,17 @@
 /**
  * Live dictation. `yap dictate --json` listens to the microphone and prints each phrase once it settles,
- * a few seconds after a pause. Its times count from launch, so a phrase's start lands on the wall clock.
- * Speech without a pause arrives as one phrase. Word times let the renderer split it where the voice moved.
+ * a few seconds after a pause. Speech without a pause arrives as one phrase. Word times let the renderer
+ * split it where the voice moved.
+ *
+ * yap's times count from its first microphone buffer, which comes after it loads the speech model.
+ * That can take seconds on a slow Mac. Under a terminal yap says when the microphone starts, so it runs
+ * under `script`, and that line sets the clock. Without the line, the clock starts at launch.
  *
  * SIGINT makes yap print the phrase in progress and exit; SIGTERM drops it.
  */
 
 import { execFile, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 export interface DictationWord {
   text: string;
@@ -30,6 +35,8 @@ interface Segment {
 
 export interface DictationOptions {
   argv: readonly string[];
+  /** yap hears the microphone from now on, or its output began without saying so. */
+  onReady?(): void;
   onPhrase(phrase: DictationPhrase): void;
   /** Fires once, when yap exits. `error` says why when it failed. */
   onEnd(error?: string): void;
@@ -43,12 +50,28 @@ export interface Dictation {
   kill(): void;
 }
 
-export function startDictation({ argv, onPhrase, onEnd, now = Date.now }: DictationOptions): Dictation {
-  const startedAt = now();
+/** What yap prints to a terminal once its microphone runs. */
+const READY = /Press Ctrl\+C to stop/;
+
+/** How much of yap's output a failure message can quote. */
+const TAIL = 400;
+
+export function startDictation({ argv, onReady, onPhrase, onEnd, now = Date.now }: DictationOptions): Dictation {
+  let startedAt = now();
   const child = spawn(argv[0]!, argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
   const reader = new SegmentReader();
   let stderr = '';
+  let head = '';
+  let ready = false;
   child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+    if (!ready) {
+      head = (head + chunk).slice(-TAIL);
+      if (READY.test(head)) startedAt = now();
+      if (READY.test(head) || head.includes('"segments"')) {
+        ready = true;
+        onReady?.();
+      }
+    }
     for (const s of reader.push(chunk)) {
       const phrase = toPhrase(s, startedAt);
       if (phrase) onPhrase(phrase);
@@ -65,14 +88,14 @@ export function startDictation({ argv, onPhrase, onEnd, now = Date.now }: Dictat
       resolve();
     };
     child.on('error', (err) => end(`Dictation failed: ${err.message}`));
-    child.on('close', (code, signal) => end(code === 0 || signal !== null ? undefined : failureText(stderr, code)));
+    child.on('close', (code, signal) => end(code === 0 || signal !== null ? undefined : failureText(stderr || head, code)));
   });
 
   // A spawn that failed has no pid, and killing it would signal this whole process group.
   const running = () => !ended && child.pid !== undefined && child.exitCode === null && child.signalCode === null;
   return {
-    stop: () => {
-      if (running()) child.kill('SIGINT');
+    stop: async () => {
+      if (running()) await interrupt(child.pid!);
       return exited;
     },
     kill: () => {
@@ -95,9 +118,26 @@ function toPhrase(s: Segment, startedAt: number): DictationPhrase | undefined {
   return phrase;
 }
 
-/** Why yap failed, from the end of its stderr. */
-function failureText(stderr: string, code: number | null): string {
-  const why = stderr.trim().split('\n').slice(-2).join(' ').replace(/^Error: /, '').slice(0, 200);
+/** SIGINT for yap. Under `script` that is the child, since signalling `script` drops the phrase in progress. */
+function interrupt(pid: number): Promise<void> {
+  return new Promise((resolve) =>
+    execFile('/usr/bin/pgrep', ['-P', String(pid)], (err, stdout) => {
+      const children = err ? [] : String(stdout).split(/\s+/).filter(Boolean).map(Number);
+      for (const target of children.length ? children : [pid]) {
+        try {
+          process.kill(target, 'SIGINT');
+        } catch {
+          // Already gone.
+        }
+      }
+      resolve();
+    }),
+  );
+}
+
+/** Why yap failed, from the end of its output. */
+function failureText(output: string, code: number | null): string {
+  const why = output.replace(/\r/g, '').trim().split('\n').slice(-2).join(' ').replace(/^Error: /, '').slice(0, 200);
   return `Dictation failed: ${why || `exit code ${code}`}`;
 }
 
@@ -144,7 +184,12 @@ const isWord = (w: unknown): w is { start: number; text: string } =>
 
 const argvs = new Map<string, Promise<string[] | undefined>>();
 
-/** The `yap dictate` command line, or undefined when this yap only transcribes files. Word times need a newer yap. */
+const SCRIPT = '/usr/bin/script';
+
+/**
+ * The `yap dictate` command line, or undefined when this yap only transcribes files. Word times need a newer yap.
+ * It runs under `script`, whose terminal makes yap say when its microphone starts.
+ */
 export function dictateArgv(yapPath: string): Promise<string[] | undefined> {
   let known = argvs.get(yapPath);
   if (!known) {
@@ -152,7 +197,8 @@ export function dictateArgv(yapPath: string): Promise<string[] | undefined> {
       execFile(yapPath, ['dictate', '--help'], { timeout: 10_000 }, (err, stdout) => {
         if (err) return resolve(undefined);
         const words = String(stdout).includes('--word-timestamps') ? ['--word-timestamps'] : [];
-        resolve([yapPath, 'dictate', '--json', '--max-length', '400', ...words]);
+        const terminal = existsSync(SCRIPT) ? [SCRIPT, '-q', '/dev/null'] : [];
+        resolve([...terminal, yapPath, 'dictate', '--json', '--max-length', '400', ...words]);
       }),
     );
     argvs.set(yapPath, known);

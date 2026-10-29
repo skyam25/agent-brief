@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SegmentReader, startDictation, type DictationPhrase } from './dictate';
@@ -32,19 +33,22 @@ describe('SegmentReader', () => {
   });
 });
 
-/** Starts dictation with the fake yap, scripted by `script`. */
+/** Starts dictation with the fake yap, scripted by `script`. The clock reads 1,000,000 at launch and 2,000,000 after. */
 function run(script: object, argv: readonly string[] = [process.execPath, FAKE]) {
   const phrases: DictationPhrase[] = [];
   let ended: { error?: string } | undefined;
+  let ready = 0;
+  let reads = 0;
   process.env.FAKE_DICTATE = JSON.stringify(script);
   const dictation = startDictation({
     argv,
-    now: () => 1_000_000,
+    now: () => (reads++ === 0 ? 1_000_000 : 2_000_000),
+    onReady: () => ready++,
     onPhrase: (p) => phrases.push(p),
     onEnd: (error) => (ended = { ...(error ? { error } : {}) }),
   });
   delete process.env.FAKE_DICTATE;
-  return { dictation, phrases, ended: () => ended };
+  return { dictation, phrases, ended: () => ended, ready: () => ready };
 }
 
 describe('startDictation', () => {
@@ -78,6 +82,31 @@ describe('startDictation', () => {
     await expect.poll(() => phrases.length).toBe(1);
     expect(phrases[0]!.words!.map((w) => w.text)).toEqual(['Pay', 'five', 'dollars', 'now']);
     await dictation.stop();
+  });
+
+  it('starts the clock when yap says its microphone runs, so a slow start shifts no word', async () => {
+    const words = [[0.4, 'Bigger'], [0.9, 'header']];
+    const { dictation, phrases, ready } = run({ ready: 30, phrases: [{ at: 80, start: 0.4, text: 'Bigger header.', words }] });
+    await expect.poll(() => phrases.length).toBe(1);
+    expect(ready()).toBe(1);
+    expect(phrases[0]).toMatchObject({ atMs: 2_000_400, words: [{ text: 'Bigger', atMs: 2_000_400 }, { text: 'header.', atMs: 2_000_900 }] });
+    await dictation.stop();
+  });
+
+  it('is ready once the output starts, keeping the launch clock, when yap never says so', async () => {
+    const { dictation, phrases, ready } = run({ phrases: [{ at: 50, start: 0.4, text: 'One.' }] });
+    await expect.poll(() => phrases.length).toBe(1);
+    expect(ready()).toBe(1);
+    expect(phrases[0]!.atMs).toBe(1_000_400);
+    await dictation.stop();
+  });
+
+  it.runIf(existsSync('/usr/bin/script'))('stops yap under script so it still prints the phrase in progress', async () => {
+    const { dictation, phrases, ended, ready } = run({ ready: 30, last: 'Two.' }, ['/usr/bin/script', '-q', '/dev/null', process.execPath, FAKE]);
+    await expect.poll(() => ready()).toBe(1);
+    await dictation.stop();
+    expect(phrases.map((p) => p.text)).toEqual(['Two.']);
+    expect(ended()).toEqual({});
   });
 
   it('reports why yap failed', async () => {

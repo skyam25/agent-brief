@@ -16,7 +16,7 @@ import { BeforeAfter, type PictureHost } from './BeforeAfter';
 import { claimDecisions } from './decisions-send';
 import { decisionText, historyLines, inOpenFilter, isClosed, latestSaid, markSeen, needsLook, seenCount, updatedSince, type FeedbackFilter } from './feedback-cards';
 import { FeedbackGraph } from './FeedbackGraph';
-import { ExternalIcon, MicIcon, ReloadIcon } from './Icons';
+import { ExternalIcon, LinkIcon, MicIcon, ReloadIcon } from './Icons';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import { ReviewVoice, hostDictation } from './review-voice';
 import { claimTalk } from './talk-owner';
@@ -709,6 +709,7 @@ export function FeedbackView(props: {
   canSend: boolean;
   onSend: SendFeedback;
   onOpenFile: () => void;
+  onCopyReference: () => void;
   onError: (message: string) => void;
   focus?: number;
   onOpenItem?: (output: string, n: number) => void;
@@ -728,9 +729,14 @@ export function FeedbackView(props: {
           </span>
         </div>
         {!gone && (
-          <button className="ghost" onClick={props.onOpenFile} data-testid="feedback-open-file">
-            <ExternalIcon /> Open file
-          </button>
+          <>
+            <button className="ghost" onClick={props.onCopyReference} data-testid="feedback-copy-reference">
+              <LinkIcon /> Copy reference
+            </button>
+            <button className="ghost" onClick={props.onOpenFile} data-testid="feedback-open-file">
+              <ExternalIcon /> Open file
+            </button>
+          </>
         )}
       </header>
       <div className="workspace-host">

@@ -317,6 +317,7 @@ export function WriteView(props: {
           onSend={props.onSendText}
           onError={props.onError}
           onRetitle={(title) => book.retitle(selected.id, title)}
+          onCopyReference={() => props.onCopyReference(selected)}
         />
       ) : selected ? (
         <DraftEditor

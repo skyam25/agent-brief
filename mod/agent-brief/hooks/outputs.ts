@@ -188,7 +188,7 @@ export function declareResultText(record: OutputRecord, cwd: string): string {
   const declared = `Declared "${title}" (${record.ref}, ${record.status ?? 'drafting'}). It shows in the Agent Brief panel.`
   if (record.kind !== 'markdown' && record.kind !== 'html') return declared
   const full = record.ref.startsWith('/') ? record.ref : `${cwd.replace(/\/+$/, '')}/${record.ref}`
-  return `${declared}\nTo show it in Agent Brief, run: agent-brief open --output "${full}"`
+  return `${declared}\nWhen the user asks to see it in Agent Brief, run: agent-brief open --output "${full}"`
 }
 
 /**
@@ -207,7 +207,7 @@ export function outputsInstructions(isCli = false): string {
 The Agent Brief panel lists this session's deliverables. The user opens them there to review.
 When the user asks for a doc, brief, report, spec, page, deck or artifact, ${declare}.
 ${where}
-Declare it with status \`drafting\` when you start the deliverable. Declare it again with \`ready\` when it is done.
+Declare it with status \`drafting\` when you start the deliverable. Declare it again with \`ready\` when it is done, and name its path in your reply so the row under the reply offers to open it. Never open it yourself.
 Declare one primary output per request, usually. Pick the one the user will read first.
 Never declare code, config, tests or files that serve the code.
 Never declare the items file or anything under .feedback.

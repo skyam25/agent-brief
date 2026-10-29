@@ -126,13 +126,15 @@ function liveSetup({ last = '', available = true, gate = Promise.resolve() } = {
   };
   let phrase: ((text: string, at: number, words?: HeardWord[]) => void) | undefined;
   let end: ((error?: string) => void) | undefined;
+  let ready: (() => void) | undefined;
   let stops = 0;
   const dictate: LiveDictation = {
-    async start(onPhrase, onEnd) {
+    async start(onPhrase, onEnd, onReady) {
       await gate;
       if (!available) return undefined;
       phrase = onPhrase;
       end = onEnd;
+      ready = onReady;
       return {
         stop: async () => {
           stops++;
@@ -144,7 +146,14 @@ function liveSetup({ last = '', available = true, gate = Promise.resolve() } = {
     },
   };
   (base.voice as any).opts.dictate = dictate;
-  return { ...base, say: (text: string, at: number, words?: HeardWord[]) => phrase!(text, at, words), fail: (error: string) => end!(error), records: () => records, stops: () => stops };
+  return {
+    ...base,
+    say: (text: string, at: number, words?: HeardWord[]) => phrase!(text, at, words),
+    fail: (error: string) => end!(error),
+    hears: () => ready!(),
+    records: () => records,
+    stops: () => stops,
+  };
 }
 
 describe('ReviewVoice with live dictation', () => {
@@ -225,6 +234,38 @@ describe('ReviewVoice with live dictation', () => {
     expect(voice.recording).toBe(false);
     expect(isOpen()).toBe(false);
     expect(stops()).toBe(1);
+  });
+
+  it('counts a click made while dictation starts, from when it happened', async () => {
+    let open = () => {};
+    const { voice, heard, tick, say, records } = liveSetup({ gate: new Promise<void>((r) => (open = r)) });
+    const starting = voice.start('c1');
+    await settle();
+    tick(1000);
+    voice.aim('c2');
+    open();
+    await starting;
+    say('Bigger header. Shorter footer.', 500, [
+      { text: 'Bigger', atMs: 500 },
+      { text: 'header.', atMs: 800 },
+      { text: 'Shorter', atMs: 1200 },
+      { text: 'footer.', atMs: 1500 },
+    ]);
+    expect(heard).toEqual([
+      ['c1', 'Bigger header.'],
+      ['c2', 'Shorter footer.'],
+    ]);
+    expect(records()).toBe(0);
+    await voice.stop();
+  });
+
+  it('says it is starting until yap hears the microphone', async () => {
+    const { voice, hears } = liveSetup();
+    await voice.start('c1');
+    expect(voice.starting).toBe(true);
+    hears();
+    expect(voice.starting).toBe(false);
+    await voice.stop();
   });
 
   it('a stop while dictation starts leaves nothing listening', async () => {

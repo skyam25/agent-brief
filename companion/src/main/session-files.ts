@@ -247,6 +247,11 @@ export class SessionFiles {
     return isReviewable(path) ? 'review' : 'note';
   }
 
+  /** A project file's absolute path, after the same checks as opening it. */
+  absolutePath(sessionId: string, path: unknown): string {
+    return this.projectFile(sessionId, path).target;
+  }
+
   /** Opens a project file in its default app. */
   async openElsewhere(sessionId: string, path: unknown): Promise<void> {
     await this.deps.opener.openPath(this.projectFile(sessionId, path).target);

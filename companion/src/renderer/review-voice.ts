@@ -68,14 +68,18 @@ export interface LiveSession {
 
 /** Live dictation, where yap hears the microphone itself. */
 export interface LiveDictation {
-  /** Starts listening. Undefined when live dictation is unavailable, so clips take over. */
-  start(onPhrase: (text: string, atMs: number, words?: HeardWord[]) => void, onEnd: (error?: string) => void): Promise<LiveSession | undefined>;
+  /** Starts listening. Undefined when live dictation is unavailable, so clips take over. `onReady` fires once yap hears. */
+  start(
+    onPhrase: (text: string, atMs: number, words?: HeardWord[]) => void,
+    onEnd: (error?: string) => void,
+    onReady?: () => void,
+  ): Promise<LiveSession | undefined>;
 }
 
 /** Live dictation through main, which runs `yap dictate`. */
 export function hostDictation(host: Pick<CompanionApi, 'startDictation' | 'stopDictation' | 'onDictation'>): LiveDictation {
   return {
-    async start(onPhrase, onEnd) {
+    async start(onPhrase, onEnd, onReady) {
       const started = await host.startDictation();
       if (!('id' in started)) return undefined;
       let finish = () => {};
@@ -84,7 +88,8 @@ export function hostDictation(host: Pick<CompanionApi, 'startDictation' | 'stopD
       // Events follow the start reply, so nothing arrives before this listens.
       const off = host.onDictation((e) => {
         if (e.id !== started.id) return;
-        if ('phrase' in e) onPhrase(e.phrase.text, e.phrase.atMs, e.phrase.words);
+        if ('ready' in e) onReady?.();
+        else if ('phrase' in e) onPhrase(e.phrase.text, e.phrase.atMs, e.phrase.words);
         else {
           off?.();
           finish();
@@ -114,6 +119,8 @@ export interface ReviewVoiceOptions {
 export class ReviewVoice {
   /** Epoch ms when the microphone opened. Undefined when off. */
   since?: number;
+  /** The mic is on but yap does not hear it yet, as while a slow Mac loads the speech model. */
+  starting = false;
   /** Where the words go now. */
   target = OVERALL;
   /** Bumps on every change, as the snapshot React compares. */
@@ -165,10 +172,14 @@ export class ReviewVoice {
   }
 
   private async open(target: string): Promise<void> {
+    this.target = target;
     const stream = (this.stream = await this.media.open());
     this.since = this.now();
-    this.target = target;
-    const aims = (this.aims = [{ at: this.since, target }]);
+
+    // A click while the mic opens moved the target already.
+    const aims = (this.aims = [{ at: this.since, target: this.target }]);
+    this.starting = !!this.opts.dictate;
+    this.emit();
     let live: LiveSession | undefined;
     try {
       live = await this.opts.dictate?.start(
@@ -176,6 +187,11 @@ export class ReviewVoice {
         (error) => {
           if (error) this.opts.onError(error);
           if (live && this.live === live) void this.stop();
+        },
+        () => {
+          if (this.aims !== aims || !this.starting) return;
+          this.starting = false;
+          this.emit();
         },
       );
     } catch (err) {
@@ -188,7 +204,10 @@ export class ReviewVoice {
       return;
     }
     this.live = live;
-    if (!live) this.begin();
+    if (!live) {
+      this.starting = false;
+      this.begin();
+    }
     this.emit();
   }
 
@@ -196,7 +215,9 @@ export class ReviewVoice {
   aim(target: string): void {
     if (target === this.target) return;
     this.target = target;
-    if (this.live) this.aims.push({ at: this.now(), target });
+
+    // While dictation starts, the click still counts, from when it happened.
+    if (this.live || this.opening) this.aims.push({ at: this.now(), target });
     else if (this.stream) {
       this.track(this.finish());
       this.begin();
@@ -214,6 +235,7 @@ export class ReviewVoice {
       this.media.close(this.stream);
       this.stream = undefined;
       this.since = undefined;
+      this.starting = false;
       this.emit();
     }
     await Promise.all([...this.inflight]);

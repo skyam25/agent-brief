@@ -21,4 +21,25 @@ describe('referenceText', () => {
       `Attach my Agent Brief initiative "Pricing" with agent-brief initiative attach 'pricing-2', then read it with agent-brief initiative show 'pricing-2'.`,
     );
   });
+
+  it('names an output by its absolute path, and opens it only from its own project', () => {
+    expect(referenceText({ kind: 'output', sessionId: 's1', ref: '/work/mock/a.html', title: 'Checkout' }, drafts)).toBe(
+      `Read my Agent Brief page "Checkout" in '/work/mock/a.html'. If it is inside this project, show it with agent-brief open --output '/work/mock/a.html'.`,
+    );
+    expect(referenceText({ kind: 'output', sessionId: 's1', ref: '/work/docs/memo.md', title: 'Memo' }, drafts)).toBe(
+      `Read my Agent Brief document "Memo" in '/work/docs/memo.md'. If it is inside this project, show it with agent-brief open --output '/work/docs/memo.md'.`,
+    );
+  });
+
+  it('sends an outline through agent-brief outline', () => {
+    expect(referenceText({ kind: 'output', sessionId: 's1', ref: '/work/memo.outline.md', title: 'Memo' }, drafts)).toBe(
+      `Read my Agent Brief outline "Memo" in '/work/memo.outline.md', and change it only through agent-brief outline. If it is inside this project, show it with agent-brief open --output '/work/memo.outline.md'.`,
+    );
+  });
+
+  it('gives a linked output its link', () => {
+    expect(referenceText({ kind: 'output', sessionId: 's1', ref: 'https://claude.ai/artifact/x', title: 'Deck' }, drafts)).toBe(
+      'Open my Agent Brief output "Deck" at https://claude.ai/artifact/x.',
+    );
+  });
 });

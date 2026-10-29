@@ -38,7 +38,7 @@ Change nothing in the output until the user decides. A round is cataloged, not a
 agent-brief feedback catalog prototype/checkout.html --label SME --source transcripts/sme-2.md --date 2026-10-18 --items .feedback/catalog-sme-2.json
 ```
 
-5. Reply with how many items the round added or joined, and mention any praise. End with: Press ▣ Brief, then In Agent Brief on `<output>`.
+5. Reply with how many items the round added or joined, and mention any praise. Name `<output>` by its path. For an HTML or Markdown output, the row under the reply then offers to open it. For any other file, end with: Press ▣ Brief, then In Agent Brief on `<output>`.
 
 When the user asks to open the feedback, run `agent-brief open --output <output> --feedback`. This works for Markdown, HTML, PDF, Word, slides and spreadsheets; non-HTML files open the full-width Feedback view.
 

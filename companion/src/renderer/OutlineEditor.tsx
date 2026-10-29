@@ -11,7 +11,7 @@ import type { CompanionApi, Draft } from '../shared/ipc';
 import type { OutlineChanges, OutlineRowChange, RowChangeKind } from '../shared/outline-changes';
 import { acceptDirectionPrompt, askPrompt, generatePrompt } from '../shared/outline-prompts';
 import type { SendFeedback } from './FeedbackPanel';
-import { CloseIcon, ExternalIcon, PlusIcon } from './Icons';
+import { CloseIcon, ExternalIcon, LinkIcon, PlusIcon } from './Icons';
 import {
   ACCEPT_LABEL,
   acceptedDirection,
@@ -369,6 +369,7 @@ export function OutlineEditor(props: {
   onError: (message: string) => void;
   /** The file's title changed, so the list row follows it. */
   onRetitle: (title: string) => void;
+  onCopyReference: () => void;
 }) {
   const sessionId = props.draft.sessionId;
   const path = props.draft.outline!.path;
@@ -864,6 +865,9 @@ export function OutlineEditor(props: {
           </div>
         </div>
         <div className="outline-actions">
+          <button className="ghost icon-button" title="Copy reference" aria-label="Copy reference" onClick={props.onCopyReference} data-testid="outline-copy-reference">
+            <LinkIcon />
+          </button>
           <button
             className="primary chip"
             disabled={!hasPoints}

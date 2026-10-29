@@ -8,7 +8,7 @@ export function VoiceState(props: { voice: ReviewVoice; target: string }) {
   return (
     <span className="voice-state muted" data-testid="review-voice-state">
       {listening && <span className="rec-dot" aria-hidden="true" />}
-      {pending ? 'Writing down what you said…' : 'Listening'}
+      {pending ? 'Writing down what you said…' : props.voice.starting ? 'Starting dictation…' : 'Listening'}
     </span>
   );
 }

@@ -4,7 +4,7 @@ import { isUrlRef, outputLabel, outputTouchedAt } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { ago, SectionHeader } from './DraftList';
-import { CloseIcon } from './Icons';
+import { CloseIcon, LinkIcon } from './Icons';
 import { useStore } from './hooks';
 import type { OutputsStore } from './outputs';
 
@@ -52,11 +52,12 @@ export function OutputsList(props: {
   /** Feedback files by project path. An HTML output shows its feedback in the review pane instead. */
   feedback?: Map<string, FeedbackFileSummary>;
   onFeedback?: (ref: string) => void;
+  onCopyReference: (ref: string, title: string) => void;
 }) {
   const { store, sessionId } = props;
   useStore(store);
   const [touchedOpen, setTouchedOpen] = useState<Record<string, boolean>>({});
-  const [menu, setMenu] = useState<MenuPoint & { ref: string; feedbackOnly: boolean }>();
+  const [menu, setMenu] = useState<MenuPoint & { ref: string; title: string; feedbackOnly: boolean }>();
 
   // A failed read keeps the last copy.
   useEffect(() => {
@@ -87,7 +88,7 @@ export function OutputsList(props: {
         onFeedback={props.onFeedback && takesFeedback(r.ref) ? () => props.onFeedback!(canonicalRef(r.ref)) : undefined}
         onMenu={(e) => {
           e.preventDefault();
-          setMenu({ ref: r.ref, x: e.clientX, y: e.clientY, feedbackOnly });
+          setMenu({ ref: r.ref, title: outputLabel(r), x: e.clientX, y: e.clientY, feedbackOnly });
         }}
       />
     );
@@ -141,6 +142,17 @@ export function OutputsList(props: {
               Feedback
             </button>
           )}
+          <button
+            className="ghost"
+            role="menuitem"
+            onClick={() => {
+              setMenu(undefined);
+              props.onCopyReference(menu.ref, menu.title);
+            }}
+            data-testid="output-menu-copy-reference"
+          >
+            <LinkIcon /> Copy reference
+          </button>
           {!menu.feedbackOnly && (
             <button
               className="ghost"

@@ -52,6 +52,8 @@ export function Mic(props: {
 export function VoiceStrip(props: {
   recording?: boolean;
   reviewing?: boolean;
+  /** The mic is open but dictation does not hear it yet. */
+  starting?: boolean;
   /** Epoch ms when the microphone opened. */
   since?: number;
   voiceMs: number;
@@ -65,7 +67,7 @@ export function VoiceStrip(props: {
         <RecClock since={props.since} earlierMs={props.reviewing ? 0 : props.voiceMs} />
         {props.input && <LevelMeter stream={props.input} />}
         <span className="muted hint">
-          {props.reviewing ? 'Listening. Words go to the selected pin.' : 'Listening. Keep sketching.'}
+          {props.starting ? 'Starting dictation…' : props.reviewing ? 'Listening. Words go to the selected pin.' : 'Listening. Keep sketching.'}
         </span>
       </div>
     );

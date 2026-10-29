@@ -34,6 +34,7 @@ import {
   type InitiativeDetail,
   type InitiativeSaveResult,
   type InitInfo,
+  type ItemReference,
   type Launcher,
   type LaunchOptions,
   type MicrophoneAccess,
@@ -45,7 +46,7 @@ import {
   type Theme,
 } from '../shared/ipc';
 import { newDraftId } from '../shared/drafts';
-import { isMarkdownRef } from '../shared/outputs';
+import { isMarkdownRef, isUrlRef } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { createBoardBackend } from './backend';
 import { Briefs } from './briefs';
@@ -562,6 +563,7 @@ async function start(): Promise<void> {
       id,
       startDictation({
         argv,
+        onReady: () => tellDictation({ id, ready: true }),
         onPhrase: (phrase) => tellDictation({ id, phrase }),
         onEnd: (error) => {
           dictations.delete(id);
@@ -639,7 +641,11 @@ async function start(): Promise<void> {
     if (testMode) copiedRich = rich;
     else await clipboard.write([new ClipboardItem({ 'text/html': rich.html, 'text/plain': rich.text })]);
   });
-  ipc.handle('copyReference', (ref) => terminals.copy(referenceText(ref, join(dataDir, 'drafts'))));
+  ipc.handle('copyReference', (ref: ItemReference) => {
+    // Another project's session reads an output by its absolute path.
+    const resolved = ref.kind === 'output' && !isUrlRef(ref.ref) ? { ...ref, ref: files.absolutePath(ref.sessionId, ref.ref) } : ref;
+    return terminals.copy(referenceText(resolved, join(dataDir, 'drafts')));
+  });
   ipc.handle('listTemplates', () => templates.list());
   ipc.handle('saveTemplate', (template: unknown) => templates.save(template));
   ipc.handle('deleteTemplate', (id: string) => templates.remove(id));

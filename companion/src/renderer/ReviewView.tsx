@@ -9,7 +9,7 @@ import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } fro
 import type { DraftBook } from './drafts';
 import { newPictureId } from './editor/pictures';
 import { useStore } from './hooks';
-import { CommentIcon, ExternalIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIcon } from './Icons';
+import { CommentIcon, ExternalIcon, LinkIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIcon } from './Icons';
 import { Inspector } from './Inspector';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import { PageFind } from './PageFind';
@@ -78,6 +78,8 @@ export function ReviewView(props: {
   onError: (message: string) => void;
   /** Opens another output's feedback item, from the graph. */
   onOpenFeedbackItem?: (output: string, n: number) => void;
+  /** Copies a line that brings this page into another Claude Code session. */
+  onCopyReference: () => void;
 }) {
   const { book, draft, host } = props;
   const voice = useStore(props.voice);
@@ -547,6 +549,9 @@ export function ReviewView(props: {
         </button>
         <button className="ghost icon-button" title="Reload the page" aria-label="Reload the page" onClick={reload} data-testid="review-reload">
           <ReloadIcon />
+        </button>
+        <button className="ghost icon-button" title="Copy reference" aria-label="Copy reference" onClick={props.onCopyReference} data-testid="review-copy-reference">
+          <LinkIcon />
         </button>
         <button className="ghost icon-button" title="Open in the browser" aria-label="Open in the browser" onClick={openElsewhere} data-testid="review-external">
           <ExternalIcon />

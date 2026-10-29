@@ -190,6 +190,48 @@ test('live dictation splits speech that runs on across a new pin', async () => {
   await app.close();
 });
 
+test('live dictation starts its clock when yap hears, so a slow start still splits words at the click', async () => {
+  test.skip(!existsSync(SPEECH), 'speech fixture missing');
+
+  // yap hears 2 s after launch, as on a slow Mac. Its word times count from then.
+  const words = [[0.8, 'Make'], [1, 'it'], [1.2, 'bolder,'], [4.5, 'and'], [4.7, 'add'], [4.9, 'links.']];
+  const { app, page } = await launch(tempDataDir(), {
+    COMPANION_TEST_AUDIO: SPEECH,
+    COMPANION_TEST_DICTATE: join(ROOT, 'e2e/fixtures/fake-dictate.mjs'),
+    FAKE_DICTATE: JSON.stringify({ ready: 2000, phrases: [{ at: 9000, start: 0.8, text: 'Make it bolder, and add links.', words }] }),
+  });
+  await showPanel(app, page);
+  await backend(app, 'draw', 'current', {
+    elements: [
+      { type: 'rectangle', id: 'a', x: 100, y: 100, label: 'Header' },
+      { type: 'rectangle', id: 'b', x: 400, y: 100, label: 'Footer' },
+    ],
+  });
+  const centre = (id: string) =>
+    page.evaluate((id) => {
+      const s = window.__excalidraw.getAppState();
+      const e = window.__excalidraw.getSceneElements().find((x) => x.id === id)!;
+      return { x: (e.x + e.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (e.y + e.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop };
+    }, id);
+  const a = await centre('a');
+  const b = await centre('b');
+
+  await page.getByTestId('mic').click();
+  await expect(page.getByTestId('voice-strip')).toContainText('Starting dictation…');
+  await page.screenshot({ path: join(RESULTS, 'dictation-starting.png') });
+  await expect(page.getByTestId('voice-strip')).toContainText('Listening', { timeout: 5000 });
+  await page.mouse.click(a.x, a.y);
+  await page.waitForTimeout(3000);
+  await page.mouse.click(b.x, b.y);
+
+  const cards = page.getByTestId('board-comment-text');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toHaveValue('Make it bolder,', { timeout: 15_000 });
+  await expect(cards.nth(1)).toHaveValue('and add links.');
+  await page.getByTestId('mic').click();
+  await app.close();
+});
+
 test('Send while talking carries the words for every pin and the overall note', async () => {
   test.skip(!existsSync(SPEECH), 'speech fixture missing');
   test.setTimeout(150_000);

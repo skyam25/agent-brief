@@ -196,6 +196,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     briefs, activeBrief, active, switchBrief, openNotes, closeBrief, reviewVoice,
     reviewing, commenting, recording, hasVoice, since, voiceMs, input, discardVoice, onMicrophone,
   } = useWorkspace({ host, info, controller, book, shelf, comments, board, notify, report });
+  const micStarting = useSyncExternalStore((fn) => reviewVoice.subscribe(fn), () => reviewVoice.starting) && reviewing;
   useCommentKeys(comments, mode === 'sketch');
   const sidebar = useSidebar();
   const boardList = useBoards(host, controller, briefs);
@@ -546,7 +547,13 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               voice={reviewVoice}
               talking={recording}
               onCopy={(clip) => host.copyRich(clip).then(() => true, (err) => (report('copy the note')(err), false))}
-              onCopyReference={(d) => copyReference({ kind: 'note', id: d.id, title: draftName(d) })}
+              onCopyReference={(d) =>
+                copyReference(
+                  (d.source ?? d.outline) && d.sessionId
+                    ? { kind: 'output', sessionId: d.sessionId, ref: (d.source ?? d.outline)!.path, title: draftName(d) }
+                    : { kind: 'note', id: d.id, title: draftName(d) },
+                )
+              }
               onOpenElsewhere={async (d) => {
                 if (d.sessionId && briefs.some((b) => b.sessionId === d.sessionId)) return switchBrief(d.sessionId, d.id);
                 openNotes();
@@ -571,6 +578,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               onOpenItemOutput={(sessionId, path) => void host.openItemOutput(sessionId, path).catch(report('open that file'))}
               onSend={() => void send()}
               onSendFeedback={(sessionId, build) => void sendText(sessionId, build)}
+              onCopyReference={copyReference}
             />
           )}
           {mode === 'initiative' && (
@@ -627,6 +635,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               <VoiceStrip
                 recording={recording}
                 reviewing={reviewing}
+                starting={micStarting}
                 since={since}
                 voiceMs={voiceMs}
                 hasVoice={hasVoice}

@@ -193,6 +193,36 @@ test('Review mode lists a session\'s outputs, opens them, and sends an edited co
   await expect(page.locator('[data-ref="docs/pricing.md"]')).toBeVisible();
 });
 
+test('Copy reference names an output by its absolute path from the row, the review pane and Write', async () => {
+  const { app, page } = ctx;
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  put(cwd, 'docs/pricing.md', '# Pricing strategy\n');
+  put(cwd, 'site/index.html', '<h1>Pricing</h1>\n');
+  writeOutputs(cwd, [PRICING, { ...PAGE, tier: 'declared', title: 'Pricing page', status: 'ready', declaredAt: T - 5000 }]);
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Pricing' });
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await showPanel(app, page);
+  await page.getByTestId('mode-review').click();
+  const clipboard = () => app.evaluate(() => globalThis.__companion.clipboard());
+  const show = (path: string) => `If it is inside this project, show it with agent-brief open --output '${join(cwd, path)}'.`;
+
+  // Review starts on the ready page, with the list folded away at this width.
+  await page.getByTestId('review-copy-reference').click();
+  await expect.poll(clipboard).toBe(`Read my Agent Brief page "Pricing page" in '${join(cwd, 'site/index.html')}'. ${show('site/index.html')}`);
+
+  await page.getByTestId('review-list-toggle').click();
+  await page.getByTestId('output-row-0').click({ button: 'right' });
+  await page.screenshot({ path: join(RESULTS, 'output-copy-reference.png') });
+  await page.getByTestId('output-menu-copy-reference').click();
+  await expect.poll(clipboard).toBe(`Read my Agent Brief document "Pricing strategy" in '${join(cwd, 'docs/pricing.md')}'. ${show('docs/pricing.md')}`);
+
+  // A Markdown output open in Write names its file, not the note's draft.
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1', output: { path: 'docs/pricing.md' } });
+  await page.getByTestId('draft-more').click();
+  await page.getByTestId('draft-copy-reference').click();
+  await expect.poll(clipboard).toContain(`in '${join(cwd, 'docs/pricing.md')}'. ${show('docs/pricing.md')}`);
+});
+
 test('POST /open with an output opens it in the panel for that session', async () => {
   const { page } = ctx;
   const cwd = mkdtempSync(join(tmpdir(), 'project-'));
