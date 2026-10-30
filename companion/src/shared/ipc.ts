@@ -493,6 +493,8 @@ export interface CompanionApi extends BoardHost {
   /** Fires when /write reopens a session's note. */
   onOpenDraft(fn: (open: OpenDraft) => void): Subscription;
   onOpenFeedbackView(fn: (open: OpenFeedbackView) => void): Subscription;
+  /** Fires when /open asks for an initiative. The panel shows it in the Initiative view. */
+  onOpenInitiative(fn: (open: { id: string }) => void): Subscription;
   /** Fires when main saved a draft the panel did not make, such as a note from `agent-brief note`. */
   onDraftsChanged(fn: () => void): Subscription;
   /** Puts rich text and its plain form on the clipboard in one write. */
@@ -609,6 +611,11 @@ export interface CompanionApi extends BoardHost {
   updateInitiative(id: string, patch: InitiativePatch): Promise<InitiativeSaveResult>;
   /** Shows a file or folder in Finder. `~/` is allowed. */
   revealPath(path: string): Promise<void>;
+  /**
+   * Opens a link from a brief line: a file path or an http(s) URL. A Markdown or HTML file in a session's
+   * folder opens as that session's output, the `sessions` first. Any other file opens in its default app.
+   */
+  openBriefLink(target: string, sessions: string[]): Promise<void>;
   /** Fires when an initiative, its brief file or a session binding changes. */
   onInitiativesChanged(fn: (list: InitiativeSummary[]) => void): Subscription;
 }
@@ -659,6 +666,7 @@ export const CH = {
   find: 'panel:find',
   openDraft: 'panel:open-draft',
   openFeedbackView: 'panel:open-feedback-view',
+  openInitiative: 'panel:open-initiative',
   listBriefs: 'briefs:list',
   briefs: 'briefs:changed',
   switchBrief: 'briefs:switch',
@@ -721,6 +729,7 @@ export const CH = {
   createInitiative: 'initiatives:create',
   updateInitiative: 'initiatives:update',
   revealPath: 'initiatives:reveal',
+  openBriefLink: 'initiatives:open-link',
   initiativesChanged: 'initiatives:changed',
 } as const;
 
@@ -813,6 +822,7 @@ export const IPC_INVOKE = {
   createInitiative: CH.createInitiative,
   updateInitiative: CH.updateInitiative,
   revealPath: CH.revealPath,
+  openBriefLink: CH.openBriefLink,
 } as const satisfies Record<InvokeMethod, string>;
 
 export const IPC_SEND = {
@@ -833,6 +843,7 @@ export const IPC_EVENT = {
   onNewNote: CH.newNote,
   onOpenDraft: CH.openDraft,
   onOpenFeedbackView: CH.openFeedbackView,
+  onOpenInitiative: CH.openInitiative,
   onBriefs: CH.briefs,
   onDraftsChanged: CH.draftsChanged,
   onItems: CH.items,

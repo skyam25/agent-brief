@@ -124,6 +124,27 @@ describe('SessionFiles', () => {
     expect(last(CH.openFeedbackView)).toEqual({ sessionId: 's1', path: 'docs/plan.md' });
   });
 
+  it('opens a brief link as a session output when a session holds the file, else in its app or the browser', async () => {
+    mkdirSync(join(cwd, 'docs'));
+    writeFileSync(join(cwd, 'docs', 'prd.md'), '# PRD');
+    writeFileSync(join(cwd, 'docs', 'deck.html'), '<p>hi</p>');
+    writeFileSync(join(cwd, 'docs', 'sheet.xlsx'), '');
+    const elsewhere = mkdtempSync(join(tmpdir(), 'elsewhere-'));
+    writeFileSync(join(elsewhere, 'D-001.md'), '# D-001');
+
+    await files.openBriefLink(join(cwd, 'docs', 'prd.md'), ['s1']);
+    expect(last(CH.newNote)).toMatchObject({ sessionId: 's1', source: { path: 'docs/prd.md' } });
+    await files.openBriefLink(join(cwd, 'docs', 'deck.html'), ['s1']);
+    expect(last(CH.newNote)).toMatchObject({ review: { path: 'docs/deck.html' } });
+    await files.openBriefLink(join(cwd, 'docs', 'sheet.xlsx'), ['s1']);
+    await files.openBriefLink(join(elsewhere, 'D-001.md'), ['s1']);
+    await files.openBriefLink('https://claude.ai/artifact/abc');
+    expect(opened).toEqual([join(cwd, 'docs', 'sheet.xlsx'), join(elsewhere, 'D-001.md'), 'https://claude.ai/artifact/abc']);
+
+    await expect(files.openBriefLink(join(elsewhere, 'gone.md'))).rejects.toThrow('is not there');
+    await expect(files.openBriefLink('decisions/D-1.md')).rejects.toThrow('not a link Agent Brief can open');
+  });
+
   it('refuses files outside the project and links that are not http', async () => {
     await expect(files.openOutput('s1', '../escape.md')).rejects.toThrow('outside the project');
     await expect(files.openOutput('s1', 'file:///etc/hosts')).rejects.toThrow('only http and https');

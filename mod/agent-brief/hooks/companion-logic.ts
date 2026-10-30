@@ -192,9 +192,6 @@ export function replyEndingWith(replies: readonly string[], block: string): stri
   return undefined
 }
 
-/** How many pages the row under a reply offers to open. */
-export const REVIEWS_SHOWN = 3
-
 /** `path` with `.` and `..` segments folded away. */
 function folded(path: string): string {
   const parts: string[] = []
@@ -210,16 +207,98 @@ function folded(path: string): string {
  * The HTML and Markdown pages a reply names inside the project at `root`, as project-relative paths
  * in the order it names them. A page is an absolute path, a file:// link, or a path relative to `root`.
  */
-export function namedPages(reply: string, root: string): string[] {
+export function namedPages(reply: string, root: string, known: readonly string[] = []): string[] {
   const home = folded(root)
-  const pages: string[] = []
+  const found: { page: string; at: number; end: number }[] = []
+
+  // Known paths may hold spaces, which the pattern below cuts short to their last word.
+  for (const page of known) {
+    const at = reply.indexOf(page)
+    if (at >= 0) found.push({ page, at, end: at + page.length })
+  }
+  const isInsideKnown = (i: number) => found.some(f => i >= f.at && i < f.end)
   for (const m of reply.matchAll(/(?<![\w./~-])(?:file:\/\/)?([\w./-]*[\w-]\.(?:html?|md|markdown))(?![\w/-])/gi)) {
+    if (isInsideKnown(m.index!)) continue
     const named = m[1]!
     const page = folded(named.startsWith('/') ? named : `${home}/${named}`)
-    const relative = page.slice(home.length + 1)
-    if (page.startsWith(`${home}/`) && !pages.includes(relative)) pages.push(relative)
+    if (page.startsWith(`${home}/`)) found.push({ page: page.slice(home.length + 1), at: m.index!, end: m.index! + m[0].length })
   }
+  const pages: string[] = []
+  for (const { page } of found.sort((a, b) => a.at - b.at)) if (!pages.includes(page)) pages.push(page)
   return pages
+}
+
+/** How many opens the row under a reply offers, beside Copy and Open as note. */
+export const ROW_OPENS = 4
+
+/** What a turn did that the row under its reply offers to open. */
+export type TurnOpens = {
+  /** Outputs the turn declared Ready, project-relative or a URL. */
+  ready: { ref: string; title?: string }[]
+  /** The initiative brief the turn changed. */
+  brief?: { id: string; title: string }
+  /** Items waiting on the user, when the turn changed the items file. */
+  itemsWaiting?: number
+  /** Outputs that gained open feedback items this turn. */
+  feedback: { ref: string; open: number }[]
+  notes: FiledNote[]
+  /** Project files the turn read, which the reply may cite. */
+  read: string[]
+}
+
+export const noTurnOpens = (): TurnOpens => ({ ready: [], feedback: [], notes: [], read: [] })
+
+export type RowOpen =
+  | { kind: 'page'; ref: string; label: string }
+  | { kind: 'brief'; id: string; label: string }
+  | { kind: 'items'; label: string }
+  | { kind: 'feedback'; ref: string; label: string }
+  | { kind: 'note'; id: string; label: string }
+
+const fileName = (ref: string) => ref.slice(ref.lastIndexOf('/') + 1)
+
+export function pageLabel(ref: string, title?: string): string {
+  if (isLocalUrlRef(ref)) return title ? `Open ${title}` : `Review ${localUrlLabel(ref)}`
+  if (isHtmlPage(ref)) return `Review ${fileName(ref)}`
+  return `Open ${title ?? fileName(ref)}`
+}
+
+/**
+ * The row's opens, most useful first: what the turn made Ready, the brief it changed, items and feedback
+ * waiting on the user, notes it filed, then the pages the reply names. Each page once, at most `ROW_OPENS`.
+ */
+export function rowOpens(turn: TurnOpens, named: readonly string[]): RowOpen[] {
+  const opens: RowOpen[] = []
+  const pages = new Set<string>()
+  const page = (ref: string, title?: string) => {
+    if (pages.has(ref)) return
+    pages.add(ref)
+    opens.push({ kind: 'page', ref, label: pageLabel(ref, title) })
+  }
+  for (const o of turn.ready) page(o.ref, o.title)
+  if (turn.brief) opens.push({ kind: 'brief', id: turn.brief.id, label: `Open ${turn.brief.title} brief` })
+  if (turn.itemsWaiting) opens.push({ kind: 'items', label: `${turn.itemsWaiting} ${turn.itemsWaiting === 1 ? 'item' : 'items'} waiting` })
+  for (const f of turn.feedback) opens.push({ kind: 'feedback', ref: f.ref, label: `${fileName(f.ref)} feedback · ${f.open} open` })
+  for (const n of turn.notes) opens.push({ kind: 'note', id: n.id, label: `Open ${n.title ?? 'note'}` })
+  for (const ref of named) page(ref)
+  return opens.slice(0, ROW_OPENS)
+}
+
+/** A row button's key: pages count as `reply-review-<n>`, notes by id, the rest by kind. */
+export function rowKey(opens: readonly RowOpen[], i: number): string {
+  const open = opens[i]!
+  const nth = opens.slice(0, i).filter(o => o.kind === open.kind).length
+  if (open.kind === 'page') return `reply-review-${nth}`
+  if (open.kind === 'note') return `reply-note-${open.id}`
+  return open.kind === 'feedback' ? `reply-feedback-${nth}` : `reply-${open.kind}`
+}
+
+/** The brief a successful `agent-brief initiative create` or `update` names in its output. */
+export function changedBrief(stdout: string): { title: string; id?: string } | undefined {
+  const created = /^created "(.+)" \(id (\S+)\) at /m.exec(stdout)
+  if (created) return { title: created[1]!, id: created[2]! }
+  const updated = /^updated "(.+)" to revision \d+$/m.exec(stdout)
+  return updated ? { title: updated[1]! } : undefined
 }
 
 export const isHtmlPage = (path: string) => /\.html?$/i.test(path)
@@ -304,13 +383,15 @@ The user turned on item tracking for this session in Agent Brief. They review it
 
 Keep the items file at ${itemsPath}. Create its folder if needed. Write it only when the work has distinct items: a brief with several asks, a feedback list, numbered marks on a sketch, a set of questions. For one plain request, do not create the file and do not mention it.
 
+An item is work you do or a question the user answers. A decision the user already stated is not an item: record it where it belongs, such as the initiative brief or a decision record, and mention it in your reply.
+
 Use exactly this format:
 
 \`\`\`markdown
 # Items · <short title>
 
 - [ ] #1 <title>
-      Claude: <what you propose, a question, or two options>
+      Claude: <what you propose, a question, or options>
       You: <the user's decision, written by them>
       Out: <path of a file you are writing for it, relative to the project>
 - [x] #2 <title>
@@ -321,6 +402,7 @@ Use exactly this format:
 Rules:
 - Number items from 1 in the order they came up. Never renumber or delete an item. Add new ones at the end.
 - When something is unclear, put the question or the options on the item as a \`Claude:\` line instead of asking in your reply. The user answers in the panel. Their answers arrive as a message listing the items and their decisions. Act on them and update the file.
+- Write options as the end of one \`Claude:\` line, two to four short choices split by \` / \`, recommended first, such as \`Claude: Starter billing? Annual only (recommended) / Monthly at +20%\`. Keep each choice under 40 characters. The panel draws a button for each. Put the reasoning on an earlier \`Claude:\` line.
 - When you create or change a file or screenshot for an item, add an \`Out:\` line with its path relative to the project, one line per file, as soon as the file exists. The panel shows these as links while you work. Keep them when the item is done.
 - When you finish an item, change \`[ ]\` to \`[x]\` and add a \`Claude:\` line that says what changed.
 - Keep each line short. Details belong in the files you write, not here.

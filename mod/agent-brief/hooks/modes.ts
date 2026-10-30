@@ -253,12 +253,9 @@ export function modeFilePaths(cwd: string, home: string): string[] {
   }
 }
 
-/**
- * The mode a folder file's frontmatter names, from `mode:` and `fidelity:` lines.
- * Undefined when it names no valid mode, or prototype without a valid fidelity.
- */
-export function parseModeFile(text: string): ModeChoice | undefined {
-  const lines = text.replace(/^﻿/, '').split(/\r?\n/)
+/** A folder file's frontmatter fields, keys and values lowercased. Undefined without frontmatter. */
+function frontmatter(text: string): Map<string, string> | undefined {
+  const lines = text.replace(/^\ufeff/, '').split(/\r?\n/)
   if (lines[0]?.trim() !== '---') return undefined
   const end = lines.findIndex((line, i) => i > 0 && line.trim() === '---')
   if (end < 0) return undefined
@@ -267,6 +264,22 @@ export function parseModeFile(text: string): ModeChoice | undefined {
     const m = /^\s*([a-z]+)\s*:\s*(.*?)\s*$/i.exec(line)
     if (m) fields.set(m[1]!.toLowerCase(), m[2]!.replace(/^(['"])(.*)\1$/, '$2').trim().toLowerCase())
   }
+  return fields
+}
+
+/** Whether a folder file's `track:` line turns item tracking on for new sessions. */
+export function parseTrackDefault(text: string): boolean {
+  const value = frontmatter(text)?.get('track')
+  return value === 'on' || value === 'true' || value === 'yes'
+}
+
+/**
+ * The mode a folder file's frontmatter names, from `mode:` and `fidelity:` lines.
+ * Undefined when it names no valid mode, or prototype without a valid fidelity.
+ */
+export function parseModeFile(text: string): ModeChoice | undefined {
+  const fields = frontmatter(text)
+  if (fields === undefined) return undefined
   const mode = fields.get('mode') ?? ''
   if (!isMode(mode)) return undefined
   if (mode !== 'prototype') return { mode, fidelity: null }

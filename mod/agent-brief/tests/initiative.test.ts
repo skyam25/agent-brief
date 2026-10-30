@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import {
+  outputPaths,
   INITIATIVE_MARK,
   INITIATIVE_NOT_RUNNING,
   attachPrompt,
@@ -39,7 +40,7 @@ const PRICING: InitiativeSnapshot = {
 }
 
 const RECENT_LINE =
-  'Agent Brief · recent initiatives: Pricing, Onboarding, Checkout. If this work belongs to one, run agent-brief initiative attach <name>.'
+  'Agent Brief · recent initiatives: Pricing, Onboarding, Checkout. If this work belongs to one, run agent-brief initiative attach <name> before you start, and say so in one line.'
 
 describe('initiative logic', () => {
   test('the token joins attachment revision, id and revision', () => {
@@ -72,6 +73,10 @@ describe('initiative logic', () => {
     expect(understanding).toHaveLength(INITIATIVE_UNDERSTANDING_CAP)
     expect(understanding.endsWith('…')).toBe(true)
     expect(injectionText({ ...PRICING, understanding: '' })).toContain('## Understanding\n(empty)')
+    const row = 'Add-on PRD [PRD.md](<file:/w/PRD.md>)'
+    expect(outputPaths([row, 'Deck [Q3](https://x.com/q3)', 'Two [a](<file:/w/A%20B.md>) [b](<file:/w/b.md>)'])).toEqual(['/w/PRD.md', '/w/A B.md', '/w/b.md'])
+    expect(injectionText({ ...PRICING, outputs: [row] })).toContain(`## Outputs\n- ${row}`)
+    expect(injectionText(PRICING)).not.toContain('## Outputs')
   })
 
   test('a cut Understanding tells Claude to read the full text before rewriting it', () => {
@@ -88,7 +93,7 @@ describe('initiative logic', () => {
     const titles = ['Pricing', 'Onboarding', 'Checkout', 'Search'].map(title => ({ title }))
     expect(recentLine(titles)).toBe(RECENT_LINE)
     expect(recentLine([{ title: 'Pricing' }])).toBe(
-      'Agent Brief · recent initiatives: Pricing. If this work belongs to one, run agent-brief initiative attach <name>.',
+      'Agent Brief · recent initiatives: Pricing. If this work belongs to one, run agent-brief initiative attach <name> before you start, and say so in one line.',
     )
     expect(recentLine([])).toBeUndefined()
   })
@@ -194,7 +199,7 @@ describe('the submit hook', () => {
     await $.prompt.submit(typed('and Z'))
     expect(seated.world.contexts).toEqual([
       [],
-      ['Agent Brief · recent initiatives: Pricing. If this work belongs to one, run agent-brief initiative attach <name>.'],
+      ['Agent Brief · recent initiatives: Pricing. If this work belongs to one, run agent-brief initiative attach <name> before you start, and say so in one line.'],
       [],
     ])
   })
@@ -341,13 +346,13 @@ describe('/initiative', () => {
 })
 
 describe('the band and the pane', () => {
-  test('the band reads Attached <title> · change only while attached', async ($, on) => {
+  test('the band reads ◆ <title> only while attached', async ($, on) => {
     const { app } = await setup($, on)
-    expect(await band($)).not.toContain('Attached')
+    expect(await band($)).not.toContain('◆')
     attach(app)
     await $.prompt.submit(typed('go'))
-    expect(await band($)).toContain('Attached Pricing · ')
-    expect(await band($)).toContain('"label":"change"')
+    expect(await band($)).toContain('◆ Pricing')
+    expect(await band($)).toContain('"label":"◆ Pricing"')
   })
 
   test('change picks among the recent initiatives and attaches over the socket', async ($, on) => {
@@ -363,7 +368,7 @@ describe('the band and the pane', () => {
     await $.ui.press({ plugin: 'agent-brief', key: 'initiative-ini-onboarding' })
     expect(app.to('PUT', `/sessions/${SESSION_ID}/initiative`).map(c => c.body)).toEqual([{ initiativeId: 'ini-onboarding' }])
     expect(world.toasts).toContain('Attached Onboarding. Claude gets its brief with your next prompt.')
-    expect(await band($)).toContain('Attached Onboarding · ')
+    expect(await band($)).toContain('◆ Onboarding')
   })
 
   test('Detach in the change row detaches', async ($, on) => {
@@ -376,7 +381,7 @@ describe('the band and the pane', () => {
     await $.ui.press({ plugin: 'agent-brief', key: 'initiative-detach' })
     expect(app.attachments.has(SESSION_ID)).toBe(false)
     expect(world.toasts).toContain('Detached from Pricing. Agent Brief adds nothing more to your prompts.')
-    expect(await band($)).not.toContain('Attached')
+    expect(await band($)).not.toContain('◆')
   })
 
   test('an attach Claude runs in Bash shows on the band at once', async ($, on) => {
@@ -384,7 +389,7 @@ describe('the band and the pane', () => {
     const { app } = await setup($, on)
     attach(app)
     await $.tool.call({ tool: 'Bash', tool_use_id: 'b1', command: 'agent-brief initiative attach Pricing' } as never)
-    expect(await band($)).toContain('Attached Pricing · ')
+    expect(await band($)).toContain('◆ Pricing')
   })
 
   test('attach initiative shows on the band only while none is attached and there are some to pick', async ($, on) => {
@@ -415,7 +420,7 @@ describe('the band and the pane', () => {
     await $.ui.press({ plugin: 'agent-brief', key: 'initiative-ini-checkout' })
     expect(app.to('PUT', `/sessions/${SESSION_ID}/initiative`).map(c => c.body)).toEqual([{ initiativeId: 'ini-checkout' }])
     expect(world.toasts).toContain('Attached Checkout. Claude gets its brief with your next prompt.')
-    expect(await band($)).toContain('Attached Checkout · ')
+    expect(await band($)).toContain('◆ Checkout')
   })
 
   test('the Brief pane\'s Initiative Select lists None and every initiative', async ($, on) => {

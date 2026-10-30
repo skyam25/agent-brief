@@ -410,6 +410,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       const body = parseOpen(await readJson(req));
       sweep();
       if ((body.output || body.follow) && !sessionMap.has(body.sessionId!)) throw new BadRequest('body.sessionId names no live session');
+      if (body.initiative) initiatives().get(body.initiative.id);
 
       // A follow leaves the target alone when the panel shows another session, so the app decides.
       if (body.sessionId !== undefined && sessionMap.has(body.sessionId) && !body.follow) {
@@ -418,7 +419,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       }
       const res = await backend.open(body);
       for (const fn of openListeners) fn(body);
-      const opened = body.output || body.note ? res.opened : (res.opened ?? (body.mode === 'write' ? 'note' : 'board'));
+      const opened = body.output || body.note || body.initiative ? res.opened : (res.opened ?? (body.mode === 'write' ? 'note' : 'board'));
       return { json: { ...res, ...(opened ? { opened } : {}), targetSessionId: target } };
     }
 

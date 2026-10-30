@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { REPLIES_KEPT, REVIEWS_SHOWN, filedNote, keepNote, keepReply, localUrlLabel, namedLocalUrls, namedPages, replyEndingWith } from '../hooks/companion-logic'
+import { REPLIES_KEPT, ROW_OPENS, changedBrief, filedNote, keepNote, keepReply, localUrlLabel, namedLocalUrls, namedPages, noTurnOpens, replyEndingWith, rowOpens } from '../hooks/companion-logic'
 import { SESSION_ID, setupCompanion } from './companion-world'
 import { CWD, textOf } from './world'
 
@@ -29,6 +29,8 @@ const finish = (answer: string, extra: Record<string, unknown> = {}) => ({
 async function setup($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) {
   const seated = await setupCompanion($, on)
   on('turn.complete', () => ({ text: '' }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: { content: '' } } }) as never)
   return seated
 }
 
@@ -64,6 +66,34 @@ describe('which pages and notes the row offers', () => {
   test('skips pages outside the project, URLs and names inside longer words', () => {
     const reply = '/elsewhere/a.html ../b.html https://x.com/c.html d.html5 e.htmlx /proj/f.html'
     expect(namedPages(reply, '/proj/')).toEqual(['f.html'])
+  })
+
+  test('finds known paths that hold spaces, in the order the reply names them', () => {
+    const reply = 'See docs/prd.md, then the spec at pricing/working/Approvals add-on PRD.md.'
+    expect(namedPages(reply, '/proj', ['pricing/working/Approvals add-on PRD.md'])).toEqual(['docs/prd.md', 'pricing/working/Approvals add-on PRD.md'])
+  })
+
+  test('orders the row by what the turn did, then named pages, once each', () => {
+    const turn = {
+      ...noTurnOpens(),
+      ready: [{ ref: 'w/PRD.md', title: 'Add-on PRD' }],
+      brief: { id: 'i1', title: 'Pricing' },
+      itemsWaiting: 1,
+      feedback: [{ ref: 'w/PRD.md', open: 3 }],
+    }
+    expect(rowOpens(turn, ['w/PRD.md', 'a.html']).map(o => o.label)).toEqual([
+      'Open Add-on PRD',
+      'Open Pricing brief',
+      '1 item waiting',
+      'PRD.md feedback · 3 open',
+    ])
+    expect(rowOpens(noTurnOpens(), ['a.html', 'b.md']).map(o => o.label)).toEqual(['Review a.html', 'Open b.md'])
+  })
+
+  test('reads the brief an initiative create or update changed', () => {
+    expect(changedBrief('created "Pricing" (id ab12) at /x/Pricing brief.md')).toEqual({ title: 'Pricing', id: 'ab12' })
+    expect(changedBrief('updated "Pricing 2027" to revision 4')).toEqual({ title: 'Pricing 2027' })
+    expect(changedBrief('attached Pricing')).toBeUndefined()
   })
 
   test('reads dev servers on this Mac, not other sites', () => {
@@ -118,17 +148,17 @@ describe('the row under a finished reply', () => {
     await ui.unmount()
   })
 
-  test(`offers at most ${REVIEWS_SHOWN} pages`, async ($, on) => {
+  test(`offers at most ${ROW_OPENS} pages`, async ($, on) => {
     const { world, clock, start } = await setup($, on)
-    const names = Array.from({ length: REVIEWS_SHOWN + 2 }, (_, i) => `p${i}.html`)
+    const names = Array.from({ length: ROW_OPENS + 2 }, (_, i) => `p${i}.html`)
     for (const name of names) world.files.set(`${CWD}/${name}`, '<p>')
     const reply = `Pages:\n${names.join(' ')}`
     await start()
     await clock.settle()
     await $.turn.complete(finish(reply))
     const ui = await $.ui.mount(block(reply))
-    expect(await ui.find({ key: `reply-review-${REVIEWS_SHOWN - 1}` })).toMatchObject({ text: `Review p${REVIEWS_SHOWN - 1}.html` })
-    expect(await ui.find({ key: `reply-review-${REVIEWS_SHOWN}` }).catch(() => undefined)).toBeUndefined()
+    expect(await ui.find({ key: `reply-review-${ROW_OPENS - 1}` })).toMatchObject({ text: `Review p${ROW_OPENS - 1}.html` })
+    expect(await ui.find({ key: `reply-review-${ROW_OPENS}` }).catch(() => undefined)).toBeUndefined()
     await ui.unmount()
   })
 
@@ -191,6 +221,79 @@ describe('the row under a finished reply', () => {
 
     await $.turn.complete(finish('Anything else?'))
     expect(textOf(await $.ui.render(block('Anything else?'))), 'the next reply filed no note').not.toContain('Open')
+  })
+
+  test('a note replaced in place keeps the title an earlier turn filed it under', async ($, on) => {
+    const { clock, start } = await setup($, on)
+    let stdout = 'Saved "Reply to Dana" to this session\'s tab in Agent Brief, Write mode.\nTo show it, run: agent-brief open --note n-1'
+    on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout, stderr: '' } }) as never)
+    await start()
+    await clock.settle()
+    await $.tool.call({ tool: 'Bash', command: 'agent-brief note "Reply to Dana" <<EOF' } as never)
+    await $.turn.complete(finish('Drafted the reply.'))
+    stdout = 'Replaced the note.\nTo show it, run: agent-brief open --note n-1'
+    await $.tool.call({ tool: 'Bash', command: 'agent-brief note --id n-1 <<EOF' } as never)
+    await $.turn.complete(finish('Updated the reply.'))
+    const ui = await $.ui.mount(block('Updated the reply.'))
+    expect(await ui.find({ key: 'reply-note-n-1' })).toMatchObject({ text: 'Open Reply to Dana' })
+    await ui.unmount()
+  })
+
+  test('offers what the turn made Ready, unnamed, and a file it read that the reply cites by a path with spaces', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    world.files.set(`${CWD}/w/Add-on PRD.md`, '# PRD')
+    world.files.set(`${CWD}/research/funnel oct.md`, '# Funnel')
+    await start()
+    await clock.settle()
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+    await $.tool.call({ tool: 'Read', file_path: `${CWD}/research/funnel oct.md` } as never)
+    await $.tool.call({ tool: 'mcp__agent-brief__declare_output', title: 'Add-on PRD', path: 'w/Add-on PRD.md', status: 'ready' } as never)
+    const reply = 'Done. The drop is at step 3, per research/funnel oct.md.'
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-review-0' })).toMatchObject({ text: 'Open Add-on PRD' })
+    expect(await ui.find({ key: 'reply-review-1' })).toMatchObject({ text: 'Open funnel oct.md' })
+    await ui.press({ key: 'reply-review-1' })
+    await clock.settle()
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, output: { path: 'research/funnel oct.md' } })
+    await ui.unmount()
+  })
+
+  test('offers the brief a turn updated, and opens it on the Initiative tab', async ($, on) => {
+    const { app, clock, start } = await setup($, on)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'created "Pricing" (id ab12) at /x/Pricing brief.md', stderr: '' } }) as never)
+    await start()
+    await clock.settle()
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'agent-brief initiative create Pricing --folder /x' } as never)
+    const reply = 'Created the Pricing initiative.'
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-brief' })).toMatchObject({ text: 'Open Pricing brief' })
+    await ui.press({ key: 'reply-brief' })
+    await clock.settle()
+    expect(app.to('POST', '/open').at(-1)!.body).toEqual({ sessionId: SESSION_ID, initiative: { id: 'ab12' } })
+    await ui.unmount()
+  })
+
+  test('offers items waiting on the user only when the turn changed the items file', async ($, on) => {
+    const { world, clock, start } = await setup($, on)
+    const items = `${CWD}/.feedback/items/${SESSION_ID}.md`
+    await start()
+    await clock.settle()
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+    world.files.set(items, '# Items · x\n\n- [ ] #1 Billing\n      Claude: Annual / Monthly\n- [x] #2 PRD\n      Claude: done\n')
+    const reply = 'One question is in the panel.'
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-items' })).toMatchObject({ text: '1 item waiting' })
+    await ui.unmount()
+
+    await $.turn.start({ text: 'next', turnId: 't2' } as never)
+    await $.turn.complete(finish('Nothing changed.'))
+    const next = await $.ui.mount(block('Nothing changed.'))
+    expect(await next.find({ key: 'reply-items' }).catch(() => undefined)).toBeUndefined()
+    await next.unmount()
   })
 
   test('draws nothing for a summary, a one-line reply or a subagent', async ($, on) => {

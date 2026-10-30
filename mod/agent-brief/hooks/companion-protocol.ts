@@ -140,6 +140,8 @@ export interface OpenRequest {
   output?: { path: string; tab?: 'feedback' };
   /** Opens this saved note in Write instead of a board. `POST /notes` returns the id as `draftId`. */
   note?: { id: string };
+  /** Opens the Initiative view on this initiative instead of a board. An unknown id answers 404. */
+  initiative?: { id: string };
   /**
    * With `sessionId` and no `board`, shows the board or note the session last had open and makes no board.
    * A session with neither leaves the panel as it is.
@@ -159,10 +161,10 @@ export interface OpenResponse {
   /** True when Write mode started the new note with the request's text. */
   noteText?: boolean;
   /**
-   * What the panel shows now: the board, a note in Write, an HTML file in the review pane, or what it showed before a `reopen`.
+   * What the panel shows now: the board, a note in Write, an HTML file in the review pane, an initiative, or what it showed before a `reopen`.
    * `filed` means a `follow` only filed the board, because the panel shows another session.
    */
-  opened?: 'board' | 'note' | 'review' | 'panel' | 'filed';
+  opened?: 'board' | 'note' | 'review' | 'panel' | 'filed' | 'initiative';
 }
 
 // ── POST /notes ───────────────────────────────────────────────────────────
@@ -450,6 +452,8 @@ export interface MutateResponse {
 // rename or move survives. The app indexes briefs in `<data>/initiatives.json`
 // with revisions, session bindings and lastActiveAt. The CLI reads the index
 // and the briefs directly when the app is closed. Writes need the app.
+// While a live session is attached, the app adds each output it declares ready
+// to the brief's Outputs section. It never removes a row.
 //
 // GET    /initiatives                 → InitiativeSummary[], latest lastActiveAt first
 // GET    /initiatives/recent?limit=3  → InitiativeSummary[]
@@ -487,10 +491,12 @@ export interface Initiative {
   decisions: string[];
   open: string[];
   folders: InitiativeFolder[];
+  /** The brief's Outputs rows, without the leading `- `. Absent when it has none. */
+  outputs?: string[];
   revision: number;
   /** ISO time of the latest revision. */
   updatedAt: string;
-  /** `PM` or `Claude · <sessionId>`. */
+  /** `PM`, `Claude · <sessionId>`, or `Agent Brief · <sessionId>` when the app filed a session's ready outputs. */
   updatedBy: string;
   /** ISO time of the latest attach, update or creation. */
   lastActiveAt: string;
@@ -518,6 +524,8 @@ export interface InitiativeSnapshot {
   decisions: string[];
   open: string[];
   folders: InitiativeFolder[];
+  /** The brief's Outputs rows, without the leading `- `. Absent when it has none. */
+  outputs?: string[];
 }
 
 export interface InitiativeRevision {

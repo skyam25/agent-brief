@@ -1,6 +1,6 @@
 /** What the Feedback panel's cards show and which ones it lists. */
 
-import type { FeedbackEvent, FeedbackItem, FeedbackLine } from '../protocol';
+import type { FeedbackEvent, FeedbackItem, FeedbackLine, FeedbackSource } from '../protocol';
 
 export type FeedbackFilter = 'open' | 'all';
 
@@ -44,3 +44,14 @@ const seen = new Map<string, number>();
 const seenKey = (path: string, n: number) => `${path}#${n}`;
 export const seenCount = (path: string, n: number) => seen.get(seenKey(path, n)) ?? 0;
 export const markSeen = (path: string, item: FeedbackItem) => seen.set(seenKey(path, item.n), item.events.length);
+
+/** A source's time, or undefined when the Src line writes `-` or nothing. */
+export const sourceTime = (src: Pick<FeedbackSource, 'time'> | undefined) => (src?.time && src.time !== '-' ? src.time : undefined);
+
+/** Accept names the option it picks. With none picked yet, it asks for one. */
+export function acceptLabel(options: readonly { key: string }[], picked: string | undefined): string {
+  if (!options.length) return 'Accept';
+  if (picked) return `Accept ${picked}`;
+  const keys = options.map((o) => o.key);
+  return `Choose ${keys.length > 1 ? `${keys.slice(0, -1).join(', ')} or ${keys.at(-1)}` : keys[0]}`;
+}

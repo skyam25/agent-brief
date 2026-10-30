@@ -71,7 +71,14 @@ export type BriefQuestion = { id: string; text: string; kind: QuestionKind; opti
 export type BriefView = { isPrototypePending: boolean; isTouchedOpen: boolean; isDoneOpen: boolean; isExpanded: boolean }
 
 /** The initiative this session is attached to, as the band and the Brief pane show it. As `InitiativeSnapshot` in hooks/companion-protocol.ts. */
-export type AttachedInitiative = { id: string; title: string; revision: number; attachmentRevision: number }
+export type AttachedInitiative = {
+  id: string
+  title: string
+  revision: number
+  attachmentRevision: number
+  /** Absolute paths the brief's Outputs rows link to. */
+  outputs?: string[]
+}
 
 /** A recent initiative, as `InitiativeSummary` in hooks/companion-protocol.ts. */
 export type InitiativeChoice = { id: string; title: string; line: string }
@@ -79,12 +86,33 @@ export type InitiativeChoice = { id: string; title: string; line: string }
 /** As `FiledNote` in hooks/companion-logic.ts. */
 export type FiledNote = { id: string; title?: string }
 
+/** As `TurnOpens` in hooks/companion-logic.ts. */
+export type TurnOpens = {
+  ready: { ref: string; title?: string }[]
+  brief?: { id: string; title: string }
+  itemsWaiting?: number
+  feedback: { ref: string; open: number }[]
+  notes: FiledNote[]
+  read: string[]
+}
+
+/** What the main loop's current turn started from and has done so far, for the row under its reply. */
+export type TurnState = {
+  at: number
+  items: string | null
+  feedback: Record<string, number>
+  read: string[]
+  brief?: { title: string; id?: string }
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'agent-brief': {
       sessions: FeedbackInboxSession[]
       ingesting: string | null
       tracking: boolean
+      /** True once a new session applied its folder's `track:` default, or once a resumed one started. */
+      isTrackDefaultDone: boolean
       mode: SessionMode
       fidelity: PrototypeFidelity | null
       /** Which picker row the band shows in place of its buttons. */
@@ -94,8 +122,10 @@ declare module 'claude-code' {
       replies: string[]
       /** Notes Claude filed with `agent-brief note` since the last finished reply. */
       turnNotes: FiledNote[]
-      /** The notes each kept reply's turn filed, keyed by the reply's text. */
-      replyNotes: Record<string, FiledNote[]>
+      /** The current main-loop turn, from its start until its reply. */
+      turn: TurnState | null
+      /** What each kept reply's turn did, keyed by the reply's text. */
+      replyOpens: Record<string, TurnOpens>
       /** Dictation from the band's Talk button; null when it is off. */
       voice: VoiceState | null
       /** The folder the session started in. The shell's folder moves with each cd; this one stays. */

@@ -59,7 +59,7 @@ async function keepInitiative($: EngineInterface, snapshot: InitiativeSnapshot |
   const next = snapshot === null ? null : attachedOf(snapshot)
   await update($, initiativeRef, held => {
     if (held === null || next === null) return held === next ? held : next
-    return tokenOf(held) === tokenOf(next) && held.title === next.title ? held : next
+    return tokenOf(held) === tokenOf(next) && held.title === next.title && String(held.outputs) === String(next.outputs) ? held : next
   })
 }
 

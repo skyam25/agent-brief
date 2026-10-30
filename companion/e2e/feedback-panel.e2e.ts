@@ -381,10 +381,11 @@ test('cards show compact, open one at a time, and the Open filter folds closed r
   const first = page.getByTestId('feedback-item-1');
   const second = page.getByTestId('feedback-item-2');
 
-  // Compact: title, state, round, a one-line quote and the decision buttons.
+  // Compact: title, state, round, a one-line quote, the proposed change and the decision buttons.
   await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
   await expect(first.getByTestId('feedback-quote-line')).toContainText('Where do I filter?');
-  await expect(first).not.toContainText('Move the filter row');
+  await expect(first.getByTestId('feedback-change-line')).toHaveText('Move the filter row above the results.');
+  await expect(second.getByTestId('feedback-change-line')).toHaveCount(0);
   for (const id of ['feedback-accept', 'feedback-reject']) await expect(first.getByTestId(id)).toBeVisible();
   for (const id of ['feedback-note', 'feedback-show', 'feedback-workspace-open', 'feedback-voice']) await expect(first.getByTestId(id)).toHaveCount(0);
 
@@ -498,7 +499,7 @@ test('options are choices, an accept names the one picked, and a raised-again it
 
 - [ ] #1 Empty saved-for-later box is confusing
     Round: 1
-    Src: 1 · Ben · 02:00 · "Nothing yet, and I didn't know what to do with it"
+    Src: 1 · Ben · - · "Nothing yet, and I didn't know what to do with it"
     Option: A · Hide the box until something is saved
     Option: B · Keep the box and explain it
     Claude: 2026-10-12 · cataloged
@@ -519,12 +520,16 @@ test('options are choices, an accept names the one picked, and a raised-again it
   await expect(raised.getByTestId('feedback-raised')).toHaveText('Raised again · round 2');
   await expect(raised.getByTestId('feedback-reopen')).toBeVisible();
 
-  // Accept on a compact card with options opens it to pick one.
+  // A compact card with options asks for one, and its button opens the card to pick.
   const card = page.getByTestId('feedback-item-1');
+  await expect(card.getByTestId('feedback-accept')).toHaveText('Choose A or B');
   await card.getByTestId('feedback-accept').click();
   await expect(card.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
+  // A source with no time names only the speaker.
+  await expect(card.locator('.review-quote .muted')).toHaveText(/— Ben$/);
   await card.getByTestId('feedback-option-B').click();
   await expect(card.getByTestId('feedback-option-B')).toHaveAttribute('aria-checked', 'true');
+  await expect(card.getByTestId('feedback-accept')).toHaveText('Accept B');
   await page.screenshot({ path: join(RESULTS, 'feedback-options.png') });
   await card.getByTestId('feedback-accept').click();
   await expect(card.getByTestId('feedback-state')).toHaveText('Accepted');

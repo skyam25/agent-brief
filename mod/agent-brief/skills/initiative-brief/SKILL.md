@@ -36,7 +36,8 @@ Reads work with the app closed. Writes need the app and exit 3 when it is down; 
 - Otherwise match the first prompt against the recent line it carries. Attach only when the work clearly belongs to one.
 - When none fits but the work looks like a tracked initiative, run `find` with a few words from the prompt. Attach a clear winner. Otherwise ask once, naming the candidates.
 - When nothing fits, work without one. Do not create an initiative unasked.
-- Say in one line what you attached, so the user can correct it.
+- Attach before you start the work, so the next prompt carries the snapshot and the brief guides what you do.
+- Say in one line what you attached, so the user can correct it. Never hide the command's output.
 
 ## Keeping the brief
 
@@ -48,13 +49,13 @@ The brief says where the work stands, not what happened. Update it when somethin
 
 Do not update it for routine progress, for tool output, or for what the folder's CLAUDE.md already says. The brief complements CLAUDE.md, which holds how to work; the brief holds where this initiative stands. Keep Understanding short, a few hundred words at most.
 
-Write the change as JSON with the revision you read and only the fields you change, then run `update`:
+Write the change as JSON with the revision you read and only the fields you change. Write the file with the Write tool, then run `update` as its own command. A heredoc in the same command needs a permission prompt each time.
 
 ```json
 { "revision": 7, "decisions": ["2026-10-14 Monthly-first (B over A); supersedes 2026-09-30 annual-first. → [D-012](<file:/Users/me/PM/Product/07-decisions/D-012.md>)"], "open": ["Legal review of trial terms"] }
 ```
 
-`decisions` and `open` replace the whole list, so send every line you keep. A conflict means the user or another session changed the brief. Run `show`, merge your change into what is there, and update at the new revision.
+`decisions` and `open` replace the whole list, so send every line you keep. Agent Brief adds a row under Outputs itself when an attached session declares an output Ready, so leave Outputs alone. The snapshot lists those rows. Look there for the latest deliverables before you search the folder. A conflict means the user or another session changed the brief. Run `show`, merge your change into what is there, and update at the new revision.
 
 ## New initiative
 

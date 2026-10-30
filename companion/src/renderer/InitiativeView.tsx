@@ -4,9 +4,9 @@
  * questions, the folder map and the revision history.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { INITIATIVE_ROLES, type Initiative, type InitiativeFolder, type InitiativeRole } from '../protocol';
-import { sectionBreak } from '../shared/brief-sections';
+import { briefLinks, sectionBreak } from '../shared/brief-sections';
 import type { InitiativeDetail, SessionBriefEntry } from '../shared/ipc';
 import { shortPath } from '../shared/sessions';
 import { SectionHeader } from './DraftList';
@@ -31,6 +31,8 @@ interface Props {
   onDiscover: () => void;
   chooseFolder: () => Promise<string | undefined>;
   onReveal: (path: string) => void;
+  /** Opens a file path or URL from a brief line, preferring the initiative's attached sessions. */
+  onOpenLink: (target: string, sessions: string[]) => void;
   /** Puts a line on the clipboard that a new session can attach the initiative from. */
   onCopyReference: (i: Initiative) => void;
   onError: (message: string) => void;
@@ -227,6 +229,7 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
     }
   };
 
+  const openLink = (target: string) => props.onOpenLink(target, i.sessions ?? []);
   const sessions = (i.sessions ?? []).map((id) => props.briefs.find((b) => b.sessionId === id)?.title ?? id.slice(0, 8));
 
   return (
@@ -276,8 +279,9 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
         )}
       </section>
 
-      <Lines title="Decisions" lines={i.decisions} empty="No decisions yet." />
-      <Lines title="Open" lines={i.open} empty="Nothing open." />
+      <Lines title="Decisions" lines={i.decisions} empty="No decisions yet." onOpen={openLink} />
+      <Lines title="Open" lines={i.open} empty="Nothing open." onOpen={openLink} />
+      {!!i.outputs?.length && <Lines title="Outputs" lines={i.outputs} empty="" onOpen={openLink} testId="initiative-outputs" />}
 
       <FolderMap
         folders={i.folders}
@@ -320,21 +324,41 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
   );
 }
 
-function Lines(props: { title: string; lines: string[]; empty: string }) {
+function Lines(props: { title: string; lines: string[]; empty: string; onOpen: (target: string) => void; testId?: string }) {
   return (
-    <section>
+    <section data-testid={props.testId}>
       <SectionHeader title={props.title} count={props.lines.length} />
       {props.lines.length === 0 ? (
         <p className="muted">{props.empty}</p>
       ) : (
         <ul className="initiative-lines">
           {props.lines.map((line, n) => (
-            <li key={n}>{line}</li>
+            <li key={n}>
+              <LinkedLine line={line} onOpen={props.onOpen} />
+            </li>
           ))}
         </ul>
       )}
     </section>
   );
+}
+
+/** A brief line with its file and web links shown as their labels. Other links stay as written. */
+function LinkedLine(props: { line: string; onOpen: (target: string) => void }) {
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const link of briefLinks(props.line)) {
+    if (link.kind === 'other') continue;
+    parts.push(props.line.slice(at, link.start));
+    parts.push(
+      <button key={link.start} className="ghost link" title={link.target} onClick={() => props.onOpen(link.target)} data-testid="initiative-link">
+        {link.label || link.target}
+      </button>,
+    );
+    at = link.end;
+  }
+  parts.push(props.line.slice(at));
+  return <>{parts}</>;
 }
 
 function FolderMap(props: {

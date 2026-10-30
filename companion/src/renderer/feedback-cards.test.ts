@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FeedbackItem } from '../protocol';
 import { parseFeedback } from '../shared/feedback';
-import { decisionText, historyLines, inOpenFilter, latestSaid, needsLook, updatedSince } from './feedback-cards';
+import { acceptLabel, decisionText, historyLines, inOpenFilter, latestSaid, needsLook, sourceTime, updatedSince } from './feedback-cards';
 
 const one = (state: string, ...lines: string[]): FeedbackItem =>
   parseFeedback(`# Feedback · a.html\n\n## Round 1 · SME · 2026-10-12\n\n- [${state === 'x' ? 'x' : ' '}] #1 Point\n    Round: 1\n${lines.map((l) => `    ${l}\n`).join('')}`).items[0]!;
@@ -42,5 +42,19 @@ describe('feedback cards', () => {
     expect(decisionText('accept', 'B', 'keep it short')).toBe('accept · option B · keep it short');
     expect(decisionText('accept', undefined, '')).toBe('accept');
     expect(decisionText('reject', undefined, 'not now')).toBe('reject · not now');
+  });
+
+  it('names the option Accept picks, and asks for one before a pick', () => {
+    expect(acceptLabel([], undefined)).toBe('Accept');
+    expect(acceptLabel([{ key: 'A' }, { key: 'B' }], undefined)).toBe('Choose A or B');
+    expect(acceptLabel([{ key: 'A' }, { key: 'B' }, { key: 'C' }], undefined)).toBe('Choose A, B or C');
+    expect(acceptLabel([{ key: 'A' }, { key: 'B' }], 'B')).toBe('Accept B');
+  });
+
+  it('drops a source time written as - or left empty', () => {
+    expect(sourceTime({ time: '03:02' })).toBe('03:02');
+    expect(sourceTime({ time: '-' })).toBeUndefined();
+    expect(sourceTime({ time: '' })).toBeUndefined();
+    expect(sourceTime(undefined)).toBeUndefined();
   });
 });

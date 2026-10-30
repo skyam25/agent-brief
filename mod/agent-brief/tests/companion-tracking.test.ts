@@ -27,6 +27,18 @@ describe('item tracking', () => {
     expect(await ids($), 'off again').toEqual(['intro', 'agent-brief:outputs'])
   })
 
+  test('a folder file with track: on turns tracking on once for a new session', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    world.files.set(`${CWD}/.claude/agent-brief.local.md`, '---\ntrack: on\n---\n')
+    await start()
+    await clock.settle()
+    expect(await ids($)).toEqual(['intro', 'agent-brief:items', 'agent-brief:outputs'])
+    expect(app.sessions.get(SESSION_ID)!.trackItems).toBe(true)
+
+    app.sessions.get(SESSION_ID)!.trackItems = false
+    expect(await ids($), 'a later toggle stands').toEqual(['intro', 'agent-brief:outputs'])
+  })
+
   test('keeps the last answer when the app stops answering', async ($, on) => {
     const { app, clock, start } = await setupCompanion($, on)
     await start()

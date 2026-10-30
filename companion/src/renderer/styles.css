@@ -3698,6 +3698,22 @@ button.stop-talk:hover {
   line-height: 1.45;
 }
 
+.initiative-lines button.link {
+  display: inline;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  vertical-align: baseline;
+  white-space: normal;
+}
+
+.initiative-lines button.link:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
+}
+
 .initiative-map li {
   display: flex;
   align-items: center;
@@ -3815,6 +3831,7 @@ button.feedback-head:hover:not(:disabled) { background: transparent; }
 .feedback-updated { flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent); }
 .feedback-updated::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .feedback-quote-line { overflow: hidden; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.feedback-change-line { overflow: hidden; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); }
 .feedback-said { overflow: hidden; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); }
 .feedback-said .who { margin-right: 6px; font-weight: 600; }
 .feedback-badges .kind-tag.raised { color: var(--accent-fg); background: var(--accent); }

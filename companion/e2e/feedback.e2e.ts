@@ -47,7 +47,7 @@ test('lists feedback by round, saves decisions as You lines, and sends them', as
   await expect(page.getByTestId('feedback-round-1')).toContainText('Hard to find the filters');
   await expect(first.getByTestId('feedback-also')).toHaveText('also round 2');
   await expect(first).toContainText('Where do I filter?');
-  await expect(first).not.toContainText('Move the filter row above the results.');
+  await expect(first.getByTestId('feedback-change-line')).toHaveText('Move the filter row above the results.');
   await first.getByTestId('feedback-expand').click();
   await expect(first).toContainText('Move the filter row above the results.');
   await first.getByTestId('feedback-show').click();

@@ -264,6 +264,10 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
         outputs.askFeedback(sessionId, path);
         changeMode('review');
       }),
+      host.onOpenInitiative(({ id }) => {
+        void initiatives.select(id).catch(report('open that initiative'));
+        changeMode('initiative');
+      }),
     );
     return () => {
       for (const off of subscriptions) if (typeof off === 'function') off();
@@ -593,6 +597,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               }}
               chooseFolder={() => host.chooseFolder()}
               onReveal={(path) => void host.revealPath(path).catch(report('show that in Finder'))}
+              onOpenLink={(target, sessions) => void host.openBriefLink(target, sessions).catch(report('open that link'))}
               onCopyReference={(i) => copyReference({ kind: 'initiative', id: i.id, title: i.title })}
               onError={reviewError}
             />

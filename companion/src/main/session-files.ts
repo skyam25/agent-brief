@@ -236,6 +236,28 @@ export class SessionFiles {
   }
 
   /**
+   * Opens a link from an initiative brief. A web link opens in the browser. A Markdown or HTML file
+   * inside a session's folder opens as that session's output, the first of `sessions` that holds it,
+   * then any session with a tab. Any other file opens in its default app.
+   */
+  async openBriefLink(raw: unknown, sessions: readonly string[] = []): Promise<void> {
+    if (typeof raw !== 'string' || raw.trim() === '') throw new Error('No link named');
+    const link = raw.trim();
+    if (isUrlRef(link)) return this.deps.opener.openExternal(webUrl(link, `${link} is not a valid link`).href);
+    if (!isAbsolute(link)) throw new Error(`${link} is not a link Agent Brief can open`);
+    if (!existsSync(link)) throw new Error(`${link} is not there`);
+    if (isMarkdownRef(link) || isReviewable(link)) {
+      const ids = [...new Set([...sessions, ...Object.keys(this.deps.briefs.all())])];
+      const owner = ids.find((id) => {
+        const cwd = this.deps.briefs.cwdOf(id);
+        return !!cwd && link.startsWith(cwd.replace(/\/$/, '') + '/');
+      });
+      if (owner) return this.openOutput(owner, relative(this.deps.briefs.cwdOf(owner)!, link));
+    }
+    await this.deps.opener.openPath(link);
+  }
+
+  /**
    * Opens an output in the panel for POST /open, and says where it opened.
    * On the Feedback tab, a non-HTML file opens in Review's full-width Feedback view.
    */

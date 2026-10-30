@@ -249,3 +249,56 @@ describe('read-only', () => {
     expect(store(true).list()).toEqual([]);
   });
 });
+
+describe('outputs', () => {
+  const ready = { ref: 'docs/prd.md', title: 'Checkout PRD', kind: 'markdown', tier: 'declared', status: 'ready' } as const;
+
+  it('files a ready declared output in the attached initiative, once, as a revision by Agent Brief', () => {
+    const s = store();
+    const i = s.create({ title: 'Checkout', folder: root });
+    s.attach('s1', i.id);
+    const cwd = join(root, 'shop');
+    const records = [
+      ready,
+      { ref: 'https://claude.ai/artifact/abc', url: 'https://claude.ai/artifact/abc', title: 'Review deck', kind: 'artifact', tier: 'declared', status: 'ready' },
+      { ref: 'draft.md', title: 'Draft', kind: 'markdown', tier: 'declared', status: 'drafting' },
+      { ref: 'notes.md', kind: 'markdown', tier: 'detected' },
+    ] as const;
+    expect(s.recordOutputs('s1', cwd, records)).toBe(true);
+    const rows = [`Checkout PRD [prd.md](<file:${join(cwd, 'docs/prd.md')}>)`, '[Review deck](https://claude.ai/artifact/abc)'];
+    expect(s.snapshot('s1')?.outputs).toEqual(rows);
+    expect(s.get(i.id).outputs).toEqual(rows);
+    expect(s.get(i.id)).toMatchObject({ revision: 2, updatedBy: 'Agent Brief · s1' });
+    expect(s.history(i.id)[0]).toMatchObject({ updatedBy: 'Agent Brief · s1', changed: ['outputs'] });
+    expect(s.recordOutputs('s1', cwd, records)).toBe(false);
+    expect(s.get(i.id).revision).toBe(2);
+  });
+
+  it('retitles a filed row and keeps rows the PM wrote', () => {
+    const s = store();
+    const i = s.create({ title: 'Checkout', folder: root });
+    s.attach('s1', i.id);
+    s.recordOutputs('s1', root, [ready]);
+    writeFileSync(i.path, readFileSync(i.path, 'utf8').replace('## Outputs\n', '## Outputs\n- Research readout, in the shared drive\n'));
+    s.recordOutputs('s1', root, [{ ...ready, title: 'Checkout PRD v2' }]);
+    expect(s.snapshot('s1')?.outputs).toEqual(['Research readout, in the shared drive', `Checkout PRD v2 [prd.md](<file:${join(root, 'docs/prd.md')}>)`]);
+  });
+
+  it('files nothing for a session with no initiative, and a snapshot leaves out empty Outputs', () => {
+    const s = store();
+    const i = s.create({ title: 'Checkout', folder: root });
+    expect(s.recordOutputs('s1', root, [ready])).toBe(false);
+    s.attach('s1', i.id);
+    expect(s.snapshot('s1')).not.toHaveProperty('outputs');
+    expect(s.get(i.id)).not.toHaveProperty('outputs');
+  });
+
+  it('keeps Outputs rows through an update', () => {
+    const s = store();
+    const i = s.create({ title: 'Checkout', folder: root });
+    s.attach('s1', i.id);
+    s.recordOutputs('s1', root, [ready]);
+    s.update(i.id, { revision: 2, open: ['Legal'], updatedBy: 'PM' });
+    expect(s.snapshot('s1')?.outputs).toHaveLength(1);
+  });
+});

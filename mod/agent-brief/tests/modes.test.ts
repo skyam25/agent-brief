@@ -9,6 +9,7 @@ import {
   modePatch,
   parseModeArgs,
   parseModeFile,
+  parseTrackDefault,
   sectionText,
 } from '../hooks/modes'
 
@@ -129,6 +130,13 @@ describe('the folder default', () => {
 
   test('a cwd outside home looks up to the root', () => {
     expect(modeFilePaths('/work/', '/home/me')).toEqual(['/work/.claude/agent-brief.local.md', '/.claude/agent-brief.local.md'])
+  })
+
+  test('reads the track default from the frontmatter', () => {
+    expect(parseTrackDefault('---\ntrack: on\n---\n')).toBe(true)
+    expect(parseTrackDefault('---\nmode: product\ntrack: "yes"\n---\n')).toBe(true)
+    expect(parseTrackDefault('---\ntrack: off\n---\n')).toBe(false)
+    expect(parseTrackDefault('track: on\n')).toBe(false)
   })
 
   test('reads mode and fidelity from the frontmatter', () => {

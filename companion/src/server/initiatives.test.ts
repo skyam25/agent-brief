@@ -12,11 +12,12 @@ async function startWithStore() {
   const dir = tempDir();
   const socketPath = join(dir, 's.sock');
   const store = new InitiativeStore(join(dir, 'data'), { home: dir });
-  const server = createCompanionServer({ socketPath, backend: fakeBackend(), initiatives: store });
+  const backend = fakeBackend();
+  const server = createCompanionServer({ socketPath, backend, initiatives: store });
   openServers.push(server);
   await server.listen();
   const call = (method: string, path: string, body?: unknown) => request(socketPath, method, path, body);
-  return { dir, store, call };
+  return { dir, store, backend, call };
 }
 
 describe('initiative routes', () => {
@@ -130,6 +131,18 @@ describe('initiative routes', () => {
     const fine = await h.call('PUT', `/initiatives/${body.id}`, { revision: 1, understanding: '### Risks\n```\n## quoted\n```', updatedBy: 'PM' });
     expect(fine.status).toBe(200);
     expect(readFileSync(body.path, 'utf8')).toContain('## Understanding\n### Risks\n```\n## quoted\n```\n\n## Decisions');
+  });
+
+  it('opens an initiative, checks it exists, and answers what the panel shows', async () => {
+    const h = await startWithStore();
+    const { body } = await h.call('POST', '/initiatives', { title: 'Pricing', folder: h.dir });
+    h.backend.open.mockImplementation(async () => ({ board: 'main', opened: 'initiative' }) as never);
+    const opened = await h.call('POST', '/open', { initiative: { id: ` ${body.id} ` } });
+    expect(opened.body).toMatchObject({ board: 'main', opened: 'initiative' });
+    expect(h.backend.open).toHaveBeenCalledWith(expect.objectContaining({ initiative: { id: body.id } }));
+    expect((await h.call('POST', '/open', { initiative: { id: 'nope' } })).status).toBe(404);
+    expect((await h.call('POST', '/open', { initiative: { id: body.id }, note: { id: 'd1' } })).status).toBe(400);
+    expect((await h.call('POST', '/open', { initiative: {} })).status).toBe(400);
   });
 
   it('answers 503 when the app keeps no initiatives', async () => {

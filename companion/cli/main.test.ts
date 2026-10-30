@@ -93,6 +93,16 @@ describe('status, sessions, boards, open', () => {
     expect(app.seen).toHaveLength(1);
   });
 
+  it('opens an initiative by title with --initiative, and refuses it with --board', async () => {
+    app.handler = ({ url }) =>
+      url === '/initiatives' ? { json: [{ id: 'i1', title: 'Pricing', lastActiveAt: '2026-10-17T10:00:00Z', line: '' }] } : { json: { board: 'main', opened: 'initiative' } };
+    const r = await run(['open', '--initiative', 'pricing']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('opened initiative "Pricing"');
+    expect(app.seen.at(-1)).toEqual({ method: 'POST', url: '/open', body: { initiative: { id: 'i1' } } });
+    expect((await run(['open', '--initiative', 'Pricing', '--board', 'flow'])).code).toBe(2);
+  });
+
   it('opens a board in the Stack layout', async () => {
     app.handler = () => ({ json: { board: 'shots' } });
     const r = await run(['open', '--board', 'shots', '--layout', 'stack']);

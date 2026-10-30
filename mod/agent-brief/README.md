@@ -101,14 +101,20 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 - The note is filed under this session, so it shows on the session's tab in the panel rather than in Notes.
 - The **¶ Write** button moves the prompt box's draft into the note and empties the box. Large pastes, which the box shows as `[Pasted text #1 +N lines]`, go in as the text they held. Pasted images stay behind as `[Image #N]`, because the plugin cannot read their bytes. With the box empty, it takes Claude's last reply, as `/write last` does, and opens an empty note before Claude has replied.
 - Under the last block of each finished reply of more than one line, a quiet row offers **Copy**, which puts the reply on the clipboard, and **Open as note**, which starts a note with it.
-- The same row offers **Review** for each HTML page the reply names that exists, **Open** for each Markdown output it names, and **Open** for each note the turn filed with `agent-brief note`, up to three pages. A one-line reply carries only these opens.
+- The same row offers what the turn did, then what the reply names, up to four opens in this order. A one-line reply carries only these opens.
+  - **Open <title>** for each output the turn declared Ready, named or not.
+  - **Open <initiative> brief** when the turn created or updated the attached initiative's brief. It shows the brief in the app's Initiative tab.
+  - **<n> items waiting** when the turn changed the items file and items wait on you. It opens the Brief pane.
+  - **<file> feedback · <n> open** for each output that gained open feedback items. It opens that output's Feedback view.
+  - **Open** for each note the turn filed with `agent-brief note`.
+  - **Review** for each HTML page the reply names that exists, and **Open** for each Markdown file it names that is an output of the session or a file the turn read. Paths with spaces count.
 - For text you will paste elsewhere, such as a message, an email or a post, the outputs prompt section tells Claude to run `agent-brief note "<title>"` with the Markdown on stdin. The note lands under this session without opening the panel, and its Copy button puts it on the clipboard as rich text. The command prints an `agent-brief open --note <id>` line, which Claude runs when you ask to see the note. When you ask for changes, Claude replaces the note in place with `agent-brief note --id <id>`, so you keep one copy. If the command fails, Claude prints the text.
 - When an output is ready, the outputs prompt section tells Claude to name its path in the reply, so the row under the reply offers to open it. Claude never opens it unasked.
 - When you ask to see an output in Agent Brief, the outputs prompt section tells Claude to run `agent-brief open --output <path>`. A Markdown file opens as a note in Write and an HTML file in the review pane. Declaring a Markdown or HTML output answers with that command, so Claude learns it when it needs it. A bare `agent-brief open` from a session reopens the board or note that session last had open. A session with neither leaves the panel as it is, and no new board is made.
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While the session is attached to an initiative, the band ends with **Attached Pricing · change**. Without one, it ends with **attach initiative** whenever there are initiatives to pick.
+The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While the session is attached to an initiative, the band ends with **◆ Pricing**, which opens the pick. Without one, it ends with **attach initiative** whenever there are initiatives to pick.
 
 ### Dictation
 
@@ -161,7 +167,9 @@ Item tracking is off for every session until you turn it on. While it is off, th
 - Turn it on with the **Track items** switch in the panel, the **☐ Track** button in the Brief pane's Items header, or `/track`. `/track on` and `/track off` set it, and a bare `/track` flips it.
 - The button reads **☑ Track** in the accent color while tracking is on. It picks up a change made in the panel on the next prompt.
 - `/track` never starts the app. When the app is down it replies `Agent Brief is not running. Start it, then run /track again.`
-- With tracking on, each system prompt gets a section that tells Claude to keep `<project>/.feedback/items/<session id>.md`. Claude writes the file only when the work has distinct items, such as several asks, a feedback list or numbered marks on a sketch.
+- With tracking on, each system prompt gets a section that tells Claude to keep `<project>/.feedback/items/<session id>.md`. Claude writes the file only when the work has distinct items, such as several asks, a feedback list or numbered marks on a sketch. A decision you already stated is not an item. Claude records it where it belongs, such as the initiative brief.
+- Claude writes options as short choices split by ` / ` at the end of a `Claude:` line, recommended first. The Brief pane draws a button for each.
+- `track: on` in the folder file `.claude/agent-brief.local.md` turns tracking on for each new session in that folder, once. A later toggle stands, and a resumed session keeps what it had. See [Modes](#modes) for where the mod looks for the file.
 - The mod reads the state with one `GET /sessions/<id>` per prompt while the app is up. If the app stops answering, the mod keeps the last state it read.
 
 Claude writes the file in this format, and never edits a `You:` line:
@@ -214,11 +222,11 @@ An initiative is work that runs across many sessions, such as a pricing change. 
 | `/initiative discover` | Claude surveys this folder and lists likely initiatives. It creates nothing until you pick. |
 
 - `/initiative` never starts the app. Every form but `discover` needs it running, and says so otherwise.
-- When the session registers, the mod reads the three initiatives touched most recently. While the session has none attached, its first prompt carries one line after your text: `Agent Brief · recent initiatives: Pricing, Onboarding, Checkout. If this work belongs to one, run agent-brief initiative attach <name>.` Claude attaches when the work clearly belongs to one. The line comes once per session, and not in a resumed one.
+- When the session registers, the mod reads the three initiatives touched most recently. While the session has none attached, its first prompt carries one line after your text: `Agent Brief · recent initiatives: Pricing, Onboarding, Checkout. If this work belongs to one, run agent-brief initiative attach <name> before you start, and say so in one line.` Claude attaches when the work clearly belongs to one. The line comes once per session, and not in a resumed one.
 - Once attached, a typed prompt carries the initiative's snapshot after your text, between `--- Agent Brief initiative ---` lines: Understanding (at most 2,400 characters), Decisions, Open and the folder map. It goes only when the token `attachmentRevision:id:revision` changed since the last one, so an unchanged brief costs nothing. It never goes in the system prompt, and slash commands carry none.
 - A compaction drops the snapshot, so the next prompt carries it again. Where an organization manages Claude Code, the compaction event passes over plugins a person installs; run `/initiative refresh` after a compaction there.
 - A detach, from the band, the app or the CLI, gets one note to Claude with the next prompt.
-- **change** or **attach initiative** on the band (hotkey `i`) swaps the row for a pick of three, the attached initiative first and then the most recent, with **Detach** while one is attached, and **Cancel**. A pick attaches the session at once.
+- **◆ <title>** or **attach initiative** on the band (hotkey `i`) swaps the row for a pick of three, the attached initiative first and then the most recent, with **Detach** while one is attached, and **Cancel**. A pick attaches the session at once.
 - The Brief pane's header has an **Initiative** Select that lists **None** and up to 20 initiatives, most recent first. A pick attaches the session, and **None** detaches it. A pick the app refuses toasts why and goes back to the attachment the app holds. The pane reads the list and the attachment again when it opens and each minute while it stays open. On a surface without fields, or with no initiatives, the line reads the title and revision, or **Initiative · none**.
 - When Claude runs an `agent-brief initiative` command, the band reads the attachment again.
 - The `initiative-brief` skill tells Claude when to attach, how to keep the brief short and current, how to draft one and how to run Discover. In the brief and in its replies, Claude names folders by role (Sources, Decisions, Working, Grounding, Outputs), not by their names.
@@ -289,7 +297,7 @@ Prototype takes a fidelity rung:
 
 - `/mode` reports the current mode. `/mode product`, `/mode orchestrate` and `/mode default` set one. `/mode prototype <fidelity>` sets prototype at that rung.
 - The **◇ Mode** button (hotkey `m`) shows until the session's first prompt, and a resumed session starts without it. After that, the Brief pane's Mode Select and `/mode` set the mode. The button opens a picker row. Prototype opens a second row for the fidelity. The button shows the mode, such as **◇ Prototype · styled HTML**, in the accent color outside default.
-- A folder default lives in `.claude/agent-brief.local.md`. The mod looks in the session folder, then each parent up to and including your home folder, and the first file found wins. It reads `mode:` and `fidelity:` from the frontmatter and ignores invalid values. A prototype with no valid fidelity is ignored, so that session opens in default.
+- A folder default lives in `.claude/agent-brief.local.md`. The mod looks in the session folder, then each parent up to and including your home folder, and the first file found wins. It reads `mode:`, `fidelity:` and `track:` from the frontmatter and ignores invalid values. A prototype with no valid fidelity is ignored, so that session opens in default.
 
   ```markdown
   ---
@@ -320,4 +328,4 @@ It prints one JSON line, either `{ ok: true, name, dir, reportPath, screenshots,
 - `claude plugin validate .` checks the mod.
 - `claude plugin test .` runs the tests in `tests/`.
 - `node tests/live/run-live.mjs` runs a live check. It starts a real companion server and an interactive Claude Code in tmux, and checks registration, fill delivery, typed-text safety, `/sketch` and exit. It needs tmux and the companion repo's esbuild, and it sends nothing to the model. It uses a temp inbox so it never touches `~/Downloads/feedback-inbox`.
-- `node tests/live/initiative.mjs` checks the band's **Attached · change** and **attach initiative**, the pick row, the Brief pane's Initiative Select and `/initiative off` and `refresh` against a stub app, then stops the stub and checks `/initiative` still answers. `COLS=110` sets the width. It sends nothing to the model, and stops a model turn if one starts.
+- `node tests/live/initiative.mjs` checks the band's **◆ <title>** and **attach initiative**, the pick row, the Brief pane's Initiative Select and `/initiative off` and `refresh` against a stub app, then stops the stub and checks `/initiative` still answers. `COLS=110` sets the width. It sends nothing to the model, and stops a model turn if one starts.

@@ -207,7 +207,7 @@ export function outputsInstructions(isCli = false): string {
 The Agent Brief panel lists this session's deliverables. The user opens them there to review.
 When the user asks for a doc, brief, report, spec, page, deck or artifact, ${declare}.
 ${where}
-Declare it with status \`drafting\` when you start the deliverable. Declare it again with \`ready\` when it is done, and name its path in your reply so the row under the reply offers to open it. A local dev server's URL in a reply gets the same row, which opens the running app for pinned comments. Never open it yourself.
+Declare it with status \`drafting\` when you start the deliverable. Declare it again with \`ready\` when it is done, and name its path in your reply. The row under the reply offers to open it, so do not tell the user how to open it. A local dev server's URL in a reply gets the same row, which opens the running app for pinned comments. Never open it yourself.
 Declare one primary output per request, usually. Pick the one the user will read first.
 Never declare code, config, tests or files that serve the code.
 Never declare the items file or anything under .feedback.

@@ -57,6 +57,7 @@ import { isTranslocated } from './cli-install';
 import { createControls } from './controls';
 import { DraftStore } from './drafts';
 import { restoredBoardName, SendHistory } from './history';
+import { InitiativeOutputs } from './initiative-outputs';
 import { expandHome, InitiativeStore } from './initiatives';
 import { referenceText } from './references';
 import { createInstalls } from './installs';
@@ -374,6 +375,13 @@ async function start(): Promise<void> {
         panel.show();
         return { board: state.state.currentBoard, targetSessionId: req.sessionId, opened };
       }
+      // The server checked the initiative exists. A session given is the Send target already.
+      if (req.initiative) {
+        if (req.prompt !== undefined) setPrompt(req.prompt);
+        panel.show();
+        send(CH.openInitiative, { id: req.initiative.id });
+        return { board: state.state.currentBoard, ...(req.sessionId ? { targetSessionId: req.sessionId } : {}), opened: 'initiative' };
+      }
       if (req.note) {
         const draft = drafts.get(req.note.id);
         if (!draft) throw new BadRequest(`no note with id ${req.note.id}`);
@@ -452,9 +460,12 @@ async function start(): Promise<void> {
   // Initiatives: a change from the socket, the panel or a brief edited by hand reaches the panel as a push.
   // Each brief's folder is watched, and reading a changed brief records the PM's revision.
   const briefWatch = new ItemsWatcher((id) => initiatives.refresh(id));
+  // Attached live sessions file their ready outputs in the brief.
+  const initiativeOutputs = new InitiativeOutputs(initiatives, () => sessions.sessions);
   initiatives.onChange(() => {
     send(CH.initiativesChanged, initiatives.list());
     briefWatch.sync(initiatives.files());
+    initiativeOutputs.sync();
   });
   briefWatch.sync(initiatives.files());
   const initiativeDetail = (id: string): InitiativeDetail => ({ initiative: initiatives.get(id), history: initiatives.history(id) });
@@ -471,6 +482,7 @@ async function start(): Promise<void> {
       liveKey = key;
       send(CH.initiativesChanged, initiatives.list());
     }
+    initiativeOutputs.sync();
     terminals.keepOnly(live);
     void terminals.notePrompts(s.sessions);
     modes.keepOnly(live);
@@ -780,6 +792,11 @@ async function start(): Promise<void> {
       return { ok: false, message: (err as Error).message, detail: initiativeDetail(String(id)) };
     }
   });
+  ipc.handle('openBriefLink', (raw: unknown, prefer: unknown) => {
+    const first = Array.isArray(prefer) ? prefer.filter((id): id is string => typeof id === 'string') : [];
+    const target = typeof raw === 'string' ? expandHome(raw.trim()) : raw;
+    return files.openBriefLink(target, [...first, ...sessions.sessions.map((s) => s.sessionId)]);
+  });
   ipc.handle('revealPath', (raw: unknown) => {
     const target = expandHome(String(raw));
     if (testMode) openedOutputs.push(`reveal:${target}`);
@@ -810,6 +827,7 @@ async function start(): Promise<void> {
     globalShortcut.unregisterAll();
     files.close();
     briefWatch.close();
+    initiativeOutputs.close();
   });
   app.on('activate', controls.openStandalone);
   app.on('second-instance', controls.openStandalone);

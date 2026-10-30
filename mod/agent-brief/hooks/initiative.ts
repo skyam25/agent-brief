@@ -137,6 +137,7 @@ export function snapshotOf(body: unknown): InitiativeSnapshot | undefined {
     understanding: typeof b.understanding === 'string' ? b.understanding : '',
     decisions: lines(b.decisions),
     open: lines(b.open),
+    ...(lines(b.outputs).length > 0 ? { outputs: lines(b.outputs) } : {}),
     folders: Array.isArray(b.folders) ? b.folders.map(folderOf).filter(f => f !== undefined) : [],
   }
 }
@@ -155,12 +156,21 @@ export function summariesOf(body: unknown): InitiativeSummary[] {
 
 export const choiceOf = (s: Pick<InitiativeSummary, 'id' | 'title' | 'line'>): InitiativeChoice => ({ id: s.id, title: s.title, line: s.line })
 
-export const attachedOf = (s: InitiativeSnapshot): AttachedInitiative => ({
-  id: s.id,
-  title: s.title,
-  revision: s.revision,
-  attachmentRevision: s.attachmentRevision,
-})
+/** The absolute paths an Outputs row links to as `<file:...>`. */
+export function outputPaths(rows: readonly string[]): string[] {
+  return rows.flatMap(row => [...row.matchAll(/<file:([^>]+)>/g)].map(m => decodeURI(m[1]!)))
+}
+
+export const attachedOf = (s: InitiativeSnapshot): AttachedInitiative => {
+  const outputs = outputPaths(s.outputs ?? [])
+  return {
+    id: s.id,
+    title: s.title,
+    revision: s.revision,
+    attachmentRevision: s.attachmentRevision,
+    ...(outputs.length > 0 ? { outputs } : {}),
+  }
+}
 
 /** The app caps the snapshot too. This holds the line against an app that does not. */
 export function capUnderstanding(text: string): string {
@@ -192,6 +202,7 @@ export function injectionText(s: InitiativeSnapshot): string {
     understanding === '' ? '(empty)' : understanding,
     ...list('Decisions', s.decisions),
     ...list('Open', s.open),
+    ...list('Outputs', s.outputs ?? []),
     ...list('Folders', s.folders.map(f => `${f.path} → ${f.role}${f.note ? ` · ${f.note}` : ''}`)),
     INITIATIVE_MARK,
   ].join('\n')
@@ -201,7 +212,7 @@ export function injectionText(s: InitiativeSnapshot): string {
 export function recentLine(recent: readonly Pick<InitiativeChoice, 'title'>[]): string | undefined {
   if (recent.length === 0) return undefined
   const titles = recent.slice(0, RECENT_LIMIT).map(r => r.title).join(', ')
-  return `Agent Brief · recent initiatives: ${titles}. If this work belongs to one, run agent-brief initiative attach <name>.`
+  return `Agent Brief · recent initiatives: ${titles}. If this work belongs to one, run agent-brief initiative attach <name> before you start, and say so in one line.`
 }
 
 // ── Band ──────────────────────────────────────────────────────────────────

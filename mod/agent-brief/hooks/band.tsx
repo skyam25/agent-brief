@@ -18,7 +18,7 @@ export type BandView = {
   fidelity: PrototypeFidelity | null
   picking: BandRow
   voice: VoiceState | null
-  /** The attached initiative. The row reads `Attached <title> · change` while there is one, and `attach initiative` otherwise. */
+  /** The attached initiative. The row reads `◆ <title>` while there is one, and `attach initiative` otherwise. */
   initiative: AttachedInitiative | null
   /** What the change row offers: the attached initiative, then the recent ones. */
   choices: { id: string; title: string }[]
@@ -43,7 +43,7 @@ export type BandActions = {
  * One row with Sketch, Stack, Write, Talk, Mode and Brief buttons.
  * Mode shows until the session's first prompt; then the Brief pane's Select and /mode set it.
  * The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
- * An attached initiative adds `Attached <title> · change`. Without one, `attach initiative` shows while there are any to pick.
+ * An attached initiative adds `◆ <title>`, which opens the pick. Without one, `attach initiative` shows while there are any to pick.
  * Either swaps the row for a pick among the recent ones.
  */
 export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
@@ -131,9 +131,9 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
       )}
       <Text> </Text>
       <Button key="brief" label={briefLabel} hotkey="b" onPress={() => void act.brief()} />
-      {initiative !== null && <Text dimColor>{`  Attached ${bandTitle(initiative.title)} · `}</Text>}
+      {initiative !== null && <Text>  </Text>}
       {initiative !== null && (
-        <Button key="initiative-change" plain dimColor label="change" hotkey="i" onPress={() => void act.pick('initiative')} />
+        <Button key="initiative-change" plain dimColor label={`◆ ${bandTitle(initiative.title)}`} hotkey="i" onPress={() => void act.pick('initiative')} />
       )}
       {initiative === null && choices.length > 0 && <Text>  </Text>}
       {initiative === null && choices.length > 0 && (

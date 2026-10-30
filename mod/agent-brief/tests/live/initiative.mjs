@@ -147,8 +147,8 @@ try {
   console.log('registered:', Boolean(registered))
 
   // The terminal draws a plain Button's hotkey before its label, as `i: change`.
-  const attachedBand = await until(() => /Attached Pricing · (i: )?change/.test(bandLine()), 10_000, 500)
-  check(`band reads Attached Pricing · change at ${COLS} columns`, Boolean(attachedBand))
+  const attachedBand = await until(() => /(i: )?◆ Pricing/.test(bandLine()), 10_000, 500)
+  check(`band reads ◆ Pricing at ${COLS} columns`, Boolean(attachedBand))
 
   // An attach made elsewhere after registration shows on the pane's first draw.
   const [sessionId] = sessions
@@ -169,14 +169,14 @@ try {
   keys('Right')
   await sleep(300)
   keys('Enter')
-  const moved = await until(() => /Attached Pricing · (i: )?change/.test(bandLine()), 10_000, 400)
+  const moved = await until(() => /(i: )?◆ Pricing/.test(bandLine()), 10_000, 400)
   check('a pick attaches over the socket', Boolean(moved) && calls.some(c => c.startsWith('PUT') && c.includes('ini-pricing')), calls.filter(c => !c.includes('deliveries')).join(' | '))
   keys('Escape')
   await sleep(600)
 
   const off = await run('/initiative off', 'Detached from Pricing.')
   await sleep(800)
-  check('/initiative off detaches', Boolean(off) && !bandLine().includes('Attached') && calls.some(c => c.startsWith('DELETE') && c.includes('/initiative')))
+  check('/initiative off detaches', Boolean(off) && !bandLine().includes('◆') && calls.some(c => c.startsWith('DELETE') && c.includes('/initiative')))
   check('with none attached the band offers attach initiative', /(i: )?attach initiative/.test(bandLine()))
 
   const none = await run('/initiative refresh', 'This session has no initiative.')

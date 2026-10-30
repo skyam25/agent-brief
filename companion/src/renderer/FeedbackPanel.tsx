@@ -14,7 +14,7 @@ import { workspaceSummary } from '../shared/feedback-workspace';
 import type { CompanionApi } from '../shared/ipc';
 import { BeforeAfter, type PictureHost } from './BeforeAfter';
 import { claimDecisions } from './decisions-send';
-import { decisionText, historyLines, inOpenFilter, isClosed, latestSaid, markSeen, needsLook, seenCount, updatedSince, type FeedbackFilter } from './feedback-cards';
+import { acceptLabel, decisionText, historyLines, inOpenFilter, isClosed, latestSaid, markSeen, needsLook, seenCount, sourceTime, updatedSince, type FeedbackFilter } from './feedback-cards';
 import { FeedbackGraph } from './FeedbackGraph';
 import { ExternalIcon, LinkIcon, MicIcon, ReloadIcon } from './Icons';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
@@ -497,6 +497,7 @@ function ItemCard(props: {
   const listening = props.voice.recording && props.voice.target === String(item.n);
   const [first, ...later] = item.rounds;
   const src = item.sources[0];
+  const time = sourceTime(src);
   const closed = isClosed(item);
   const options = item.options ?? [];
   const say = async (verb: 'accept' | 'reject' | 'reopen' | 'note') => {
@@ -524,7 +525,7 @@ function ItemCard(props: {
       ) : (
         <>
           <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => acceptable && void say('accept')} data-testid="feedback-accept">
-            {option && expanded ? `Accept ${option}` : 'Accept'}
+            {acceptLabel(options, option)}
           </button>
           <button className="chip" disabled={saving} onClick={() => void say('reject')} data-testid="feedback-reject">
             Reject
@@ -580,6 +581,11 @@ function ItemCard(props: {
           {quoted(src.quote)}{src.speaker && <span className="muted"> — {src.speaker}</span>}
         </p>
       )}
+      {!expanded && item.change && (
+        <p className="feedback-change-line" title={item.change} data-testid="feedback-change-line">
+          {item.change}
+        </p>
+      )}
       {src && expanded && (
         <blockquote className="review-quote">
           {src.quote}
@@ -587,15 +593,15 @@ function ItemCard(props: {
             <span className="muted">
               {' '}
               — {src.speaker}
-              {src.time && src.time !== '-' && props.source && props.onSource ? (
+              {time && props.source && props.onSource ? (
                 <>
                   {' · '}
                   <button className="ghost link" title={`Open ${props.source}`} onClick={() => props.onSource!(props.source!)} data-testid="feedback-source">
-                    {src.time}
+                    {time}
                   </button>
                 </>
-              ) : src.time ? (
-                ` · ${src.time}`
+              ) : time ? (
+                ` · ${time}`
               ) : (
                 ''
               )}

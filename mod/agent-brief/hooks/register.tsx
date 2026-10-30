@@ -33,7 +33,7 @@ import {
   recordInitiativePrompt, type Appended, type InitiativeEnvironment,
 } from './initiative-feature'
 import { isInitiativeCommand } from './initiative'
-import { decisionsDraft, itemsFile, itemsRelPath, parseItems, withDecisions } from './items-file'
+import { awaitsUser, decisionsDraft, itemsFile, itemsRelPath, parseItems, withDecisions } from './items-file'
 import {
   countEvents,
   expandHome,
@@ -58,12 +58,14 @@ import {
   namedPages,
   namedLocalUrls,
   isLocalUrlRef,
-  localUrlLabel,
-  REVIEWS_SHOWN,
   isHtmlPage,
   isOutlineFile,
   filedNote,
   keepNote,
+  changedBrief,
+  noTurnOpens,
+  rowOpens,
+  rowKey,
   SKETCH_OPENED,
   STACK_OPENED,
   TRACK_NOT_RUNNING,
@@ -90,7 +92,7 @@ import {
   trackTarget,
   trackingOf,
 } from './companion-logic'
-import type { Tracking } from './companion-logic'
+import type { RowOpen, Tracking, TurnOpens } from './companion-logic'
 import { outputsFile } from './companion-protocol'
 import type { BoardLayout, BoardsResponse, Delivery, OpenRequest, TrackingPatch } from './companion-protocol'
 import {
@@ -102,6 +104,7 @@ import {
   modeToast,
   parseModeArgs,
   parseModeFile,
+  parseTrackDefault,
   sectionText,
 } from './modes'
 import type { ModeChoice } from './modes'
@@ -164,13 +167,15 @@ type Config = {
 const sessionsRef = atom({ plugin: 'agent-brief', key: 'sessions' } as const, [])
 const ingestingRef = atom({ plugin: 'agent-brief', key: 'ingesting' } as const, null)
 const trackingRef = atom({ plugin: 'agent-brief', key: 'tracking' } as const, false)
+const trackDefaultDoneRef = atom({ plugin: 'agent-brief', key: 'isTrackDefaultDone' } as const, false)
 const MODE_STATE = { plugin: 'agent-brief', key: 'mode' } as const
 const modeRef = atom(MODE_STATE, 'default')
 const fidelityRef = atom({ plugin: 'agent-brief', key: 'fidelity' } as const, null)
 const pickingRef = atom({ plugin: 'agent-brief', key: 'picking' } as const, 'none')
 const repliesRef = atom({ plugin: 'agent-brief', key: 'replies' } as const, [])
 const turnNotesRef = atom({ plugin: 'agent-brief', key: 'turnNotes' } as const, [])
-const replyNotesRef = atom({ plugin: 'agent-brief', key: 'replyNotes' } as const, {})
+const turnRef = atom({ plugin: 'agent-brief', key: 'turn' } as const, null)
+const replyOpensRef = atom({ plugin: 'agent-brief', key: 'replyOpens' } as const, {})
 const voiceRef = atom({ plugin: 'agent-brief', key: 'voice' } as const, null)
 const homeRef = atom({ plugin: 'agent-brief', key: 'home' } as const, null)
 /** When the main loop last finished a reply, so the app can tell a busy session from an idle one. */
@@ -436,7 +441,21 @@ async function currentTracking($: EngineInterface): Promise<Tracking | undefined
   if (!isUp) return cached
   const reply = await call($, 'GET', sessionPath(sessionId))
   if (reply === undefined) return cached
-  return setTracking($, sessionId, reply.ok ? reply.body : undefined)
+  const state = await setTracking($, sessionId, reply.ok ? reply.body : undefined)
+  return reply.ok ? applyTrackDefault($, sessionId, state) : state
+}
+
+/**
+ * Turns tracking on once for a new session whose folder file says `track: on`.
+ * Later toggles stand, and a resumed session keeps what it had.
+ */
+async function applyTrackDefault($: EngineInterface, sessionId: string, state: Tracking): Promise<Tracking> {
+  if (await read($, trackDefaultDoneRef)) return state
+  await update($, trackDefaultDoneRef, () => true)
+  if (state.trackItems || !(await folderTracks($))) return state
+  const body: TrackingPatch = { trackItems: true }
+  const reply = await call($, 'PATCH', sessionPath(sessionId), body)
+  return reply?.ok ? setTracking($, sessionId, reply.body) : state
 }
 
 /** Keeps the app's answer, and redraws the Brief pane's Track toggle when it changed. */
@@ -496,6 +515,16 @@ async function folderMode($: EngineInterface): Promise<ModeChoice | undefined> {
     if (typeof text === 'string') return parseModeFile(text)
   }
   return undefined
+}
+
+/** Whether the first folder file found turns item tracking on. */
+async function folderTracks($: EngineInterface): Promise<boolean> {
+  const home = (await $.env.get('HOME')) ?? ''
+  for (const path of modeFilePaths(await homeCwd($), home)) {
+    const text = await $.fs.read(path).catch(() => undefined)
+    if (typeof text === 'string') return parseTrackDefault(text)
+  }
+  return false
 }
 
 /** A mode the session already holds survives a reload; otherwise the folder default applies. */
@@ -700,28 +729,101 @@ async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'
 
 /**
  * The pages the row offers: HTML pages and outlines that exist, so the row never offers one the reply only plans,
- * other Markdown files among the session's outputs, so a passing mention of a README offers nothing,
+ * other Markdown files among the session's outputs, the attached brief's Outputs or the files the turn read, so a passing mention of a README offers nothing,
  * and dev servers on this Mac, which open in the review pane.
  */
-async function offeredPages($: EngineInterface, reply: string): Promise<string[]> {
+async function offeredPages($: EngineInterface, reply: string, turnRead: readonly string[]): Promise<string[]> {
   const home = await homeCwd($)
-  const named = namedPages(reply, home)
-  const outputs = new Set((await read($, outputsRef)).map(o => o.ref))
+  const outputs = (await read($, outputsRef)).map(o => o.ref).filter(ref => !isLocalUrlRef(ref))
+  const briefed = ((await initiativeView($)).initiative?.outputs ?? []).filter(p => p.startsWith(`${home}/`)).map(p => p.slice(home.length + 1))
+  const known = new Set([...outputs, ...briefed, ...turnRead])
+  const named = namedPages(reply, home, [...known])
   const found = await Promise.all(
-    named.map(page => (isHtmlPage(page) || isOutlineFile(page) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : outputs.has(page))),
+    named.map(page => (isHtmlPage(page) || isOutlineFile(page) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : known.has(page))),
   )
-  return [...named.filter((_, i) => found[i]), ...namedLocalUrls(reply)].slice(0, REVIEWS_SHOWN)
+  return [...named.filter((_, i) => found[i]), ...namedLocalUrls(reply)]
 }
 
-/** Moves the notes this turn filed onto its reply, and forgets those of replies no longer kept. */
-async function keepTurnNotes($: EngineInterface, reply: string, kept: readonly string[]): Promise<void> {
-  const notes = await read($, turnNotesRef)
+/** Starts the record of what a main-loop turn does, from the items file and feedback counts it began with. */
+async function startTurn($: EngineInterface): Promise<void> {
+  const at = await $.clock.now()
+  const items = (await read($, itemsRef))?.text ?? null
+  const feedback = await read($, feedbackRef)
+  await update($, turnRef, () => ({ at, items, feedback, read: [] }))
+}
+
+/** Records a project file the turn read, so the reply may offer it when it cites the file. */
+async function noteTurnRead($: EngineInterface, path: unknown): Promise<void> {
+  if (typeof path !== 'string') return
+  const home = await homeCwd($)
+  if (!path.startsWith(`${home}/`)) return
+  const ref = path.slice(home.length + 1)
+  await update($, turnRef, turn => (turn === null || turn.read.includes(ref) ? turn : { ...turn, read: [...turn.read, ref] }))
+}
+
+/** What the turn did, from its start record and the state after it. Read after the items file and feedback are fresh. */
+async function turnOpens($: EngineInterface): Promise<TurnOpens> {
+  const turn = await read($, turnRef)
+  const opens: TurnOpens = { ...noTurnOpens(), notes: await read($, turnNotesRef) }
+  if (turn === null) return opens
+  opens.read = turn.read
+  opens.ready = (await read($, outputsRef))
+    .filter(o => o.tier === 'declared' && o.status === 'ready' && (o.declaredAt ?? 0) >= turn.at)
+    .map(o => ({ ref: o.ref, ...(o.title ? { title: o.title } : {}) }))
+  if (turn.brief) {
+    const attached = (await initiativeView($)).initiative
+    const id = turn.brief.id ?? (attached?.title === turn.brief.title ? attached.id : undefined)
+    if (id !== undefined) opens.brief = { id, title: turn.brief.title }
+  }
+  const items = (await read($, itemsRef))?.text ?? null
+  if (items !== null && items !== turn.items) {
+    const waiting = parseItems(items).items.filter(awaitsUser).length
+    if (waiting > 0) opens.itemsWaiting = waiting
+  }
+  const feedback = await read($, feedbackRef)
+  opens.feedback = Object.entries(feedback)
+    .filter(([ref, open]) => open > (turn.feedback[ref] ?? 0))
+    .map(([ref, open]) => ({ ref, open }))
+  return opens
+}
+
+/** Moves what this turn did onto its reply, and forgets that of replies no longer kept. */
+async function keepTurnOpens($: EngineInterface, reply: string, kept: readonly string[]): Promise<void> {
+  const opens = await turnOpens($)
   await update($, turnNotesRef, () => [])
-  await update($, replyNotesRef, held => {
+  await update($, turnRef, () => null)
+  await update($, replyOpensRef, held => {
     const next = Object.fromEntries(Object.entries(held ?? {}).filter(([text]) => kept.includes(text)))
-    if (notes.length > 0) next[reply] = notes
+    next[reply] = opens
     return next
   })
+}
+
+/** The title an earlier reply's turn filed a note under, for a note Claude replaced in place. */
+async function earlierNoteTitle($: EngineInterface, id: string): Promise<{ title?: string }> {
+  const notes = Object.values(await read($, replyOpensRef)).flatMap(turn => turn.notes)
+  const title = notes.findLast(n => n.id === id && n.title !== undefined)?.title
+  return title === undefined ? {} : { title }
+}
+
+/** Opens the Brief pane from the row. `$.ui.open` comes first, so the engine counts it as the user's press. */
+function showBrief($: EngineInterface): Promise<void> {
+  if (isBriefOpen) return Promise.resolve()
+  return toggleBrief($)
+}
+
+/** Shows an initiative's brief in the app's Initiative tab. */
+async function openInitiativeInApp($: EngineInterface, id: string): Promise<void> {
+  const failed = await readyApp($)
+  if (failed !== undefined) {
+    $.ui.toast(failed, { timeoutMs: 8000 })
+    return
+  }
+  const body: OpenRequest = { sessionId: await $.session.id(), initiative: { id } }
+  const reply = await call($, 'POST', '/open', body)
+  const opened = (reply?.body as { opened?: unknown } | undefined)?.opened
+  if (!reply?.ok) $.ui.toast('Agent Brief did not open the brief.', { timeoutMs: 8000 })
+  else if (opened !== 'initiative') $.ui.toast('Update Agent Brief to open a brief from here.', { timeoutMs: 8000 })
 }
 
 /** Shows a note Claude filed in Write. */
@@ -1138,6 +1240,7 @@ export const register: Register = (on, options) => {
       const messages = await $.session.messages().catch(() => [])
       if (Array.isArray(messages) && hasUserPrompt(messages)) {
         await update($, hasPromptedRef, () => true)
+        await update($, trackDefaultDoneRef, () => true)
         await markInitiativeResumed($)
       }
       await loadBrief($)
@@ -1326,7 +1429,7 @@ export const register: Register = (on, options) => {
   // A one-row band with Sketch, Stack, Write, Talk, Mode and Brief buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write or /mode does.
   // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
   // Talk dictates into the prompt box until pressed again. Mode shows until the first prompt.
-  // Brief opens and closes the Brief pane. An attached initiative adds `Attached <title> · change`, and none adds `attach initiative`.
+  // Brief opens and closes the Brief pane. An attached initiative adds `◆ <title>`, and none adds `attach initiative`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const mode = await read($, modeRef)
@@ -1498,8 +1601,18 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (/\bagent-brief\b/.test(e.command)) await refreshBoards($).catch(err => log($, `boards refresh failed: ${String(err)}`))
     const out = 'result' in result ? (result.result as { stdout?: unknown } | null | undefined) : undefined
-    const note = typeof out?.stdout === 'string' ? filedNote(out.stdout) : undefined
+    const filed = typeof out?.stdout === 'string' ? filedNote(out.stdout) : undefined
+    const note = filed && filed.title === undefined ? { ...filed, ...(await earlierNoteTitle($, filed.id)) } : filed
     if (note) await update($, turnNotesRef, notes => keepNote(notes, note)).catch(() => undefined)
+    const brief = typeof out?.stdout === 'string' ? changedBrief(out.stdout) : undefined
+    if (brief) await update($, turnRef, turn => (turn === null ? turn : { ...turn, brief })).catch(() => undefined)
+    return result
+  }).catch(($, e, next) => next(e))
+
+  // A file the turn read may be one its reply cites.
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined) await noteTurnRead($, e.file_path).catch(() => undefined)
     return result
   }).catch(($, e, next) => next(e))
 
@@ -1521,6 +1634,7 @@ export const register: Register = (on, options) => {
       const at = await $.clock.now()
       await update($, startedAtRef, () => at).catch(() => undefined)
       if (e.text !== '') await update($, promptAtRef, () => at).catch(() => undefined)
+      await startTurn($).catch(() => undefined)
       // A slow app must not hold up the turn.
       if (isUp) void registerSession($).catch(() => undefined)
     }
@@ -1531,9 +1645,14 @@ export const register: Register = (on, options) => {
   // The items file is read again, since the app's panel appends answers to it too.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
+    if (e.agentId === undefined) {
+      await refreshItems($).catch(() => undefined)
+      // Claude catalogs feedback through the CLI, so its counts are read once the turn ends.
+      await refreshFeedback($).catch(() => undefined)
+    }
     if (e.agentId === undefined && e.reason === 'answer') {
       const replies = await update($, repliesRef, list => keepReply(list, e.answer)).catch(() => undefined)
-      await keepTurnNotes($, e.answer.trim(), replies ?? []).catch(() => undefined)
+      await keepTurnOpens($, e.answer.trim(), replies ?? []).catch(() => undefined)
     }
     if (e.agentId === undefined) {
       const at = await $.clock.now()
@@ -1541,14 +1660,11 @@ export const register: Register = (on, options) => {
       if (isUp) await registerSession($).catch(() => undefined)
       await keepRegistered($, companionSettings).catch(() => undefined)
     }
-    if (e.agentId === undefined) await refreshItems($).catch(() => undefined)
-    // Claude catalogs feedback through the CLI, so its counts are read once the turn ends.
-    if (e.agentId === undefined) await refreshFeedback($).catch(() => undefined)
     return done
   })
 
-  // Under the last block of a finished reply: Copy and Open as note as /write last does, then an open for
-  // each page it names and each note its turn filed. A one-line reply carries only the opens.
+  // Under the last block of a finished reply: Copy and Open as note as /write last does, then opens for what
+  // the turn did and the pages the reply names. A one-line reply carries only the opens.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const drawn = await next(e)
     const props = e.props as { text: string; isSummary?: true }
@@ -1556,10 +1672,17 @@ export const register: Register = (on, options) => {
     const reply = replyEndingWith(await read($, repliesRef), props.text)
     if (reply === undefined) return drawn
     const isLong = reply.includes('\n')
-    const pages = await offeredPages($, reply)
-    const notes = (await read($, replyNotesRef))[reply] ?? []
-    if (!isLong && pages.length === 0 && notes.length === 0) return drawn
+    const turn = (await read($, replyOpensRef))[reply] ?? noTurnOpens()
+    const opens = rowOpens(turn, await offeredPages($, reply, turn.read))
+    if (!isLong && opens.length === 0) return drawn
     const { Box, Button, Text } = $.ui.resolve(e)
+    const press = (open: RowOpen) => {
+      if (open.kind === 'items') return () => void showBrief($)
+      if (open.kind === 'brief') return () => void openInitiativeInApp($, open.id)
+      if (open.kind === 'feedback') return () => void openOutputInApp($, open.ref, 'feedback')
+      if (open.kind === 'note') return () => void openNoteInApp($, open.id)
+      return () => void openOutputInApp($, open.ref)
+    }
     const buttons = [
       ...(isLong
         ? [
@@ -1585,17 +1708,7 @@ export const register: Register = (on, options) => {
             />,
           ]
         : []),
-      ...pages.map((page, i) => (
-        <Button
-          key={`reply-review-${i}`}
-          plain
-          label={isLocalUrlRef(page) ? `Review ${localUrlLabel(page)}` : `${isHtmlPage(page) ? 'Review' : 'Open'} ${page.slice(page.lastIndexOf('/') + 1)}`}
-          onPress={() => void openOutputInApp($, page)}
-        />
-      )),
-      ...notes.map(note => (
-        <Button key={`reply-note-${note.id}`} plain label={`Open ${note.title ?? 'note'}`} onPress={() => void openNoteInApp($, note.id)} />
-      )),
+      ...opens.map((open, i) => <Button key={rowKey(opens, i)} plain label={open.label} onPress={press(open)} />),
     ]
     return (
       <Box flexDirection="column">

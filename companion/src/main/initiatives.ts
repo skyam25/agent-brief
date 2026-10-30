@@ -10,7 +10,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   INITIATIVE_UNDERSTANDING_CAP,
   type Initiative,
@@ -19,9 +19,11 @@ import {
   type InitiativeSnapshot,
   type InitiativeSummary,
   type InitiativeUpdateRequest,
+  type OutputRecord,
 } from '../protocol';
 import { BoardError, badRequest, notFound } from '../board/errors';
-import { briefFileName, changedFields, firstSentence, formatBrief, newBrief, parseBrief, type BriefFields, type ParsedBrief } from './initiative-markdown';
+import { isUrlRef } from '../shared/outputs';
+import { briefFileName, changedFields, firstSentence, formatBrief, mergeOutputRows, newBrief, parseBrief, type BriefFields, type OutputLink, type ParsedBrief } from './initiative-markdown';
 
 export const INITIATIVES_FILE = 'initiatives.json';
 
@@ -122,6 +124,18 @@ export function resolveInitiative<T extends { id: string; title: string }>(list:
   if (exact) return exact;
   const prefixed = list.filter((i) => i.title.toLowerCase().startsWith(k));
   return prefixed.length === 1 ? prefixed[0] : undefined;
+}
+
+/** A session's declared, ready outputs as Outputs rows link them. A file links by its absolute path. */
+export function readyOutputLinks(cwd: string, records: readonly OutputRecord[]): OutputLink[] {
+  return records
+    .filter((r) => r.tier === 'declared' && r.status === 'ready')
+    .map((r) => {
+      const url = r.url ?? (isUrlRef(r.ref) ? r.ref : undefined);
+      if (url) return { title: r.title ?? url, url };
+      const path = resolve(cwd, r.ref);
+      return { title: r.title ?? basename(path), path };
+    });
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────
@@ -282,6 +296,7 @@ export class InitiativeStore {
       decisions: brief?.decisions ?? [],
       open: brief?.open ?? [],
       folders: brief?.folders ?? [],
+      ...(brief?.outputs.length ? { outputs: brief.outputs } : {}),
       revision: row.revision,
       updatedAt: row.updatedAt,
       updatedBy: row.updatedBy,
@@ -398,17 +413,38 @@ export class InitiativeStore {
       decisions: req.decisions ?? brief.decisions,
       open: req.open ?? brief.open,
       folders: req.folders ?? brief.folders,
+      outputs: brief.outputs,
     };
+    if (!this.write(row, brief, next, req.updatedBy)) return this.initiative(read);
+    return this.get(id);
+  }
+
+  /**
+   * Adds the session's declared, ready outputs to its initiative's Outputs rows.
+   * True when the brief changed. Rows are never removed.
+   */
+  recordOutputs(sessionId: string, cwd: string, records: readonly OutputRecord[]): boolean {
+    this.writable();
+    const id = this.attached(sessionId);
+    const links = readyOutputLinks(cwd, records);
+    if (!id || links.length === 0) return false;
+    const { row, brief } = this.read(this.row(id));
+    if (!brief) return false;
+    return this.write(row, brief, { ...brief, outputs: mergeOutputRows(brief.outputs, links) }, `Agent Brief · ${sessionId}`);
+  }
+
+  /** Writes the changed fields as a new revision. False when nothing changed. */
+  private write(row: IndexRow, brief: ParsedBrief, next: BriefFields, updatedBy: string): boolean {
     const changed = changedFields(brief, next);
-    if (changed.length === 0) return this.initiative(read);
+    if (changed.length === 0) return false;
     const text = formatBrief(brief, next);
     writeAtomic(row.path, text);
     row.hash = sha(text);
     row.lastActiveAt = this.stamp();
-    this.addRevision(row, req.updatedBy, changed);
+    this.addRevision(row, updatedBy, changed);
     this.save();
     this.emit();
-    return this.get(id);
+    return true;
   }
 
   attach(sessionId: string, initiativeId: string): InitiativeSnapshot {
@@ -444,7 +480,9 @@ export class InitiativeStore {
   snapshot(sessionId: string): InitiativeSnapshot | undefined {
     const id = this.attached(sessionId);
     if (!id) return undefined;
-    const i = this.get(id);
+    const read = this.read(this.row(id));
+    const i = this.initiative(read);
+    const outputs = read.brief?.outputs ?? [];
     const cap = INITIATIVE_UNDERSTANDING_CAP;
     const understanding = i.understanding.length > cap ? `${i.understanding.slice(0, cap - 1).trimEnd()}…` : i.understanding;
     return {
@@ -456,6 +494,7 @@ export class InitiativeStore {
       decisions: i.decisions,
       open: i.open,
       folders: i.folders,
+      ...(outputs.length ? { outputs } : {}),
     };
   }
 

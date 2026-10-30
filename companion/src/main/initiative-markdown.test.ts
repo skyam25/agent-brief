@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { briefFileName, firstSentence, formatBrief, newBrief, parseBrief, parseFolderRow } from './initiative-markdown';
+import { briefFileName, firstSentence, formatBrief, mergeOutputRows, newBrief, outputRow, outputRowTarget, parseBrief, parseFolderRow } from './initiative-markdown';
 
 const PRICING = `---
 agent_brief_id: "abc123"
@@ -167,5 +167,45 @@ describe('helpers', () => {
   it('parses a folder row with a note', () => {
     expect(parseFolderRow('~/a b/c → outputs · shipped docs')).toEqual({ path: '~/a b/c', role: 'outputs', note: 'shipped docs' });
     expect(parseFolderRow('no arrow here')).toBeUndefined();
+  });
+});
+
+describe('Outputs rows', () => {
+  const prd = { title: 'Checkout PRD', path: '/Users/pm/shop/docs/checkout prd.md' };
+  const deck = { title: 'Review deck', url: 'https://claude.ai/artifact/abc' };
+
+  it('writes a file row with its file name and a file link, and a URL row as a link', () => {
+    expect(outputRow(prd)).toBe('Checkout PRD [checkout prd.md](<file:/Users/pm/shop/docs/checkout prd.md>)');
+    expect(outputRow(deck)).toBe('[Review deck](https://claude.ai/artifact/abc)');
+    expect(outputRow({ title: 'A [draft]', url: 'https://x.dev/a b' })).toBe('[A \\[draft\\]](<https://x.dev/a b>)');
+  });
+
+  it('reads the path or URL a row links to', () => {
+    expect(outputRowTarget(outputRow(prd))).toBe(prd.path);
+    expect(outputRowTarget(outputRow(deck))).toBe(deck.url);
+    expect(outputRowTarget('Old plan [plan.md](file:///Users/pm/plan.md)')).toBe('/Users/pm/plan.md');
+    expect(outputRowTarget('A note with no link')).toBeUndefined();
+  });
+
+  it('adds missing rows, retitles its own rows in place, and keeps the rest', () => {
+    const rows = ['Kickoff notes, kept by hand', outputRow(prd)];
+    expect(mergeOutputRows(rows, [prd, deck])).toEqual([...rows, outputRow(deck)]);
+    const retitled = mergeOutputRows(rows, [{ ...prd, title: 'Checkout PRD v2' }]);
+    expect(retitled).toEqual(['Kickoff notes, kept by hand', 'Checkout PRD v2 [checkout prd.md](<file:/Users/pm/shop/docs/checkout prd.md>)']);
+  });
+
+  it('leaves a row the user reworded around the link', () => {
+    const reworded = `${outputRow(prd)} · signed off by Legal`;
+    expect(mergeOutputRows([reworded], [{ ...prd, title: 'New title' }])).toEqual([reworded]);
+  });
+
+  it('parses the Outputs section, and a changed list rewrites only its rows', () => {
+    const text = newBrief({ id: 'x1', title: 'Checkout', understanding: '', decisions: [], open: [], folders: [] });
+    const b = parseBrief(text);
+    expect(b.outputs).toEqual([]);
+    const next = formatBrief(b, { ...b, outputs: [outputRow(prd)] });
+    expect(next).toContain(`## Outputs\n- ${outputRow(prd)}\n\n## Sources\n`);
+    expect(parseBrief(next).outputs).toEqual([outputRow(prd)]);
+    expect(next.replace(`- ${outputRow(prd)}\n\n`, '\n')).toBe(text);
   });
 });

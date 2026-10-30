@@ -83,7 +83,7 @@ const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
   'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
   'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items', 'id', 'output',
-  'target', 'kind', 'ops',
+  'target', 'kind', 'ops', 'initiative',
 ]);
 /** Value flags that may repeat. The last value also reads as the flag's one value. */
 const LIST_FLAGS = new Set(['src', 'related', 'option', 'text']);
@@ -816,6 +816,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const layout = str(ctx.args, 'layout');
     const note = str(ctx.args, 'note');
     const output = str(ctx.args, 'output');
+    const initiative = str(ctx.args, 'initiative');
     const feedback = ctx.args.flags.has('feedback');
     if (feedback && output === undefined) throw new UsageError('--feedback needs --output <path>');
     if (layout !== undefined && layout !== 'freeform' && layout !== 'stack') {
@@ -825,12 +826,17 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if (output !== undefined && (board || layout || note !== undefined)) {
       throw new UsageError('--output opens an output, so it takes no --board, --layout or --note');
     }
+    if (initiative !== undefined && (board || layout || note !== undefined || output !== undefined)) {
+      throw new UsageError('--initiative opens an initiative, so it takes no --board, --layout, --note or --output');
+    }
     if (layout) body.layout = layout;
     if (board) body.board = board;
     if (prompt) body.prompt = prompt;
     if (note !== undefined) body.note = { id: note };
+    const named = initiative === undefined ? undefined : await initiativeNamed(ctx, initiative);
+    if (named) body.initiative = { id: named.id };
 
-    // A note opens under its owner, so only boards and outputs take the session.
+    // A note opens under its owner, so only boards, outputs and initiatives take the session.
     const session = note === undefined ? await openSession(ctx, output !== undefined) : undefined;
     if (session) body.sessionId = session.sessionId;
     // A dev server's address goes as it is. The app opens it in the review pane.
@@ -839,11 +845,12 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if (output !== undefined) body.output = { path: link ? output : projectPath(ctx, session!.cwd!, output), ...(feedback ? { tab: 'feedback' } : {}) };
 
     // A bare open shows what the session last had open, never a new board.
-    if (session && output === undefined && !board && !layout) body.reopen = true;
+    if (session && output === undefined && !named && !board && !layout) body.reopen = true;
 
     const res = await callJson<OpenResponse>(ctx.socket, 'POST', '/open', body);
     const what =
       note !== undefined ? `opened note ${note} in Write`
+      : named ? `opened initiative ${JSON.stringify(named.title)}`
       : body.output ? `opened ${body.output.path} in ${res.opened === 'review' ? 'the review pane' : 'Write'}`
       : res.opened === 'note' ? "opened this session's last note in Write"
       : res.opened === 'panel' ? 'showed the panel as it was. This session has no board or note yet'

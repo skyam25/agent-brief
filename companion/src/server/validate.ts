@@ -221,6 +221,7 @@ export function parseOpen(body: unknown): OpenRequest {
     layout: openLayout(o),
     output: openOutput(o),
     note: openNote(o),
+    initiative: openInitiative(o),
     reopen: openReopen(o),
     follow: openFollow(o),
   };
@@ -245,6 +246,15 @@ function openNote(o: Obj): OpenRequest['note'] {
   const id = reqString(note, 'id', 'body.note').trim();
   if (!id) fail('body.note.id is required');
   if (o.output !== undefined) fail('body.note and body.output open different things; send one');
+  return { id };
+}
+
+function openInitiative(o: Obj): OpenRequest['initiative'] {
+  if (o.initiative === undefined) return undefined;
+  const initiative = object(o.initiative, 'body.initiative');
+  const id = reqString(initiative, 'id', 'body.initiative').trim();
+  if (!id) fail('body.initiative.id is required');
+  if (o.output !== undefined || o.note !== undefined) fail('body.initiative opens an initiative, so it takes no body.output or body.note');
   return { id };
 }
 

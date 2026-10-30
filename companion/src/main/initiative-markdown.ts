@@ -1,14 +1,14 @@
 /**
  * The initiative brief file: front matter with `agent_brief_id`, a `# Title`, then `## ` sections.
  *
- * Understanding, Decisions, Open and Folders are parsed. Every other section, and anything
+ * Understanding, Decisions, Open, Outputs and Folders are parsed. Every other section, and anything
  * before the first section, stays raw text and is written back unchanged. Formatting with no
  * changed field gives back the same text. A changed list rewrites only its item lines, so the
  * PM's sub-bullets, prose and rows the field skips stay where they were.
  */
 
 import { INITIATIVE_ROLES, type InitiativeFolder, type InitiativeRole } from '../protocol';
-import { FENCE, HEADING } from '../shared/brief-sections';
+import { briefLinks, FENCE, HEADING } from '../shared/brief-sections';
 
 export interface BriefSection {
   /** The heading's name, as written. */
@@ -25,6 +25,8 @@ export interface BriefFields {
   decisions: string[];
   open: string[];
   folders: InitiativeFolder[];
+  /** Rows of the Outputs section, without the leading `- `. */
+  outputs: string[];
 }
 
 export interface ParsedBrief extends BriefFields {
@@ -46,6 +48,7 @@ const FIELD_SECTION: Record<FieldName, string> = {
   decisions: 'Decisions',
   open: 'Open',
   folders: 'Folders',
+  outputs: 'Outputs',
 };
 
 const ITEM = /^ ?[-*+][ \t]+(.*)$/;
@@ -123,6 +126,7 @@ export function parseBrief(text: string): ParsedBrief {
     decisions: items(body('Decisions')),
     open: items(body('Open')),
     folders: items(body('Folders')).flatMap((row) => parseFolderRow(row) ?? []),
+    outputs: items(body('Outputs')),
   };
 }
 
@@ -286,11 +290,12 @@ export function formatBrief(base: ParsedBrief, fields: BriefFields): string {
 }
 
 /** A new brief with every section, the empty ones as a heading alone. */
-export function newBrief(opts: BriefFields & { id: string; title: string; working?: string[] }): string {
+export function newBrief(opts: Omit<BriefFields, 'outputs'> & { id: string; title: string; working?: string[]; outputs?: string[] }): string {
+  const fields: BriefFields = { ...opts, outputs: opts.outputs ?? [] };
   const parts = [`---\nagent_brief_id: "${opts.id}"\n---\n# ${opts.title}\n\n`];
   for (const name of SECTION_ORDER) {
     const field = (Object.keys(FIELD_SECTION) as FieldName[]).find((f) => FIELD_SECTION[f] === name);
-    const body = field ? fieldBody(field, opts) : name === 'Working' ? listBody(opts.working ?? []) : '\n';
+    const body = field ? fieldBody(field, fields) : name === 'Working' ? listBody(opts.working ?? []) : '\n';
     parts.push(`## ${name}\n${body}`);
   }
   return parts.join('').replace(/\n*$/, '\n');
@@ -313,4 +318,46 @@ export function firstSentence(text: string): string {
   const m = /^(.+?[.!?])(?:\s|$)/.exec(line);
   const sentence = (m ? m[1] : line).trim();
   return sentence.length > 160 ? `${sentence.slice(0, 159).trimEnd()}…` : sentence;
+}
+
+/** What an Outputs row links to: a file by its absolute path, or a URL. */
+export interface OutputLink {
+  title: string;
+  path?: string;
+  url?: string;
+}
+
+const linkText = (text: string) => text.replace(/[[\]]/g, '\\$&');
+
+/** The link a file row ends with, or a URL row's destination. */
+function linkPart(o: OutputLink): string {
+  if (o.url) return `(${/[\s()<>]/.test(o.url) ? `<${o.url}>` : o.url})`;
+  const path = o.path ?? '';
+  const name = path.split('/').filter(Boolean).at(-1) ?? path;
+  return ` [${linkText(name)}](<file:${path}>)`;
+}
+
+/** `<title> [<file name>](<file:<path>>)` for a file, `[<title>](<url>)` for a URL. */
+export function outputRow(o: OutputLink): string {
+  return o.url ? `[${linkText(o.title)}]${linkPart(o)}` : `${o.title}${linkPart(o)}`;
+}
+
+/** True when the row reads as `outputRow` wrote it, whatever its title. */
+const generated = (row: string, o: OutputLink) => (o.url ? row.startsWith('[') && row.endsWith(`]${linkPart(o)}`) : row.endsWith(linkPart(o)));
+
+/** The path or URL a row's last Markdown link points at. A `file:` link gives its path. */
+export const outputRowTarget = (row: string): string | undefined => briefLinks(row).at(-1)?.target || undefined;
+
+/**
+ * Adds a row for each link the rows lack, keyed by path or URL. A row in the written shape takes
+ * a changed title in place. Rows the user wrote or reworded stay as they are.
+ */
+export function mergeOutputRows(rows: readonly string[], links: readonly OutputLink[]): string[] {
+  const next = [...rows];
+  for (const link of links) {
+    const at = next.findIndex((r) => outputRowTarget(r) === (link.url ?? link.path));
+    if (at === -1) next.push(outputRow(link));
+    else if (generated(next[at], link)) next[at] = outputRow(link);
+  }
+  return next;
 }
