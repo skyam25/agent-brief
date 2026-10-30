@@ -11,7 +11,7 @@ import { newDraftId } from '../shared/drafts';
 import { CH, type Decision, type ItemsDocInfo, type OpenFeedbackView, type OutputsInfo, type ReviewTab } from '../shared/ipc';
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
 import { isOutlinePath, parseOutline } from '../shared/outline';
-import { isMarkdownRef, isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
+import { isLocalUrl, isMarkdownRef, isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { cleanEdit, type EditResult, type HistoryResult } from '../shared/review-edit';
 import type { Briefs } from './briefs';
@@ -166,7 +166,7 @@ export class SessionFiles {
   }
 
   /**
-   * Opens an output. A link opens in the browser. An HTML file opens in the review pane.
+   * Opens an output. A local URL, as a dev server serves, opens in the review pane, and any other link in the browser. An HTML file opens in the review pane.
    * An outline opens in Write mode's outline editor. A Markdown file opens in Write mode as a
    * note filed under the session, reusing the note already open on that file. Any other file
    * opens in its default app.
@@ -175,7 +175,11 @@ export class SessionFiles {
     const { briefs, drafts, opener } = this.deps;
     if (typeof ref !== 'string' || ref.trim() === '') throw new Error('No output named');
     if (isUrlRef(ref)) {
-      await opener.openExternal(webUrl(ref, `${ref} is not a valid link`).href);
+      const url = webUrl(ref, `${ref} is not a valid link`).href;
+      if (isLocalUrl(url)) {
+        this.cwd(sessionId);
+        this.openReview(sessionId, url, tab === 'feedback' ? undefined : tab);
+      } else await opener.openExternal(url);
       return;
     }
     if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) throw new Error('Agent Brief opens only http and https links');
@@ -242,9 +246,10 @@ export class SessionFiles {
       this.deps.send(CH.openFeedbackView, open);
       return 'review';
     }
-    if (!isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file`);
+    const page = isLocalUrl(path);
+    if (!page && !isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file, or a local URL`);
     await this.openOutput(sessionId, path, tab);
-    return isReviewable(path) ? 'review' : 'note';
+    return page || isReviewable(path) ? 'review' : 'note';
   }
 
   /** A project file's absolute path, after the same checks as opening it. */
@@ -254,11 +259,17 @@ export class SessionFiles {
 
   /** Opens a project file in its default app. */
   async openElsewhere(sessionId: string, path: unknown): Promise<void> {
+    if (typeof path === 'string' && isLocalUrl(path)) return this.deps.opener.openExternal(webUrl(path, `${path} is not a valid link`).href);
     await this.deps.opener.openPath(this.projectFile(sessionId, path).target);
   }
 
   /** The address the review pane loads, after the same checks as opening the file. */
   reviewUrl(sessionId: string, path: unknown): string {
+    // A dev server's page loads as it is. Main adds the overlay once it loads.
+    if (typeof path === 'string' && isLocalUrl(path)) {
+      this.cwd(sessionId);
+      return webUrl(path, `${path} is not a valid link`).href;
+    }
     const { cwd } = this.projectFile(sessionId, path);
     if (!isReviewable(String(path))) throw new Error(`${String(path)} is not an HTML file`);
     return this.deps.reviewUrlFor(cwd, String(path).trim());

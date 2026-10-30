@@ -19,8 +19,11 @@ export interface PagePin {
 /** From the page to the pane. */
 export type FromPage =
   | { type: 'behavior-missing' }
-  /** `version` is the file's as served. `editable` is true when the page has elements edit mode can change. */
-  | { type: 'ready'; path: string; title: string; version?: string; editable?: boolean }
+  /**
+   * The page loaded, or an app moved to another route. `href` is the page's address.
+   * `version` is the file's as served. `editable` is true when the page has elements edit mode can change.
+   */
+  | { type: 'ready'; path: string; href?: string; title: string; version?: string; editable?: boolean }
   /** A new pin. `view` is the box to crop, in the frame's viewport pixels. `matches` lists the `where` selectors its element sits in. */
   | { type: 'pin'; anchor: ReviewAnchor; view: ReviewRect; matches?: string[] }
   /** The user clicked a marker. */
@@ -67,6 +70,8 @@ export type ToPage =
   | { type: 'measure'; id: string; selector: string }
   /** Selectors of feedback items, which clicks and pins report back as `matches`. */
   | { type: 'where'; selectors: string[] }
+  /** Loads another page of the same site in the frame. */
+  | { type: 'go'; href: string }
   /** Puts the page back where it rested before a reload. */
   | { type: 'scroll-to'; x: number; y: number }
   /** Highlights every match of `query` and shows the first one on screen. An empty query clears them. */

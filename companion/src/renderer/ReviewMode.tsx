@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Draft, ItemReference, SessionBriefEntry } from '../shared/ipc';
 import { awaitsUser } from '../shared/items';
-import { outputLabel, reviewStart } from '../shared/outputs';
+import { isLocalUrl, outputLabel, reviewStart } from '../shared/outputs';
 import { hasReviewContent } from '../shared/review';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { DraftRow, SectionHeader } from './DraftList';
@@ -148,6 +148,7 @@ export function ReviewMode(props: {
     <div className="write review-mode" ref={root} data-testid="review-mode">
       <nav className="draft-list" aria-label="Outputs, reviews and items" hidden={!listOpen}>
         <div className="sections">
+          {sessionId && <UrlField onOpen={openOutput} onError={props.review.onError} />}
           {sessionId && (
             <OutputsList
               store={props.outputs}
@@ -259,5 +260,40 @@ export function ReviewMode(props: {
         </div>
       )}
     </div>
+  );
+}
+
+/** A dev server's address, typed in, opens in the review pane like a page Claude made. */
+function UrlField(props: { onOpen: (url: string) => void; onError: (message: string) => void }) {
+  const [text, setText] = useState('');
+  const open = () => {
+    const typed = text.trim();
+    if (!typed) return;
+    const url = /^https?:\/\//i.test(typed) ? typed : `http://${typed}`;
+    if (!isLocalUrl(url)) {
+      props.onError('Review opens pages served on this Mac, such as http://localhost:5173.');
+      return;
+    }
+    props.onOpen(new URL(url).href);
+    setText('');
+  };
+  return (
+    <form
+      className="review-url"
+      onSubmit={(e) => {
+        e.preventDefault();
+        open();
+      }}
+    >
+      <input
+        type="text"
+        placeholder="Review a URL · localhost:5173"
+        aria-label="Review a local URL"
+        spellCheck={false}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        data-testid="review-url"
+      />
+    </form>
   );
 }

@@ -224,6 +224,30 @@ export function namedPages(reply: string, root: string): string[] {
 
 export const isHtmlPage = (path: string) => /\.html?$/i.test(path)
 
+/** Dev server addresses on this Mac that a reply names, such as http://localhost:5173/, in the order it names them. */
+export function namedLocalUrls(reply: string): string[] {
+  const urls: string[] = []
+  const local = /https?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|[\w-]+(?:\.[\w-]+)*\.(?:localhost|local))(?::\d+)?(?:[/?#][^\s<>"'`)\]]*)?/gi
+  for (const m of reply.matchAll(local)) {
+    try {
+      const href = new URL(m[0].replace(/[.,;:!?]+$/, '')).href
+      if (!urls.includes(href)) urls.push(href)
+    } catch {
+      // Not an address after all.
+    }
+  }
+  return urls
+}
+
+export const isLocalUrlRef = (ref: string) => /^https?:\/\//i.test(ref)
+
+/** A local URL as the row names it: its host, and its path past the root. */
+export function localUrlLabel(href: string): string {
+  const u = new URL(href)
+  const page = u.pathname + u.search
+  return page === '/' ? u.host : `${u.host}${page}`
+}
+
 /** An Agent Brief outline. Claude edits one through the CLI, so it never shows up as a written output. */
 export const isOutlineFile = (path: string) => /\.outline\.md$/i.test(path)
 

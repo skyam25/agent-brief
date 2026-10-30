@@ -66,6 +66,15 @@ describe('status, sessions, boards, open', () => {
     });
   });
 
+  it('hands a dev server URL to the review pane as it is', async () => {
+    app.handler = ({ method }) => ({ json: method === 'GET' ? { sessionId: 's1', cwd: '/project' } : { board: 'main', opened: 'review' } });
+    const r = await run(['open', '--output', 'http://localhost:5173/settings', '--session', 's1']);
+    expect(r.code).toBe(0);
+    expect(app.seen.at(-1)?.body).toEqual({ sessionId: 's1', output: { path: 'http://localhost:5173/settings' } });
+    expect(r.stdout).toContain('opened http://localhost:5173/settings in the review pane');
+    expect((await run(['open', '--output', 'http://localhost:5173', '--feedback', '--session', 's1'])).code).toBe(2);
+  });
+
   it('opens feedback on any file with --output --feedback', async () => {
     app.handler = ({ method }) => ({ json: method === 'GET' ? { sessionId: 's1', cwd: '/project' } : { board: 'main', opened: 'review' } });
     const r = await run(['open', '--output', '/project/brief.docx', '--feedback', '--session', 's1']);

@@ -56,6 +56,9 @@ import {
   upkeep,
   replyEndingWith,
   namedPages,
+  namedLocalUrls,
+  isLocalUrlRef,
+  localUrlLabel,
   REVIEWS_SHOWN,
   isHtmlPage,
   isOutlineFile,
@@ -697,7 +700,8 @@ async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'
 
 /**
  * The pages the row offers: HTML pages and outlines that exist, so the row never offers one the reply only plans,
- * and other Markdown files among the session's outputs, so a passing mention of a README offers nothing.
+ * other Markdown files among the session's outputs, so a passing mention of a README offers nothing,
+ * and dev servers on this Mac, which open in the review pane.
  */
 async function offeredPages($: EngineInterface, reply: string): Promise<string[]> {
   const home = await homeCwd($)
@@ -706,7 +710,7 @@ async function offeredPages($: EngineInterface, reply: string): Promise<string[]
   const found = await Promise.all(
     named.map(page => (isHtmlPage(page) || isOutlineFile(page) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : outputs.has(page))),
   )
-  return named.filter((_, i) => found[i]).slice(0, REVIEWS_SHOWN)
+  return [...named.filter((_, i) => found[i]), ...namedLocalUrls(reply)].slice(0, REVIEWS_SHOWN)
 }
 
 /** Moves the notes this turn filed onto its reply, and forgets those of replies no longer kept. */
@@ -1585,7 +1589,7 @@ export const register: Register = (on, options) => {
         <Button
           key={`reply-review-${i}`}
           plain
-          label={`${isHtmlPage(page) ? 'Review' : 'Open'} ${page.slice(page.lastIndexOf('/') + 1)}`}
+          label={isLocalUrlRef(page) ? `Review ${localUrlLabel(page)}` : `${isHtmlPage(page) ? 'Review' : 'Open'} ${page.slice(page.lastIndexOf('/') + 1)}`}
           onPress={() => void openOutputInApp($, page)}
         />
       )),

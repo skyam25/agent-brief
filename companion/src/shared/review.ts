@@ -4,6 +4,7 @@ import { behaviorMarkdown, parseBehavior } from './behavior';
 
 import { ATTACHMENT_ID } from './attachments';
 import { feedbackPath } from './feedback';
+import { isLocalUrl } from './outputs';
 
 export interface ReviewRect {
   x: number;
@@ -30,6 +31,8 @@ export interface ReviewAnchor {
   rect: ReviewRect;
   scrollY: number;
   viewport: { width: number; height: number };
+  /** The page the pin sits on, when a link moved the pane off the review's own page. A project path, or a path and query on the review's site. */
+  page?: string;
 }
 
 export interface ReviewComment {
@@ -43,9 +46,9 @@ export interface ReviewComment {
   feedback?: number[];
 }
 
-/** What makes a draft a review: the HTML file it looks at and the pins on it. */
+/** What makes a draft a review: the page it looks at and the pins on it. */
 export interface DraftReview {
-  /** The HTML file under review, relative to the session's project. */
+  /** The HTML file under review, relative to the session's project, or a local URL a dev server serves. */
   path: string;
   comments: ReviewComment[];
   /** Specification snapshot captured for this handoff; canonical rules live beside the prototype. */
@@ -64,8 +67,21 @@ export const MAX_EDITS = 200;
 const COMMENT_ID = /^[\w-]{1,40}$/;
 const HTML = /\.html?$/i;
 
-/** True for a path the review pane opens. */
+/** True for an HTML file the review pane opens. */
 export const isReviewable = (path: string) => HTML.test(path);
+
+/** True for anything the review pane opens: an HTML file, or a local URL. */
+export const opensInReview = (ref: string) => isLocalUrl(ref) || (!/^[a-z][a-z0-9+.-]*:/i.test(ref) && isReviewable(ref));
+
+/** A review page's key on a site: its path and query, so a route change in an app is a new page. */
+export function sitePage(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search;
+  } catch {
+    return url;
+  }
+}
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -84,6 +100,7 @@ function cleanAnchor(raw: unknown): ReviewAnchor | undefined {
   const quote = clip(raw.quote, 2000);
   const text = clip(raw.text, 500);
   const heading = clip(raw.heading, 300);
+  const page = clip(raw.page, 1024);
   return {
     selector,
     tag: clip(raw.tag, 40)?.toLowerCase() ?? 'element',
@@ -95,6 +112,7 @@ function cleanAnchor(raw: unknown): ReviewAnchor | undefined {
     rect: cleanRect(raw.rect),
     scrollY: num(raw.scrollY),
     viewport: { width: num(view.width), height: num(view.height) },
+    ...(page ? { page } : {}),
   };
 }
 
@@ -159,16 +177,20 @@ export const baseName = (path: string) => path.split('/').filter(Boolean).at(-1)
  * as Claude should open it, or undefined when the picture did not make it.
  */
 export function reviewMarkdown(review: ReviewPayload, picturePath: (id: string) => string | undefined): string {
+  const site = isLocalUrl(review.path);
   const lines = [
     `# Review of ${review.path}`,
     '',
-    'Comments pinned to elements of the page in Agent Brief. Each names its element with a CSS selector, the text it showed, and the nearest heading above it.',
+    site
+      ? `Comments pinned to elements of the running app at ${review.path} in Agent Brief. Each names its element with a CSS selector, the text it showed, and the nearest heading above it. Find the source behind each element in this project.`
+      : 'Comments pinned to elements of the page in Agent Brief. Each names its element with a CSS selector, the text it showed, and the nearest heading above it.',
   ];
   const overall = review.body?.trim();
   if (overall) lines.push('', '## Overall', '', overall);
   review.comments.forEach((c, i) => {
     const a = c.anchor;
     lines.push('', `## ${i + 1}. ${anchorLabel(a)}`, '', c.text.trim() || '(No words. The pin marks this element.)', '');
+    if (a.page) lines.push(`- Page: ${a.page}`);
     lines.push(`- Element: \`${a.selector.replace(/`/g, '\\`')}\``);
     if (a.heading) lines.push(`- Under heading: “${cut(oneLine(a.heading), 120)}”`);
     if (a.quote) lines.push(`- Selected text: “${cut(oneLine(a.quote), 400)}”`);
@@ -201,10 +223,15 @@ export function reviewAsk(review: ReviewPayload): string {
   if (e && !n && !review.body?.trim()) {
     return `Review of ${review.path} from Agent Brief: ${editCount(e)} made in the pane, already saved in the file. Check them and tidy the markup where it needs it, then say what changed.`;
   }
-  const what = n ? `${commentCount(n)} pinned to the page` : 'an overall note';
+  const pages = review.comments.some((c) => c.anchor.page);
+  const what = n ? `${commentCount(n)} pinned to the ${pages ? 'pages' : 'page'}` : 'an overall note';
+  if (isLocalUrl(review.path)) {
+    return `Review of the running app at ${review.path} from Agent Brief, ${what}. Find the source behind each pinned element in this project and make the changes, then say what changed.`;
+  }
   const saved = e ? `, plus ${editCount(e)} already saved in the file` : '';
   const items = review.comments.some((c) => c.feedback)
     ? ' Some pins name feedback items. Follow the feedback-items skill: log a Review line on each named item, and catalog a pin that matches no item as a new item when it is new feedback.'
     : '';
-  return `Review of ${review.path} from Agent Brief, ${what}${saved}. Make the changes in ${review.path}, then say what changed.${items}`;
+  const where = pages ? `${review.path} and the other pages the comments name` : review.path;
+  return `Review of ${review.path} from Agent Brief, ${what}${saved}. Make the changes in ${where}, then say what changed.${items}`;
 }

@@ -3,7 +3,8 @@ import { BehaviorPanel } from './BehaviorPanel';
 import { FeedbackPanel, openCount, useFeedbackDoc, type FeedbackHost, type SendFeedback } from './FeedbackPanel';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { CompanionApi, Draft } from '../shared/ipc';
-import { anchorLabel, baseName, commentCount, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
+import { isLocalUrl } from '../shared/outputs';
+import { anchorLabel, baseName, commentCount, sitePage, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
 import type { InsertKind, ReviewEdit, SelectedElement } from '../shared/review-edit';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from '../review/messages';
 import type { DraftBook } from './drafts';
@@ -57,11 +58,15 @@ function cropRect(frame: DOMRect, view: ReviewRect): ReviewRect {
   return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
+/** Where a page sits on its site, as the pane keys pins: a project path, or a dev server's path and query. */
+const siteHref = (site: boolean, base: string, page: string) =>
+  site ? new URL(page, base).href : new URL(`/${page.split('/').map(encodeURIComponent).join('/')}`, base).href;
+
 /**
- * Reviews a session's HTML file: the live page on the left, its pinned comments
- * on the right. Comment mode turns a click or a text selection into a pin, and
- * the mic sends what you say to the selected pin. Edit mode changes the page's
- * elements in place and saves each change to the file, with the inspector on the right.
+ * Reviews a session's HTML file, or a page a dev server on this Mac serves: the live page on the left,
+ * its pinned comments on the right. Comment mode turns a click or a text selection into a pin, and
+ * the mic sends what you say to the selected pin. Pins keep the page they sit on, so a link can lead on.
+ * Edit mode changes a file's elements in place and saves each change to the file, with the inspector on the right.
  */
 export function ReviewView(props: {
   host: ReviewHost;
@@ -84,15 +89,20 @@ export function ReviewView(props: {
   const { book, draft, host } = props;
   const voice = useStore(props.voice);
   const { review } = draft;
+  /** A dev server's page, which has no file behind it to edit, watch or give feedback items. */
+  const site = isLocalUrl(review.path);
+  const fileSession = site ? undefined : draft.sessionId;
+  /** The review's own page, as pins key it. */
+  const home = site ? sitePage(review.path) : review.path;
   const [side, setSide] = useState<'comments' | 'behavior' | 'feedback'>('comments');
   const sideRef = useRef(side);
   sideRef.current = side;
-  const feedback = useFeedbackDoc(host, draft.sessionId, review.path);
+  const feedback = useFeedbackDoc(host, fileSession, review.path);
   const [behavior, setBehavior] = useState<BehaviorDocument>();
   const [behaviorError, setBehaviorError] = useState<string>();
   const behaviorRequest = useRef(0);
   const loadBehavior = useCallback(async () => {
-    if (!draft.sessionId) return;
+    if (!draft.sessionId || site) return;
     const request = ++behaviorRequest.current;
     try {
       const doc = await host.readBehavior(draft.sessionId, review.path);
@@ -101,7 +111,7 @@ export function ReviewView(props: {
       setBehaviorError(undefined);
       book.setBehavior(draft.id, doc);
     } catch (err) { if (request === behaviorRequest.current) setBehaviorError((err as Error).message); }
-  }, [host, book, draft.id, draft.sessionId, review.path]);
+  }, [host, book, draft.id, draft.sessionId, review.path, site]);
   useEffect(() => {
     setBehavior(undefined);
     void loadBehavior();
@@ -191,10 +201,15 @@ export function ReviewView(props: {
 
   const [activeId, setActiveId] = useState<string>();
   const [missing, setMissing] = useState<string[]>([]);
+  /** The page the frame shows, keyed as pins key it. */
   const [pagePath, setPagePath] = useState<string>();
+  const pageHref = useRef<string>(undefined);
   /** Counts page loads, so a page a link opened hears the pane's modes too. */
   const [pageLoads, setPageLoads] = useState(0);
-  const onPage = pagePath === undefined || pagePath === review.path;
+  const onPage = pagePath === undefined || pagePath === home;
+  const shownPage = pagePath ?? home;
+  /** A comment picked on another page, shown once that page loads. */
+  const showOnLoad = useRef<string>(undefined);
   /** The feedback items on the element clicked last. */
   const [pointed, setPointed] = useState<number[]>();
   /** The feedback item the next pin joins. */
@@ -204,8 +219,8 @@ export function ReviewView(props: {
   // The latest values, for the message handler.
   // Edits go to the page the frame shows, which a link may have moved off the output.
   const editPath = pagePath ?? review.path;
-  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, editPath, commenting, editing, onPage, items, picked });
-  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, editPath, commenting, editing, onPage, items, picked };
+  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, home, site, editPath, shownPage, commenting, editing, onPage, items, picked });
+  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, home, site, editPath, shownPage, commenting, editing, onPage, items, picked };
   /** The items whose `Where:` is among the selectors an element matched. */
   const itemsAt = useCallback((matches: string[] = []) => live.current.items.filter((i) => i.where && matches.includes(i.where)).map((i) => i.n), []);
 
@@ -293,7 +308,7 @@ export function ReviewView(props: {
     },
     [host, post, pageReady],
   );
-  const workspace = useItemWorkspace({ host, sessionId: draft.sessionId, path: review.path, capture, onError: props.onError });
+  const workspace = useItemWorkspace({ host, sessionId: fileSession, path: review.path, capture, onError: props.onError });
   const layerOpen = useRef(false);
   layerOpen.current = !!workspace.open;
 
@@ -321,7 +336,7 @@ export function ReviewView(props: {
   }, [loadBehavior]);
 
   // An outside write to the file reloads the page where it rested. A linked page the user went to stays.
-  useOutputWatch(host, draft.sessionId, review.path, () => {
+  useOutputWatch(host, fileSession, review.path, () => {
     if (!live.current.onPage) return;
     restore.current = scroll.current;
     reload();
@@ -363,13 +378,13 @@ export function ReviewView(props: {
       const box = frame.current?.getBoundingClientRect();
       const current = book.get(live.current.draftId);
       if (!box || !current?.review) return;
-      // With feedback items, a pin joins the picked item, else the items on its element.
-      const { picked } = live.current;
-      const feedback = live.current.items.length ? (picked !== undefined ? [picked] : itemsAt(matches)) : undefined;
+      // With feedback items, a pin on the output joins the picked item, else the items on its element.
+      const { picked, onPage, shownPage } = live.current;
+      const feedback = live.current.items.length && onPage ? (picked !== undefined ? [picked] : itemsAt(matches)) : undefined;
       setPicked(undefined);
       const room = Object.keys(current.attachments ?? {}).length < MAX_PICTURES;
       const picture = room ? await host.capturePanel(cropRect(box, view)).catch(() => undefined) : undefined;
-      const comment: ReviewComment = { id: newCommentId(), text: '', anchor, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}), ...(feedback ? { feedback } : {}) };
+      const comment: ReviewComment = { id: newCommentId(), text: '', anchor: onPage ? anchor : { ...anchor, page: shownPage }, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}), ...(feedback ? { feedback } : {}) };
       book.addComment(current.id, comment, picture);
       pickSide('comments');
       select(comment.id, true);
@@ -386,12 +401,16 @@ export function ReviewView(props: {
         for (const fn of [...readyWaiters.current]) fn();
         setLoaded(true);
         setSilent(false);
-        setPagePath(m.path);
+        const page = live.current.site && m.href ? sitePage(m.href) : m.path;
+        pageHref.current = m.href;
+        setPagePath(page);
         setPageEditable(!!m.editable);
         setSelected(null);
         setPageLoads((n) => n + 1);
-        if (restore.current && m.path === live.current.path) post({ type: 'scroll-to', ...restore.current });
+        if (restore.current && page === live.current.home) post({ type: 'scroll-to', ...restore.current });
         restore.current = undefined;
+        if (showOnLoad.current) post({ type: 'show', id: showOnLoad.current });
+        showOnLoad.current = undefined;
       }
       if (m.type === 'scrolled') scroll.current = { x: m.x, y: m.y };
       if (m.type === 'edit') void saveEdit(m.version, m.edit);
@@ -399,7 +418,7 @@ export function ReviewView(props: {
       if (m.type === 'reload') reload();
       if (m.type === 'key' && m.key === 'e') setEditing((on) => !on);
       if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
-      if (m.type === 'pin' && live.current.onPage) void addPin(m.anchor, m.view, m.matches);
+      if (m.type === 'pin') void addPin(m.anchor, m.view, m.matches);
       if (m.type === 'pointed') setPointed(itemsAt(m.matches));
       if (m.type === 'open-pin') select(m.id, true);
       if (m.type === 'behavior-missing') props.onError(sideRef.current === 'feedback' ? 'That element is not on the page now. Ask Claude to update the item\'s Where line.' : 'That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');
@@ -469,16 +488,16 @@ export function ReviewView(props: {
     return () => window.removeEventListener('keydown', onKey);
   }, [history, setCommenting, setEditing, openFind, closeFind, post]);
 
-  const pins: PagePin[] = onPage
-    ? review.comments.map((c, i) => ({ id: c.id, n: i + 1, selector: c.anchor.selector, fx: c.anchor.fx, fy: c.anchor.fy, active: c.id === activeId }))
-    : [];
+  const pins: PagePin[] = review.comments.flatMap((c, i) =>
+    (c.anchor.page ?? home) === shownPage ? [{ id: c.id, n: i + 1, selector: c.anchor.selector, fx: c.anchor.fx, fy: c.anchor.fy, active: c.id === activeId }] : [],
+  );
   const pinKey = JSON.stringify(pins);
   useEffect(() => {
     if (loaded) post({ type: 'pins', pins });
   }, [loaded, pinKey, post]);
   useEffect(() => {
-    if (loaded) post({ type: 'commenting', on: commenting && onPage });
-  }, [loaded, pageLoads, commenting, onPage, post]);
+    if (loaded) post({ type: 'commenting', on: commenting });
+  }, [loaded, pageLoads, commenting, post]);
   const isEditing = editing && pageEditable;
   useEffect(() => {
     if (loaded) post({ type: 'editing', on: isEditing });
@@ -494,7 +513,21 @@ export function ReviewView(props: {
   };
 
   const openElsewhere = () => {
-    if (draft.sessionId) void host.openOutputElsewhere(draft.sessionId, review.path).catch((err: Error) => props.onError(err.message));
+    if (site) void host.openLink(pageHref.current ?? review.path).catch(() => props.onError('Could not open that link.'));
+    else if (draft.sessionId) void host.openOutputElsewhere(draft.sessionId, review.path).catch((err: Error) => props.onError(err.message));
+  };
+
+  /** Shows a comment's pin, loading its page first when the frame is elsewhere. */
+  const showComment = (c: ReviewComment) => {
+    select(c.id);
+    const page = c.anchor.page ?? home;
+    if (page === shownPage || !url) {
+      post({ type: 'show', id: c.id });
+      return;
+    }
+    showOnLoad.current = c.id;
+    if (page === home) reload();
+    else post({ type: 'go', href: siteHref(site, url, page) });
   };
   const sendKeys = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && e.metaKey) {
@@ -507,7 +540,8 @@ export function ReviewView(props: {
     if (activeId === id) select(undefined);
   };
 
-  const src = url && (reloads ? `${url}?reload=${reloads}` : url);
+  // A dev server's address keeps its query, which names the page, so a reload remounts the frame instead.
+  const src = url && (reloads && !site ? `${url}?reload=${reloads}` : url);
   const count = review.comments.length;
 
   return (
@@ -523,21 +557,21 @@ export function ReviewView(props: {
         >
           <SidebarIcon />
         </button>
-        <span className="review-title" title={review.path}>
-          Review <span className="muted">· {baseName(review.path)}</span>
+        <span className="review-title" title={site ? (pageHref.current ?? review.path) : review.path}>
+          Review <span className="muted">· {site ? `${new URL(review.path).host}${shownPage === '/' ? '' : shownPage}` : baseName(review.path)}</span>
         </span>
         <span className="spacer" />
         <button
-          className={commenting && onPage ? 'chip on' : 'chip'}
-          aria-pressed={commenting && onPage}
-          disabled={!onPage || silent}
+          className={commenting ? 'chip on' : 'chip'}
+          aria-pressed={commenting}
+          disabled={silent}
           title={commenting ? 'Stop commenting (Esc)' : 'Click or select on the page to pin a comment (C)'}
           onClick={() => setCommenting((on) => !on)}
           data-testid="review-comment"
         >
           <CommentIcon /> Comment <kbd>C</kbd>
         </button>
-        <button
+        {!site && <button
           className={isEditing ? 'chip on' : 'chip'}
           aria-pressed={isEditing}
           disabled={silent || !pageEditable}
@@ -546,7 +580,7 @@ export function ReviewView(props: {
           data-testid="review-edit"
         >
           <PencilIcon /> Edit <kbd>E</kbd>
-        </button>
+        </button>}
         <button className="ghost icon-button" title="Reload the page" aria-label="Reload the page" onClick={reload} data-testid="review-reload">
           <ReloadIcon />
         </button>
@@ -557,11 +591,11 @@ export function ReviewView(props: {
           <ExternalIcon />
         </button>
       </header>
-      <div className={commenting && onPage ? 'review-page commenting' : isEditing ? 'review-page editing' : 'review-page'}>
+      <div className={commenting ? 'review-page commenting' : isEditing ? 'review-page editing' : 'review-page'}>
         {finding !== undefined && !silent && <PageFind frame={frame} post={post} focusKey={finding} onClose={closeFind} />}
         {src && (
           <iframe
-            key={src}
+            key={`${src}|${reloads}`}
             ref={frame}
             src={src}
             title={`Page under review: ${review.path}`}
@@ -578,18 +612,18 @@ export function ReviewView(props: {
             </button>
           </div>
         )}
-        {!onPage && (
+        {!onPage && !site && (
           <div className="review-banner" data-testid="review-elsewhere">
-            Showing {pagePath}. Edits save to it, and pins stay on {baseName(review.path)}.
+            Showing {pagePath}. Pins and edits here go with that page.
             <button className="ghost link" onClick={reload}>
               Go back
             </button>
           </div>
         )}
         {silent && <div className="review-banner">This page blocks the script that adds pins. Comment in the overall note instead.</div>}
-        {commenting && onPage && loaded && (
+        {commenting && loaded && (
           <div className="review-hint" data-testid="review-hint">
-            Click to pin · drag across text to quote · <kbd>Esc</kbd> to browse
+            Click to pin · drag across text to quote · <kbd>⌘</kbd>-click a link to follow it · <kbd>Esc</kbd> to browse
           </div>
         )}
         {isEditing && loaded && !selected && (
@@ -624,11 +658,11 @@ export function ReviewView(props: {
         />
       ) : (
         <aside className="review-notes" aria-label="Review details">
-          <div className="behavior-tabs" role="tablist" aria-label="Review details">
+          {!site && <div className="behavior-tabs" role="tablist" aria-label="Review details">
             <button className={side === 'comments' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'comments'} onClick={() => pickSide('comments')}>Comments</button>
             <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { pickSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
             <button className={side === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'feedback'} data-testid="feedback-tab" onClick={() => { showFeedback(); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>
-          </div>
+          </div>}
           {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} pointed={pointed} picked={picked} onPick={setPicked} onOpenItem={props.onOpenFeedbackItem} onWorkspace={(item) => { setCommenting(false); void workspace.openItem(item); }} workspaceOpening={workspace.opening} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
 
           <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
@@ -660,10 +694,7 @@ export function ReviewView(props: {
                   active={c.id === activeId}
                   missing={missing.includes(c.id)}
                   voice={voice}
-                  onSelect={() => {
-                    select(c.id);
-                    post({ type: 'show', id: c.id });
-                  }}
+                  onSelect={() => showComment(c)}
                   onEdit={(text) => book.editComment(draft.id, c.id, text)}
                   onRemove={() => remove(c.id)}
                   onKeyDown={sendKeys}
@@ -724,6 +755,11 @@ function CommentCard(props: {
           <TrashIcon />
         </button>
       </div>
+      {c.anchor.page && (
+        <span className="muted review-card-page" title="The page this pin sits on" data-testid="review-card-page">
+          on {c.anchor.page}
+        </span>
+      )}
       {c.anchor.quote && (
         <blockquote className="review-quote" data-testid="review-quote">
           {c.anchor.quote}

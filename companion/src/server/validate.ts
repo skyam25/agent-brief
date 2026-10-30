@@ -24,8 +24,8 @@ import type {
   UpdateRequest,
 } from '../protocol';
 import { sectionBreak } from '../shared/brief-sections';
-import { isMarkdownRef } from '../shared/outputs';
-import { isReviewable } from '../shared/review';
+import { isMarkdownRef, isUrlRef } from '../shared/outputs';
+import { opensInReview } from '../shared/review';
 import type { Region } from './contract';
 
 export class BadRequest extends Error {}
@@ -255,7 +255,8 @@ function openOutput(o: Obj): OpenRequest['output'] {
   const path = reqString(output, 'path', 'body.output').trim();
   const tab = optString(output, 'tab', 'body.output');
   if (tab !== undefined && tab !== 'feedback') fail('body.output.tab must be feedback');
-  if (tab !== 'feedback' && !isMarkdownRef(path) && !isReviewable(path)) fail('body.output.path must be a Markdown (.md, .markdown, .mdx) or HTML (.html, .htm) file, or request its Feedback tab');
+  if (tab === 'feedback' && isUrlRef(path)) fail('body.output.tab feedback needs a project file');
+  if (tab !== 'feedback' && !isMarkdownRef(path) && !opensInReview(path)) fail('body.output.path must be a Markdown (.md, .markdown, .mdx) or HTML (.html, .htm) file, a local URL such as http://localhost:5173, or request its Feedback tab');
   if (!path) fail('body.output.path is required');
   if (o.sessionId === undefined) fail('body.output needs body.sessionId');
   return { path, ...(tab ? { tab } : {}) };

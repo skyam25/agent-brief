@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { REPLIES_KEPT, REVIEWS_SHOWN, filedNote, keepNote, keepReply, namedPages, replyEndingWith } from '../hooks/companion-logic'
+import { REPLIES_KEPT, REVIEWS_SHOWN, filedNote, keepNote, keepReply, localUrlLabel, namedLocalUrls, namedPages, replyEndingWith } from '../hooks/companion-logic'
 import { SESSION_ID, setupCompanion } from './companion-world'
 import { CWD, textOf } from './world'
 
@@ -64,6 +64,13 @@ describe('which pages and notes the row offers', () => {
   test('skips pages outside the project, URLs and names inside longer words', () => {
     const reply = '/elsewhere/a.html ../b.html https://x.com/c.html d.html5 e.htmlx /proj/f.html'
     expect(namedPages(reply, '/proj/')).toEqual(['f.html'])
+  })
+
+  test('reads dev servers on this Mac, not other sites', () => {
+    const reply = 'Running at http://localhost:5173. Settings: http://localhost:5173/settings?tab=2, (http://127.0.0.1:3000/) and https://example.com/a and http://app.local:8080'
+    expect(namedLocalUrls(reply)).toEqual(['http://localhost:5173/', 'http://localhost:5173/settings?tab=2', 'http://127.0.0.1:3000/', 'http://app.local:8080/'])
+    expect(localUrlLabel('http://localhost:5173/')).toBe('localhost:5173')
+    expect(localUrlLabel('http://localhost:5173/settings?tab=2')).toBe('localhost:5173/settings?tab=2')
   })
 
   test('reads the note `agent-brief note` filed, and keeps one entry per note', () => {

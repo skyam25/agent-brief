@@ -24,6 +24,19 @@ export function outputLabel(r: OutputRecord): string {
 
 export const isUrlRef = (ref: string): boolean => /^https?:\/\//i.test(ref);
 
+/** Hosts a dev server answers on this Mac. */
+const LOCAL_HOST = /^(localhost|127(\.\d{1,3}){3}|0\.0\.0\.0|[\w-]+(\.[\w-]+)*\.(localhost|local))$/i;
+
+/** True for an http or https link to this Mac, as a dev server serves it. The review pane opens these. */
+export function isLocalUrl(ref: string): boolean {
+  if (!isUrlRef(ref)) return false;
+  try {
+    return LOCAL_HOST.test(new URL(ref).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** True for a path Write mode opens as a note. */
 export const isMarkdownRef = (ref: string): boolean => /\.(md|markdown|mdx)$/i.test(ref);
 

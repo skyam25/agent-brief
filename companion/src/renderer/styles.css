@@ -1574,6 +1574,17 @@ button.stop-talk:hover {
   padding: 0 8px 12px;
 }
 
+.review-url {
+  display: flex;
+  padding: 8px 0 0;
+}
+
+.review-url input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+}
+
 .draft-list h3 {
   display: flex;
   align-items: center;
@@ -3328,6 +3339,14 @@ button.stop-talk:hover {
   font-size: 11px;
   color: var(--error);
   background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+.review-card-page {
+  display: block;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .review-quote {

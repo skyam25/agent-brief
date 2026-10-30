@@ -6,6 +6,7 @@ import { captureSession, FeedbackSnaps, offscreenCapture } from './feedback-snap
 import { OutlineStore } from './outline';
 import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -21,6 +22,7 @@ import {
   session,
   shell,
   systemPreferences,
+  webFrameMain,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { defaultSocketPath, SOCKET_ENV, type OpenResponse, type SessionsResponse } from '../protocol';
@@ -46,7 +48,7 @@ import {
   type Theme,
 } from '../shared/ipc';
 import { newDraftId } from '../shared/drafts';
-import { isMarkdownRef, isUrlRef } from '../shared/outputs';
+import { isLocalUrl, isMarkdownRef, isUrlRef } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { createBoardBackend } from './backend';
 import { Briefs } from './briefs';
@@ -168,15 +170,25 @@ async function start(): Promise<void> {
   // Pages in the review pane get nothing.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
     const media = details as { mediaTypes?: string[] };
-    if (details.requestingUrl?.startsWith(`${REVIEW_SCHEME}:`)) return callback(false);
+    if (details.requestingUrl?.startsWith(`${REVIEW_SCHEME}:`) || !details.isMainFrame) return callback(false);
     callback(permission === 'media' && (media.mediaTypes ?? []).every((t) => t === 'audio'));
   });
 
-  // The review pane: project files over their own scheme, and a frame that stays on it.
+  // The review pane: project files over their own scheme, or a dev server on this Mac, and a frame that stays on them.
   const reviewRoots = new ReviewRoots();
   protocol.handle(REVIEW_SCHEME, (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
   panel.win.webContents.on('will-frame-navigate', (e) => {
-    if (!e.isMainFrame && !e.url.startsWith(`${REVIEW_SCHEME}://`) && e.url !== 'about:blank') e.preventDefault();
+    if (!e.isMainFrame && !e.url.startsWith(`${REVIEW_SCHEME}://`) && !isLocalUrl(e.url) && e.url !== 'about:blank') e.preventDefault();
+  });
+
+  // A dev server's page gets the overlay once it loads, since the app does not serve it.
+  panel.win.webContents.on('did-frame-finish-load', (_e, isMainFrame, processId, routingId) => {
+    if (isMainFrame) return;
+    const frame = webFrameMain.fromId(processId, routingId);
+    if (!frame || frame.parent !== panel.win.webContents.mainFrame || !isLocalUrl(frame.url)) return;
+    void readFile(overlayFileFrom(__dirname), 'utf8')
+      .then((overlay) => frame.executeJavaScript(overlay))
+      .catch(() => undefined);
   });
 
   const voiceDir = join(app.getPath('temp'), 'agent-brief-voice');

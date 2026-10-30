@@ -23,10 +23,13 @@ const ACCENT = '#6965db';
 const HEADINGS = 'h1, h2, h3, h4, h5, h6';
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
+
+/** A link to the site the frame shows: the same project folder, or the same dev server. */
+const sameSite = (url: URL) => url.protocol === location.protocol && url.host === location.host;
 const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
-/** Only the page the pane frames talks to it, not frames nested inside that page. */
-if (window.parent !== window && window.parent === window.top) start();
+/** Only the page the pane frames talks to it, not frames nested inside that page. Main may add it to a page twice. */
+if (window.parent !== window && window.parent === window.top && !document.querySelector('agent-brief-overlay')) start();
 
 function start(): void {
   const post = (m: FromPage) => window.parent.postMessage({ source: REVIEW_SOURCE, ...m }, '*');
@@ -62,6 +65,9 @@ function start(): void {
     wheres.filter((s) => {
       try { return !!el.closest(s); } catch { return false; }
     });
+
+  /** The link a ⌘-click or Ctrl-click lands on, which comment mode follows instead of pinning. */
+  const followed = (e: MouseEvent) => ((e.metaKey || e.ctrlKey) && e.target instanceof Element ? e.target.closest('a[href]') : null);
 
   /** The overlay's own elements sit in a closed shadow root, out of the page's CSS. */
   function mount(): void {
@@ -244,8 +250,18 @@ function start(): void {
   function placeHover(): void {
     if (!hover) return;
     const el = commenting && pointer ? commentable(document.elementFromPoint(pointer.x, pointer.y)) : undefined;
-    if (!el) hover.style.display = 'none';
+    if (!el || following) hover.style.display = 'none';
     else place(hover, el.getBoundingClientRect());
+  }
+
+  /** ⌘ or Ctrl is down in comment mode, so a click on a link follows it. */
+  let following = false;
+  function setFollowing(on: boolean): void {
+    if (on === following) return;
+    following = on;
+    if (on) document.documentElement.setAttribute('data-agent-brief-following', '');
+    else document.documentElement.removeAttribute('data-agent-brief-following');
+    placeHover();
   }
 
   let queued = false;
@@ -359,6 +375,10 @@ function start(): void {
     if (m.type === 'show') show(m.id);
     if (m.type === 'where') wheres = m.selectors.filter((s) => typeof s === 'string').slice(0, 500);
     if (m.type === 'scroll-to' && Number.isFinite(m.x) && Number.isFinite(m.y)) scrollTo({ left: m.x, top: m.y, behavior: 'instant' });
+    if (m.type === 'go' && typeof m.href === 'string') {
+      const url = new URL(m.href, location.href);
+      if (sameSite(url)) location.assign(url.href);
+    }
     if (m.type === 'show-behavior') {
       let element: Element | null = null;
       try { if (document.querySelectorAll(m.selector).length === 1) element = document.querySelector(m.selector); } catch { /* stale or invalid target */ }
@@ -404,14 +424,18 @@ function start(): void {
 
   function listen(): void {
     const cursor = document.createElement('style');
-    cursor.textContent = 'html[data-agent-brief-commenting], html[data-agent-brief-commenting] * { cursor: crosshair !important; }';
+    cursor.textContent = `html[data-agent-brief-commenting], html[data-agent-brief-commenting] * { cursor: crosshair !important; }
+      html[data-agent-brief-commenting][data-agent-brief-following] a[href], html[data-agent-brief-commenting][data-agent-brief-following] a[href] * { cursor: pointer !important; }`;
     document.head.append(cursor);
 
     document.addEventListener(
       'pointermove',
       (e) => {
         pointer = { x: e.clientX, y: e.clientY };
-        if (commenting) placeHover();
+        if (commenting) {
+          setFollowing(e.metaKey || e.ctrlKey);
+          placeHover();
+        }
       },
       true,
     );
@@ -426,7 +450,7 @@ function start(): void {
         (e) => {
           if (type === 'pointerdown') swallowClick = false;
           if (type === 'pointerdown' && shown && !(e.target instanceof Node && shown.contains(e.target))) hideShown();
-          if (commenting && !ours(e.target)) e.stopPropagation();
+          if (commenting && !ours(e.target) && !followed(e as MouseEvent)) e.stopPropagation();
         },
         true,
       );
@@ -434,7 +458,7 @@ function start(): void {
     document.addEventListener(
       'mouseup',
       (e) => {
-        if (!commenting || ours(e.target)) return;
+        if (!commenting || ours(e.target) || followed(e)) return;
         e.stopPropagation();
         const sel = getSelection();
         if (sel && !sel.isCollapsed && pinSelection(sel)) swallowClick = selectionPinned = true;
@@ -446,7 +470,7 @@ function start(): void {
       (e) => {
         if (ours(e.target)) return;
         if (wheres.length && e.target instanceof Element) post({ type: 'pointed', matches: matching(e.target) });
-        if (commenting) {
+        if (commenting && !followed(e)) {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
@@ -468,11 +492,13 @@ function start(): void {
         }
         const url = new URL(link.href, location.href);
 
-        // The project's own pages open here, even from ⌘-click or a link that asks for a new window.
-        if (url.protocol === location.protocol) {
+        // The site's own pages open here, even from ⌘-click or a link that asks for a new window.
+        if (sameSite(url)) {
           if (e.metaKey || e.ctrlKey || link.target === '_blank') {
             e.preventDefault();
-            location.assign(url.href);
+
+            // The press finishes before the page goes, so the click is not cut off mid-event.
+            setTimeout(() => location.assign(url.href));
           }
           return;
         }
@@ -484,6 +510,8 @@ function start(): void {
     document.addEventListener(
       'keydown',
       (e) => {
+        if (commenting && (e.key === 'Meta' || e.key === 'Control')) setFollowing(true);
+
         // ⌘F and ⌘G find in the pane's bar, since the page has focus.
         const key = e.key.toLowerCase();
         if (e.metaKey && !e.ctrlKey && !e.altKey && (key === 'f' || key === 'g')) {
@@ -505,6 +533,10 @@ function start(): void {
       },
       true,
     );
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'Meta' || e.key === 'Control') setFollowing(false);
+    }, true);
+    addEventListener('blur', () => setFollowing(false));
     addEventListener('scroll', layout, { capture: true, passive: true });
     // The pane keeps where the page rests, so a reload can put it back.
     let resting: ReturnType<typeof setTimeout> | undefined;
@@ -515,18 +547,32 @@ function start(): void {
     addEventListener('resize', layout);
     // Pages that animate or load late move elements without a scroll.
     setInterval(layout, 1000);
+
+    // An app that changes its route without a load is on a new page, so the pane hears ready again.
+    const routed = () => {
+      if (location.pathname + location.search === at) return;
+      at = location.pathname + location.search;
+      hello();
+    };
+    let at = location.pathname + location.search;
+    addEventListener('popstate', routed);
+    (window as { navigation?: EventTarget }).navigation?.addEventListener('currententrychange', routed);
+    setInterval(routed, 1000);
   }
 
+  const hello = () =>
+    post({
+      type: 'ready',
+      path: decodeURIComponent(location.pathname).replace(/^\/+/, ''),
+      href: location.href,
+      title: document.title,
+      ...(VERSION ? { version: VERSION, editable: !!document.body?.querySelector(`[${AT_ATTR}]`) } : {}),
+    });
   const ready = () => {
     mount();
     listen();
     drawPins(pins);
-    post({
-      type: 'ready',
-      path: decodeURIComponent(location.pathname).replace(/^\/+/, ''),
-      title: document.title,
-      ...(VERSION ? { version: VERSION, editable: !!document.body?.querySelector(`[${AT_ATTR}]`) } : {}),
-    });
+    hello();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once: true });
   else ready();

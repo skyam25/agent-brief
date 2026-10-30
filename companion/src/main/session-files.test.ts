@@ -89,6 +89,15 @@ describe('SessionFiles', () => {
     expect(opened).toEqual([join(cwd, 'deck.pdf'), 'https://example.com/doc']);
   });
 
+  it('opens a dev server on this Mac in the review pane, and serves its own address there', async () => {
+    expect(await files.openDocument('s1', 'http://localhost:5173')).toBe('review');
+    expect(last(CH.newNote)).toMatchObject({ sessionId: 's1', review: { path: 'http://localhost:5173/', comments: [] } });
+    expect(files.reviewUrl('s1', 'http://localhost:5173/')).toBe('http://localhost:5173/');
+    await files.openElsewhere('s1', 'http://localhost:5173/');
+    expect(opened).toEqual(['http://localhost:5173/']);
+    await expect(files.openDocument('nope', 'http://localhost:5173')).rejects.toThrow('does not know session');
+  });
+
   it('opens an outline in a draft titled from the file, once per session', async () => {
     mkdirSync(join(cwd, 'docs'));
     writeFileSync(join(cwd, 'docs', 'memo.outline.md'), '# Onboarding memo\n\nKind: document\n');

@@ -833,7 +833,10 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     // A note opens under its owner, so only boards and outputs take the session.
     const session = note === undefined ? await openSession(ctx, output !== undefined) : undefined;
     if (session) body.sessionId = session.sessionId;
-    if (output !== undefined) body.output = { path: projectPath(ctx, session!.cwd!, output), ...(feedback ? { tab: 'feedback' } : {}) };
+    // A dev server's address goes as it is. The app opens it in the review pane.
+    const link = output !== undefined && /^https?:\/\//i.test(output);
+    if (link && feedback) throw new UsageError('--feedback needs a project file, not a link');
+    if (output !== undefined) body.output = { path: link ? output : projectPath(ctx, session!.cwd!, output), ...(feedback ? { tab: 'feedback' } : {}) };
 
     // A bare open shows what the session last had open, never a new board.
     if (session && output === undefined && !board && !layout) body.reopen = true;
