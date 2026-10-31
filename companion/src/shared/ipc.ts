@@ -330,13 +330,15 @@ export interface Template {
 /** A subscription may provide cleanup; older host adapters can keep returning void. */
 export type Subscription = void | (() => void);
 
-/** Live dictation started, or this yap can't dictate, so voice records clips instead. */
+/** Live dictation started, or there is no dictation helper, so voice records clips instead. */
 export type DictationStart = { id: string } | { unavailable: true };
 
-/** A phrase yap heard, or the end of that dictation. `atMs` is epoch ms when the phrase or word began. */
+/** Words heard, or the end of that dictation. `atMs` is epoch ms when the phrase or word began. */
 export type DictationEvent =
-  /** yap hears the microphone. Words said before this are not heard. */
+  /** The microphone runs. Words said before this are not heard. */
   | { id: string; ready: true }
+  /** Words still settling. Each replaces the last, and a phrase clears them. */
+  | { id: string; live: { text: string; atMs: number; words?: { text: string; atMs: number }[] } }
   | { id: string; phrase: { text: string; atMs: number; words?: { text: string; atMs: number }[] } }
   | { id: string; ended: true; error?: string };
 
@@ -595,7 +597,7 @@ export interface CompanionApi extends BoardHost {
   capturePanel(rect: ReviewRect): Promise<string | undefined>;
   /** Transcribes one voice clip with ffmpeg and yap. */
   transcribeClip(clip: { data: Uint8Array; mimeType: string }): Promise<{ text: string } | { error: string }>;
-  /** Starts `yap dictate` on the microphone. Its phrases arrive through `onDictation`. One runs at a time. */
+  /** Starts dictating from the microphone. Its words arrive through `onDictation`. One runs at a time. */
   startDictation(): Promise<DictationStart>;
   /** Stops a dictation. Its last phrase and its end still arrive through `onDictation`. */
   stopDictation(id: string): Promise<void>;

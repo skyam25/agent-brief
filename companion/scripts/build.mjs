@@ -1,5 +1,6 @@
-// Builds main and preload with esbuild, the renderer with Vite, and the companion CLI.
-import { rmSync } from 'node:fs';
+// Builds main and preload with esbuild, the renderer with Vite, the companion CLI and the dictation helper.
+import { execFileSync } from 'node:child_process';
+import { existsSync, rmSync, statSync } from 'node:fs';
 import { build as esbuild, context } from 'esbuild';
 import { build as viteBuild } from 'vite';
 import { syncPlugin } from './sync-plugin.mjs';
@@ -45,6 +46,19 @@ export async function watchMain(onRebuild) {
   return contexts[0];
 }
 
+const DICTATE_SRC = 'native/dictate.swift';
+const DICTATE_BIN = 'bin/agent-brief-dictate';
+
+/** Compiles the Swift dictation helper when its source is newer. Without swiftc, voice falls back to clips. */
+export function buildDictate() {
+  if (existsSync(DICTATE_BIN) && statSync(DICTATE_BIN).mtimeMs >= statSync(DICTATE_SRC).mtimeMs) return;
+  try {
+    execFileSync('swiftc', ['-O', '-target', 'arm64-apple-macos26.0', DICTATE_SRC, '-o', DICTATE_BIN], { stdio: 'inherit' });
+  } catch (err) {
+    console.warn(`skipped ${DICTATE_BIN}: ${err.message}`);
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   // Packaging ships all of out/, so start empty.
   rmSync('out', { recursive: true, force: true });
@@ -60,5 +74,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     outfile: 'bin/agent-brief.mjs',
     logLevel: 'warning',
   });
-  console.log('built out/ and bin/agent-brief.mjs');
+  buildDictate();
+  console.log(`built out/, bin/agent-brief.mjs${existsSync(DICTATE_BIN) ? ` and ${DICTATE_BIN}` : ''}`);
 }

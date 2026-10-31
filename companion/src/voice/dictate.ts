@@ -1,17 +1,15 @@
 /**
- * Live dictation. `yap dictate --json` listens to the microphone and prints each phrase once it settles,
- * a few seconds after a pause. Speech without a pause arrives as one phrase. Word times let the renderer
- * split it where the voice moved.
+ * Live dictation through `agent-brief-dictate`, a small Swift program on Apple's on-device speech engine.
  *
- * yap's times count from its first microphone buffer, which comes after it loads the speech model.
- * That can take seconds on a slow Mac. Under a terminal yap says when the microphone starts, so it runs
- * under `script`, and that line sets the clock. Without the line, the clock starts at launch.
+ * Each helper process serves one dictation. It loads the speech model at launch and waits for `start`,
+ * so main keeps a loaded spare and a press only turns the microphone on.
  *
- * SIGINT makes yap print the phrase in progress and exit; SIGTERM drops it.
+ * The helper prints one JSON object per line: `prepared`, `ready` once the microphone runs, `live` words
+ * still settling, settled `phrase`s, or an `error`. Its times are epoch ms of the audio itself.
+ * `stop` flushes the words in progress before the helper exits. Closing its stdin drops them.
  */
 
-import { execFile, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
 export interface DictationWord {
   text: string;
@@ -23,185 +21,186 @@ export interface DictationPhrase {
   text: string;
   /** Epoch ms when the phrase began. */
   atMs: number;
-  /** The phrase's words in order, with its punctuation. Absent when yap gave no word times. */
+  /** The phrase's words in order, with their punctuation. */
   words?: DictationWord[];
 }
 
-interface Segment {
-  start: number;
-  text: string;
-  words?: { start: number; text: string }[];
-}
-
-export interface DictationOptions {
-  argv: readonly string[];
-  /** yap hears the microphone from now on, or its output began without saying so. */
+export interface DictationHandlers {
+  /** The microphone runs. Words said before this are not heard. */
   onReady?(): void;
+  /** Words still settling. Each replaces the last, and a phrase clears them. */
+  onLive?(phrase: DictationPhrase): void;
   onPhrase(phrase: DictationPhrase): void;
-  /** Fires once, when yap exits. `error` says why when it failed. */
+  /** Fires once, when the helper exits. `error` says why when it failed. */
   onEnd(error?: string): void;
-  now?: () => number;
 }
 
 export interface Dictation {
-  /** Asks yap for the phrase in progress and resolves once it has exited. */
+  /** Asks for the words in progress and resolves once the helper has exited. */
   stop(): Promise<void>;
-  /** Ends yap at once and drops what it has not printed. */
+  /** Ends the helper at once and drops what it has not printed. */
   kill(): void;
 }
 
-/** What yap prints to a terminal once its microphone runs. */
-const READY = /Press Ctrl\+C to stop/;
+/** How long `stop` waits for the last words before it ends the helper. */
+const STOP_MS = 5_000;
 
-/** How much of yap's output a failure message can quote. */
+/** How much of the helper's stderr a failure message can quote. */
 const TAIL = 400;
 
-export function startDictation({ argv, onReady, onPhrase, onEnd, now = Date.now }: DictationOptions): Dictation {
-  let startedAt = now();
-  const child = spawn(argv[0]!, argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
-  const reader = new SegmentReader();
-  let stderr = '';
-  let head = '';
-  let ready = false;
-  child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-    if (!ready) {
-      head = (head + chunk).slice(-TAIL);
-      if (READY.test(head)) startedAt = now();
-      if (READY.test(head) || head.includes('"segments"')) {
-        ready = true;
-        onReady?.();
-      }
-    }
-    for (const s of reader.push(chunk)) {
-      const phrase = toPhrase(s, startedAt);
-      if (phrase) onPhrase(phrase);
-    }
-  });
-  child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
+/** One helper process, loading or loaded until a dictation takes it. */
+class Helper {
+  private readonly child: ChildProcessWithoutNullStreams;
+  private handlers?: DictationHandlers;
+  private error?: string;
+  private stderr = '';
+  private ended = false;
+  private exitedAt?: { code: number | null; signal: NodeJS.Signals | null };
+  readonly exited: Promise<void>;
 
-  let ended = false;
-  const exited = new Promise<void>((resolve) => {
-    const end = (error?: string) => {
-      if (ended) return;
-      ended = true;
-      onEnd(error);
-      resolve();
+  constructor(argv: readonly string[]) {
+    this.child = spawn(argv[0]!, argv.slice(1), { stdio: ['pipe', 'pipe', 'pipe'] });
+    this.child.stdin.on('error', () => {});
+    let buf = '';
+    this.child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+      buf += chunk;
+      for (let nl = buf.indexOf('\n'); nl >= 0; nl = buf.indexOf('\n')) {
+        this.line(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+      }
+    });
+    this.child.stderr.setEncoding('utf8').on('data', (chunk: string) => (this.stderr = (this.stderr + chunk).slice(-TAIL)));
+    this.exited = new Promise((resolve) => {
+      this.child.on('error', (err) => {
+        this.error ??= `Dictation failed: ${err.message}`;
+        this.end();
+        resolve();
+      });
+      this.child.on('close', (code, signal) => {
+        this.exitedAt = { code, signal };
+        if (code !== 0 && signal === null) this.error ??= `Dictation failed: ${this.stderr.trim().split('\n').pop() || `exit code ${code}`}`;
+        this.end();
+        resolve();
+      });
+    });
+  }
+
+  /** Still loading or loaded, and no dictation has taken it. */
+  get alive(): boolean {
+    return !this.ended && this.child.pid !== undefined && this.exitedAt === undefined;
+  }
+
+  /** Turns the microphone on. A helper still loading starts once it has loaded. */
+  start(handlers: DictationHandlers): Dictation {
+    this.handlers = handlers;
+    if (this.ended) handlers.onEnd(this.error);
+    else this.child.stdin.write('start\n');
+    return {
+      stop: async () => {
+        if (!this.alive) return this.exited;
+        this.child.stdin.write('stop\n');
+        const timer = setTimeout(() => this.kill(), STOP_MS);
+        await this.exited;
+        clearTimeout(timer);
+      },
+      kill: () => this.kill(),
     };
-    child.on('error', (err) => end(`Dictation failed: ${err.message}`));
-    child.on('close', (code, signal) => end(code === 0 || signal !== null ? undefined : failureText(stderr || head, code)));
-  });
+  }
 
   // A spawn that failed has no pid, and killing it would signal this whole process group.
-  const running = () => !ended && child.pid !== undefined && child.exitCode === null && child.signalCode === null;
-  return {
-    stop: async () => {
-      if (running()) await interrupt(child.pid!);
-      return exited;
-    },
-    kill: () => {
-      if (running()) child.kill('SIGTERM');
-    },
-  };
-}
+  kill(): void {
+    if (this.alive) this.child.kill('SIGTERM');
+  }
 
-function toPhrase(s: Segment, startedAt: number): DictationPhrase | undefined {
-  const text = s.text.trim();
-  if (!text) return undefined;
-  const at = (seconds: number) => startedAt + Math.round(seconds * 1000);
-  const phrase: DictationPhrase = { text, atMs: at(s.start) };
-  if (!s.words?.length) return phrase;
-
-  // Word texts drop punctuation. Borrow the phrase's own tokens when they line up one to one.
-  const tokens = text.split(/\s+/);
-  const aligned = tokens.length === s.words.length;
-  phrase.words = s.words.map((w, i) => ({ text: aligned ? tokens[i]! : w.text, atMs: at(w.start) }));
-  return phrase;
-}
-
-/** SIGINT for yap. Under `script` that is the child, since signalling `script` drops the phrase in progress. */
-function interrupt(pid: number): Promise<void> {
-  return new Promise((resolve) =>
-    execFile('/usr/bin/pgrep', ['-P', String(pid)], (err, stdout) => {
-      const children = err ? [] : String(stdout).split(/\s+/).filter(Boolean).map(Number);
-      for (const target of children.length ? children : [pid]) {
-        try {
-          process.kill(target, 'SIGINT');
-        } catch {
-          // Already gone.
-        }
-      }
-      resolve();
-    }),
-  );
-}
-
-/** Why yap failed, from the end of its output. */
-function failureText(output: string, code: number | null): string {
-  const why = output.replace(/\r/g, '').trim().split('\n').slice(-2).join(' ').replace(/^Error: /, '').slice(0, 200);
-  return `Dictation failed: ${why || `exit code ${code}`}`;
-}
-
-/** Reads yap's streamed JSON, handing over each segment once its closing brace arrives. */
-export class SegmentReader {
-  private buf = '';
-  /** Where scanning resumes. -1 until the segments array opens. */
-  private at = -1;
-  private depth = 0;
-  private start = 0;
-  private inString = false;
-  private escaped = false;
-
-  push(chunk: string): Segment[] {
-    this.buf += chunk;
-    const found: Segment[] = [];
-    if (this.at < 0) {
-      const key = this.buf.indexOf('"segments"');
-      const open = key < 0 ? -1 : this.buf.indexOf('[', key);
-      if (open < 0) return found;
-      this.at = open + 1;
+  private line(text: string): void {
+    let e: { ready?: unknown; live?: unknown; phrase?: unknown; error?: unknown };
+    try {
+      e = JSON.parse(text) as typeof e;
+    } catch {
+      return;
     }
-    for (; this.at < this.buf.length; this.at++) {
-      const c = this.buf[this.at];
-      if (this.inString) {
-        if (this.escaped) this.escaped = false;
-        else if (c === '\\') this.escaped = true;
-        else if (c === '"') this.inString = false;
-      } else if (c === '"') this.inString = true;
-      else if (c === '{' && this.depth++ === 0) this.start = this.at;
-      else if (c === '}' && --this.depth === 0) {
-        const segment = JSON.parse(this.buf.slice(this.start, this.at + 1)) as { start?: unknown; text?: unknown; words?: unknown };
-        if (typeof segment.text !== 'string' || typeof segment.start !== 'number') continue;
-        const words = Array.isArray(segment.words) ? segment.words.filter(isWord) : [];
-        found.push({ start: segment.start, text: segment.text, ...(words.length ? { words } : {}) });
-      }
-    }
-    return found;
+    if (typeof e.error === 'string') this.error = e.error;
+    if (!this.handlers) return;
+    if (e.ready === true) this.handlers.onReady?.();
+    const live = toPhrase(e.live);
+    if (live) this.handlers.onLive?.(live);
+    const phrase = toPhrase(e.phrase);
+    if (phrase) this.handlers.onPhrase(phrase);
+  }
+
+  private end(): void {
+    if (this.ended) return;
+    this.ended = true;
+    this.handlers?.onEnd(this.error);
   }
 }
 
-const isWord = (w: unknown): w is { start: number; text: string } =>
-  typeof (w as { start?: unknown })?.start === 'number' && typeof (w as { text?: unknown })?.text === 'string';
+function toPhrase(v: unknown): DictationPhrase | undefined {
+  const p = v as { text?: unknown; atMs?: unknown; words?: unknown } | undefined;
+  if (typeof p?.text !== 'string' || typeof p.atMs !== 'number' || !p.text.trim()) return undefined;
+  const words = Array.isArray(p.words) ? p.words.filter(isWord).map((w) => ({ text: w.text, atMs: w.atMs })) : [];
+  return { text: p.text.trim(), atMs: p.atMs, ...(words.length ? { words } : {}) };
+}
 
-const argvs = new Map<string, Promise<string[] | undefined>>();
+const isWord = (w: unknown): w is DictationWord =>
+  typeof (w as { atMs?: unknown })?.atMs === 'number' && typeof (w as { text?: unknown })?.text === 'string';
 
-const SCRIPT = '/usr/bin/script';
+export interface DictatorOptions {
+  /** The helper's command line, or undefined when there is no helper. */
+  argv(): Promise<readonly string[] | undefined> | readonly string[] | undefined;
+  /** Notes how long each start took to hear. */
+  log?(line: string): void;
+  now?: () => number;
+}
 
-/**
- * The `yap dictate` command line, or undefined when this yap only transcribes files. Word times need a newer yap.
- * It runs under `script`, whose terminal makes yap say when its microphone starts.
- */
-export function dictateArgv(yapPath: string): Promise<string[] | undefined> {
-  let known = argvs.get(yapPath);
-  if (!known) {
-    known = new Promise((resolve) =>
-      execFile(yapPath, ['dictate', '--help'], { timeout: 10_000 }, (err, stdout) => {
-        if (err) return resolve(undefined);
-        const words = String(stdout).includes('--word-timestamps') ? ['--word-timestamps'] : [];
-        const terminal = existsSync(SCRIPT) ? [SCRIPT, '-q', '/dev/null'] : [];
-        resolve([...terminal, yapPath, 'dictate', '--json', '--max-length', '400', ...words]);
-      }),
-    );
-    argvs.set(yapPath, known);
+/** Runs dictations, keeping a loaded helper ready for the next one. */
+export class Dictator {
+  private spare?: Helper;
+  private disposed = false;
+  private readonly now: () => number;
+
+  constructor(private readonly opts: DictatorOptions) {
+    this.now = opts.now ?? Date.now;
   }
-  return known;
+
+  /** Loads a spare helper unless one is ready. */
+  async warm(): Promise<void> {
+    if (this.disposed || this.spare?.alive) return;
+    const argv = await this.opts.argv();
+    if (argv && !this.disposed && !this.spare?.alive) this.spare = new Helper(argv);
+  }
+
+  /** Dictates on the spare, or on a new helper. Undefined when there is no helper. */
+  async start(handlers: DictationHandlers): Promise<Dictation | undefined> {
+    const warm = this.spare?.alive === true;
+    let helper = warm ? this.spare : undefined;
+    this.spare = undefined;
+    if (!helper) {
+      const argv = await this.opts.argv();
+      if (!argv) return undefined;
+      helper = new Helper(argv);
+    }
+    const asked = this.now();
+    let heard = false;
+    return helper.start({
+      ...handlers,
+      onReady: () => {
+        heard = true;
+        this.opts.log?.(`mic on in ${this.now() - asked} ms (${warm ? 'spare' : 'cold'})`);
+        handlers.onReady?.();
+      },
+      onEnd: (error) => {
+        if (error) this.opts.log?.(`${heard ? 'ended' : 'never heard'}: ${error}`);
+        handlers.onEnd(error);
+        void this.warm();
+      },
+    });
+  }
+
+  /** Ends the spare. Running dictations end on their own. */
+  dispose(): void {
+    this.disposed = true;
+    this.spare?.kill();
+    this.spare = undefined;
+  }
 }

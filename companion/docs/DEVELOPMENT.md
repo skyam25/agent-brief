@@ -144,7 +144,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - HTML responses get `<script src="/__agent-brief__/overlay.js">` as the first script in `<head>`. The overlay (`src/review/overlay.ts`, built to `out/review/overlay.js`) runs in the page's main world. It draws in a closed shadow root and talks to the pane only by `postMessage`, with the types in `src/review/messages.ts`.
 - The frame is `sandbox="allow-scripts allow-same-origin allow-forms"`. The page keeps its own origin, so its storage works, and it still cannot reach the panel. The panel CSP allows `frame-src agent-brief-review:`. `will-frame-navigate` keeps the frame on the scheme. The permission handler refuses every request from it.
 - A pin's anchor holds a unique CSS selector, the tag, the element's text, any selected text, the nearest heading above, and the pin's spot as fractions of the element box. Main crops the panel with `capturePage` at the element's visible box, and the crop is saved as a draft attachment. A draft keeps 40 attachments, so pins past 36 go without a picture.
-- Voice: `ReviewVoice` sends words to the selected comment or the overall note. Main runs `yap dictate` (`voice/dictate.ts`), and each phrase lands a few seconds after a pause, on the target selected when the phrase began. Stop sends SIGINT for the phrase in progress. A yap without `dictate` falls back to clips: one at a time, ended by selecting another comment, and turned into text through ffmpeg and yap (`review:transcribe`). Send waits for pending text.
+- Voice: `ReviewVoice` sends words to the selected comment or the overall note. Main runs `bin/agent-brief-dictate` (`native/dictate.swift`, driven by `voice/dictate.ts`), a Swift helper on Apple's SpeechAnalyzer. Main keeps one helper loaded with the mic off, so Talk only turns the mic on. Words still settling show under their target (`VoiceState`). Each word settles about a second after a pause and goes to the target selected when it began. `stop` on the helper's stdin flushes the words in progress. Start times go to `~/Library/Logs/Agent Brief/dictation.log`. Without the helper, voice falls back to clips: one at a time, ended by selecting another comment, and turned into text through ffmpeg and yap (`review:transcribe`). Send waits for pending text.
 - Send writes `review.md` and points the prompt at it:
 
   ```
@@ -242,7 +242,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - `COMPANION_TEST=1` runs the app off screen, unfocused, out of the Dock, without a tray, and with a fake hotkey registrar. It exposes `globalThis.__companion` in main and `window.__board`/`window.__excalidraw` in the renderer.
 - `COMPANION_TEST_VISIBLE=1` shows the window for debugging.
 - `COMPANION_TEST_MIC=denied` fakes a refused microphone.
-- Comment voice records clips in tests. `COMPANION_TEST_DICTATE` names a stand-in for `yap dictate`, such as `e2e/fixtures/fake-dictate.mjs`, scripted by `FAKE_DICTATE`.
+- Comment voice records clips in tests. `COMPANION_TEST_DICTATE` names a stand-in for the dictation helper, such as `e2e/fixtures/fake-dictate.mjs`, scripted by `FAKE_DICTATE`. `agent-brief-dictate --file <audio>` plays a file in place of the mic, so a wrapper script runs the real engine in e2e.
 - `COMPANION_TEST_AUDIO=<file.wav>` makes Chromium's fake microphone play that file.
 - Test mode also turns off Chromium's GPU shader disk cache, which kept each test profile at several MB.
 - Each Vitest and Playwright run sets `TMPDIR` to its own folder, `abunit-<pid>` or `abe2e-<pid>` in the system temp folder. The run deletes it at the end. The next run sweeps folders left by runs that crashed or were killed. `KEEP_TEST_TMP=1` keeps the folder for inspection.
@@ -251,7 +251,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 
 ## Packaging
 
-`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons, the CLI (`Resources/bin/agent-brief`, plus a `companion` alias) and the Claude Code plugin (`Resources/plugin/`). It does not bundle ffmpeg or yap, which it finds at runtime. Only `pnpm install:local` touches /Applications.
+`pnpm dist` uses `electron-builder.yml`. The app bundles `out/`, the tray icons, the CLI (`Resources/bin/agent-brief`, plus a `companion` alias) and the Claude Code plugin (`Resources/plugin/`). It also bundles the dictation helper (`Resources/bin/agent-brief-dictate`), which `pnpm build` compiles with `swiftc`. It does not bundle ffmpeg or yap, which it finds at runtime. Only `pnpm install:local` touches /Applications.
 
 - `bin/agent-brief` is a shell wrapper. Inside the bundle it runs `agent-brief.mjs` with the app's Electron as Node (`ELECTRON_RUN_AS_NODE=1`). In a checkout it uses `node`.
 - Install Command Line Tool… links `~/.local/bin/agent-brief` to that wrapper.

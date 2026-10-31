@@ -3373,6 +3373,12 @@ button.stop-talk:hover {
   color: var(--error);
 }
 
+/* Words still settling read as a draft of what lands in the comment. */
+.voice-state .voice-settling {
+  font-style: italic;
+  white-space: normal;
+}
+
 .review-foot {
   position: sticky;
   bottom: 0;

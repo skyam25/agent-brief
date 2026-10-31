@@ -23,6 +23,9 @@ extraResources:
   # The CLI's old name, kept for scripts that still call it.
   - from: bin/agent-brief
     to: bin/companion
+  # Live dictation on Apple's speech engine. pnpm build compiles it from native/.
+  - from: bin/agent-brief-dictate
+    to: bin/agent-brief-dictate
   # The Claude Code plugin, laid out as a marketplace. Claude Code reads it in
   # place, so it updates with the app. The filter matches what a git clone holds.
   - from: ../.claude-plugin

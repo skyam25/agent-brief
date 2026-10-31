@@ -1,8 +1,9 @@
 /**
  * Voice for the review pane. The words belong to a target: a comment, or the overall note.
  *
- * Live dictation hands over each phrase a few seconds after a pause. Each word goes to the target
- * the voice pointed at when the word began, so speech that runs on across a click splits there. Without it, one clip records at a time.
+ * Live dictation shows words as they are heard and settles them into phrases about a second after a pause.
+ * Each word goes to the target the voice pointed at when the word began, so speech that runs on across a click
+ * splits there. Without it, one clip records at a time.
  * Pointing at another target ends the clip, and the clip turns into text for its own target.
  */
 
@@ -66,20 +67,24 @@ export interface LiveSession {
   stop(): Promise<void>;
 }
 
-/** Live dictation, where yap hears the microphone itself. */
+/** Live dictation, where main's helper hears the microphone itself. */
 export interface LiveDictation {
-  /** Starts listening. Undefined when live dictation is unavailable, so clips take over. `onReady` fires once yap hears. */
+  /**
+   * Starts listening. Undefined when live dictation is unavailable, so clips take over. `onReady` fires once the
+   * microphone runs. `onLive` passes words still settling, each call replacing the last.
+   */
   start(
     onPhrase: (text: string, atMs: number, words?: HeardWord[]) => void,
     onEnd: (error?: string) => void,
     onReady?: () => void,
+    onLive?: (text: string, atMs: number, words?: HeardWord[]) => void,
   ): Promise<LiveSession | undefined>;
 }
 
-/** Live dictation through main, which runs `yap dictate`. */
+/** Live dictation through main, which runs the dictation helper. */
 export function hostDictation(host: Pick<CompanionApi, 'startDictation' | 'stopDictation' | 'onDictation'>): LiveDictation {
   return {
-    async start(onPhrase, onEnd, onReady) {
+    async start(onPhrase, onEnd, onReady, onLive) {
       const started = await host.startDictation();
       if (!('id' in started)) return undefined;
       let finish = () => {};
@@ -89,6 +94,7 @@ export function hostDictation(host: Pick<CompanionApi, 'startDictation' | 'stopD
       const off = host.onDictation((e) => {
         if (e.id !== started.id) return;
         if ('ready' in e) onReady?.();
+        else if ('live' in e) onLive?.(e.live.text, e.live.atMs, e.live.words);
         else if ('phrase' in e) onPhrase(e.phrase.text, e.phrase.atMs, e.phrase.words);
         else {
           off?.();
@@ -119,8 +125,10 @@ export interface ReviewVoiceOptions {
 export class ReviewVoice {
   /** Epoch ms when the microphone opened. Undefined when off. */
   since?: number;
-  /** The mic is on but yap does not hear it yet, as while a slow Mac loads the speech model. */
+  /** The mic is on but dictation does not hear it yet, as while the speech model loads. */
   starting = false;
+  /** Words still settling, by target. */
+  settling = new Map<string, string>();
   /** Where the words go now. */
   target = OVERALL;
   /** Bumps on every change, as the snapshot React compares. */
@@ -173,30 +181,53 @@ export class ReviewVoice {
 
   private async open(target: string): Promise<void> {
     this.target = target;
-    const stream = (this.stream = await this.media.open());
-    this.since = this.now();
+    const since = this.now();
 
-    // A click while the mic opens moved the target already.
-    const aims = (this.aims = [{ at: this.since, target: this.target }]);
-    this.starting = !!this.opts.dictate;
-    this.emit();
+    // A click while the mic opens moves the target from then on.
+    const aims = (this.aims = [{ at: since, target }]);
+    let heard = false;
     let live: LiveSession | undefined;
+
+    // The level meter's microphone and dictation open together, since either can be slow.
+    const dictating = (async () => {
+      try {
+        return await this.opts.dictate?.start(
+          (text, at, words) => {
+            if (this.aims === aims) this.settling = new Map();
+            this.heard(aims, text, at, words);
+          },
+          (error) => {
+            if (error) this.opts.onError(error);
+            if (live && this.live === live) void this.stop();
+          },
+          () => {
+            heard = true;
+            if (this.aims !== aims || !this.starting) return;
+            this.starting = false;
+            this.emit();
+          },
+          (text, at, words) => {
+            if (this.aims !== aims) return;
+            this.settling = this.route(aims, text, at, words);
+            this.emit();
+          },
+        );
+      } catch (err) {
+        this.opts.onError((err as Error).message);
+        return undefined;
+      }
+    })();
+    let stream: MediaStream;
     try {
-      live = await this.opts.dictate?.start(
-        (text, at, words) => this.heard(aims, text, at, words),
-        (error) => {
-          if (error) this.opts.onError(error);
-          if (live && this.live === live) void this.stop();
-        },
-        () => {
-          if (this.aims !== aims || !this.starting) return;
-          this.starting = false;
-          this.emit();
-        },
-      );
+      stream = this.stream = await this.media.open();
     } catch (err) {
-      this.opts.onError((err as Error).message);
+      void (await dictating)?.stop();
+      throw err;
     }
+    this.since = since;
+    this.starting = !!this.opts.dictate && !heard;
+    this.emit();
+    live = await dictating;
 
     // A stop while dictation started leaves nothing to listen for.
     if (this.stream !== stream) {
@@ -236,13 +267,19 @@ export class ReviewVoice {
       this.stream = undefined;
       this.since = undefined;
       this.starting = false;
+      this.settling = new Map();
       this.emit();
     }
     await Promise.all([...this.inflight]);
   }
 
-  /** Each word goes to the target the voice pointed at when it began. Without word times, the whole phrase does. */
   private heard(aims: { at: number; target: string }[], text: string, at: number, words?: HeardWord[]): void {
+    for (const [target, said] of this.route(aims, text, at, words)) this.opts.onText(target, said);
+    this.emit();
+  }
+
+  /** Each word goes to the target the voice pointed at when it began. Without word times, the whole phrase does. */
+  private route(aims: { at: number; target: string }[], text: string, at: number, words?: HeardWord[]): Map<string, string> {
     const aimedAt = (ms: number) => {
       let target = aims[0]!.target;
       for (const a of aims) if (a.at <= ms) target = a.target;
@@ -255,12 +292,11 @@ export class ReviewVoice {
       else runs.push({ target, words: [w.text] });
     }
 
-    // One run keeps yap's text as printed.
-    if (runs.length < 2) {
-      if (text.trim()) this.opts.onText(runs[0]?.target ?? aimedAt(at), text.trim());
-      return;
-    }
-    for (const run of runs) this.opts.onText(run.target, run.words.join(' '));
+    // One run keeps the text as printed.
+    if (runs.length < 2) return new Map(text.trim() ? [[runs[0]?.target ?? aimedAt(at), text.trim()]] : []);
+    const routed = new Map<string, string>();
+    for (const run of runs) routed.set(run.target, [routed.get(run.target), ...run.words].filter(Boolean).join(' '));
+    return routed;
   }
 
   /** Marks `target` as still turning into text until `work` ends. */

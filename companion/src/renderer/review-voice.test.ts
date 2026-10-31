@@ -114,7 +114,7 @@ describe('ReviewVoice', () => {
   });
 });
 
-/** A fake yap for live dictation: `say` hands over a phrase that began at `at`, and stop hands over `last`. */
+/** A fake helper for live dictation: `say` hands over a phrase that began at `at`, `settle` words still settling, and stop hands over `last`. */
 function liveSetup({ last = '', available = true, gate = Promise.resolve() } = {}) {
   const base = setup();
   let records = 0;
@@ -127,14 +127,16 @@ function liveSetup({ last = '', available = true, gate = Promise.resolve() } = {
   let phrase: ((text: string, at: number, words?: HeardWord[]) => void) | undefined;
   let end: ((error?: string) => void) | undefined;
   let ready: (() => void) | undefined;
+  let live: ((text: string, at: number, words?: HeardWord[]) => void) | undefined;
   let stops = 0;
   const dictate: LiveDictation = {
-    async start(onPhrase, onEnd, onReady) {
+    async start(onPhrase, onEnd, onReady, onLive) {
       await gate;
       if (!available) return undefined;
       phrase = onPhrase;
       end = onEnd;
       ready = onReady;
+      live = onLive;
       return {
         stop: async () => {
           stops++;
@@ -149,6 +151,7 @@ function liveSetup({ last = '', available = true, gate = Promise.resolve() } = {
   return {
     ...base,
     say: (text: string, at: number, words?: HeardWord[]) => phrase!(text, at, words),
+    settling: (text: string, at: number, words?: HeardWord[]) => live!(text, at, words),
     fail: (error: string) => end!(error),
     hears: () => ready!(),
     records: () => records,
@@ -206,7 +209,7 @@ describe('ReviewVoice with live dictation', () => {
     await voice.stop();
   });
 
-  it('keeps the phrase text as yap printed it when every word lands on one target', async () => {
+  it('keeps the phrase text as printed when every word lands on one target', async () => {
     const { voice, heard, tick, say } = liveSetup();
     await voice.start('c1');
     tick(5000);
@@ -225,7 +228,7 @@ describe('ReviewVoice with live dictation', () => {
     expect(heard).toEqual([['c1', 'clip@0']]);
   });
 
-  it('stops listening and says why when yap fails', async () => {
+  it('stops listening and says why when dictation fails', async () => {
     const { voice, errors, fail, isOpen, stops } = liveSetup();
     await voice.start('c1');
     fail('Dictation failed: Microphone permission is required.');
@@ -259,11 +262,53 @@ describe('ReviewVoice with live dictation', () => {
     await voice.stop();
   });
 
-  it('says it is starting until yap hears the microphone', async () => {
+  it('says it is starting until dictation hears the microphone', async () => {
     const { voice, hears } = liveSetup();
     await voice.start('c1');
     expect(voice.starting).toBe(true);
     hears();
+    expect(voice.starting).toBe(false);
+    await voice.stop();
+  });
+
+  it('shows words still settling on the target each began on, until the phrase lands', async () => {
+    const { voice, heard, tick, say, settling } = liveSetup();
+    await voice.start('c1');
+    tick(3000);
+    voice.aim('c2');
+    const words = [
+      { text: 'Bigger', atMs: 2000 },
+      { text: 'header,', atMs: 2600 },
+      { text: 'darker', atMs: 3200 },
+    ];
+    settling('Bigger header, darker', 2000, words);
+    expect([...voice.settling]).toEqual([
+      ['c1', 'Bigger header,'],
+      ['c2', 'darker'],
+    ]);
+    expect(heard).toEqual([]);
+    say('Bigger header, darker button.', 2000, [...words, { text: 'button.', atMs: 3500 }]);
+    expect(voice.settling.size).toBe(0);
+    expect(heard).toEqual([
+      ['c1', 'Bigger header,'],
+      ['c2', 'darker button.'],
+    ]);
+    settling('And', 4000);
+    await voice.stop();
+    expect(voice.settling.size).toBe(0);
+  });
+
+  it('opens the microphone and dictation together, so a helper that hears first is not starting', async () => {
+    let opened = (_: MediaStream) => {};
+    const { voice, hears } = liveSetup();
+    const media = (voice as any).media as VoiceMedia;
+    media.open = () => new Promise((r) => (opened = r));
+    const starting = voice.start('c1');
+    await settle();
+    hears();
+    opened({} as MediaStream);
+    await starting;
+    expect(voice.recording).toBe(true);
     expect(voice.starting).toBe(false);
     await voice.stop();
   });

@@ -190,10 +190,10 @@ test('live dictation splits speech that runs on across a new pin', async () => {
   await app.close();
 });
 
-test('live dictation starts its clock when yap hears, so a slow start still splits words at the click', async () => {
+test('live dictation times words from when the mic runs, so a slow start still splits words at the click', async () => {
   test.skip(!existsSync(SPEECH), 'speech fixture missing');
 
-  // yap hears 2 s after launch, as on a slow Mac. Its word times count from then.
+  // The mic runs 2 s after the press, as on a slow Mac. Word times count from then.
   const words = [[0.8, 'Make'], [1, 'it'], [1.2, 'bolder,'], [4.5, 'and'], [4.7, 'add'], [4.9, 'links.']];
   const { app, page } = await launch(tempDataDir(), {
     COMPANION_TEST_AUDIO: SPEECH,

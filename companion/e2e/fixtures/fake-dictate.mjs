@@ -1,30 +1,37 @@
 #!/usr/bin/env node
 /**
- * Stands in for `yap dictate --json` in tests. It prints yap's streaming JSON, one phrase per
- * entry in FAKE_DICTATE `phrases`, each `at` ms after launch. SIGINT prints `last` and exits.
- * A phrase's optional `words` are yap's word times, as `[start, text]` pairs in seconds.
- * With `ready`, it says its microphone runs `ready` ms after launch, as yap does in a terminal, and prints its header then.
+ * Stands in for the `agent-brief-dictate` helper in tests. It prints `prepared` at launch and waits for `start`.
+ * The microphone runs `ready` ms after `start` (0 by default). Each entry in FAKE_DICTATE `phrases` prints
+ * `at` ms after `start`, and each in `live` prints as words still settling. `start` and word times count
+ * seconds from when the microphone runs, as `[start, text]` pairs. `stop` prints `last` and exits.
  *
  *   FAKE_DICTATE='{"phrases":[{"at":400,"text":"One."}],"last":"Two."}'
  */
 
-const { phrases = [], last, ready } = JSON.parse(process.env.FAKE_DICTATE ?? '{}');
-const launched = Date.now();
-let id = 0;
+import { createInterface } from 'node:readline';
 
-const segment = (start, text, words) => {
-  const timed = words ? { words: words.map(([s, t]) => ({ end: s + 0.2, start: s, text: t })) } : {};
-  const body = JSON.stringify({ end: start + 1, id: ++id, start, text, ...timed }, null, 2).replace(/^/gm, '    ');
-  process.stdout.write(`${id > 1 ? ',\n' : ''}${body}`);
-};
+const { phrases = [], live = [], last, ready = 0 } = JSON.parse(process.env.FAKE_DICTATE ?? '{}');
+const say = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
+let micAt;
 
-const header = () => process.stdout.write(`{\n  "metadata" : {\n    "language" : "en-US"\n  },\n  "segments" : [`);
-if (ready === undefined) header();
-else setTimeout(() => (process.stdout.write('Dictating… Press Ctrl+C to stop.\r\n'), header()), ready);
-for (const p of phrases) setTimeout(() => segment(p.start ?? Math.max(0, p.at - 1000) / 1000, p.text, p.words), p.at);
-process.on('SIGINT', () => {
-  if (last) segment((Date.now() - launched) / 1000, last);
-  process.stdout.write(`${id > 0 ? '\n' : ''}  ]\n}\n`);
-  process.exit(0);
+const phrase = (start, text, words) => ({
+  text,
+  atMs: Math.round(micAt + start * 1000),
+  ...(words ? { words: words.map(([s, t]) => ({ text: t, atMs: Math.round(micAt + s * 1000) })) } : {}),
 });
-setInterval(() => {}, 60_000);
+
+say({ prepared: true });
+const lines = createInterface({ input: process.stdin });
+lines.on('line', (line) => {
+  if (line === 'start') {
+    const asked = Date.now();
+    micAt = asked + ready;
+    setTimeout(() => say({ ready: true, atMs: micAt }), ready);
+    for (const p of live) setTimeout(() => say({ live: phrase(p.start ?? 0, p.text, p.words) }), p.at);
+    for (const p of phrases) setTimeout(() => say({ phrase: phrase(p.start ?? Math.max(0, p.at - ready - 1000) / 1000, p.text, p.words) }), p.at);
+  } else if (line === 'stop') {
+    if (last && micAt !== undefined) say({ phrase: phrase((Date.now() - micAt) / 1000, last) });
+    process.exit(0);
+  }
+});
+lines.on('close', () => process.exit(0));
