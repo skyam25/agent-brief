@@ -11,13 +11,15 @@ function updateText(u: UpdateStatus): string | undefined {
     case 'current':
       return 'Up to date.';
     case 'downloading':
-      return `Downloading ${u.available ?? 'the update'}${u.percent ? ` · ${u.percent}%` : ''}…${
+      return `${u.percent === 100 ? 'Preparing' : 'Downloading'} ${u.available ?? 'the update'}${
+        u.percent && u.percent < 100 ? ` · ${u.percent}%` : ''
+      }…${
         u.restart ? ' Agent Brief asks to restart when it finishes.' : ''
       }`;
     case 'ready':
       return `Version ${u.available} is ready. It installs when Agent Brief quits.`;
     case 'error':
-      return `Could not check for updates: ${u.error}`;
+      return u.available ? `Could not download ${u.available}: ${u.error}` : `Could not check for updates: ${u.error}`;
     default:
       return undefined;
   }

@@ -37,6 +37,9 @@ describe('updateItems', () => {
     expect(labels({ state: 'downloading', available: '0.2.9', percent: 42, restart: true })).toEqual([
       ['Downloading 0.2.9 (42%)…', false],
     ]);
+    expect(labels({ state: 'downloading', available: '0.2.9', percent: 100, restart: true })).toEqual([
+      ['Preparing 0.2.9…', false],
+    ]);
   });
 
   it('offers to update after a background download', () => {
@@ -60,6 +63,10 @@ describe('updateItems', () => {
   it('offers a retry after an error', () => {
     expect(labels({ state: 'error', error: 'offline' })).toEqual([
       ['Could Not Check for Updates', false],
+      ['Try Again', true],
+    ]);
+    expect(labels({ state: 'error', error: 'bad signature', available: '0.2.9' })).toEqual([
+      ['Could Not Download 0.2.9', false],
       ['Try Again', true],
     ]);
   });

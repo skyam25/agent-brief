@@ -36,6 +36,9 @@ export interface Controls {
   applySettings(patch: Partial<Settings>): SettingsResult;
 }
 
+/** A popup straight after a close is dropped, so the reopen waits a beat. */
+const TRAY_REOPEN_MS = 150;
+
 /** Registers the hotkeys, puts up the tray and builds the menus. */
 export function createControls(opts: ControlsOptions): Controls {
   const { testMode, state, panel, server, installs, updater, send, setPrompt } = opts;
@@ -98,9 +101,27 @@ export function createControls(opts: ControlsOptions): Controls {
   });
 
   let tray: Tray | undefined;
+  let trayOpen: Menu | undefined;
+  let trayUpdate = '';
   const buildMenus = () => {
     Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(actions())));
-    tray?.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(actions())));
+    if (!tray) return;
+    const t = tray;
+
+    // macOS never redraws an open menu. A new update state closes it and opens
+    // the new one in its place. The close has to come before setContextMenu.
+    const u = updater.current();
+    const key = `${u.state} ${u.available} ${u.percent === 100}`;
+    const reopen = !!trayOpen && key !== trayUpdate;
+    trayUpdate = key;
+    if (reopen) t.closeContextMenu();
+    const menu = Menu.buildFromTemplate(trayMenuTemplate(actions()));
+    menu.on('menu-will-show', () => (trayOpen = menu));
+    menu.on('menu-will-close', () => {
+      if (trayOpen === menu) trayOpen = undefined;
+    });
+    t.setContextMenu(menu);
+    if (reopen) setTimeout(() => t.popUpContextMenu(), TRAY_REOPEN_MS);
   };
   // The real tray stays out of test runs; tests inspect the template instead.
   if (!testMode) {

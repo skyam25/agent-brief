@@ -38,17 +38,21 @@ export function updateItems(a: MenuActions): MenuItemConstructorOptions[] {
     case 'checking':
       return [status('Checking for Updates…')];
     case 'downloading': {
-      const progress = `${available ?? 'Update'}${percent ? ` (${percent}%)` : ''}`;
-      return restart
-        ? [status(`Downloading ${progress}…`)]
-        : [status(`Downloading ${progress}…`), { label: 'Update When Downloaded', click: a.updateNow }];
+      const line =
+        percent === 100
+          ? status(`Preparing ${available ?? 'Update'}…`)
+          : status(`Downloading ${available ?? 'Update'}${percent ? ` (${percent}%)` : ''}…`);
+      return restart ? [line] : [line, { label: 'Update When Downloaded', click: a.updateNow }];
     }
     case 'ready':
       return [{ label: `Restart to Update to ${available}`, click: a.installUpdate }];
     case 'current':
       return [status(`Up to Date (${a.update.version})`), check];
     case 'error':
-      return [status('Could Not Check for Updates'), { ...check, label: 'Try Again' }];
+      return [
+        status(available ? `Could Not Download ${available}` : 'Could Not Check for Updates'),
+        { ...check, label: 'Try Again' },
+      ];
     default:
       return [check];
   }

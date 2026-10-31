@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   app,
+  autoUpdater as squirrel,
   BrowserWindow,
   clipboard,
   ClipboardItem,
@@ -18,6 +19,7 @@ import {
   globalShortcut,
   ipcMain,
   nativeTheme,
+  powerMonitor,
   protocol,
   session,
   shell,
@@ -75,6 +77,7 @@ import { SessionFiles, webUrl, type Opener } from './session-files';
 import { SessionModes } from './session-modes';
 import { TemplateStore } from './templates';
 import { Terminals } from './terminals';
+import { fileLog } from './update-log';
 import { Updater } from './updater';
 import { BoardStore, cleanName, migrateData, StateFile } from './store';
 import { mainIpc } from './ipc';
@@ -212,7 +215,6 @@ async function start(): Promise<void> {
     const helper = join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/agent-brief-dictate');
     return existsSync(helper) ? [helper] : undefined;
   };
-
   // Test runs keep the log in their own data folder.
   const dictationLog = join(testMode ? app.getPath('userData') : app.getPath('logs'), 'dictation.log');
   const dictator = new Dictator({
@@ -524,9 +526,12 @@ async function start(): Promise<void> {
   const updateUrl = process.env.COMPANION_UPDATE_URL;
   if (app.isPackaged && updateUrl) autoUpdater.setFeedURL({ provider: 'generic', url: updateUrl });
   else if (app.isPackaged && !existsSync(join(process.resourcesPath, 'app-update.yml'))) autoUpdater.setFeedURL(RELEASES);
+  const updates = app.isPackaged && (!testMode || updateUrl);
+  if (updates) autoUpdater.logger = fileLog(join(app.getPath('logs'), 'updater.log'));
   const updater = new Updater({
     version: app.getVersion(),
-    source: app.isPackaged && (!testMode || updateUrl) ? autoUpdater : undefined,
+    source: updates ? autoUpdater : undefined,
+    staged: process.platform === 'darwin' ? (fn) => squirrel.on('update-downloaded', fn) : undefined,
     onStatus: (status) => {
       send(CH.update, status);
       controls.buildMenus();
@@ -551,6 +556,7 @@ async function start(): Promise<void> {
 
   const controls = createControls({ testMode, state, panel, server, installs, updater, send, setPrompt });
   updater.schedule();
+  powerMonitor.on('resume', () => updater.resumed());
   if (app.isPackaged && !testMode && !isTranslocated(process.resourcesPath)) {
     setTimeout(() => void installs.repair(), 15_000).unref();
   }
