@@ -259,6 +259,31 @@ describe('the row under a finished reply', () => {
     await ui.unmount()
   })
 
+  test('opens a Ready file or link the panel cannot show in its default app or the browser', async ($, on) => {
+    const { app, world, clock, start } = await setup($, on)
+    world.files.set(`${CWD}/out/deck.pdf`, '%PDF')
+    await start()
+    await clock.settle()
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+    await $.tool.call({ tool: 'mcp__agent-brief__declare_output', title: 'Deck', path: 'out/deck.pdf', status: 'ready' } as never)
+    await $.tool.call({ tool: 'mcp__agent-brief__declare_output', title: 'Live site', url: 'https://example.com/launch', status: 'ready' } as never)
+    const reply = 'The deck and the site are ready.'
+    await $.turn.complete(finish(reply))
+    const ui = await $.ui.mount(block(reply))
+    expect(await ui.find({ key: 'reply-review-0' })).toMatchObject({ text: 'Open Deck' })
+    expect(await ui.find({ key: 'reply-review-1' })).toMatchObject({ text: 'Open Live site' })
+    const opens = app.to('POST', '/open').length
+    await ui.press({ key: 'reply-review-0' })
+    await ui.press({ key: 'reply-review-1' })
+    await clock.settle()
+    expect(app.to('POST', '/open')).toHaveLength(opens)
+    expect(world.runs.filter(r => r.argv[0] === 'open').map(r => r.argv)).toEqual([
+      ['open', `${CWD}/out/deck.pdf`],
+      ['open', 'https://example.com/launch'],
+    ])
+    await ui.unmount()
+  })
+
   test('offers the brief a turn updated, and opens it on the Initiative tab', async ($, on) => {
     const { app, clock, start } = await setup($, on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'created "Pricing" (id ab12) at /x/Pricing brief.md', stderr: '' } }) as never)

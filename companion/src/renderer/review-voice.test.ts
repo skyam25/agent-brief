@@ -209,6 +209,29 @@ describe('ReviewVoice with live dictation', () => {
     await voice.stop();
   });
 
+  it('moves the words at the click a slow pane reports late, within limits', async () => {
+    const { voice, heard, tick, say } = liveSetup();
+    await voice.start('c1');
+    tick(3000);
+
+    // The pane catches up 400 ms after the click, so words in between go to the new pin.
+    voice.aim('c2', 2600);
+    tick(5000);
+
+    // A click time from long before counts back only two seconds.
+    voice.aim('c3', 1000);
+    const words = (pairs: [number, string][]) => pairs.map(([atMs, text]) => ({ text, atMs }));
+    say('Too small. This one is low contrast. Cramped.', 500, words([
+      [500, 'Too'], [900, 'small.'], [2700, 'This'], [2900, 'one'], [3100, 'is'], [3300, 'low'], [3600, 'contrast.'], [6500, 'Cramped.'],
+    ]));
+    expect(heard).toEqual([
+      ['c1', 'Too small.'],
+      ['c2', 'This one is low contrast.'],
+      ['c3', 'Cramped.'],
+    ]);
+    await voice.stop();
+  });
+
   it('keeps the phrase text as printed when every word lands on one target', async () => {
     const { voice, heard, tick, say } = liveSetup();
     await voice.start('c1');

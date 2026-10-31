@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { FeedbackGraph as Graph, FeedbackGraphNode } from '../protocol';
-import type { CompanionApi } from '../shared/ipc';
+import { concerns, type CompanionApi } from '../shared/ipc';
 
 export type GraphHost = Pick<CompanionApi, 'listFeedback' | 'onFeedbackChanged'>;
 
@@ -107,7 +107,7 @@ export function FeedbackGraph(props: {
         })
         .catch((err: Error) => !gone && setError(err.message));
     load();
-    const off = props.host.onFeedbackChanged(load);
+    const off = props.host.onFeedbackChanged((c) => concerns(c, props.sessionId) && load());
     return () => {
       gone = true;
       off();

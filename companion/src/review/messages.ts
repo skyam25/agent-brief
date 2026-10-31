@@ -24,8 +24,11 @@ export type FromPage =
    * `version` is the file's as served. `editable` is true when the page has elements edit mode can change.
    */
   | { type: 'ready'; path: string; href?: string; title: string; version?: string; editable?: boolean }
-  /** A new pin. `view` is the box to crop, in the frame's viewport pixels. `matches` lists the `where` selectors its element sits in. */
-  | { type: 'pin'; anchor: ReviewAnchor; view: ReviewRect; matches?: string[] }
+  /**
+   * A new pin. `view` is the box to crop, in the frame's viewport pixels. `matches` lists the `where` selectors its element sits in.
+   * `at` is the epoch ms of the click, so voice moves to the pin from then, not from when the pane catches up.
+   */
+  | { type: 'pin'; anchor: ReviewAnchor; view: ReviewRect; matches?: string[]; at?: number }
   /** The user clicked a marker. */
   | { type: 'open-pin'; id: string }
   /** Pins whose element the page no longer has. */

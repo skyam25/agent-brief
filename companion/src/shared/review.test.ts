@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anchorLabel, cleanReview, opensInReview, reviewAsk, reviewMarkdown, reviewPictures, sitePage } from './review';
+import { anchorLabel, cleanReview, reviewAsk, reviewMarkdown, reviewPictures, sitePage } from './review';
 import { isLocalUrl } from './outputs';
 
 const anchor = {
@@ -113,8 +113,6 @@ describe('pages and sites', () => {
   it('opens HTML files and dev servers on this Mac, and keys a site page by path and query', () => {
     for (const url of ['http://localhost:5173', 'https://127.0.0.1:8443/x', 'http://app.local/', 'http://web.localhost:4000']) expect(isLocalUrl(url)).toBe(true);
     for (const url of ['https://example.com', 'http://localhost.example.com', 'http://[::1]:3000/', 'file:///a.html', 'app.html']) expect(isLocalUrl(url)).toBe(false);
-    expect(opensInReview('docs/a.html')).toBe(true);
-    expect(opensInReview('https://example.com/a.html')).toBe(false);
     expect(sitePage('http://localhost:5173/settings?tab=2#top')).toBe('/settings?tab=2');
   });
 

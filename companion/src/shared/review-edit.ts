@@ -4,6 +4,8 @@
  * an edit names its element by where it sits in the source.
  */
 
+import { isRecord } from './text';
+
 /** The attribute that names an element's place in the source. */
 export const AT_ATTR = 'data-ab-at';
 
@@ -100,7 +102,6 @@ export interface SelectedElement {
   canInsert: boolean;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isAt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 const isRef = (v: unknown): v is number | null => v === null || isAt(v);
 const PROP = /^-{0,2}[a-z][a-z0-9-]*$/;
@@ -146,3 +147,7 @@ export function cleanEdit(raw: unknown): ReviewEdit | undefined {
       return undefined;
   }
 }
+
+/** Markup escapers. The page and main both serialize edits into the same source, so they must agree. */
+export const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\u00a0/g, '&nbsp;');
+export const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');

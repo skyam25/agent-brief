@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { feedbackDir, pruneBundles, trimPngs } from './feedback-dir';
+import { feedbackDir, pruneBundles, pruneScratch, trimPngs } from './feedback-dir';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 9, 17, 12);
@@ -83,5 +83,20 @@ describe('trimPngs', () => {
     }
     trimPngs(root, 2);
     expect(readdirSync(root).sort()).toEqual(['b.png', 'c.png', 'notes.txt']);
+  });
+});
+
+describe('pruneScratch', () => {
+  it('deletes scratch files older than a week and keeps newer ones', () => {
+    const scratch = join(root, '.feedback', 'scratch');
+    mkdirSync(scratch, { recursive: true });
+    for (const [name, ageDays] of [['old.json', 8], ['new.json', 2]] as const) {
+      writeFileSync(join(scratch, name), '{}');
+      const at = (NOW - ageDays * DAY) / 1000;
+      utimesSync(join(scratch, name), at, at);
+    }
+    pruneScratch(join(root, '.feedback'), NOW);
+    expect(readdirSync(scratch)).toEqual(['new.json']);
+    expect(() => pruneScratch(join(root, 'none'), NOW)).not.toThrow();
   });
 });

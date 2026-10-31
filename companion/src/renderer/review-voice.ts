@@ -18,6 +18,9 @@ export interface HeardWord {
 /** The overall note, as a voice target. */
 export const OVERALL = '';
 
+/** How far back a click's time counts, enough for the pane to catch up after the click. */
+const AIM_LAG_MS = 2000;
+
 /** Clips shorter than this hold no words worth sending to yap. */
 const SHORTEST_MS = 700;
 const MIME = 'audio/webm;codecs=opus';
@@ -242,13 +245,20 @@ export class ReviewVoice {
     this.emit();
   }
 
-  /** Points the words at `target`. While recording clips, the clip so far goes to the old one. */
-  aim(target: string): void {
+  /**
+   * Points the words at `target` from `at`, the epoch ms of the click that asked, when the caller knows it.
+   * While recording clips, the clip so far goes to the old one.
+   */
+  aim(target: string, at = this.now()): void {
     if (target === this.target) return;
     this.target = target;
 
-    // While dictation starts, the click still counts, from when it happened.
-    if (this.live || this.opening) this.aims.push({ at: this.now(), target });
+    // While dictation starts, the click still counts, from when it happened. A click time counts back at most
+    // AIM_LAG_MS and never before the last aim, so aims stay in time order.
+    if (this.live || this.opening) {
+      const last = this.aims.at(-1)?.at ?? at;
+      this.aims.push({ at: Math.max(at, last, this.now() - AIM_LAG_MS), target });
+    }
     else if (this.stream) {
       this.track(this.finish());
       this.begin();

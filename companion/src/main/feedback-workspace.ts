@@ -160,7 +160,7 @@ export class FeedbackWorkspaces {
       const name = writeRevision(assets, found.item, png);
       const text = workspaceLine(board, `${feedbackAssets(basename(found.doc.output))}/${name}`);
       const ops = [...lines.map((line) => ({ op: 'append' as const, item: found.item.n, key: 'You', text: line })), { op: 'append' as const, item: found.item.n, key: 'Workspace', text }];
-      return this.append(root, output, found.doc.version, ops, by);
+      return this.append(root, output, ops, by);
     });
   }
 
@@ -177,19 +177,13 @@ export class FeedbackWorkspaces {
     }
     const { title, text } = itemNote(doc.output, item);
     const draft = drafts.addNote({ text, title, sessionId });
-    this.append(root, output, doc.version, [{ op: 'append', item: item.n, key: 'You', text: itemNoteLine(title) }], 'You');
+    this.append(root, output, [{ op: 'append', item: item.n, key: 'You', text: itemNoteLine(title) }], 'You');
     show(sessionId, draft.id);
     return { draftId: draft.id, created: true };
   }
 
-  /** Ops only add, so a write that lost a race reads again and retries once. */
-  private append(root: string, output: unknown, version: string, ops: { op: 'append'; item: number; key: string; text: string }[], by: 'You' | 'Claude'): FeedbackUpdateResult {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return this.deps.feedback.update(root, output, { version: attempt === 0 ? version : this.deps.feedback.read(root, output).version, ops }, by);
-      } catch (err) {
-        if ((err as { code?: string }).code !== 'conflict' || attempt > 0) throw err;
-      }
-    }
+  /** Ops only add, so they apply to the file as it stands. */
+  private append(root: string, output: unknown, ops: { op: 'append'; item: number; key: string; text: string }[], by: 'You' | 'Claude'): FeedbackUpdateResult {
+    return this.deps.feedback.update(root, output, { ops }, by);
   }
 }

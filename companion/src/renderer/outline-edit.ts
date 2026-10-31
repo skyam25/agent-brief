@@ -202,26 +202,3 @@ export function acceptedDirection(doc: Pick<OutlineDoc, 'direction'>, scope: Dir
   return d && { op: 'setDirection', direction: { ...d, state: 'accepted', scope } };
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
-
-/** IPC wraps main's errors. This keeps main's words. */
-export const cleanError = (err: unknown) => message(err).replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
-
-export const isConflict = (err: unknown) => /changed since/.test(message(err));
-
-/**
- * Writes at `version`, or at a fresh read's version when there is none. A stale version
- * reads the file again and writes the same ops once more. Ops target ids, so they still apply.
- */
-export async function writeWithRetry<R>(version: string | undefined, read: () => Promise<string | undefined>, write: (version: string) => Promise<R>): Promise<R> {
-  const first = version ?? (await read());
-  if (first === undefined) throw new Error('Could not read the outline.');
-  try {
-    return await write(first);
-  } catch (err) {
-    if (!isConflict(err)) throw err;
-    const fresh = await read();
-    if (fresh === undefined) throw err;
-    return write(fresh);
-  }
-}

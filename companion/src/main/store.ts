@@ -1,6 +1,6 @@
 /** Boards and notes on disk: `<dataDir>/boards/<name>.excalidraw` and `<name>.notes.md`. */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { CURRENT_BOARD, type BoardLayout } from '../protocol';
 import { cleanBoardComments, type BoardComments } from '../shared/board-comments';
@@ -8,6 +8,7 @@ import { layoutOfScene } from '../board/stack';
 import type { BoardEntry, Mode, Settings } from '../shared/ipc';
 import { badRequest, notFound, BoardError } from '../board/errors';
 import type { SessionBriefs } from './session-briefs';
+import { writeAtomic } from './files';
 
 const SCENE_EXT = '.excalidraw';
 const NOTES_EXT = '.notes.md';
@@ -62,15 +63,18 @@ export function cleanName(raw: unknown): string {
   return name;
 }
 
-function writeAtomic(path: string, text: string): void {
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, path);
+interface SceneSummary {
+  key: string;
+  mtimeMs: number;
+  parsed: boolean;
+  elementCount: number;
+  layout: BoardLayout;
 }
 
 export class BoardStore {
   readonly dir: string;
   private readonly created = new Set<(name: string) => void>();
+  private readonly summaries = new Map<string, SceneSummary>();
 
   constructor(dataDir: string) {
     this.dir = join(dataDir, 'boards');
@@ -120,19 +124,29 @@ export class BoardStore {
       .filter((f) => f.endsWith(SCENE_EXT))
       .map((f) => {
         const name = f.slice(0, -SCENE_EXT.length);
-        const path = join(this.dir, f);
-        let elementCount = 0;
-        let layout: BoardLayout = 'freeform';
-        try {
-          const scene = JSON.parse(readFileSync(path, 'utf8')) as { elements?: { isDeleted?: boolean }[] };
-          elementCount = (scene.elements ?? []).filter((e) => !e.isDeleted).length;
-          layout = layoutOfScene(scene);
-        } catch {
-          elementCount = 0;
-        }
-        return { name, updatedAt: statSync(path).mtimeMs, elementCount, ...(layout === 'stack' ? { layout } : {}) };
+        const { mtimeMs, elementCount, layout } = this.summary(join(this.dir, f))!;
+        return { name, updatedAt: mtimeMs, elementCount, ...(layout === 'stack' ? { layout } : {}) };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * A scene's live element count and layout, parsed again only when its size or mtime moves.
+   * Undefined for a missing scene. A scene that does not parse counts as unparsed.
+   */
+  private summary(path: string): SceneSummary | undefined {
+    let stat;
+    try { stat = statSync(path); } catch { return undefined; }
+    const key = `${stat.mtimeMs}:${stat.size}`;
+    const held = this.summaries.get(path);
+    if (held?.key === key) return held;
+    let found: SceneSummary = { key, mtimeMs: stat.mtimeMs, parsed: false, elementCount: 0, layout: 'freeform' };
+    try {
+      const scene = JSON.parse(readFileSync(path, 'utf8')) as { elements?: { isDeleted?: boolean }[] };
+      found = { ...found, parsed: true, elementCount: (scene.elements ?? []).filter((e) => !e.isDeleted).length, layout: layoutOfScene(scene) };
+    } catch {}
+    this.summaries.set(path, found);
+    return found;
   }
 
   /** Creates the board when missing. Returns the cleaned name. */
@@ -166,14 +180,9 @@ export class BoardStore {
 
   /** True when the board has no live elements and no notes. A missing board is empty. */
   isEmpty(name: string): boolean {
-    const { scene, notes } = this.load(name);
-    if (notes.trim() || existsSync(this.commentsPath(name))) return false;
-    try {
-      const elements = (JSON.parse(scene ?? '{}') as { elements?: { isDeleted?: boolean }[] }).elements ?? [];
-      return !elements.some((e) => !e.isDeleted);
-    } catch {
-      return false;
-    }
+    if (this.notes(name).trim() || existsSync(this.commentsPath(name))) return false;
+    const scene = this.summary(this.scenePath(name));
+    return !scene || (scene.parsed && scene.elementCount === 0);
   }
 
   saveScene(name: string, json: string): void {

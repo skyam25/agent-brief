@@ -1,5 +1,7 @@
 /** Comments pinned to a board's elements, and the comments.md a Send writes. */
 
+import { cut, isRecord, oneLine } from './text';
+
 /** A comment pinned to a spot on the board, usually on one element. */
 export interface BoardPin {
   id: string;
@@ -30,7 +32,6 @@ export interface BoardComments {
 export const MAX_PINS = 100;
 const PIN_ID = /^[\w-]{1,40}$/;
 
-const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const clip = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.slice(0, max) : undefined);
 const fraction = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : undefined);
@@ -66,9 +67,6 @@ export function cleanBoardComments(raw: unknown): BoardComments | undefined {
   const comments = { overall: typeof raw.overall === 'string' ? raw.overall.slice(0, 20_000) : '', pins };
   return hasBoardComments(comments) ? comments : undefined;
 }
-
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
-const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 /** A pin's name in lists: its element and the words it shows, like `rectangle “Open the app”`. */
 export function pinLabel(p: BoardPin, max = 60): string {

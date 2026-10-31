@@ -3,6 +3,17 @@
 import type { Draft, DraftImage } from './ipc';
 import { reviewPictures } from './review';
 
+/** What a draft is. A note opened from a project file also carries `source`. */
+export type DraftKind = 'note' | 'review' | 'outline';
+
+export const draftKind = (d: Pick<Draft, 'review' | 'outline'>): DraftKind => (d.review ? 'review' : d.outline ? 'outline' : 'note');
+
+/** True for a draft Write shows: a note or an outline. */
+export const inWrite = (d: Pick<Draft, 'review' | 'outline'>) => draftKind(d) !== 'review';
+
+/** The project file a draft works on: a review's page, an outline, or the file a note was opened from. */
+export const draftFile = (d: Pick<Draft, 'review' | 'outline' | 'source'>): string | undefined => d.review?.path ?? d.outline?.path ?? d.source?.path;
+
 /** A sortable id like `mgk3x2a1-9f2c`. */
 export function newDraftId(now = Date.now()): string {
   return `${now.toString(36)}-${Math.random().toString(16).slice(2, 6).padEnd(4, '0')}`;

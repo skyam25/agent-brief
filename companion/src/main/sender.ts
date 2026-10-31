@@ -5,7 +5,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildDraft, cleanSourcePath, freeId, rewriteImages, writeBundle } from '../server/bundle';
 import type { CompanionServer, DeliveryInput } from '../server/contract';
-import { feedbackDir, pruneBundles } from '../server/feedback-dir';
+import { feedbackDir, tidyFeedback } from '../server/feedback-dir';
 import { isTextPayload, type Launcher, type Outgoing, type SendPayload, type SendResult } from '../shared/ipc';
 import { cleanBoardComments } from '../shared/board-comments';
 import { cleanAnnotations } from '../shared/annotations';
@@ -176,7 +176,7 @@ export class Sender {
     const id = freeId(sketches, Date.now());
     const dir = join(sketches, id);
     await writeBundle(dir, input);
-    pruneBundles(sketches, Date.now());
+    tidyFeedback(feedbackDir(cwd), Date.now());
     const draft = buildDraft(id, input, cwd);
     const promptPath = join(dir, 'prompt.md');
     await writeFile(promptPath, draft);

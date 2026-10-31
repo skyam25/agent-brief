@@ -445,3 +445,42 @@ test('the Ended group lists its newest five until Show more', async () => {
   await expect(page.getByTestId('brief-tab')).toHaveCount(7);
   await expect(page.getByTestId('ended-more')).toHaveText('Show fewer');
 });
+
+test('Clean up moves what an ended session left to the Trash, and an unchecked note stays kept', async () => {
+  const { app, page } = ctx;
+  const cwd = projectDir('Alpha');
+  mkdirSync(join(cwd, '.feedback', 'outputs'), { recursive: true });
+  writeFileSync(join(cwd, 'proto.html'), '<p>proto</p>');
+  writeFileSync(join(cwd, 'proto.html.feedback.md'), '# Feedback\n');
+  writeFileSync(join(cwd, '.feedback', 'outputs', 's1.json'), JSON.stringify({ version: 1, sessionId: 's1', outputs: [{ ref: 'proto.html', kind: 'html', tier: 'declared' }] }));
+  await registerSession(socketPath, 's1', 'Alpha', cwd);
+  await register('s2', 'Beta');
+  await openFor({ sessionId: 's1' });
+  await drawBox(app, 'scratch', 0);
+  await expect.poll(() => onDisk(app, 'scratch')).toBe(1);
+  await sock(socketPath, 'POST', '/notes', { sessionId: 's1', title: 'Pricing idea', text: 'Try a usage tier.' });
+  await openFor({ sessionId: 's2' });
+  await sock(socketPath, 'DELETE', '/sessions/s1');
+
+  await showEnded(page);
+  await briefTab(page, 'Alpha').hover();
+  await briefTab(page, 'Alpha').getByTestId('brief-more').click();
+  await page.getByTestId('brief-cleanup').click();
+  const sheet = page.getByTestId('cleanup');
+  await expect(sheet.getByTestId('cleanup-discard')).toHaveText([/Pricing idea/, /Board · scratch/, /Feedback on proto\.html/]);
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'cleanup.png') });
+
+  // Unchecking the note keeps it, now and in later clean ups.
+  await sheet.getByTestId('cleanup-discard').filter({ hasText: 'Pricing idea' }).getByRole('checkbox').uncheck();
+  await sheet.getByTestId('cleanup-run').click();
+  await expect(sheet).toHaveCount(0);
+  await expect.poll(() => app.evaluate((_e) => globalThis.__companion.store.exists('scratch'))).toBe(false);
+  expect(existsSync(join(cwd, 'proto.html.feedback.md'))).toBe(false);
+  expect(existsSync(join(cwd, 'proto.html'))).toBe(true);
+
+  await briefTab(page, 'Alpha').hover();
+  await briefTab(page, 'Alpha').getByTestId('brief-more').click();
+  await page.getByTestId('brief-cleanup').click();
+  await expect(sheet.getByTestId('cleanup-discard')).toHaveCount(0);
+  await expect(sheet.getByTestId('cleanup-keep')).toHaveText([/Pricing idea.*kept by you/]);
+});

@@ -14,6 +14,7 @@ describe('session words', () => {
     expect(sessionTitle({ sessionId: 's', cwd: '/x', title: 'Login' })).toBe('Login');
     expect(shortPath('/Users/me/app', '/Users/me')).toBe('~/app');
     expect(shortPath('/opt/app', '/Users/me')).toBe('/opt/app');
+    expect(shortPath('/Users/me', '/Users/me')).toBe('~');
   });
 });
 

@@ -88,17 +88,8 @@ async function readOps(ctx: OutlineCtx): Promise<OutlineOp[]> {
 
 const readDoc = (ctx: OutlineCtx, file: string) => callJson<OutlineDocument>(ctx.socket, 'GET', route(ctx, file));
 
-/** Reads the version and applies the ops. Ops target ids, so a write that lost a race reads again and retries once. */
-async function write(ctx: OutlineCtx, file: string, ops: OutlineOp[]): Promise<OutlineUpdateResult> {
-  for (let attempt = 0; ; attempt++) {
-    const { version } = await readDoc(ctx, file);
-    try {
-      return await callJson<OutlineUpdateResult>(ctx.socket, 'POST', route(ctx, file), { version, ops });
-    } catch (e) {
-      if (!(e instanceof ApiError && e.code === 'conflict') || attempt > 0) throw e;
-    }
-  }
-}
+/** Applies the ops to the outline as it stands. They target ids, so no version is needed. */
+const write = (ctx: OutlineCtx, file: string, ops: OutlineOp[]) => callJson<OutlineUpdateResult>(ctx.socket, 'POST', route(ctx, file), { ops });
 
 type Verb = (ctx: OutlineCtx, words: string[]) => Promise<void>;
 

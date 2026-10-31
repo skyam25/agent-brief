@@ -12,6 +12,7 @@ import { SNAPSHOT_MARK, snapshotBlock } from '../shared/snapshot-block';
 import { createEditMode, type EditMode } from './edit-mode';
 import { createFind } from './find';
 import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from './messages';
+import { cut, oneLine } from '../shared/text';
 
 /** The file's version, which the server puts on this script's tag. Read now, while this script runs. */
 const VERSION = (document.currentScript as HTMLScriptElement | null)?.dataset.abVersion;
@@ -22,11 +23,8 @@ const MARK_MS = 1500;
 const ACCENT = '#6965db';
 const HEADINGS = 'h1, h2, h3, h4, h5, h6';
 
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
-
 /** A link to the site the frame shows: the same project folder, or the same dev server. */
 const sameSite = (url: URL) => url.protocol === location.protocol && url.host === location.host;
-const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 /** Only the page the pane frames talks to it, not frames nested inside that page. Main may add it to a page twice. */
 if (window.parent !== window && window.parent === window.top && !document.querySelector('agent-brief-overlay')) start();
@@ -218,7 +216,8 @@ function start(): void {
   };
 
   function pinElement(el: Element, x: number, y: number): void {
-    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x, y }), view: visible(el.getBoundingClientRect()), matches: matching(el) }));
+    const at = Date.now();
+    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x, y }), view: visible(el.getBoundingClientRect()), matches: matching(el), at }));
   }
 
   function pinSelection(sel: Selection): boolean {
@@ -229,7 +228,8 @@ function start(): void {
     const el = node instanceof Element ? node : node.parentElement;
     if (!el || ours(el)) return false;
     const r = range.getBoundingClientRect();
-    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x: r.right, y: r.top }, quote), view: visible(r), matches: matching(el) }));
+    const at = Date.now();
+    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x: r.right, y: r.top }, quote), view: visible(r), matches: matching(el), at }));
     return true;
   }
 

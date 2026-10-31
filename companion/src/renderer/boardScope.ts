@@ -2,6 +2,7 @@
 
 import type { BoardEntry, Draft } from '../shared/ipc';
 import { onTab } from './drafts';
+import { inWrite } from '../shared/drafts';
 
 /** Boards a session's brief holds, or the boards no session holds. */
 export function boardsOf(boards: readonly BoardEntry[], sessionId: string | undefined): BoardEntry[] {
@@ -17,7 +18,7 @@ export function childrenOf(
 ): { boards: BoardEntry[]; noteCount: number } {
   return {
     boards: boardsOf(boards, sessionId),
-    noteCount: drafts.filter((d) => !d.review && d.body.trim() && onTab(d, sessionId, tabs)).length,
+    noteCount: drafts.filter((d) => inWrite(d) && d.body.trim() && onTab(d, sessionId, tabs)).length,
   };
 }
 

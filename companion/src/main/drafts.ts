@@ -1,6 +1,6 @@
 /** Drafts on disk: one `<dataDir>/drafts/<id>.json` per draft. */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { badRequest } from '../board/errors';
 import { ATTACHMENT_ID } from '../shared/attachments';
@@ -10,6 +10,7 @@ import type { DeliveryInput } from '../server/contract';
 import { cleanAnnotations } from '../shared/annotations';
 import { cleanReview } from '../shared/review';
 import { isOutlinePath } from '../shared/outline';
+import { writeAtomic } from './files';
 
 const ID = /^[\w-]{1,64}$/;
 /** The longest draft body, in characters. */
@@ -99,7 +100,8 @@ export class DraftStore {
     mkdirSync(this.dir, { recursive: true });
   }
 
-  private path(id: string): string {
+  /** The draft's file. */
+  path(id: string): string {
     if (!ID.test(id)) throw badRequest(`bad draft id ${JSON.stringify(id)}`);
     return join(this.dir, `${id}.json`);
   }
@@ -125,9 +127,7 @@ export class DraftStore {
   save(raw: unknown): Draft {
     const draft = cleanDraft(raw);
     const path = this.path(draft.id);
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(draft, null, 2));
-    renameSync(tmp, path);
+    writeAtomic(path, JSON.stringify(draft, null, 2));
     return draft;
   }
 

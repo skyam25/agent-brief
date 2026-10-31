@@ -7,15 +7,17 @@ import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { outputsFile } from '../protocol';
 import { itemsFile } from '../server/index';
-import { newDraftId } from '../shared/drafts';
-import { CH, type Decision, type ItemsDocInfo, type OpenFeedbackView, type OutputsInfo, type ReviewTab } from '../shared/ipc';
+import { draftFile, draftKind, newDraftId, type DraftKind } from '../shared/drafts';
+import { CH, type Decision, type Draft, type ItemsDocInfo, type OpenFeedbackView, type OutputsInfo, type ReviewTab } from '../shared/ipc';
 import { decisionsDraft, parseItems, withDecisions } from '../shared/items';
-import { isOutlinePath, parseOutline } from '../shared/outline';
+import { opensInApp, refSurface } from '../shared/output-file';
+import { parseOutline } from '../shared/outline';
 import { isLocalUrl, isMarkdownRef, isUrlRef, outputTouchedAt, parseOutputsFile, sortOutputs } from '../shared/outputs';
 import { isReviewable } from '../shared/review';
 import { cleanEdit, type EditResult, type HistoryResult } from '../shared/review-edit';
 import type { Briefs } from './briefs';
 import { MAX_DRAFT_BODY, type DraftStore } from './drafts';
+import { within } from './feedback-paths';
 import { applyEdit, EditError, editableOffsets, versionOf } from './html-edit';
 import { ItemsWatcher } from './items-watch';
 import { liveFields } from './session-briefs';
@@ -172,7 +174,7 @@ export class SessionFiles {
    * opens in its default app.
    */
   async openOutput(sessionId: string, ref: unknown, tab?: ReviewTab): Promise<void> {
-    const { briefs, drafts, opener } = this.deps;
+    const { briefs, opener } = this.deps;
     if (typeof ref !== 'string' || ref.trim() === '') throw new Error('No output named');
     if (isUrlRef(ref)) {
       const url = webUrl(ref, `${ref} is not a valid link`).href;
@@ -187,20 +189,21 @@ export class SessionFiles {
 
     // Notes and reviews key on the project-relative path, however the caller named the file.
     const path = relative(cwd, target);
-    if (isReviewable(target)) {
+    const surface = refSurface(path);
+    if (surface === 'review') {
       this.openReview(sessionId, path, tab);
       return;
     }
-    if (isOutlinePath(path)) {
+    if (surface === 'outline') {
       if (statSync(target).size > MAX_OUTPUT_BYTES) throw new Error(`${ref} is over 4 MB, too large to open as an outline`);
       this.showOutline(sessionId, path, parseOutline(readFileSync(target, 'utf8')).title || basename(path));
       return;
     }
-    if (!isMarkdownRef(target)) {
+    if (surface !== 'note') {
       await opener.openPath(target);
       return;
     }
-    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.source?.path === path);
+    const existing = this.draftFor(sessionId, 'note', path);
     if (existing) {
       briefs.showDraft(sessionId, existing.id, false);
       return;
@@ -217,7 +220,7 @@ export class SessionFiles {
    */
   showOutline(sessionId: string, path: string, title: string): string {
     const { briefs, drafts } = this.deps;
-    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.outline?.path === path);
+    const existing = this.draftFor(sessionId, 'outline', path);
     const now = Date.now();
     const draft = existing ?? drafts.save({ id: newDraftId(now), body: '', status: 'note', title, sessionId, outline: { path }, rank: 0, createdAt: now, updatedAt: now });
     briefs.showDraft(sessionId, draft.id, false);
@@ -268,10 +271,9 @@ export class SessionFiles {
       this.deps.send(CH.openFeedbackView, open);
       return 'review';
     }
-    const page = isLocalUrl(path);
-    if (!page && !isMarkdownRef(path) && !isReviewable(path)) throw new Error(`${path} is not a Markdown or HTML file, or a local URL`);
+    if (!opensInApp(path)) throw new Error(`${path} is not a Markdown or HTML file, or a local URL`);
     await this.openOutput(sessionId, path, tab);
-    return page || isReviewable(path) ? 'review' : 'note';
+    return refSurface(path) === 'review' ? 'review' : 'note';
   }
 
   /** A project file's absolute path, after the same checks as opening it. */
@@ -368,10 +370,15 @@ export class SessionFiles {
     return target;
   }
 
+  /** The session's draft of `kind` on a project file, if it has one. */
+  private draftFor(sessionId: string, kind: DraftKind, path: string): Draft | undefined {
+    return this.deps.drafts.list().find((d) => d.sessionId === sessionId && draftKind(d) === kind && draftFile(d) === path);
+  }
+
   /** Opens an HTML output in the review pane, reusing the review already open on that file. */
   private openReview(sessionId: string, ref: string, tab?: ReviewTab): void {
-    const { briefs, drafts } = this.deps;
-    const existing = drafts.list().find((d) => d.sessionId === sessionId && d.review?.path === ref);
+    const { briefs } = this.deps;
+    const existing = this.draftFor(sessionId, 'review', ref);
     if (existing) briefs.showDraft(sessionId, existing.id, false, tab);
     else briefs.startNote({ id: newDraftId(), sessionId, review: { path: ref, comments: [] }, ...(tab ? { tab } : {}) }, false);
   }
@@ -405,10 +412,6 @@ export class SessionFiles {
     const cwd = this.cwd(sessionId);
     if (typeof path !== 'string' || path.trim() === '') throw new Error('No file named');
     const target = resolve(cwd, path.trim());
-    const within = (root: string, p: string) => {
-      const rel = relative(root, p);
-      return rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
-    };
     if (!within(cwd, target)) throw new Error(`${path} is outside the project`);
     if (!existsSync(target)) throw new Error(`${path} does not exist yet`);
     if (!within(realpathSync(cwd), realpathSync(target))) throw new Error(`${path} is outside the project`);

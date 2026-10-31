@@ -90,7 +90,7 @@ Ops target ids (s1, p3, S2). apply reads the version first and retries once when
   png: {
     usage: 'agent-brief png [--board <name>] [--region x,y,w,h] [--max-edge 1400] [--out <path>] [--json]',
     about: 'Writes a PNG and prints its path. Read the file to see the board. Default path: ./.feedback/boards/<board>-<timestamp>.png.',
-    example: 'agent-brief png --region 0,0,600,400 --out /tmp/crop.png',
+    example: 'agent-brief png --region 0,0,600,400 --out .feedback/scratch/crop.png',
   },
   draw: {
     usage: 'agent-brief draw [--board <name>] [--file f.json] [--json]',
@@ -100,7 +100,7 @@ Ops target ids (s1, p3, S2). apply reads the version first and retries once when
   snap: {
     usage: 'agent-brief snap <image> [--caption <text>] [--note <text>] [--width 720] [--board <name>] [--json]',
     about: 'Adds a screenshot as the next numbered step, in a frame titled with the caption. Steps run three to a row. --note adds a sticky under the picture.',
-    example: 'agent-brief snap /tmp/step.png --board checkout-run --caption "Cart" --note "Total skips the discount"',
+    example: 'agent-brief snap .feedback/scratch/step.png --board checkout-run --caption "Cart" --note "Total skips the discount"',
   },
   update: {
     usage: 'agent-brief update [--board <name>] [--file f.json] [--json]',

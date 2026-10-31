@@ -1,5 +1,6 @@
 import type { Delivery, SessionHost, SessionInfo } from './companion-protocol'
 import { defaultSocketPath } from './companion-protocol'
+import { isLocalUrl, refSurface } from './generated/output-file'
 
 export const BACKOFF_MIN_MS = 5_000
 export const BACKOFF_MAX_MS = 30_000
@@ -258,9 +259,9 @@ export type RowOpen =
 const fileName = (ref: string) => ref.slice(ref.lastIndexOf('/') + 1)
 
 export function pageLabel(ref: string, title?: string): string {
-  if (isLocalUrlRef(ref)) return title ? `Open ${title}` : `Review ${localUrlLabel(ref)}`
-  if (isHtmlPage(ref)) return `Review ${fileName(ref)}`
-  return `Open ${title ?? fileName(ref)}`
+  if (isLocalUrl(ref)) return title ? `Open ${title}` : `Review ${localUrlLabel(ref)}`
+  if (refSurface(ref) === 'review') return `Review ${fileName(ref)}`
+  return `Open ${title ?? (fileName(ref) || ref)}`
 }
 
 /**
@@ -301,8 +302,6 @@ export function changedBrief(stdout: string): { title: string; id?: string } | u
   return updated ? { title: updated[1]! } : undefined
 }
 
-export const isHtmlPage = (path: string) => /\.html?$/i.test(path)
-
 /** Dev server addresses on this Mac that a reply names, such as http://localhost:5173/, in the order it names them. */
 export function namedLocalUrls(reply: string): string[] {
   const urls: string[] = []
@@ -318,17 +317,12 @@ export function namedLocalUrls(reply: string): string[] {
   return urls
 }
 
-export const isLocalUrlRef = (ref: string) => /^https?:\/\//i.test(ref)
-
 /** A local URL as the row names it: its host, and its path past the root. */
 export function localUrlLabel(href: string): string {
   const u = new URL(href)
   const page = u.pathname + u.search
   return page === '/' ? u.host : `${u.host}${page}`
 }
-
-/** An Agent Brief outline. Claude edits one through the CLI, so it never shows up as a written output. */
-export const isOutlineFile = (path: string) => /\.outline\.md$/i.test(path)
 
 /** A note `agent-brief note` filed. The title is unknown when Claude replaced a note in place. */
 export type FiledNote = { id: string; title?: string }

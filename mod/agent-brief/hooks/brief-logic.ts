@@ -1,5 +1,6 @@
 import type { BriefAnswer, BriefOutput, SessionMode } from '../types'
 import { feedbackPath, parseFeedback } from './generated/feedback'
+import { isUrlRef, opensInApp } from './generated/output-file'
 import { awaitsUser, parseItems } from './items-file'
 import type { Decision } from './items-file'
 import { modeLabel } from './modes'
@@ -19,15 +20,8 @@ export const OUTPUT_NEEDS_UPDATE = 'Update Agent Brief to open outputs from here
 
 /** Clauses longer than this make a question free text rather than buttons. */
 const SHORT = 40
-const BRIEF_EXTENSIONS = ['md', 'markdown', 'mdx', 'html', 'htm']
 
-const isUrl = (ref: string) => /^https?:\/\//i.test(ref)
 const fileName = (ref: string) => ref.split('/').filter(Boolean).at(-1) ?? ref
-const extensionOf = (ref: string) => {
-  const name = fileName(ref)
-  const dot = name.lastIndexOf('.')
-  return dot <= 0 ? '' : name.slice(dot + 1).toLowerCase()
-}
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 /** True when the conversation already holds a prompt from the user, as a resumed session does. */
@@ -66,9 +60,9 @@ const rowOf = (o: BriefOutput, open: number | undefined): OutputRow => ({
   label: o.tier === 'declared' ? (o.title ?? fileName(o.ref)) : o.ref,
   ...(o.tier === 'declared' ? { status: o.status === 'ready' ? ('Ready' as const) : ('Drafting' as const) } : {}),
   ...(lastTouched(o) === undefined ? {} : { at: lastTouched(o) }),
-  isUrl: isUrl(o.ref),
-  canBrief: !isUrl(o.ref) && (BRIEF_EXTENSIONS.includes(extensionOf(o.ref)) || open !== undefined),
-  ...(open !== undefined && (open > 0 || !BRIEF_EXTENSIONS.includes(extensionOf(o.ref))) ? { feedback: `Feedback · ${open} open` } : {}),
+  isUrl: isUrlRef(o.ref),
+  canBrief: !isUrlRef(o.ref) && (opensInApp(o.ref) || open !== undefined),
+  ...(open !== undefined && (open > 0 || !opensInApp(o.ref)) ? { feedback: `Feedback · ${open} open` } : {}),
 })
 
 /**
@@ -101,7 +95,7 @@ export function openFeedback(text: string): number {
 
 /** What `open` takes for a row: the URL, or the file's absolute path. */
 export function openTarget(cwd: string, ref: string): string {
-  if (isUrl(ref) || ref.startsWith('/')) return ref
+  if (isUrlRef(ref) || ref.startsWith('/')) return ref
   return `${cwd.replace(/\/+$/, '')}/${ref}`
 }
 

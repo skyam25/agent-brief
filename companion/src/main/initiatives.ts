@@ -7,8 +7,8 @@
  * with the app closed, reads the same files and never writes.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
@@ -23,7 +23,9 @@ import {
 } from '../protocol';
 import { BoardError, badRequest, notFound } from '../board/errors';
 import { isUrlRef } from '../shared/outputs';
+import { shortPath } from '../shared/sessions';
 import { briefFileName, changedFields, firstSentence, formatBrief, mergeOutputRows, newBrief, parseBrief, type BriefFields, type OutputLink, type ParsedBrief } from './initiative-markdown';
+import { hash as sha, writeAtomic } from './files';
 
 export const INITIATIVES_FILE = 'initiatives.json';
 
@@ -67,22 +69,9 @@ interface Read {
   brief?: ParsedBrief;
 }
 
-const sha = (text: string) => createHash('sha256').update(text).digest('hex');
-
 /** `~/x` as an absolute path. */
 export function expandHome(path: string, home = homedir()): string {
   return path === '~' ? home : path.startsWith('~/') ? join(home, path.slice(2)) : path;
-}
-
-/** An absolute path under home as `~/…`. */
-export function tildePath(path: string, home = homedir()): string {
-  return path === home ? '~' : path.startsWith(home + '/') ? `~${path.slice(home.length)}` : path;
-}
-
-function writeAtomic(path: string, text: string): void {
-  const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`);
-  writeFileSync(tmp, text);
-  renameSync(tmp, path);
 }
 
 /** The first bytes of a file, enough for its front matter. */
@@ -374,7 +363,7 @@ export class InitiativeStore {
       understanding: req.understanding ?? '',
       decisions: req.decisions ?? [],
       open: req.open ?? [],
-      folders: req.folders ?? [{ path: tildePath(folder, this.home), role: 'working' }],
+      folders: req.folders ?? [{ path: shortPath(folder, this.home), role: 'working' }],
       working: req.working,
     });
     mkdirSync(folder, { recursive: true });

@@ -37,6 +37,11 @@ export function markConsumed(
   return sessions.map(s => (s.name === name ? { ...s, isConsumed: true } : s))
 }
 
+/** Applied recordings ingested before `cutoff` whose folders sit directly in `root`, the project's `.feedback`. */
+export function staleRecordings(sessions: readonly FeedbackInboxSession[], root: string, cutoff: number): FeedbackInboxSession[] {
+  return sessions.filter(s => s.isConsumed && s.ingestedAt < cutoff && s.dir === `${root}/${s.name}` && !s.name.includes('/') && !s.name.startsWith('.'))
+}
+
 /** Adds or replaces one session by name. */
 export function upsert(
   sessions: readonly FeedbackInboxSession[],

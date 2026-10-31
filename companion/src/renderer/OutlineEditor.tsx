@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import type { CiteMark, DirectionScope, OutlineCite, OutlineDocument, OutlineOp, OutlinePoint, OutlineSection, OutlineSource, OutlineUpdateResult } from '../protocol';
-import type { CompanionApi, Draft } from '../shared/ipc';
+import { concerns, type CompanionApi, type Draft } from '../shared/ipc';
 import type { OutlineChanges, OutlineRowChange, RowChangeKind } from '../shared/outline-changes';
 import { acceptDirectionPrompt, askPrompt, generatePrompt } from '../shared/outline-prompts';
 import type { SendFeedback } from './FeedbackPanel';
@@ -20,7 +20,6 @@ import {
   citeLabel,
   citesWith,
   citeTitle,
-  cleanError,
   directionHeadline,
   dropPending,
   intentOp,
@@ -37,10 +36,10 @@ import {
   shownChanges,
   splitOpen,
   targetName,
-  writeWithRetry,
   type PendingAfter,
   type PendingPoint,
 } from './outline-edit';
+import { cleanError } from './ipc-error';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import type { FixedSend } from './useSend';
 
@@ -95,7 +94,7 @@ export function useOutlineDoc(host: OutlineHost, sessionId: string | undefined, 
     setDoc(undefined);
     void load();
     const off = host.onOutlineChanged((c) => {
-      if (c.path === path && (!c.sessionId || c.sessionId === sessionId)) void load();
+      if (c.path === path && concerns(c, sessionId)) void load();
     });
     return () => {
       ++request.current;
@@ -124,11 +123,7 @@ export function useOutlineDoc(host: OutlineHost, sessionId: string | undefined, 
         const list = typeof ops === 'function' ? ops() : ops;
         if (!sessionId || !list.length) return undefined;
         try {
-          const next = await writeWithRetry(
-            live.current?.version,
-            async () => (await load())?.version,
-            (version) => host.updateOutline(sessionId, path, { version, ops: list }),
-          );
+          const next = await host.updateOutline(sessionId, path, { ops: list });
           ++request.current;
           live.current = next;
           setDoc(next);

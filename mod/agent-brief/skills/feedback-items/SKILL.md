@@ -22,7 +22,7 @@ Change nothing in the output until the user decides. A round is cataloged, not a
    - A near-repeat, or the same point on another output, is a new item with a `related` link.
    - A later quote that asks again about an existing item joins it as a `src` line. A quote that only praises or confirms a fix, such as "works now", is not a `src` line, because a new `src` on a closed item flags it as raised again. Log it on the item instead: `Claude "note · round 2 · Lena · 00:40 · \"The skip link works now\""`.
    - Never guess which build a speaker saw, or decide for the user that a repeat needs no change. Record the conflict, such as "Raised again after commit 3a62d74; the transcript doesn't say which build Maya saw". Say in the reply which items need the user to look.
-4. Catalog the round and all its points in one call. Write the points as JSON with your Write tool to a new file named after the transcript, such as `.feedback/catalog-sme-2.json`, then pass the file. A heredoc makes the command unique each time, so the user can't allow it once. The call adds the round unless the file has it, skips points already cataloged, and names look-alikes it finds:
+4. Catalog the round and all its points in one call. Write the points as JSON with your Write tool to a new file named after the transcript, such as `.feedback/scratch/catalog-sme-2.json`, then pass the file. A heredoc makes the command unique each time, so the user can't allow it once. The call adds the round unless the file has it, skips points already cataloged, and names look-alikes it finds:
 
 ```json
 [
@@ -35,7 +35,7 @@ Change nothing in the output until the user decides. A round is cataloged, not a
 ```
 
 ```bash
-agent-brief feedback catalog prototype/checkout.html --label SME --source transcripts/sme-2.md --date 2026-10-18 --items .feedback/catalog-sme-2.json
+agent-brief feedback catalog prototype/checkout.html --label SME --source transcripts/sme-2.md --date 2026-10-18 --items .feedback/scratch/catalog-sme-2.json
 ```
 
 5. Reply with how many items the round added or joined, and mention any praise. Name `<output>` by its path. For an HTML or Markdown output, the row under the reply then offers to open it. For any other file, end with: Press ▣ Brief, then In Agent Brief on `<output>`.

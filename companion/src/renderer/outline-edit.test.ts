@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { OutlineDoc, OutlinePoint, OutlineSection } from '../protocol';
 import {
   acceptedDirection,
@@ -20,7 +20,6 @@ import {
   sectionRows,
   shownChanges,
   sourceLine,
-  writeWithRetry,
   type PendingPoint,
 } from './outline-edit';
 
@@ -140,35 +139,6 @@ describe('direction', () => {
   it('accepts at a scope and keeps the rest', () => {
     expect(acceptedDirection(doc, 'edit')).toEqual({ op: 'setDirection', direction: { ...doc.direction, state: 'accepted', scope: 'edit' } });
     expect(acceptedDirection({}, 'edit')).toBeUndefined();
-  });
-});
-
-describe('writeWithRetry', () => {
-  it('reads again and writes the same ops once on a stale version', async () => {
-    const read = vi.fn(async () => 'v2');
-    const write = vi.fn(async (v: string) => {
-      if (v === 'v1') throw new Error("Error invoking remote method 'outline:update': Error: The outline changed since you read it");
-      return v;
-    });
-    await expect(writeWithRetry('v1', read, write)).resolves.toBe('v2');
-    expect(write.mock.calls.map((c) => c[0])).toEqual(['v1', 'v2']);
-  });
-
-  it('gives up after one retry and on other errors', async () => {
-    const stale = async () => {
-      throw new Error('changed since');
-    };
-    await expect(writeWithRetry('v1', async () => 'v2', stale)).rejects.toThrow('changed since');
-    const write = vi.fn(async () => {
-      throw new Error('ops[0] editPoint: There is no point p9');
-    });
-    await expect(writeWithRetry('v1', async () => 'v2', write)).rejects.toThrow('no point p9');
-    expect(write).toHaveBeenCalledTimes(1);
-  });
-
-  it('reads first when it has no version', async () => {
-    const write = vi.fn(async (v: string) => v);
-    await expect(writeWithRetry(undefined, async () => 'v3', write)).resolves.toBe('v3');
   });
 });
 

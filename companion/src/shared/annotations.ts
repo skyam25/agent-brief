@@ -1,5 +1,7 @@
 /** Comments on a Write note: each one quotes the passage it is about. Send writes them as annotations.md. */
 
+import { cut, isRecord, oneLine } from './text';
+
 /** One comment on a passage of a note. */
 export interface NoteComment {
   id: string;
@@ -28,7 +30,6 @@ export interface AnnotationsPayload extends NoteAnnotations {
 export const MAX_NOTE_COMMENTS = 100;
 const COMMENT_ID = /^[\w-]{1,40}$/;
 
-const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const clip = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.slice(0, max) : undefined);
 
 /** Checks annotations from the renderer and keeps only known fields. Undefined when there are none. */
@@ -57,9 +58,6 @@ export function cleanAnnotations(raw: unknown): NoteAnnotations | undefined {
 
 /** True when there is something to send: a comment or words about the whole note. */
 export const hasAnnotations = (a: NoteAnnotations | undefined): boolean => !!a && (a.comments.length > 0 || !!a.overall?.trim());
-
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
-const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 /** The note's name in the prompt and in annotations.md. */
 export const noteName = (title: string | undefined, source: string | undefined) =>

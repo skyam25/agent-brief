@@ -8,7 +8,7 @@ import { decisionsClaim, subscribeDecisions } from './decisions-send';
 import { BoardPicker, LayoutSwitch } from './BoardPicker';
 import { fallbackBoard } from './boardScope';
 import { BoardController, parseScene, type LoadedScene } from './controller';
-import { draftTitle } from '../shared/drafts';
+import { draftFile, draftTitle } from '../shared/drafts';
 import { draftName } from './DraftList';
 import { DraftBook } from './drafts';
 import { openFind } from './editor/RichEditor';
@@ -36,6 +36,7 @@ import { usePanelKeys } from './usePanelKeys';
 import { useSend } from './useSend';
 import { useWorkspace } from './useWorkspace';
 import { WriteView } from './WriteView';
+import { cleanError } from './ipc-error';
 
 interface Boot {
   info: InitInfo;
@@ -74,12 +75,6 @@ export function App({ host }: { host: CompanionApi }) {
   }, [host]);
   if (!booted) return null;
   return <Panel host={host} {...booted} />;
-}
-
-/** An IPC error without Electron's "Error invoking remote method" wrapper. */
-function errorText(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
 
 /** The view tabs, Sketch, Write, Review and Initiative, in the middle of the strip. Review needs a session tab. */
@@ -179,7 +174,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   const toastId = useRef(0);
   const notify = useCallback((text: string, kind: ToastKind = 'info') => setToast({ text, kind, id: ++toastId.current }), []);
   const dismissToast = useCallback(() => setToast(undefined), []);
-  const report = (what: string) => (err: unknown) => notify(`Could not ${what}: ${errorText(err)}`, 'error');
+  const report = (what: string) => (err: unknown) => notify(`Could not ${what}: ${cleanError(err)}`, 'error');
   const copyReference = (ref: ItemReference) =>
     void host.copyReference(ref).then(() => notify('Copied. Paste it into any Claude Code session.'), report('copy the reference'));
   const [settings, setSettings] = useState<Settings>(info.settings);
@@ -377,6 +372,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
             file: (names, sessionId) => void fileBoards(names, sessionId),
           },
         }}
+        cleanup={host}
+        onNotify={(text) => notify(text)}
       />
       <div className="work">
         <header className="strip">
@@ -551,13 +548,10 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
               voice={reviewVoice}
               talking={recording}
               onCopy={(clip) => host.copyRich(clip).then(() => true, (err) => (report('copy the note')(err), false))}
-              onCopyReference={(d) =>
-                copyReference(
-                  (d.source ?? d.outline) && d.sessionId
-                    ? { kind: 'output', sessionId: d.sessionId, ref: (d.source ?? d.outline)!.path, title: draftName(d) }
-                    : { kind: 'note', id: d.id, title: draftName(d) },
-                )
-              }
+              onCopyReference={(d) => {
+                const file = draftFile(d);
+                copyReference(file && d.sessionId ? { kind: 'output', sessionId: d.sessionId, ref: file, title: draftName(d) } : { kind: 'note', id: d.id, title: draftName(d) });
+              }}
               onOpenElsewhere={async (d) => {
                 if (d.sessionId && briefs.some((b) => b.sessionId === d.sessionId)) return switchBrief(d.sessionId, d.id);
                 openNotes();

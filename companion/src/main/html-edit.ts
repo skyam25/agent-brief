@@ -7,7 +7,8 @@
 
 import { createHash } from 'node:crypto';
 import { parse, parseFragment, type DefaultTreeAdapterMap } from 'parse5';
-import { AT_ATTR, INLINE_TAGS, INSERTS, type ReviewEdit, type StyleSet } from '../shared/review-edit';
+import { AT_ATTR, escapeAttr, escapeText, INLINE_TAGS, INSERTS, type ReviewEdit, type StyleSet } from '../shared/review-edit';
+import { cut, oneLine } from '../shared/text';
 
 type Node = DefaultTreeAdapterMap['node'];
 type Element = DefaultTreeAdapterMap['element'];
@@ -64,11 +65,6 @@ export function annotate(html: string): string {
 export const versionOf = (html: string) => createHash('sha1').update(html).digest('hex').slice(0, 16);
 
 // ── Reading the source ───────────────────────────────────────────────────
-
-const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\u00a0/g, '&nbsp;');
-const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
-const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 function textOf(node: Node): string {
   if (node.nodeName === '#text') return (node as DefaultTreeAdapterMap['textNode']).value;

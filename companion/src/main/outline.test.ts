@@ -55,13 +55,22 @@ describe('outline store', () => {
     expect(() => store.update(root, path, { version: next.version, ops: [{ op: 'removeSection', id: 's1' }] })).toThrow('changed since');
   });
 
+  it('applies ops without a version to the outline as it stands', () => {
+    const { root, store } = setup();
+    const path = store.create(root, { title: 'Memo' });
+    store.update(root, path, { version: store.read(root, path).version, ops: [{ op: 'addSection', title: 'A' }] });
+    const next = store.update(root, path, { ops: [{ op: 'addSection', title: 'B' }] });
+    expect(next.sections.map((s) => s.title)).toEqual(['A', 'B']);
+    expect(() => store.update(root, path, { version: 'missing', ops: [{ op: 'addSection', title: 'C' }] })).toThrow('changed since');
+  });
+
   it('leaves the file alone on a bad op and names it', () => {
     const { root, store, changes } = setup();
     const path = store.create(root, { title: 'Memo' });
     const before = readFileSync(join(root, path), 'utf8');
     const { version } = store.read(root, path);
     expect(() => store.update(root, path, { version, ops: [{ op: 'addSection', title: 'A' }, { op: 'removePoint', id: 'p9' }] })).toThrow(/ops\[1\] removePoint/);
-    expect(() => store.update(root, path, { ops: [] })).toThrow('Expected version and ops');
+    expect(() => store.update(root, path, { version: 1, ops: [] })).toThrow('Expected ops, and an optional version');
     expect(readFileSync(join(root, path), 'utf8')).toBe(before);
     expect(changes).toHaveLength(1);
   });

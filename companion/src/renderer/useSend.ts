@@ -3,7 +3,7 @@
 import { useRef, type RefObject } from 'react';
 import { hasAnnotations } from '../shared/annotations';
 import { hasBoardComments, type BoardComments } from '../shared/board-comments';
-import { draftImages } from '../shared/drafts';
+import { draftImages, inWrite } from '../shared/drafts';
 import { hasReviewContent } from '../shared/review';
 import type { NoteAnnotations } from '../shared/annotations';
 import type { CompanionApi, Decision, Draft, Launcher, Mode, Outgoing, SendResult } from '../shared/ipc';
@@ -271,7 +271,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       return hasReviewContent(draft.review, draft.body) ? undefined : 'Pin a comment first.';
     }
     if (modeRef.current !== 'write') return undefined;
-    const note = draft?.review ? undefined : draft;
+    const note = draft && inWrite(draft) ? draft : undefined;
     return !note || (!note.body.trim() && !note.board) ? 'Write something first.' : undefined;
   };
 

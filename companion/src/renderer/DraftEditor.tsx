@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { hasAnnotations } from '../shared/annotations';
 import type { BoardEntry, CompanionApi, Draft } from '../shared/ipc';
 import { outlinePathFor } from '../shared/outline';
@@ -14,6 +14,7 @@ import { NoteComments } from './NoteComments';
 import { sourceLine } from './outline-edit';
 import { OVERALL, type ReviewVoice } from './review-voice';
 import type { TemplateShelf } from './templates';
+import { useStore } from './hooks';
 
 /** Names the open draft and saves it as a template. `onDone` gets the words to show, or nothing when cancelled. */
 function TemplateNamer(props: { shelf: TemplateShelf; body: string; onDone: (message?: string) => void }) {
@@ -91,10 +92,7 @@ export function DraftEditor(props: {
   outlineHost: Pick<CompanionApi, 'readOutline'>;
 }) {
   const { book, draft, voice } = props;
-  useSyncExternalStore(
-    (fn) => voice.subscribe(fn),
-    () => voice.version,
-  );
+  useStore(voice);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;

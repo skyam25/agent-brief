@@ -30,11 +30,11 @@
 
 import type { CiteMark, DirectionScope, OutlineCite, OutlineDirection, OutlineDoc, OutlineIntentLine, OutlineKind, OutlineOp, OutlinePoint, OutlineSection, OutlineSource, OutlineSummary } from '../protocol';
 
-export const OUTLINE_SUFFIX = '.outline.md';
+import { OUTLINE_SUFFIX } from './output-file';
+
+export { isOutlinePath, OUTLINE_SUFFIX } from './output-file';
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
-
-export const isOutlinePath = (path: string) => path.endsWith(OUTLINE_SUFFIX) && baseName(path).length > OUTLINE_SUFFIX.length;
 
 /** `docs/memo.md` → `docs/memo.outline.md`. A name without an extension gets the suffix appended. */
 export function outlinePathFor(target: string): string {

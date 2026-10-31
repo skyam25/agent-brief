@@ -55,6 +55,7 @@ import { Briefs } from './briefs';
 import { RendererBridge } from './bridge';
 import { isTranslocated } from './cli-install';
 import { createControls } from './controls';
+import { Cleanup, gitTracked } from './cleanup';
 import { DraftStore } from './drafts';
 import { restoredBoardName, SendHistory } from './history';
 import { InitiativeOutputs } from './initiative-outputs';
@@ -270,7 +271,14 @@ async function start(): Promise<void> {
       return name ? { ...x, name } : x;
     }),
   });
-  const behaviors = new BehaviorStore(() => send(CH.behaviorChanged));
+  // One event per session in the project, so a view matches on its own session and path.
+  const projectChanged = (channel: string, root: string, path: string) => {
+    const ids = new Set([...Object.keys(briefs.all()), ...sessions.sessions.map((s) => s.sessionId)]);
+    const here = [...ids].filter((id) => briefs.cwdOf(id) === root);
+    if (!here.length) send(channel, { path });
+    for (const sessionId of here) send(channel, { sessionId, path });
+  };
+  const behaviors = new BehaviorStore((root, path) => projectChanged(CH.behaviorChanged, root, path));
   // Outputs the panel shows. Store and pane writes settle it first, so only outside edits report.
   const outputWatch = new OutputWatch(
     (sessionId, path) => {
@@ -278,19 +286,15 @@ async function start(): Promise<void> {
       const watched = where.outputExists && (isReviewable(where.output) || isMarkdownRef(where.output));
       return { feedback: where.file, ...(watched ? { output: where.outputFile } : {}) };
     },
-    (sessionId, path, kind) => (kind === 'output' ? send(CH.outputChanged, { sessionId, path }) : send(CH.feedbackChanged)),
+    (sessionId, path, kind) => send(kind === 'output' ? CH.outputChanged : CH.feedbackChanged, { sessionId, path }),
   );
-  const feedback = new FeedbackStore(() => {
+  const feedback = new FeedbackStore((root, output) => {
     outputWatch.settle();
-    send(CH.feedbackChanged);
+    projectChanged(CH.feedbackChanged, root, output);
   });
-  // One event per session in the project, so a panel matches on its own session and path.
   const outlines = new OutlineStore((root, path) => {
     outputWatch.settle();
-    const ids = new Set([...Object.keys(briefs.all()), ...sessions.sessions.map((s) => s.sessionId)]);
-    const here = [...ids].filter((id) => briefs.cwdOf(id) === root);
-    if (!here.length) send(CH.outlineChanged, { path });
-    for (const sessionId of here) send(CH.outlineChanged, { sessionId, path });
+    projectChanged(CH.outlineChanged, root, path);
   }, undefined, join(dataDir, 'outline-changes'));
   const captures = captureSession(session.fromPartition('feedback-capture'), (request) => serveReview(reviewRoots, overlayFileFrom(__dirname), request));
   const feedbackSnaps = new FeedbackSnaps({ store: feedback, urlFor: (cwd, path) => reviewRoots.urlFor(cwd, path), capture: offscreenCapture(BrowserWindow, captures) });
@@ -640,6 +644,33 @@ async function start(): Promise<void> {
     briefs.forgetBoard(name);
     if (state.state.unfiledBoard === name) state.update({ unfiledBoard: undefined });
   });
+
+  // Clean up for ended sessions. Test runs delete outright, so they never fill the user's Trash.
+  const cleanup = new Cleanup({
+    dataDir,
+    briefs: () => briefs.all(),
+    isLive: (id) => !!briefs.live(id),
+    drafts: () => drafts.list(),
+    draftFile: (id) => drafts.path(id),
+    boardFiles: (name) => store.files(name),
+    currentBoard: () => state.state.currentBoard,
+    initiatives: () => initiatives.all(),
+    tracked: gitTracked,
+    trash: async (path) => (testMode ? rmSync(path, { recursive: true, force: true }) : shell.trashItem(path)),
+    forgetDraft: (id) => {
+      drafts.remove(id);
+      briefs.touched({ draftId: id });
+      send(CH.draftsChanged);
+    },
+    forgetBoard: (name) => {
+      drafts.forgetBoard(name);
+      briefs.forgetBoard(name);
+      if (state.state.unfiledBoard === name) state.update({ unfiledBoard: undefined });
+    },
+    feedbackGone: (cwd, output) => projectChanged(CH.feedbackChanged, cwd, output),
+  });
+  ipc.handle('cleanupPlan', (sessionIds: string[]) => cleanup.plan(sessionIds));
+  ipc.handle('cleanUp', (discard: string[], keep: string[]) => cleanup.run(discard, keep));
   // The renderer passes only the session's own boards or an unfiled board the user chose to attach.
   ipc.handle('setCurrent', (raw: string) => {
     const board = store.create(raw);

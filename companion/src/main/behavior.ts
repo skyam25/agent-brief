@@ -1,26 +1,24 @@
 /** Both panel and agent writes go through this synchronous, revision-checked store. */
-import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
 import type { BehaviorDecision, BehaviorDocument, BehaviorRule, BehaviorSpec, BehaviorUpdate } from '../protocol';
 import { behaviorPath, parseBehavior, validLimitations, validRules } from '../shared/behavior';
+import { plainRelative, within } from './feedback-paths';
+import { hash, readCapped, writeAtomic } from './files';
+import { BoardError, badRequest } from '../board/errors';
 
-class BehaviorError extends Error {
-  constructor(readonly code: 'bad_request' | 'conflict', message: string) { super(message); }
-}
-const bad = (s: string): never => { throw new BehaviorError('bad_request', s); };
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+const bad = (s: string): never => { throw badRequest(s); };
 const MAX_BYTES = 8 * 1024 * 1024;
 
 export class BehaviorStore {
-  constructor(private readonly changed: () => void = () => {}) {}
+  /** `changed` gets the project and the specification the store wrote. */
+  constructor(private readonly changed: (root: string, path: string) => void = () => {}) {}
 
   private file(root: string, html: unknown): { file: string; path: string } {
-    if (typeof html !== 'string' || !/\.html?$/i.test(html) || isAbsolute(html) || html.split(/[\\/]/).some((p) => p.startsWith('.') || !p)) return bad('Expected a project-relative HTML path without dot folders');
+    if (typeof html !== 'string' || !/\.html?$/i.test(html) || !plainRelative(html)) return bad('Expected a project-relative HTML path without dot folders');
     const realRoot = realpathSync(root);
     const target = resolve(realRoot, html);
-    const within = (p: string) => { const rel = relative(realRoot, p); return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
-    if (!within(target) || !existsSync(target) || !within(realpathSync(target)) || !statSync(target).isFile()) return bad('Prototype must be a file inside the project');
+    if (!within(realRoot, target) || !existsSync(target) || !within(realRoot, realpathSync(target)) || !statSync(target).isFile()) return bad('Prototype must be a file inside the project');
     // Resolve the prototype first, so aliases share one specification.
     const file = behaviorPath(realpathSync(target));
     if (existsSync(file) && (lstatSync(file).isSymbolicLink() || !statSync(file).isFile())) return bad('Behavior specification must be a regular file');
@@ -29,9 +27,8 @@ export class BehaviorStore {
 
   read(root: string, html: unknown): BehaviorDocument {
     const { file, path } = this.file(root, html);
-    if (!existsSync(file)) return { schema: 1, revision: 0, rules: [], limitations: [], history: [], path, version: 'missing' };
-    if (statSync(file).size > MAX_BYTES) return bad('Behavior specification exceeds 8 MB');
-    const text = readFileSync(file, 'utf8');
+    const text = readCapped(file, path, MAX_BYTES);
+    if (text === undefined) return { schema: 1, revision: 0, rules: [], limitations: [], history: [], path, version: 'missing' };
     try { return { ...parseBehavior(text), path, version: hash(text) }; }
     catch { return bad(`Invalid behavior specification in ${path}; repair it before saving`); }
   }
@@ -80,7 +77,7 @@ export class BehaviorStore {
   }
 
   private check(doc: BehaviorDocument, version: string): void {
-    if (doc.version !== version) throw new BehaviorError('conflict', 'Behavior changed since you read it. Refresh, review the changes, and save again. Your edit has not been applied.');
+    if (doc.version !== version) throw new BoardError('conflict', 'Behavior changed since you read it. Refresh, review the changes, and save again. Your edit has not been applied.');
   }
 
   private save(root: string, html: unknown, doc: BehaviorDocument, rules: BehaviorRule[], limitations: string[], by: string): BehaviorDocument {
@@ -91,10 +88,8 @@ export class BehaviorStore {
     if (Buffer.byteLength(text) > MAX_BYTES) return bad('Behavior history exceeds 8 MB');
     const { file } = this.file(root, html);
     this.check(this.read(root, html), doc.version);
-    const tmp = `${file}.${randomUUID()}.tmp`;
-    try { writeFileSync(tmp, text, { flag: 'wx' }); renameSync(tmp, file); }
-    finally { if (existsSync(tmp)) unlinkSync(tmp); }
-    this.changed();
+    writeAtomic(file, text);
+    this.changed(root, doc.path);
     return { ...spec, path: doc.path, version: hash(text) };
   }
 }

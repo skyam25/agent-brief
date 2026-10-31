@@ -1,9 +1,10 @@
 /** Templates on disk: `<dataDir>/templates/<id>.md`, with the title in front matter. */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { badRequest } from '../board/errors';
 import type { Template } from '../shared/ipc';
+import { writeAtomic } from './files';
 
 const ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const MAX_BODY = 50_000;
@@ -342,9 +343,7 @@ export class TemplateStore {
       throw badRequest('template id must be a string');
     }
     const path = this.path(id);
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, formatTemplate({ title: t.title, body: t.body }));
-    renameSync(tmp, path);
+    writeAtomic(path, formatTemplate({ title: t.title, body: t.body }));
     return { id, title: t.title.trim(), body: t.body };
   }
 

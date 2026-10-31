@@ -16,16 +16,14 @@ import type { FeedbackStore } from './feedback';
 import { feedbackAssetsDir, plainRelative, resolveFeedback, within, writeFeedbackAsset } from './feedback-paths';
 import { REVIEW_SCHEME } from './review-protocol';
 import { OFFSCREEN } from './window-options';
+import { badRequest } from '../board/errors';
 
-class SnapError extends Error {
-  constructor(readonly code: 'bad_request', message: string) { super(message); }
-}
-const bad = (s: string): never => { throw new SnapError('bad_request', s); };
+const bad = (s: string): never => { throw badRequest(s); };
 
 /**
  * Captures `selector`'s element on the page at `url`, or the whole page. `clipped` is
  * the height in CSS pixels the picture stops at when the element or page is taller.
- * Throws SnapError when the element is not there.
+ * Throws a bad_request BoardError when the element is not there.
  */
 export type PageCapture = (url: string, selector: string | undefined) => Promise<{ png: Buffer; clipped?: number }>;
 

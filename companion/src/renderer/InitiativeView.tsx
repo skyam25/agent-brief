@@ -13,6 +13,7 @@ import { SectionHeader } from './DraftList';
 import { useStore } from './hooks';
 import { CloseIcon, PlusIcon } from './Icons';
 import { wordCount, type InitiativesStore } from './initiatives';
+import { cleanError } from './ipc-error';
 
 const ROLE_LABEL: Record<InitiativeRole, string> = {
   working: 'Working',
@@ -38,9 +39,6 @@ interface Props {
   onError: (message: string) => void;
 }
 
-/** `~/…` for a folder under home, as the brief writes it. */
-const homePath = (path: string, home: string) => (path === home ? '~' : path.startsWith(home + '/') ? `~${path.slice(home.length)}` : path);
-
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 export function InitiativeView(props: Props) {
@@ -62,7 +60,7 @@ export function InitiativeView(props: Props) {
           await props.store.create(title, folder);
           setCreating(false);
         } catch (err) {
-          props.onError(`Could not create the initiative: ${errorText(err)}`);
+          props.onError(`Could not create the initiative: ${cleanError(err)}`);
         }
       }}
     />
@@ -109,7 +107,7 @@ export function InitiativeView(props: Props) {
                     aria-current={!creating && i.id === store.selectedId}
                     onClick={() => {
                       setCreating(false);
-                      void props.store.select(i.id).catch((err) => props.onError(errorText(err)));
+                      void props.store.select(i.id).catch((err) => props.onError(cleanError(err)));
                     }}
                     data-testid="initiative-row"
                   >
@@ -129,11 +127,6 @@ export function InitiativeView(props: Props) {
       <div className="initiative-pane">{pane}</div>
     </div>
   );
-}
-
-function errorText(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
 
 function NewInitiative(props: {
@@ -213,7 +206,7 @@ function InitiativePane(props: Props & { detail: InitiativeDetail }) {
       if (!result.ok) props.onError(`Not saved: ${result.message}`);
       return result;
     } catch (err) {
-      props.onError(`Could not save: ${errorText(err)}`);
+      props.onError(`Could not save: ${cleanError(err)}`);
       return undefined;
     } finally {
       setSaving(false);
@@ -397,7 +390,7 @@ function FolderMap(props: {
         <div className="initiative-actions">
           <button
             className="ghost"
-            onClick={() => void props.chooseFolder().then((p) => p && setEditing([...editing, { path: homePath(p, props.home), role: 'working' }]))}
+            onClick={() => void props.chooseFolder().then((p) => p && setEditing([...editing, { path: shortPath(p, props.home), role: 'working' }]))}
           >
             <PlusIcon /> Add folder
           </button>

@@ -138,6 +138,10 @@ export class BoardController {
 
   /** Excalidraw's onChange. Saves when the elements changed, not on scroll or selection. */
   handleChange(elements: readonly El[]): void {
+    const version = getSceneVersion(elements);
+
+    // Pan, zoom and selection fire onChange too. An unchanged version means unchanged elements.
+    if (version === this.sceneVersion && !this.absorbing) return;
     const now = Date.now();
     if (this.absorbing) this.strokes.absorb(elements);
     else {
@@ -147,7 +151,6 @@ export class BoardController {
       this.strokes.observe(elements, now, keep);
     }
     for (const e of elements) if (!this.firstSeen.has(e.id)) this.firstSeen.set(e.id, now);
-    const version = getSceneVersion(elements);
     if (version === this.sceneVersion) return;
     this.sceneVersion = version;
     this.scheduleSceneSave();

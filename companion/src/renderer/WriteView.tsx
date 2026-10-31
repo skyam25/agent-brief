@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { OutlineKind } from '../protocol';
-import { draftTitle } from '../shared/drafts';
+import { draftTitle, inWrite } from '../shared/drafts';
 import type { BoardEntry, CompanionApi, Draft, OutlineCreate, Template } from '../shared/ipc';
 import { plainSlots } from '../shared/slots';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
@@ -13,7 +13,8 @@ import { DeleteItem } from './FooterMenu';
 import { filedTab, type FilingTab } from './FilingMenu';
 import { CheckIcon, ChevronIcon, LinkIcon, PlusIcon } from './Icons';
 import { useEscape, usePointerOutside, useStore } from './hooks';
-import { cleanError, kindFor } from './outline-edit';
+import { kindFor } from './outline-edit';
+import { cleanError } from './ipc-error';
 import { OutlineEditor, type OutlineHost } from './OutlineEditor';
 import type { ReviewVoice } from './review-voice';
 import { TemplateEditor } from './TemplateEditor';
@@ -144,10 +145,10 @@ export function WriteView(props: {
   const here = (d: Draft) => onTab(d, props.sessionId, tabIds);
   const ready = book.ready.filter((d) => here(d) && matches(d, query));
   const notes = book.drafts.filter(
-    (d) => d.status === 'note' && !d.review && here(d) && matches(d, query) && (d.body.trim() || d.board || d.outline || d.id === selected?.id),
+    (d) => d.status === 'note' && inWrite(d) && here(d) && matches(d, query) && (d.body.trim() || d.board || d.outline || d.id === selected?.id),
   );
   /** While searching, matches filed under other tabs, so a note never hides behind the wrong tab. */
-  const elsewhere = query.trim() ? book.drafts.filter((d) => !d.review && !here(d) && (d.body.trim() || d.outline) && matches(d, query)) : [];
+  const elsewhere = query.trim() ? book.drafts.filter((d) => inWrite(d) && !here(d) && (d.body.trim() || d.outline) && matches(d, query)) : [];
   const placeOf = (d: Draft) => filedTab(d, props.tabs)?.title ?? 'Unfiled';
   const openElsewhere = async (d: Draft) => {
     setTemplateId(undefined);

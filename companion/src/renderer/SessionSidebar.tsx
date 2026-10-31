@@ -2,7 +2,8 @@ import { Fragment, useEffect, useState, type MouseEvent } from 'react';
 import type { BoardEntry, Mode, SessionBriefEntry } from '../shared/ipc';
 import { folderName, modeLabel, shortPath } from '../shared/sessions';
 import { boardsOf, childrenOf } from './boardScope';
-import type { MenuPoint } from './ContextMenu';
+import { CleanupSheet, type CleanupHost } from './CleanupSheet';
+import { ContextMenu, type MenuPoint } from './ContextMenu';
 import type { DraftBook } from './drafts';
 import type { FilingTab } from './FilingMenu';
 import { useStore } from './hooks';
@@ -122,9 +123,12 @@ export function SessionSidebar(props: {
   /** A click on the active session brings its terminal forward. */
   onFocus: (sessionId: string) => void;
   contents: ChildProps;
+  cleanup: CleanupHost;
+  onNotify: (text: string) => void;
 }) {
   const [endedOpen, setEndedOpen] = useState(() => readFlag(ENDED_KEY));
   const [allEnded, setAllEnded] = useState(false);
+  const [cleaning, setCleaning] = useState<SessionBriefEntry[]>();
   const { running, ended } = groupBriefs(props.briefs);
   const { sidebar } = props;
 
@@ -143,6 +147,7 @@ export function SessionSidebar(props: {
     onSwitch: (id: string) => picked(() => props.onSwitch(id)),
     onClose: props.onClose,
     onFocus: props.onFocus,
+    onCleanUp: (b: SessionBriefEntry) => setCleaning([b]),
   };
   const tabs = props.briefs.map((b) => b.sessionId);
   const { contents } = props;
@@ -210,11 +215,24 @@ export function SessionSidebar(props: {
               {allEnded ? 'Show fewer' : `Show ${ended.length - ENDED_SHOWN} more`}
             </button>
           )}
+          {endedOpen && ended.length > 0 && (
+            <button className="ghost group more" title="Move what the ended sessions left behind to the Trash" onClick={() => setCleaning(ended)} data-testid="ended-cleanup">
+              Clean up ended sessions…
+            </button>
+          )}
         </div>
         {selection.selected.length > 0 && (
           <SelectionBar selection={selection} container={props.activeId} tabs={filing} actions={contents.actions} />
         )}
       </nav>
+      {cleaning && (
+        <CleanupSheet
+          host={props.cleanup}
+          sessions={cleaning.map((b) => ({ sessionId: b.sessionId, title: b.title }))}
+          onDone={props.onNotify}
+          onClose={() => setCleaning(undefined)}
+        />
+      )}
     </>
   );
 }
@@ -322,7 +340,9 @@ function Row(props: {
   onSwitch: (sessionId: string) => void;
   onClose: (sessionId: string) => void;
   onFocus: (sessionId: string) => void;
+  onCleanUp: (brief: SessionBriefEntry) => void;
 }) {
+  const [menu, setMenu] = useState<MenuPoint>();
   const b = props.brief;
   const isActive = b.sessionId === props.activeId;
   const state = sessionState(b).tip;
@@ -351,6 +371,37 @@ function Row(props: {
           <ModeChip brief={b} />
         </span>
       </button>
+      {!b.isLive && (
+        <button
+          className="ghost icon-button small more"
+          aria-label={`More for ${b.title}`}
+          aria-haspopup="menu"
+          aria-expanded={!!menu}
+          title="Clean up what this session left"
+          onClick={(e) => {
+            const box = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: box.left, y: box.bottom + 4 });
+          }}
+          data-testid="brief-more"
+        >
+          <MoreIcon />
+        </button>
+      )}
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} label={`Session ${b.title}`} testId="brief-menu" onClose={() => setMenu(undefined)}>
+          <button
+            className="ghost"
+            role="menuitem"
+            onClick={() => {
+              setMenu(undefined);
+              props.onCleanUp(b);
+            }}
+            data-testid="brief-cleanup"
+          >
+            Clean up…
+          </button>
+        </ContextMenu>
+      )}
       <button
         className="ghost icon-button small close"
         aria-label={`Close ${b.title}`}

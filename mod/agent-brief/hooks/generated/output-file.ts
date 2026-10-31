@@ -58,3 +58,46 @@ export function parseOutputsFile(text: string): OutputsFile | undefined {
   }
   return { version: 1, sessionId: str(f.sessionId) ?? '', outputs };
 }
+
+// ── Where a ref opens ─────────────────────────────────────────────────────
+
+export const isUrlRef = (ref: string): boolean => /^https?:\/\//i.test(ref);
+
+/** Hosts a dev server answers on this Mac. */
+const LOCAL_HOST = /^(localhost|127(\.\d{1,3}){3}|0\.0\.0\.0|[\w-]+(\.[\w-]+)*\.(localhost|local))$/i;
+
+/** True for an http or https link to this Mac, as a dev server serves it. The review pane opens these. */
+export function isLocalUrl(ref: string): boolean {
+  if (!isUrlRef(ref)) return false;
+  try {
+    return LOCAL_HOST.test(new URL(ref).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** True for a path Write mode opens as a note. */
+export const isMarkdownRef = (ref: string): boolean => /\.(md|markdown|mdx)$/i.test(ref);
+
+/** True for an HTML file the review pane opens. */
+export const isReviewable = (path: string) => /\.html?$/i.test(path);
+
+export const OUTLINE_SUFFIX = '.outline.md';
+
+export const isOutlinePath = (path: string) => path.endsWith(OUTLINE_SUFFIX) && path.slice(path.lastIndexOf('/') + 1).length > OUTLINE_SUFFIX.length;
+
+/**
+ * Where Agent Brief shows a ref. The review pane takes an HTML file or a local URL, and Write takes
+ * an outline or another Markdown file. Any other link opens in the browser, and any other file in its default app.
+ */
+export type RefSurface = 'review' | 'outline' | 'note' | 'link' | 'file';
+
+export function refSurface(ref: string): RefSurface {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) return isLocalUrl(ref) ? 'review' : 'link';
+  if (isReviewable(ref)) return 'review';
+  if (isOutlinePath(ref)) return 'outline';
+  return isMarkdownRef(ref) ? 'note' : 'file';
+}
+
+/** True for a ref the panel shows itself. */
+export const opensInApp = (ref: string) => ['review', 'outline', 'note'].includes(refSurface(ref));

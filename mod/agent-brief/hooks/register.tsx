@@ -41,6 +41,7 @@ import {
   latestText,
   listText,
   markConsumed,
+  staleRecordings,
   parseIngestOutput,
   pickSession,
   upsert,
@@ -57,9 +58,6 @@ import {
   replyEndingWith,
   namedPages,
   namedLocalUrls,
-  isLocalUrlRef,
-  isHtmlPage,
-  isOutlineFile,
   filedNote,
   keepNote,
   changedBrief,
@@ -109,6 +107,7 @@ import {
 } from './modes'
 import type { ModeChoice } from './modes'
 import { registerModeGuard } from './mode-guard'
+import { isUrlRef, opensInApp, refSurface } from './generated/output-file'
 import { DECLARE_TOOL, OUTPUTS_SECTION, outputsInstructions, parseOutputsFile } from './outputs'
 import { registerOutputs } from './outputs-file'
 import { questionsTree, registerQuestions } from './questions'
@@ -734,12 +733,12 @@ async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'
  */
 async function offeredPages($: EngineInterface, reply: string, turnRead: readonly string[]): Promise<string[]> {
   const home = await homeCwd($)
-  const outputs = (await read($, outputsRef)).map(o => o.ref).filter(ref => !isLocalUrlRef(ref))
+  const outputs = (await read($, outputsRef)).map(o => o.ref).filter(ref => !isUrlRef(ref))
   const briefed = ((await initiativeView($)).initiative?.outputs ?? []).filter(p => p.startsWith(`${home}/`)).map(p => p.slice(home.length + 1))
   const known = new Set([...outputs, ...briefed, ...turnRead])
   const named = namedPages(reply, home, [...known])
   const found = await Promise.all(
-    named.map(page => (isHtmlPage(page) || isOutlineFile(page) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : known.has(page))),
+    named.map(page => (['review', 'outline'].includes(refSurface(page)) ? $.fs.stat(openTarget(home, page)).then(() => true, () => false) : known.has(page))),
   )
   return [...named.filter((_, i) => found[i]), ...namedLocalUrls(reply)]
 }
@@ -1101,12 +1100,29 @@ async function waitingZips($: EngineInterface, config: Config): Promise<string[]
     .map(e => e.name)
 }
 
+/** Applied recordings and the inbox's done and failed zips stay this long. */
+const KEEP_INGESTED_MS = 30 * 24 * 60 * 60_000
+
+/** Drops what earlier ingests left past KEEP_INGESTED_MS. Runs with each ingest, which the user starts. */
+async function tidyInbox($: EngineInterface, inbox: string): Promise<void> {
+  for (const dir of ['done', 'failed']) {
+    await $.process.run(['find', `${inbox}/${dir}`, '-type', 'f', '-name', '*.zip', '-mtime', '+30', '-delete']).catch(() => undefined)
+  }
+  const sessions = await load($)
+  const stale = staleRecordings(sessions, `${await homeCwd($)}/.feedback`, (await $.clock.now()) - KEEP_INGESTED_MS)
+  if (!stale.length) return
+  for (const s of stale) await $.process.run(['rm', '-rf', s.dir]).catch(() => undefined)
+  await save($, sessions.filter(s => !stale.includes(s)))
+  log($, `cleared ${stale.length} applied recording${stale.length === 1 ? '' : 's'}`)
+}
+
 /** Ingests every waiting zip into this project. Runs only when the user asks. */
 async function ingestAll($: EngineInterface, config: Config): Promise<void> {
   if (isIngesting) return
   isIngesting = true
   try {
     const inbox = await inboxDir($, config)
+    await tidyInbox($, inbox)
     for (const zip of await waitingZips($, config)) await ingestOne($, config, inbox, zip)
   } catch (err) {
     log($, `ingest failed: ${String(err)}`)
@@ -1681,7 +1697,8 @@ export const register: Register = (on, options) => {
       if (open.kind === 'brief') return () => void openInitiativeInApp($, open.id)
       if (open.kind === 'feedback') return () => void openOutputInApp($, open.ref, 'feedback')
       if (open.kind === 'note') return () => void openNoteInApp($, open.id)
-      return () => void openOutputInApp($, open.ref)
+      // A link or a file the panel cannot show opens in the browser or its default app.
+      return () => void (opensInApp(open.ref) ? openOutputInApp($, open.ref) : openOutput($, open.ref))
     }
     const buttons = [
       ...(isLong

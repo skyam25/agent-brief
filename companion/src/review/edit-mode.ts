@@ -8,9 +8,10 @@
  * values so the next edit names elements as the file now has them.
  */
 
-import { AT_ATTR, GROUND_ATTR, INLINE_TAGS, INSERTS, INSPECTOR_PROPS, PAGE_EDIT_EVENT, PASS_ATTR } from '../shared/review-edit';
+import { AT_ATTR, escapeAttr, escapeText, GROUND_ATTR, INLINE_TAGS, INSERTS, INSPECTOR_PROPS, PAGE_EDIT_EVENT, PASS_ATTR } from '../shared/review-edit';
 import type { EditResult, InsertKind, ReviewEdit, SelectedElement, StyleSet } from '../shared/review-edit';
 import type { FromPage } from './messages';
+import { cut, oneLine } from '../shared/text';
 
 const EDIT = '#2f7cf6';
 /** The containers HTML lets these elements sit in. */
@@ -34,11 +35,7 @@ const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input'
 const DRAG_SLOP = 4;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
-const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 const tagOf = (el: Element) => el.tagName.toLowerCase();
-const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\u00a0/g, '&nbsp;');
-const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 type Axis = 'x' | 'y';
 type Drop = { container: Element; before: Element | null };

@@ -209,7 +209,7 @@ When you drive a browser for the user, with Playwright or another browser tool, 
 2. After each meaningful step, save a screenshot and post it:
 
    ```bash
-   agent-brief snap /tmp/step-2.png --board checkout-run --caption "Added two items to the cart" --note "Total shows $40, expected $36"
+   agent-brief snap .feedback/scratch/step-2.png --board checkout-run --caption "Added two items to the cart" --note "Total shows $40, expected $36"
    ```
 
    `snap` puts the picture in a frame titled with the step number and caption, three steps to a row. Use `--note` for a question or anything you are unsure about. Post steps, not every click. Five to ten snapshots make a readable run.
@@ -220,7 +220,7 @@ When you drive a browser for the user, with Playwright or another browser tool, 
 
 The `show_image` tool draws a picture inline in the user's terminal, in Ghostty or kitty. The picture goes to their screen, not to you, so it costs no tokens. Use it so the user sees what you did without opening a file.
 
-- After you draw on a board, run `agent-brief png --out /tmp/board.png` and call `show_image` with that path and `board` set to the board's name. The row gets an Open board button.
+- After you draw on a board, run `agent-brief png --out .feedback/scratch/board.png` and call `show_image` with that path and `board` set to the board's name. The row gets an Open board button.
 - After each `agent-brief snap`, also show the screenshot with `show_image`, with `url` set to the page it is of.
 - To offer directions, call `show_image` once with a `title` and `options`, 2 to 4 pictures each with a `title` and no letter. They draw side by side as one sheet lettered A to D, and the user presses Pick. The pick lands in their prompt box as "Go with option B (Title)".
 - When `show_image` is not in your tools, as under an organization policy that refuses plugin tools, run `agent-brief show <file>` with Bash instead. It takes `--title`, `--board`, `--url`, and 2 to 4 files with `--labels "A|B"` for options. The picture draws in the command's result.

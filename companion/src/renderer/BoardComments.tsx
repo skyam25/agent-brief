@@ -4,7 +4,7 @@
  */
 
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { useEffect, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { boxOf, type Shaped } from '../board/geometry';
 import { pinSpot, pinTarget, type Pinnable } from '../board/pin';
 import { pinLabel, type BoardPin } from '../shared/board-comments';
@@ -157,10 +157,7 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
 export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ReviewVoice; onSendKeys: (e: KeyboardEvent) => void; foot?: string; children?: ReactNode }) {
   const { comments, board, voice } = props;
   useStore(comments);
-  useSyncExternalStore(
-    (fn) => voice.subscribe(fn),
-    () => voice.version,
-  );
+  useStore(voice);
   const { overall, pins } = comments.of(board);
   const select = (id: string | undefined) => {
     comments.select(id);

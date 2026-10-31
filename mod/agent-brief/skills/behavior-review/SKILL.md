@@ -22,7 +22,7 @@ Read first (a missing specification returns an empty document with `version: "mi
 agent-brief behavior show prototypes/onboarding.html --json
 ```
 
-Write a patch to a temporary JSON file, copying the returned `version` exactly:
+Write a patch to a JSON file in `.feedback/scratch/`, which Agent Brief clears after a week, copying the returned `version` exactly:
 
 ```json
 {
@@ -42,7 +42,7 @@ Write a patch to a temporary JSON file, copying the returned `version` exactly:
 ```
 
 ```bash
-agent-brief behavior update prototypes/onboarding.html --file /tmp/behavior-patch.json --json
+agent-brief behavior update prototypes/onboarding.html --file .feedback/scratch/behavior-patch.json --json
 agent-brief output "Onboarding prototype" --path prototypes/onboarding.html --status ready
 ```
 

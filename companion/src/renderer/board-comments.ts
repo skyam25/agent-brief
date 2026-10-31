@@ -19,6 +19,8 @@ export class BoardCommentsStore {
   tool = false;
   /** The pin the mic and the keyboard act on. Undefined is the overall note. */
   selected?: string;
+  /** Epoch ms of the click that set `selected`, so voice moves from the click, not the next render. */
+  selectedAt = 0;
   /** Bumps on every change, as the snapshot React compares. */
   version = 0;
   private readonly boards = new Map<string, BoardComments>();
@@ -120,6 +122,7 @@ export class BoardCommentsStore {
   select(id: string | undefined): void {
     if (this.selected === id) return;
     this.selected = id;
+    this.selectedAt = Date.now();
     this.emit();
   }
 
@@ -136,6 +139,7 @@ export class BoardCommentsStore {
     if (this.of(board).pins.length >= MAX_PINS) return undefined;
     const id = pinId();
     this.selected = id;
+    this.selectedAt = Date.now();
     this.change(board, (c) => ({ ...c, pins: [...c.pins, { ...pin, id, text: '', createdAt: Date.now() }] }));
     return id;
   }

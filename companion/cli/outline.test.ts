@@ -26,8 +26,8 @@ Kind: document
     Ref: data/cs-ops.csv
 `;
 
-/** A one-file outline store behind the outline routes. `conflicts` stale-fails that many POSTs first. */
-function outlineStore(files: Record<string, string>, conflicts = 0): Handler {
+/** A one-file outline store behind the outline routes. A POST with a stale version fails. */
+function outlineStore(files: Record<string, string>): Handler {
   let version = 1;
   return (req: Seen) => {
     const url = new URL(req.url, 'http://x');
@@ -43,9 +43,7 @@ function outlineStore(files: Record<string, string>, conflicts = 0): Handler {
         : { ...parseOutline(files[file]), path: file, version: `v${version}` };
     if (req.method === 'GET') return { json: doc() };
     const body = req.body as OutlineUpdate;
-    if (conflicts > 0 || body.version !== doc().version) {
-      conflicts--;
-      version++;
+    if (body.version !== undefined && body.version !== doc().version) {
       return fail('conflict', `${file} changed since version ${body.version}`, 409)(req);
     }
     try {
@@ -138,7 +136,7 @@ describe('outline', () => {
     expect(r.stdout).toBe('memo.outline.md\nmade "Memo" · not opened: no session sess-1\n');
   });
 
-  it('applies ops from a file at the version it read, and prints the ids added', async () => {
+  it('applies ops from a file to the outline as it stands, and prints the ids added', async () => {
     const files = { 'docs/memo.outline.md': MEMO };
     app.handler = outlineStore(files);
     fs.mkdirSync(path.join(app.dir, '.feedback'));
@@ -151,8 +149,8 @@ describe('outline', () => {
     const r = await run(['outline', 'apply', 'docs/memo.outline.md', '--ops', '.feedback/outline-ops.json'], '', SESSION);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('applied 3 ops · added s2 p3\n');
-    expect(app.seen.map((s) => s.method)).toEqual(['GET', 'POST']);
-    expect((app.seen[1].body as OutlineUpdate).version).toBe('v1');
+    expect(app.seen.map((s) => s.method)).toEqual(['POST']);
+    expect((app.seen[0].body as OutlineUpdate).version).toBeUndefined();
     expect(files['docs/memo.outline.md']).toContain('## Options ^s2\n- Keep the kickoff call for large accounts. ^p3');
     expect(serializeOutline(parseOutline(files['docs/memo.outline.md']))).toBe(files['docs/memo.outline.md']);
   });
@@ -162,21 +160,6 @@ describe('outline', () => {
     const r = await run(['outline', 'apply', 'docs/memo.outline.md', '--ops', '-'], JSON.stringify({ ops: [{ op: 'removePoint', id: 'p2' }] }), SESSION);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('applied 1 op\n');
-  });
-
-  it('re-reads and retries once on a version conflict', async () => {
-    app.handler = outlineStore({ 'docs/memo.outline.md': MEMO }, 1);
-    const r = await run(['outline', 'apply', 'docs/memo.outline.md', '--ops', '-'], '[{"op":"removePoint","id":"p1"}]', SESSION);
-    expect(r.code).toBe(0);
-    expect(app.seen.map((s) => s.method)).toEqual(['GET', 'POST', 'GET', 'POST']);
-  });
-
-  it('gives up after the second conflict', async () => {
-    app.handler = outlineStore({ 'docs/memo.outline.md': MEMO }, 2);
-    const r = await run(['outline', 'apply', 'docs/memo.outline.md', '--ops', '-'], '[{"op":"removePoint","id":"p1"}]', SESSION);
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain('error (conflict)');
-    expect(app.seen).toHaveLength(4);
   });
 
   it('reports an op the app rejects', async () => {

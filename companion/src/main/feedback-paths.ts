@@ -7,11 +7,9 @@
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { FEEDBACK_SUFFIX, feedbackAssets, feedbackPath } from '../shared/feedback';
+import { badRequest } from '../board/errors';
 
-export class FeedbackPathError extends Error {
-  readonly code = 'bad_request';
-}
-const bad = (s: string): never => { throw new FeedbackPathError(s); };
+const bad = (s: string): never => { throw badRequest(s); };
 
 const CONTROL = /[\u0000-\u001f\u007f]/;
 

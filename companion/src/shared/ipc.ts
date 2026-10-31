@@ -314,6 +314,10 @@ export interface BoardHost {
   setCurrent(name: string): Promise<void>;
   /** Takes a board out of a session's brief. The board itself stays. */
   detachBoard(sessionId: string, name: string): Promise<void>;
+  /** What the ended sessions left behind, and what keeps each thing. Live sessions list nothing. */
+  cleanupPlan(sessionIds: string[]): Promise<CleanupItem[]>;
+  /** Moves the `discard` items to the Trash and remembers the `keep` items as kept. */
+  cleanUp(discard: string[], keep: string[]): Promise<CleanupResult>;
   /** Files boards under a session, out of Unfiled or any other session. */
   moveBoards(names: string[], sessionId: string): Promise<void>;
   send(payload: SendPayload): Promise<{ ok: boolean; message: string }>;
@@ -358,10 +362,40 @@ export interface NewNote {
 }
 
 /** A watched output that changed on disk. */
+/** Why Clean up leaves an item: tracked in git, an initiative lists it, you kept it, another session holds it, or it is open. */
+export type KeepReason = 'git' | 'initiative' | 'kept' | 'shared' | 'open';
+
+/** Something an ended session left behind. */
+export interface CleanupItem {
+  /** `note:<draft id>`, `board:<name>`, `items:<session id>` or `feedback:<absolute output path>`. */
+  id: string;
+  sessionId: string;
+  kind: 'note' | 'board' | 'items' | 'feedback';
+  label: string;
+  detail?: string;
+  bytes: number;
+  /** Set when Clean up leaves it. */
+  keep?: KeepReason;
+}
+
+export interface CleanupResult {
+  trashed: number;
+  bytes: number;
+}
+
 export interface OutputChange {
   sessionId: string;
   path: string;
 }
+
+/** A store write in a session's project. No `sessionId` when no known session runs there. */
+export interface ProjectChange {
+  sessionId?: string;
+  path: string;
+}
+
+/** True when a change could concern the view of `sessionId`. */
+export const concerns = (change: ProjectChange, sessionId: string | undefined) => !change.sessionId || change.sessionId === sessionId;
 
 /** A side tab /open can ask a review to show. */
 export type ReviewTab = 'feedback';
@@ -553,16 +587,17 @@ export interface CompanionApi extends BoardHost {
   /** The address the review pane loads a session's HTML file from. */
   readBehavior(sessionId: string, path: string): Promise<BehaviorDocument>;
   decideBehavior(sessionId: string, path: string, decision: BehaviorDecision): Promise<BehaviorDocument>;
-  onBehaviorChanged(fn: () => void): () => void;
+  /** A behavior specification changed. `path` is the specification. */
+  onBehaviorChanged(fn: (change: ProjectChange) => void): () => void;
   /** An output's feedback file, parsed. The output may be any file in the session's project. */
   readFeedback(sessionId: string, path: string): Promise<FeedbackDocument>;
-  /** Applies ops as the user. Rejects a stale `version`. */
+  /** Applies ops as the user. Without `version`, to the file as it stands. */
   updateFeedback(sessionId: string, path: string, update: FeedbackUpdate): Promise<FeedbackUpdateResult>;
   /** Every feedback file in the session's project, with counts. */
   listFeedback(sessionId: string): Promise<FeedbackProject>;
   /** An outline file, parsed. Version `missing` when the file is not there. */
   readOutline(sessionId: string, path: string): Promise<OutlineDocument>;
-  /** Applies ops in one version-checked write. Rejects with a message containing `changed since` on a stale version. */
+  /** Applies ops in one write. Without `version`, to the outline as it stands. */
   updateOutline(sessionId: string, path: string, update: OutlineUpdate): Promise<OutlineUpdateResult>;
   /** Every outline in the session's project, with counts. */
   listOutlines(sessionId: string): Promise<OutlineProject>;
@@ -573,10 +608,11 @@ export interface CompanionApi extends BoardHost {
   /** Creates the outline file and a Write draft on it, filed under the session, and selects the draft. */
   createOutline(sessionId: string, create: OutlineCreate): Promise<{ draftId: string; path: string }>;
   /** Any outline changed through the store, from the panel or from Claude. */
-  onOutlineChanged(fn: (change: { sessionId?: string; path: string }) => void): () => void;
+  onOutlineChanged(fn: (change: ProjectChange) => void): () => void;
   /** A `Before:` or `After:` picture, relative to the output's folder, as a data URL. Undefined when the file is gone. */
   readFeedbackPicture(sessionId: string, output: string, picture: string): Promise<string | undefined>;
-  onFeedbackChanged(fn: () => void): () => void;
+  /** A feedback file changed. `path` is its output. */
+  onFeedbackChanged(fn: (change: ProjectChange) => void): () => void;
   /** Watches an output and its feedback file until the matching unwatch. Outside changes fire `onOutputChanged` or `onFeedbackChanged`. */
   watchOutput(sessionId: string, path: string): Promise<void>;
   unwatchOutput(sessionId: string, path: string): Promise<void>;
@@ -635,6 +671,8 @@ export const CH = {
   deleteBoard: 'boards:delete',
   setCurrent: 'boards:current',
   detachBoard: 'boards:detach',
+  cleanupPlan: 'cleanup:plan',
+  cleanUp: 'cleanup:run',
   moveBoards: 'boards:move',
   send: 'panel:send',
   setTarget: 'sessions:target',
@@ -754,6 +792,8 @@ export const IPC_INVOKE = {
   deleteBoard: CH.deleteBoard,
   setCurrent: CH.setCurrent,
   detachBoard: CH.detachBoard,
+  cleanupPlan: CH.cleanupPlan,
+  cleanUp: CH.cleanUp,
   moveBoards: CH.moveBoards,
   send: CH.send,
   setTarget: CH.setTarget,

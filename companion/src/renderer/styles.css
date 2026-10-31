@@ -1142,6 +1142,19 @@ button.stop-talk:hover {
   opacity: 1;
 }
 
+.sessions .tab > .more {
+  position: absolute;
+  top: 5px;
+  right: 30px;
+  opacity: 0;
+}
+
+.sessions .tab:hover > .more,
+.sessions .tab > .more:focus-visible,
+.sessions .tab > .more[aria-expanded='true'] {
+  opacity: 1;
+}
+
 /* The session's mode, mirrored from Claude Code. */
 
 .sessions .mode-chip {
@@ -4075,3 +4088,70 @@ button.feedback-option.on .key { color: var(--accent); }
 .new-outline input { padding: 0 10px; }
 .new-menu.new-outline > button.primary { justify-content: center; }
 .new-outline .outline-kind { align-self: flex-start; }
+
+/* Clean up for ended sessions: a sheet over the panel. */
+
+.popover-panel.cleanup {
+  position: fixed;
+  left: 50%;
+  top: 56px;
+  right: auto;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
+  z-index: 40;
+}
+
+.popover-panel.cleanup h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.popover-panel.cleanup p {
+  margin: 0;
+}
+
+.popover-panel.cleanup ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cleanup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.cleanup-row input {
+  margin-top: 3px;
+}
+
+.cleanup-row .lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cleanup-row .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-panel.cleanup .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* An ended row shows ⋯ beside its close, so the title makes room on hover. */
+
+.sessions .tab:hover:has(> .more) .label {
+  padding-right: 56px;
+}

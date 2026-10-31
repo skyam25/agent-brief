@@ -52,9 +52,10 @@ export function folderName(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path;
 }
 
-/** `~/Projects/app` for a path under the home folder. */
+/** `~/Projects/app` for a path under the home folder, and `~` for the home folder itself. */
 export function shortPath(path: string, home?: string): string {
-  return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+  if (!home) return path;
+  return path === home ? '~' : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
 /** The session's name, else its project, and where it runs, as in `agent-brief · Ghostty`. */

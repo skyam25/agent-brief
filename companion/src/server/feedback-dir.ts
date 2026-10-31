@@ -14,6 +14,9 @@ export const BUNDLE_KEEP = 20;
 /** The board PNGs `agent-brief png` keeps by default. */
 export const BOARD_PNG_KEEP = 20;
 
+/** Files the skills write for one command, such as a catalog's points, stay this long. */
+export const SCRATCH_MAX_AGE_MS = 7 * DAY_MS;
+
 /** A bundle folder's name, as `freeId` makes it. */
 const BUNDLE_ID = /^\d{4}-\d{2}-\d{2}-\d{6}(?:-[0-9a-f]{4})?$/;
 
@@ -47,6 +50,25 @@ export function pruneBundles(sketchesDir: string, now: number, keep = BUNDLE_KEE
   } catch {
     // A failed prune leaves old bundles for the next one.
   }
+}
+
+/** Deletes files in `.feedback/scratch` older than `maxAgeMs`. Best effort. */
+export function pruneScratch(feedback: string, now: number, maxAgeMs = SCRATCH_MAX_AGE_MS): void {
+  try {
+    const dir = join(feedback, 'scratch');
+    for (const name of readdirSync(dir)) {
+      const file = join(dir, name);
+      if (now - statSync(file).mtimeMs > maxAgeMs) rmSync(file, { recursive: true, force: true });
+    }
+  } catch {
+    // A failed prune leaves the files for the next one.
+  }
+}
+
+/** The upkeep each Send runs: old sketch bundles and old scratch files go. */
+export function tidyFeedback(feedback: string, now: number): void {
+  pruneBundles(join(feedback, 'sketches'), now);
+  pruneScratch(feedback, now);
 }
 
 /** Keeps the newest `keep` PNGs in `dir` by modified time. Best effort. */

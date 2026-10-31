@@ -1,6 +1,7 @@
 import type { BehaviorDocument, FeedbackDocument, FeedbackLine, FeedbackOp, FeedbackProject, FeedbackRound, FeedbackSnapResult, FeedbackUpdateResult } from '../src/protocol';
 import { feedbackItemText, findRound, parseSource, relatedCandidates } from '../src/shared/feedback';
 import { formatFeedbackGraph } from '../src/shared/feedback-graph';
+import { shortPath } from '../src/shared/sessions';
 import type { FeedbackWorkspace } from '../src/protocol';
 import { behaviorMarkdown } from '../src/shared/behavior';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -81,7 +82,7 @@ interface Args {
 
 const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
-  'title', 'labels', 'url', 'path', 'status', 'text', 'limit', 'folder',
+  'title', 'labels', 'url', 'path', 'status', 'limit', 'folder',
   'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items', 'id', 'output',
   'target', 'kind', 'ops', 'initiative',
 ]);
@@ -188,7 +189,7 @@ function show<T>(ctx: Ctx, data: T, text: (d: T) => string): void {
 
 async function readInput(ctx: Ctx): Promise<unknown> {
   const file = str(ctx.args, 'file');
-  const cwd = ctx.io.cwd ?? process.cwd();
+  const cwd = cwdOf(ctx);
   const text = file ? await readFile(path.resolve(cwd, file), 'utf8') : await ctx.io.stdin();
   if (text.trim() === '') throw new InputError(file ? `${file} is empty` : 'no JSON on stdin. Pipe it in or pass --file');
   try {
@@ -200,7 +201,7 @@ async function readInput(ctx: Ctx): Promise<unknown> {
 
 /** Swaps each image's `file` for its data URL and fills in a missing width or height. */
 async function resolveImages(ctx: Ctx, elements: Skeleton[]): Promise<Skeleton[]> {
-  const cwd = ctx.io.cwd ?? process.cwd();
+  const cwd = cwdOf(ctx);
   return Promise.all(
     elements.map(async (e) => {
       const file = (e as Skeleton & { file?: unknown }).file;
@@ -262,9 +263,6 @@ function regionQuery(ctx: Ctx, extra: string[] = []): string {
   return q ? `?${q}` : '';
 }
 
-/** Shows a path under the home directory as ~/... */
-const tilde = (home: string, p: string) => (p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p);
-
 // ── Initiatives ───────────────────────────────────────────────────────────
 
 /** Asks the app, else reads the index and the brief files straight from disk. */
@@ -289,11 +287,15 @@ async function initiativeNamed(ctx: Ctx, key: string): Promise<InitiativeSummary
 }
 
 /** --session, else the Claude Code session running the command. */
-function initiativeSession(ctx: Ctx, verb: string): string {
-  const id = str(ctx.args, 'session') ?? ctx.io.env[SESSION_ID_ENV];
+const sessionOf = (ctx: Ctx) => str(ctx.args, 'session') ?? (ctx.io.env[SESSION_ID_ENV] || undefined);
+
+function requireSession(ctx: Ctx, verb: string): string {
+  const id = sessionOf(ctx);
   if (!id) throw new UsageError(`${verb} needs --session <id>, or run it from Claude Code`);
   return id;
 }
+
+const cwdOf = (ctx: Ctx) => ctx.io.cwd ?? process.cwd();
 
 /**
  * The session `open` binds the panel to: --session, else the Claude Code session running the command.
@@ -321,7 +323,7 @@ async function openSession(ctx: Ctx, isNeeded: boolean): Promise<{ sessionId: st
  */
 async function followBoard(ctx: Ctx): Promise<void> {
   const board = str(ctx.args, 'board');
-  const sessionId = str(ctx.args, 'session') ?? (ctx.io.env[SESSION_ID_ENV] || undefined);
+  const sessionId = sessionOf(ctx);
   if (!board || board === CURRENT_BOARD || !sessionId) return;
   const body: OpenRequest = { board, sessionId, follow: true };
   await callJson<OpenResponse>(ctx.socket, 'POST', '/open', body).catch(() => undefined);
@@ -329,7 +331,7 @@ async function followBoard(ctx: Ctx): Promise<void> {
 
 /** A path as the session's project names it. Relative paths count from the shell's folder. */
 function projectPath(ctx: Ctx, root: string, file: string): string {
-  const full = path.resolve(ctx.io.cwd ?? process.cwd(), file);
+  const full = path.resolve(cwdOf(ctx), file);
   const rel = path.relative(root, full);
   if (rel === '' || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel)) {
     throw new UsageError(`${file} is outside the session's project, ${root}`);
@@ -375,14 +377,14 @@ const INITIATIVE_VERBS: Record<string, (ctx: Ctx, words: string[]) => Promise<vo
   },
 
   async attach(ctx, words) {
-    const session = initiativeSession(ctx, 'attach');
+    const session = requireSession(ctx, 'attach');
     const { id } = await initiativeNamed(ctx, words.join(' '));
     const snap = await callJson<InitiativeSnapshot>(ctx.socket, 'PUT', `/sessions/${encodeURIComponent(session)}/initiative`, { initiativeId: id });
     show(ctx, snap, (s) => `attached "${s.title}" (revision ${s.revision}) to session ${session}`);
   },
 
   async detach(ctx) {
-    const session = initiativeSession(ctx, 'detach');
+    const session = requireSession(ctx, 'detach');
     const res = await callJson<DetachInitiativeResponse>(ctx.socket, 'DELETE', `/sessions/${encodeURIComponent(session)}/initiative`);
     show(ctx, res, (r) => (r.detached ? `detached session ${session}` : `session ${session} had no initiative`));
   },
@@ -392,7 +394,7 @@ const INITIATIVE_VERBS: Record<string, (ctx: Ctx, words: string[]) => Promise<vo
     if (!title) throw new UsageError('create needs a title');
     const raw = str(ctx.args, 'folder');
     if (!raw) throw new UsageError('create needs --folder <path>');
-    const folder = raw.startsWith('~/') ? raw : path.resolve(ctx.io.cwd ?? process.cwd(), raw);
+    const folder = raw.startsWith('~/') ? raw : path.resolve(cwdOf(ctx), raw);
     const draft = str(ctx.args, 'file') ? await readJsonObject(ctx) : {};
     const body: InitiativeCreateRequest = { updatedBy: initiativeAuthor(ctx), ...draft, title, folder };
     const res = await callJson<Initiative>(ctx.socket, 'POST', '/initiatives', body);
@@ -413,29 +415,14 @@ const INITIATIVE_VERBS: Record<string, (ctx: Ctx, words: string[]) => Promise<vo
 
 // ── Feedback ──────────────────────────────────────────────────────────────
 
-/** --session, else the Claude Code session running the command. */
-function feedbackSession(ctx: Ctx): string {
-  const id = str(ctx.args, 'session') ?? ctx.io.env[SESSION_ID_ENV];
-  if (!id) throw new UsageError('feedback needs --session <id>, or run it from Claude Code');
-  return id;
-}
-
 const feedbackRoute = (ctx: Ctx, output?: string) =>
-  `/sessions/${encodeURIComponent(feedbackSession(ctx))}/feedback${output === undefined ? '' : `?path=${encodeURIComponent(output)}`}`;
+  `/sessions/${encodeURIComponent(requireSession(ctx, 'feedback'))}/feedback${output === undefined ? '' : `?path=${encodeURIComponent(output)}`}`;
 
 const readFeedbackDoc = (ctx: Ctx, output: string) => callJson<FeedbackDocument>(ctx.socket, 'GET', feedbackRoute(ctx, output));
 
-/** Reads the version and applies the ops. Ops only add, so a write that lost a race reads again and retries once. */
-async function writeFeedback(ctx: Ctx, output: string, ops: FeedbackOp[]): Promise<FeedbackUpdateResult> {
-  for (let attempt = 0; ; attempt++) {
-    const { version } = await readFeedbackDoc(ctx, output);
-    try {
-      return await callJson<FeedbackUpdateResult>(ctx.socket, 'POST', feedbackRoute(ctx, output), { version, ops });
-    } catch (e) {
-      if (!(e instanceof ApiError && e.code === 'conflict') || attempt > 0) throw e;
-    }
-  }
-}
+/** Applies the ops to the file as it stands. They only add, so no version is needed. */
+const writeFeedback = (ctx: Ctx, output: string, ops: FeedbackOp[]) =>
+  callJson<FeedbackUpdateResult>(ctx.socket, 'POST', feedbackRoute(ctx, output), { ops });
 
 function itemNumber(raw: string | undefined, verb: string): number {
   const n = Number(raw?.replace(/^#/, ''));
@@ -473,7 +460,7 @@ const inRound = (round: number, src: string) => (/^\d+\s*·/.test(src) ? src : `
 const sameSource = (a: string, b: string) => JSON.stringify(parseSource(a)) === JSON.stringify(parseSource(b));
 
 async function readItemsFile(ctx: Ctx, file: string): Promise<unknown> {
-  const text = file === '-' ? await ctx.io.stdin() : await readFile(path.resolve(ctx.io.cwd ?? process.cwd(), file), 'utf8');
+  const text = file === '-' ? await ctx.io.stdin() : await readFile(path.resolve(cwdOf(ctx), file), 'utf8');
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -611,7 +598,7 @@ const FEEDBACK_VERBS: Record<string, (ctx: Ctx, output: string, words: string[])
 
   async workspace(ctx, output, [rawN]) {
     const n = itemNumber(rawN, 'workspace');
-    const route = `/sessions/${encodeURIComponent(feedbackSession(ctx))}/feedback/workspace?path=${encodeURIComponent(output)}&item=${n}`;
+    const route = `/sessions/${encodeURIComponent(requireSession(ctx, 'feedback'))}/feedback/workspace?path=${encodeURIComponent(output)}&item=${n}`;
     const res = await callJson<FeedbackWorkspace>(ctx.socket, 'POST', route);
     show(ctx, res, formatWorkspace);
   },
@@ -637,7 +624,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const files = ctx.positional;
     if (files.length === 0) throw new UsageError('show needs a picture file');
     if (files.length > 4) throw new UsageError('show takes at most 4 pictures');
-    const cwd = ctx.io.cwd ?? process.cwd();
+    const cwd = cwdOf(ctx);
     const labels = str(ctx.args, 'labels')?.split('|').map((l) => l.trim());
     const items = files.map((f, i) => ({ path: path.resolve(cwd, f), ...(labels?.[i] ? { title: labels[i] } : {}) }));
     const title = str(ctx.args, 'title');
@@ -660,7 +647,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if ((file === undefined) === (url === undefined)) throw new UsageError('output needs exactly one of --path or --url');
     const status = str(ctx.args, 'status') ?? 'drafting';
     if (status !== 'drafting' && status !== 'ready') throw new UsageError('--status is drafting or ready');
-    const cwd = ctx.io.cwd ?? process.cwd();
+    const cwd = cwdOf(ctx);
     const where = file !== undefined ? { path: path.resolve(cwd, file) } : { url: url! };
     ctx.out(bashRequestLine({ kind: 'output', input: { title, ...where, status } }));
     ctx.out('Agent Brief records this when its plugin runs in this Claude Code session. Without the plugin, nothing is recorded.');
@@ -671,7 +658,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const inline = str(ctx.args, 'text');
     const file = str(ctx.args, 'file');
     if (inline !== undefined && file !== undefined) throw new UsageError('note takes --text or --file, not both');
-    const cwd = ctx.io.cwd ?? process.cwd();
+    const cwd = cwdOf(ctx);
     const text = inline ?? (file !== undefined ? await readFile(path.resolve(cwd, file), 'utf8') : await ctx.io.stdin());
     if (text.trim() === '') throw new InputError(file ? `${file} is empty` : 'no text. Pipe Markdown in, or pass --text or --file');
 
@@ -713,7 +700,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     }
     const home = ctx.io.home ?? os.homedir();
     const files = shellFiles(ctx.io.env, home);
-    const shown = (p: string) => tilde(home, p);
+    const shown = (p: string) => shortPath(p, home);
 
     if (action === 'status') {
       const lines = await Promise.all(files.map(async (f) => `${(await isOn(f)) ? 'on ' : 'off'}  ${shown(f.path)}`));
@@ -751,14 +738,13 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
   async behavior(ctx) {
     const [verb, html] = ctx.positional;
     if (!['show', 'update', 'export'].includes(verb) || !html) throw new UsageError('behavior needs show|update|export and a project-relative HTML path');
-    const session = str(ctx.args, 'session') ?? ctx.io.env[SESSION_ID_ENV];
-    if (!session) throw new UsageError('behavior needs --session or CLAUDE_CODE_SESSION_ID');
+    const session = requireSession(ctx, 'behavior');
     const route = `/sessions/${encodeURIComponent(session)}/behavior?path=${encodeURIComponent(html)}`;
     const doc = await callJson<BehaviorDocument>(ctx.socket, verb === 'update' ? 'PUT' : 'GET', route, verb === 'update' ? await readInput(ctx) : undefined);
     if (verb === 'export') {
       const markdown = behaviorMarkdown(doc) + '\n';
       const dest = str(ctx.args, 'out');
-      if (dest) { await writeFile(path.resolve(ctx.io.cwd ?? process.cwd(), dest), markdown); ctx.out(dest); }
+      if (dest) { await writeFile(path.resolve(cwdOf(ctx), dest), markdown); ctx.out(dest); }
       else ctx.out(markdown);
     } else show(ctx, doc, (d) => `${d.path} · revision ${d.revision} · version ${d.version}\n${d.rules.map((r) => `[${r.status}] ${r.id}: ${r.text}`).join('\n')}`);
   },
@@ -787,8 +773,8 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
       positional: ctx.positional,
       flag: (name) => str(ctx.args, name),
       has: (name) => ctx.args.flags.has(name),
-      session: str(ctx.args, 'session') ?? (ctx.io.env[SESSION_ID_ENV] || undefined),
-      cwd: ctx.io.cwd ?? process.cwd(),
+      session: sessionOf(ctx),
+      cwd: cwdOf(ctx),
       stdin: ctx.io.stdin,
       out: ctx.out,
     });
@@ -873,7 +859,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const query = regionQuery(ctx, maxEdge ? [`maxEdge=${maxEdge}`] : []);
     const reply = await call(ctx.socket, 'GET', boardPath(ctx, 'png') + query);
 
-    const cwd = ctx.io.cwd ?? process.cwd();
+    const cwd = cwdOf(ctx);
     const board = str(ctx.args, 'board') ?? CURRENT_BOARD;
     const stamp = (ctx.io.now?.() ?? new Date()).toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
     const safe = board.replace(/[^\w.-]+/g, '_');
@@ -900,7 +886,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if (width !== undefined && !(Number.isInteger(width) && width > 0)) {
       throw new UsageError(`--width must be a positive integer, got "${widthFlag}"`);
     }
-    const img = await loadImage(file, ctx.io.cwd ?? process.cwd());
+    const img = await loadImage(file, cwdOf(ctx));
     const size = fitSize(img, width);
     const board = await callJson<ReadResponse>(ctx.socket, 'GET', boardPath(ctx, 'elements'));
     const { x, y, step } = nextSnapSlot(board);

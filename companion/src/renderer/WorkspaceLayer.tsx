@@ -20,13 +20,12 @@ import { OVERALL, ReviewVoice, hostDictation } from './review-voice';
 import { claimTalk } from './talk-owner';
 import { fitBoard } from './viewport';
 import { holdWorkspace, workspaceComments as comments } from './workspace-boards';
+import { cleanError } from './ipc-error';
 
 export type WorkspaceHost = BoardHost &
   Pick<CompanionApi, 'openFeedbackWorkspace' | 'saveFeedbackWorkspace' | 'noteFeedbackItem' | 'transcribeClip' | 'startDictation' | 'stopDictation' | 'onDictation' | 'requestMicrophone' | 'onVisibility'>;
 
 const MIC_DENIED = 'Microphone access is off. Turn it on in System Settings > Privacy & Security > Microphone, then try again.';
-
-const cleanError = (err: unknown) => (err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
 const RAIL_LABELS = { note: 'Note', voice: 'Voice', pin: 'Pin' } as const;
 

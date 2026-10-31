@@ -2,7 +2,7 @@ import type { BehaviorDocument, BehaviorDecision, FeedbackDocument } from '../pr
 import { BehaviorPanel } from './BehaviorPanel';
 import { FeedbackPanel, openCount, useFeedbackDoc, type FeedbackHost, type SendFeedback } from './FeedbackPanel';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { CompanionApi, Draft } from '../shared/ipc';
+import { concerns, type CompanionApi, type Draft } from '../shared/ipc';
 import { isLocalUrl } from '../shared/outputs';
 import { anchorLabel, baseName, commentCount, sitePage, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
 import type { InsertKind, ReviewEdit, SelectedElement } from '../shared/review-edit';
@@ -18,6 +18,7 @@ import { OVERALL, type ReviewVoice } from './review-voice';
 import { VoiceState } from './VoiceState';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
 import type { WorkspaceSnapshot } from '../shared/feedback-workspace';
+import { cleanError } from './ipc-error';
 
 export type ReviewHost = FeedbackHost & WorkspaceHost & OutputWatchHost & Pick<CompanionApi, 'readBehavior' | 'decideBehavior' | 'onBehaviorChanged' | 'reviewUrl' | 'reviewEdit' | 'reviewUndo' | 'reviewRedo' | 'capturePanel' | 'openLink' | 'openOutputElsewhere'>;
 
@@ -115,9 +116,9 @@ export function ReviewView(props: {
   useEffect(() => {
     setBehavior(undefined);
     void loadBehavior();
-    const off = host.onBehaviorChanged(() => void loadBehavior());
+    const off = host.onBehaviorChanged((c) => concerns(c, draft.sessionId) && void loadBehavior());
     return () => { ++behaviorRequest.current; off(); };
-  }, [loadBehavior, host]);
+  }, [loadBehavior, host, draft.sessionId]);
   const decideBehavior = useCallback(async (decision: BehaviorDecision) => {
     if (!draft.sessionId) return false;
     try {
@@ -129,7 +130,7 @@ export function ReviewView(props: {
       return true;
     } catch (err) {
       await loadBehavior();
-      setBehaviorError((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+      setBehaviorError(cleanError(err));
       return false;
     }
   }, [host, book, draft.id, draft.sessionId, review.path, loadBehavior]);
@@ -233,7 +234,7 @@ export function ReviewView(props: {
     host
       .reviewUrl(draft.sessionId, review.path)
       .then((u) => !gone && setUrl(u))
-      .catch((err: Error) => !gone && setFailed(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')));
+      .catch((err: Error) => !gone && setFailed(cleanError(err)));
     return () => {
       gone = true;
     };
@@ -313,9 +314,9 @@ export function ReviewView(props: {
   layerOpen.current = !!workspace.open;
 
   const select = useCallback(
-    (id: string | undefined, focus = false) => {
+    (id: string | undefined, focus = false, at?: number) => {
       setActiveId(id);
-      props.voice.aim(id ?? OVERALL);
+      props.voice.aim(id ?? OVERALL, at);
       if (id && focus) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(`[data-comment="${id}"] textarea`)?.focus());
       if (id) requestAnimationFrame(() => document.querySelector(`[data-comment="${id}"]`)?.scrollIntoView({ block: 'nearest' }));
     },
@@ -374,7 +375,7 @@ export function ReviewView(props: {
   );
 
   const addPin = useCallback(
-    async (anchor: ReviewAnchor, view: ReviewRect, matches?: string[]) => {
+    async (anchor: ReviewAnchor, view: ReviewRect, matches?: string[], clickedAt = Date.now()) => {
       const box = frame.current?.getBoundingClientRect();
       const current = book.get(live.current.draftId);
       if (!box || !current?.review) return;
@@ -387,7 +388,8 @@ export function ReviewView(props: {
       const comment: ReviewComment = { id: newCommentId(), text: '', anchor: onPage ? anchor : { ...anchor, page: shownPage }, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}), ...(feedback ? { feedback } : {}) };
       book.addComment(current.id, comment, picture);
       pickSide('comments');
-      select(comment.id, true);
+      // The crop above takes a moment, so the voice moves to the pin from the click.
+      select(comment.id, true, clickedAt);
     },
     [book, host, select, itemsAt, pickSide],
   );
@@ -418,7 +420,7 @@ export function ReviewView(props: {
       if (m.type === 'reload') reload();
       if (m.type === 'key' && m.key === 'e') setEditing((on) => !on);
       if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
-      if (m.type === 'pin') void addPin(m.anchor, m.view, m.matches);
+      if (m.type === 'pin') void addPin(m.anchor, m.view, m.matches, m.at);
       if (m.type === 'pointed') setPointed(itemsAt(m.matches));
       if (m.type === 'open-pin') select(m.id, true);
       if (m.type === 'behavior-missing') props.onError(sideRef.current === 'feedback' ? 'That element is not on the page now. Ask Claude to update the item\'s Where line.' : 'That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');

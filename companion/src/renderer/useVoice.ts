@@ -7,6 +7,7 @@ import type { BoardController } from './controller';
 import type { DraftBook } from './drafts';
 import { OVERALL, ReviewVoice, hostDictation } from './review-voice';
 import type { ToastKind } from './Toast';
+import { inWrite } from '../shared/drafts';
 
 const MIC_DENIED =
   'Microphone access is off. Turn it on in System Settings > Privacy & Security > Microphone, then try again.';
@@ -121,8 +122,8 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     () => comments.selected,
   );
   useEffect(() => {
-    if (commenting && voiceDraft.current?.startsWith(BOARD)) reviewVoice.aim(selectedPin ?? OVERALL);
-  }, [commenting, selectedPin, reviewVoice]);
+    if (commenting && voiceDraft.current?.startsWith(BOARD)) reviewVoice.aim(selectedPin ?? OVERALL, comments.selectedAt || undefined);
+  }, [commenting, selectedPin, reviewVoice, comments]);
 
   // Opening the comments while sketch voice records hands the mic to the pins. Closing them hands it back.
   const wasCommenting = useRef(commenting);
@@ -176,7 +177,7 @@ export function useVoice({ host, book, controller, comments, board, mode, modeRe
     }
     const draft = book.selected;
     if (mode === 'write') {
-      if (!draft || draft.review || modeRef.current !== 'write') return;
+      if (!draft || !inWrite(draft) || modeRef.current !== 'write') return;
 
       // Words from the last recording land on their own note before this one claims Overall.
       await reviewVoice.stop();

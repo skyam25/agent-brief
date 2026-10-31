@@ -11,6 +11,7 @@ import type { ToastKind } from './Toast';
 import { useBriefTabs, type TabScope } from './useBriefTabs';
 import { useVoice } from './useVoice';
 import { flushWorkspaces, workspaceReply } from './workspace-boards';
+import { inWrite } from '../shared/drafts';
 
 interface WorkspaceDeps {
   host: CompanionApi;
@@ -62,7 +63,7 @@ export function useWorkspace({ host, info, controller, book, shelf, comments, bo
       if (next !== 'write') return;
       const { sessionId, tabs } = tabScope.current;
       const open = book.selected;
-      if (!open || open.review || !onTab(open, sessionId, tabs)) {
+      if (!open || !inWrite(open) || !onTab(open, sessionId, tabs)) {
         const first = book.firstOnTab(sessionId, tabs);
         if (first) book.select(first.id);
         else book.create('', undefined, sessionId);

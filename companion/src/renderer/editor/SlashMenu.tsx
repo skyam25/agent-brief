@@ -27,8 +27,6 @@ export interface SlashBridge {
 
 export const slashKey = new PluginKey('slash');
 
-export const isSlashOpen = (editor: Editor) => !!slashKey.getState(editor.state)?.active;
-
 export function SlashCommand(bridge: SlashBridge) {
   return Extension.create({
     name: 'slashCommand',

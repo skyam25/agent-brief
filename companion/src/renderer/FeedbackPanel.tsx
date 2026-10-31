@@ -6,12 +6,12 @@
  * On a page, a click lists the items on that element, and a picked item ties the next pin to it.
  */
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackItem, FeedbackOp } from '../protocol';
 import { decisionsPrompt, pendingDecisions, quoted, receiptBatches, type PendingDecision } from '../shared/feedback';
 import { workspaceSummary } from '../shared/feedback-workspace';
-import type { CompanionApi } from '../shared/ipc';
+import { concerns, type CompanionApi } from '../shared/ipc';
 import { BeforeAfter, type PictureHost } from './BeforeAfter';
 import { claimDecisions } from './decisions-send';
 import { acceptLabel, decisionText, historyLines, inOpenFilter, isClosed, latestSaid, markSeen, needsLook, seenCount, sourceTime, updatedSince, type FeedbackFilter } from './feedback-cards';
@@ -23,13 +23,14 @@ import { claimTalk } from './talk-owner';
 import { VoiceState } from './VoiceState';
 import type { FixedSend } from './useSend';
 import { useItemWorkspace, WorkspaceLayer, type WorkspaceHost } from './WorkspaceLayer';
+import { useStore } from './hooks';
+import { cleanError } from './ipc-error';
+import { oneLine } from '../shared/text';
 
 export type FeedbackHost = Pick<CompanionApi, 'readFeedback' | 'updateFeedback' | 'listFeedback' | 'onFeedbackChanged' | 'transcribeClip' | 'startDictation' | 'stopDictation' | 'onDictation' | 'requestMicrophone' | 'onVisibility' | 'openItemOutput'> & PictureHost;
 
 /** Hands Claude what `build` makes. `build` gives a reason instead when there is nothing to send. */
 export type SendFeedback = (sessionId: string, build: () => Promise<FixedSend | string>) => void;
-
-const cleanError = (err: unknown) => (err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
 export interface FeedbackDocState {
   doc?: FeedbackDocument;
@@ -66,32 +67,25 @@ export function useFeedbackDoc(host: FeedbackHost, sessionId: string | undefined
   useEffect(() => {
     setDoc(undefined);
     void load();
-    const off = host.onFeedbackChanged(() => void load());
+    const off = host.onFeedbackChanged((c) => concerns(c, sessionId) && void load());
     return () => {
       ++request.current;
       off();
     };
-  }, [load, host]);
+  }, [load, host, sessionId]);
   const apply = useCallback(
     async (ops: FeedbackOp[]) => {
       if (!sessionId) return false;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const current = attempt === 0 && live.current ? live.current : await load();
-        if (!current) return false;
-        try {
-          const next = await host.updateFeedback(sessionId, path, { version: current.version, ops });
-          ++request.current;
-          setDoc(next);
-          setError(undefined);
-          return true;
-        } catch (err) {
-          if (attempt === 1 || !/changed since/.test(cleanError(err))) {
-            setError(cleanError(err));
-            return false;
-          }
-        }
+      try {
+        const next = await host.updateFeedback(sessionId, path, { ops });
+        ++request.current;
+        setDoc(next);
+        setError(undefined);
+        return true;
+      } catch (err) {
+        setError(cleanError(err));
+        return false;
       }
-      return false;
     },
     [host, sessionId, path, load],
   );
@@ -111,7 +105,7 @@ export function useFeedbackFiles(host: FeedbackHost, sessionId: string | undefin
         .then((p) => !gone && setFiles(new Map(p.files.map((f) => [f.output, f]))))
         .catch(() => undefined);
     load();
-    const off = host.onFeedbackChanged(load);
+    const off = host.onFeedbackChanged((c) => concerns(c, sessionId) && load());
     return () => {
       gone = true;
       off();
@@ -216,10 +210,7 @@ export function FeedbackPanel(props: {
         onError: (message) => props.onError(message),
       }),
   );
-  useSyncExternalStore(
-    (fn) => voice.subscribe(fn),
-    () => voice.version,
-  );
+  useStore(voice);
   // The mic closes when the panel hides or this view goes, and words already heard still land.
   useEffect(() => {
     const off = props.host.onVisibility((visible) => !visible && void voice.stop());
@@ -456,8 +447,6 @@ export function FeedbackPanel(props: {
     </section>
   );
 }
-
-const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 /** Clicks on a card's controls do not open or close it. */
 const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, input, select, textarea, a, summary, .before-after');

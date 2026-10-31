@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { expandHome, parseIngestOutput, pickSession } from '../hooks/logic'
+import { expandHome, parseIngestOutput, pickSession, staleRecordings } from '../hooks/logic'
 import type { FeedbackInboxSession } from '../types'
 
 const session = (name: string, ingestedAt: number, isConsumed = false): FeedbackInboxSession => ({
@@ -30,5 +30,15 @@ describe('logic', () => {
   test('expands ~ against HOME', () => {
     expect(expandHome('~/Downloads/x', '/h')).toBe('/h/Downloads/x')
     expect(expandHome('/abs', '/h')).toBe('/abs')
+  })
+})
+
+describe('staleRecordings', () => {
+  const root = '/p/.feedback'
+  const rec = (name: string, isConsumed: boolean, ingestedAt: number, dir = `${root}/${name}`) =>
+    ({ name, dir, reportPath: `${dir}/report.md`, screenshots: [], counts: null, ingestedAt, isConsumed })
+  test('picks applied recordings older than the cutoff, inside .feedback only', () => {
+    const sessions = [rec('old-applied', true, 10), rec('old-new', false, 10), rec('fresh', true, 90), rec('elsewhere', true, 10, '/other/elsewhere')]
+    expect(staleRecordings(sessions, root, 50).map(s => s.name)).toEqual(['old-applied'])
   })
 })

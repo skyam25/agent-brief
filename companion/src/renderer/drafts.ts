@@ -3,7 +3,7 @@ import type { NoteAnnotations, NoteComment } from '../shared/annotations';
 import { hasReviewContent } from '../shared/review';
 /** Holds the drafts Write mode shows, with the open one and debounced saves. */
 
-import { keptImages, newDraftId, sortDrafts } from '../shared/drafts';
+import { draftKind, inWrite, keptImages, newDraftId, sortDrafts } from '../shared/drafts';
 import type { CompanionApi, Draft, DraftSource, ReviewTab } from '../shared/ipc';
 import { SaveQueue } from './save-queue';
 import { MAX_EDITS, type DraftReview, type ReviewComment } from '../shared/review';
@@ -25,7 +25,7 @@ const sameText = (a: string, b: string) => a.trimEnd() === b.trimEnd();
  * A draft with nothing in it stays in memory, so leaving it leaves nothing behind.
  * Its attachments need no check, because `edit` keeps only the ones the body and comments use.
  */
-const isEmpty = (d: Draft) => !d.outline && !d.body.trim() && !d.board && !(d.review && hasReviewContent(d.review, d.body));
+const isEmpty = (d: Draft) => draftKind(d) !== 'outline' && !d.body.trim() && !d.board && !(d.review && hasReviewContent(d.review, d.body));
 
 /**
  * Whether a draft belongs on a tab: a session tab holds the notes filed under it,
@@ -124,7 +124,7 @@ export class DraftBook {
 
   /** The first note with something in it on a tab, for Write mode. See `onTab`. */
   firstOnTab(sessionId: string | undefined, tabs: readonly string[]): Draft | undefined {
-    return this.drafts.find((d) => !isEmpty(d) && !d.review && onTab(d, sessionId, tabs));
+    return this.drafts.find((d) => !isEmpty(d) && inWrite(d) && onTab(d, sessionId, tabs));
   }
 
   /** The draft that goes out with `board`'s sketch. */

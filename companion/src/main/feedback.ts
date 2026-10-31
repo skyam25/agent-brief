@@ -1,46 +1,36 @@
 /** Panel and agent writes to feedback files go through this synchronous, version-checked store. */
-import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import type { FeedbackDocument, FeedbackFileSummary, FeedbackProject, FeedbackRound, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { relative } from 'node:path';
+import type { FeedbackDocument, FeedbackProject, FeedbackRound, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
 import { buildFeedbackGraph, type GraphFile } from '../shared/feedback-graph';
 import { applyFeedbackOps, FEEDBACK_SUFFIX, feedbackSummary, FeedbackOpError, isoDate, parseFeedback, type FeedbackActor } from '../shared/feedback';
 import { resolveFeedback } from './feedback-paths';
+import { checkVersion, fileVersion, readCapped, scanProject, writeAtomic } from './files';
+import { badRequest } from '../board/errors';
 
-class FeedbackError extends Error {
-  constructor(readonly code: 'bad_request' | 'conflict', message: string) { super(message); }
-}
-const bad = (s: string): never => { throw new FeedbackError('bad_request', s); };
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+const bad = (s: string): never => { throw badRequest(s); };
 const MAX_BYTES = 4 * 1024 * 1024;
-/** The project scan stops at these. */
-const MAX_FILES = 200;
-const MAX_DIRS = 5000;
+const isFeedbackFile = (name: string) => name.endsWith(FEEDBACK_SUFFIX) && name !== FEEDBACK_SUFFIX;
 
 export class FeedbackStore {
-  constructor(private readonly changed: () => void = () => {}, private readonly now: () => Date = () => new Date()) {}
-
-  private text(file: string, path: string): string | undefined {
-    if (!existsSync(file)) return undefined;
-    if (statSync(file).size > MAX_BYTES) return bad(`${path} exceeds 4 MB`);
-    return readFileSync(file, 'utf8');
-  }
+  /** `changed` gets the project and the output whose feedback file the store wrote. */
+  constructor(private readonly changed: (root: string, output: string) => void = () => {}, private readonly now: () => Date = () => new Date()) {}
 
   /** With `orphan`, a feedback file whose output is gone reads too. Writes always need the output. */
   read(root: string, output: unknown, opts: { orphan?: boolean } = {}): FeedbackDocument {
     const where = resolveFeedback(root, output, opts);
-    const text = this.text(where.file, where.path);
+    const text = readCapped(where.file, where.path, MAX_BYTES);
     const gone = where.outputExists ? {} : { outputExists: false as const };
     if (text === undefined) return { title: '', rounds: [], items: [], path: where.path, output: where.output, version: 'missing', ...gone };
-    return { ...parseFeedback(text), path: where.path, output: where.output, version: hash(text), ...gone };
+    return { ...parseFeedback(text), path: where.path, output: where.output, version: fileVersion(text), ...gone };
   }
 
   update(root: string, output: unknown, raw: unknown, by: FeedbackActor): FeedbackUpdateResult {
     const req = raw as FeedbackUpdate | undefined;
-    if (!req || typeof req !== 'object' || typeof req.version !== 'string' || !Array.isArray(req.ops)) return bad('Expected version and ops');
+    if (!req || typeof req !== 'object' || (req.version !== undefined && typeof req.version !== 'string') || !Array.isArray(req.ops)) return bad('Expected ops, and an optional version');
     const where = resolveFeedback(root, output);
-    const before = this.text(where.file, where.path);
-    if ((before === undefined ? 'missing' : hash(before)) !== req.version) throw new FeedbackError('conflict', 'Feedback changed since you read it. Read it again and retry. Nothing was written.');
+    const before = readCapped(where.file, where.path, MAX_BYTES);
+    checkVersion(before, req.version, 'Feedback');
     // Round numbers are project-wide, so a new round looks at every feedback file.
     const projectRounds = req.ops.some((op) => op?.op === 'addRound') ? this.projectRounds(root) : undefined;
     let next: ReturnType<typeof applyFeedbackOps>;
@@ -51,18 +41,16 @@ export class FeedbackStore {
     }
     if (Buffer.byteLength(next.text) > MAX_BYTES) return bad(`${where.path} would exceed 4 MB`);
     if (next.text !== before) {
-      const tmp = `${where.file}.${randomUUID()}.tmp`;
-      try { writeFileSync(tmp, next.text, { flag: 'wx' }); renameSync(tmp, where.file); }
-      finally { if (existsSync(tmp)) unlinkSync(tmp); }
-      this.changed();
+      writeAtomic(where.file, next.text);
+      this.changed(root, where.output);
     }
-    return { ...parseFeedback(next.text), path: where.path, output: where.output, version: hash(next.text), added: next.added };
+    return { ...parseFeedback(next.text), path: where.path, output: where.output, version: fileVersion(next.text), added: next.added };
   }
 
   /** Every feedback file under the project, skipping dot folders and node_modules, and the graph that links them. */
   project(root: string): FeedbackProject {
     const realRoot = realpathSync(root);
-    const { found, truncated } = scan(realRoot);
+    const { found, truncated } = scanProject(realRoot, isFeedbackFile, MAX_BYTES);
     const parsed: GraphFile[] = found.map((full) => {
       const outputFull = full.slice(0, -FEEDBACK_SUFFIX.length);
       return { path: relative(realRoot, full), output: relative(realRoot, outputFull), outputExists: existsSync(outputFull), doc: parseFeedback(readFileSync(full, 'utf8')) };
@@ -72,29 +60,6 @@ export class FeedbackStore {
   }
 
   private projectRounds(root: string): FeedbackRound[] {
-    return scan(realpathSync(root)).found.flatMap((full) => parseFeedback(readFileSync(full, 'utf8')).rounds);
+    return scanProject(realpathSync(root), isFeedbackFile, MAX_BYTES).found.flatMap((full) => parseFeedback(readFileSync(full, 'utf8')).rounds);
   }
-}
-
-/** Feedback files under the project, in a stable order, within the scan's limits. */
-function scan(realRoot: string): { found: string[]; truncated: boolean } {
-  const found: string[] = [];
-  const queue = [realRoot];
-  let dirs = 0;
-  while (queue.length) {
-    if (++dirs > MAX_DIRS) return { found, truncated: true };
-    const dir = queue.shift()!;
-    let entries;
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (e.name.startsWith('.') || e.name === 'node_modules') continue;
-      const full = join(dir, e.name);
-      if (e.isDirectory()) queue.push(full);
-      else if (e.isFile() && e.name.endsWith(FEEDBACK_SUFFIX) && e.name !== FEEDBACK_SUFFIX) {
-        if (found.length >= MAX_FILES) return { found, truncated: true };
-        if (statSync(full).size <= MAX_BYTES) found.push(full);
-      }
-    }
-  }
-  return { found, truncated: false };
 }

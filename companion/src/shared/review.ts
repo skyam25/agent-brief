@@ -4,7 +4,8 @@ import { behaviorMarkdown, parseBehavior } from './behavior';
 
 import { ATTACHMENT_ID } from './attachments';
 import { feedbackPath } from './feedback';
-import { isLocalUrl } from './outputs';
+import { isLocalUrl } from './output-file';
+import { cut, isRecord, oneLine } from './text';
 
 export interface ReviewRect {
   x: number;
@@ -65,13 +66,7 @@ export interface ReviewPayload extends DraftReview {
 export const MAX_COMMENTS = 100;
 export const MAX_EDITS = 200;
 const COMMENT_ID = /^[\w-]{1,40}$/;
-const HTML = /\.html?$/i;
-
-/** True for an HTML file the review pane opens. */
-export const isReviewable = (path: string) => HTML.test(path);
-
-/** True for anything the review pane opens: an HTML file, or a local URL. */
-export const opensInReview = (ref: string) => isLocalUrl(ref) || (!/^[a-z][a-z0-9+.-]*:/i.test(ref) && isReviewable(ref));
+export { isReviewable } from './output-file';
 
 /** A review page's key on a site: its path and query, so a route change in an app is a new page. */
 export function sitePage(url: string): string {
@@ -83,7 +78,6 @@ export function sitePage(url: string): string {
   }
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const clip = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.slice(0, max) : undefined);
 
@@ -150,9 +144,6 @@ export function cleanReview(raw: unknown): DraftReview | undefined {
 /** The attachment ids a review's comments use, in order. */
 export const reviewPictures = (review: DraftReview | undefined): string[] =>
   (review?.comments ?? []).flatMap((c) => (c.picture ? [c.picture] : []));
-
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
-const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 /** A pin's name in lists: its tag and the words it shows, like `h2 “Pricing plans”`. */
 export function anchorLabel(a: ReviewAnchor, max = 60): string {

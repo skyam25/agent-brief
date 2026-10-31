@@ -1,8 +1,9 @@
 /** The last sends: `<dataDir>/history/index.json` plus a folder per send with its PNG and scene, when it had a sketch. */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HistoryEntry } from '../shared/ipc';
+import { writeAtomic } from './files';
 
 export const HISTORY_LIMIT = 10;
 
@@ -65,9 +66,7 @@ export class SendHistory {
   }
 
   private save(): void {
-    const tmp = `${this.indexPath}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.entries, null, 2));
-    renameSync(tmp, this.indexPath);
+    writeAtomic(this.indexPath, JSON.stringify(this.entries, null, 2));
   }
 
   /** Removes every folder the index no longer lists. */

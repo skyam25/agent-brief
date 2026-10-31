@@ -1,6 +1,5 @@
 /** Panel and agent writes to outline files go through this synchronous, version-checked store. */
-import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { OutlineDoc, OutlineDocument, OutlineOp, OutlineProject, OutlineUpdate, OutlineUpdateResult } from '../protocol';
 import { isoDate } from '../shared/feedback';
@@ -8,16 +7,11 @@ import type { OutlineCreate } from '../shared/ipc';
 import { isBlankOutline, outlineRowChanges, type OutlineChanges } from '../shared/outline-changes';
 import { applyOutlineOps, isOutlinePath, OUTLINE_SUFFIX, OutlineOpError, outlinePathFor, outlineSlugPath, outlineSummary, parseOutline } from '../shared/outline';
 import { plainRelative, within } from './feedback-paths';
+import { checkVersion, fileVersion, hash, readCapped, scanProject, writeAtomic } from './files';
+import { BoardError, badRequest } from '../board/errors';
 
-class OutlineError extends Error {
-  constructor(readonly code: 'bad_request' | 'conflict', message: string) { super(message); }
-}
-const bad = (s: string): never => { throw new OutlineError('bad_request', s); };
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+const bad = (s: string): never => { throw badRequest(s); };
 const MAX_BYTES = 4 * 1024 * 1024;
-/** The project scan stops at these. */
-const MAX_FILES = 200;
-const MAX_DIRS = 5000;
 
 const lstatOrUndefined = (p: string) => { try { return lstatSync(p); } catch { return undefined; } };
 
@@ -145,7 +139,7 @@ export class OutlineStore {
     const where = resolveOutline(root, path);
     const record = this.record(where);
     if (!record) return undefined;
-    const text = this.text(where);
+    const text = readCapped(where.file, where.path, MAX_BYTES);
     const current = text === undefined ? EMPTY : parseOutline(text);
     const touched = new Set(record.touched);
     const rows = outlineRowChanges(parseOutline(record.baseline), current, new Set(record.reused)).filter((c) => !touched.has(c.id));
@@ -160,27 +154,21 @@ export class OutlineStore {
     this.changed(root, where.path);
   }
 
-  private text(where: OutlineFile): string | undefined {
-    if (!existsSync(where.file)) return undefined;
-    if (statSync(where.file).size > MAX_BYTES) return bad(`${where.path} exceeds 4 MB`);
-    return readFileSync(where.file, 'utf8');
-  }
-
   /** Version `missing` and an empty outline when the file is not there. */
   read(root: string, path: unknown): OutlineDocument {
     const where = resolveOutline(root, path);
-    const text = this.text(where);
+    const text = readCapped(where.file, where.path, MAX_BYTES);
     const doc = text === undefined ? EMPTY : parseOutline(text);
-    return { ...doc, path: where.path, version: text === undefined ? 'missing' : hash(text), ...targetState(where.realRoot, doc) };
+    return { ...doc, path: where.path, version: fileVersion(text), ...targetState(where.realRoot, doc) };
   }
 
-  /** Version `missing` creates the file, which then needs a setMeta with a title. */
+  /** Version `missing` creates the file only when absent. A new file needs a setMeta with a title. */
   update(root: string, path: unknown, raw: unknown, by: OutlineAuthor = 'you'): OutlineUpdateResult {
     const req = raw as OutlineUpdate | undefined;
-    if (!req || typeof req !== 'object' || typeof req.version !== 'string' || !Array.isArray(req.ops)) return bad('Expected version and ops');
+    if (!req || typeof req !== 'object' || (req.version !== undefined && typeof req.version !== 'string') || !Array.isArray(req.ops)) return bad('Expected ops, and an optional version');
     const where = resolveOutline(root, path);
-    const before = this.text(where);
-    if ((before === undefined ? 'missing' : hash(before)) !== req.version) throw new OutlineError('conflict', 'Outline changed since you read it. Read it again and retry. Nothing was written.');
+    const before = readCapped(where.file, where.path, MAX_BYTES);
+    checkVersion(before, req.version, 'Outline');
     let next: ReturnType<typeof applyOutlineOps>;
     try { next = applyOutlineOps(before, { ops: req.ops, date: isoDate(this.now()) }); }
     catch (err) {
@@ -190,9 +178,7 @@ export class OutlineStore {
     if (Buffer.byteLength(next.text) > MAX_BYTES) return bad(`${where.path} would exceed 4 MB`);
     if (next.text !== before) {
       mkdirSync(dirname(where.file), { recursive: true });
-      const tmp = `${where.file}.${randomUUID()}.tmp`;
-      try { writeFileSync(tmp, next.text, { flag: 'wx' }); renameSync(tmp, where.file); }
-      finally { if (existsSync(tmp)) unlinkSync(tmp); }
+      writeAtomic(where.file, next.text);
       // Change marks are a convenience, so a failure never fails the write.
       try { this.track(where, before, next.doc, next.added, by); } catch {}
       this.changed(root, where.path);
@@ -210,7 +196,7 @@ export class OutlineStore {
     const target = typeof c.target === 'string' && c.target.trim() ? c.target.trim() : undefined;
     const path = typeof c.path === 'string' && c.path.trim() ? c.path.trim() : target ? outlinePathFor(target) : outlineSlugPath(c.title);
     const where = resolveOutline(root, path);
-    if (lstatOrUndefined(where.file)) throw new OutlineError('conflict', `${where.path} already exists`);
+    if (lstatOrUndefined(where.file)) throw new BoardError('conflict', `${where.path} already exists`);
     const meta: OutlineOp = { op: 'setMeta', title: c.title, ...(target ? { target } : {}), ...(c.kind ? { kind: c.kind } : {}) };
     return this.update(root, where.path, { version: 'missing', ops: [meta] }).path;
   }
@@ -218,31 +204,8 @@ export class OutlineStore {
   /** Every outline under the project, skipping dot folders and node_modules. */
   project(root: string): OutlineProject {
     const realRoot = realpathSync(root);
-    const { found, truncated } = scan(realRoot);
+    const { found, truncated } = scanProject(realRoot, isOutlinePath, MAX_BYTES);
     const files = found.map((full) => outlineSummary(relative(realRoot, full), parseOutline(readFileSync(full, 'utf8'))));
     return { files, ...(truncated ? { truncated } : {}) };
   }
-}
-
-/** Outline files under the project, in a stable order, within the scan's limits. */
-function scan(realRoot: string): { found: string[]; truncated: boolean } {
-  const found: string[] = [];
-  const queue = [realRoot];
-  let dirs = 0;
-  while (queue.length) {
-    if (++dirs > MAX_DIRS) return { found, truncated: true };
-    const dir = queue.shift()!;
-    let entries;
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (e.name.startsWith('.') || e.name === 'node_modules') continue;
-      const full = join(dir, e.name);
-      if (e.isDirectory()) queue.push(full);
-      else if (e.isFile() && isOutlinePath(e.name)) {
-        if (found.length >= MAX_FILES) return { found, truncated: true };
-        if (statSync(full).size <= MAX_BYTES) found.push(full);
-      }
-    }
-  }
-  return { found, truncated: false };
 }

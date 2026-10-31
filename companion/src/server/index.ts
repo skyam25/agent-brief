@@ -16,7 +16,7 @@ import {
   type SessionsResponse,
 } from '../protocol';
 import { buildDraft, freeId, writeBundle } from './bundle';
-import { feedbackDir, pruneBundles } from './feedback-dir';
+import { feedbackDir, tidyFeedback } from './feedback-dir';
 import type { CompanionServer, CompanionServerOptions, DeliveryInput, InitiativeBackend } from './contract';
 import {
   BadRequest,
@@ -59,6 +59,7 @@ class HttpError extends Error {
 }
 
 const notFound = (what = 'no such route') => new HttpError(404, 'not_found', what);
+const unavailable = (what: string) => new HttpError(503, 'unavailable', what);
 
 const STATUS_BY_CODE: Record<ErrorBody['code'], number> = {
   not_found: 404,
@@ -102,7 +103,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
 
   /** The app's initiative store, or 503. */
   function initiatives(): InitiativeBackend {
-    if (!opts.initiatives) throw new HttpError(503, 'unavailable', 'this app keeps no initiatives');
+    if (!opts.initiatives) throw unavailable('this app keeps no initiatives');
     return opts.initiatives;
   }
 
@@ -271,7 +272,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
     const id = freeId(sketches, now());
     const dir = join(sketches, id);
     await writeBundle(dir, input);
-    pruneBundles(sketches, now());
+    tidyFeedback(feedbackDir(session.cwd), now());
 
     const delivery: Delivery = {
       id,
@@ -316,14 +317,14 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
 
     if (root === 'sessions' && parts.length === 3 && sub === 'behavior') {
       const session = liveSession(id);
-      if (!opts.behaviors) throw new HttpError(503, 'unavailable', 'this app does not keep behavior specifications');
+      if (!opts.behaviors) throw unavailable('this app does not keep behavior specifications');
       if (method === 'GET') return { json: opts.behaviors.read(session.cwd, q.get('path')) };
       if (method === 'PUT') return { json: opts.behaviors.update(session.cwd, q.get('path'), await readJson(req), `Agent · ${id}`) };
     }
 
     if (root === 'sessions' && sub === 'feedback' && parts.length === 4 && parts[3] === 'workspace' && method === 'POST') {
       const session = liveSession(id);
-      if (!opts.workspaces) throw new HttpError(503, 'unavailable', 'this app does not keep feedback workspaces');
+      if (!opts.workspaces) throw unavailable('this app does not keep feedback workspaces');
       const n = Number(q.get('item'));
       if (!Number.isInteger(n) || n < 1) throw new BadRequest('workspace needs ?item=<n>');
       return { json: await opts.workspaces.open(session.cwd, q.get('path'), n) };
@@ -331,13 +332,13 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
 
     if (root === 'sessions' && sub === 'feedback' && parts.length === 4 && parts[3] === 'snap' && method === 'POST') {
       const session = liveSession(id);
-      if (!opts.feedbackSnaps) throw new HttpError(503, 'unavailable', 'this app does not take feedback snapshots');
+      if (!opts.feedbackSnaps) throw unavailable('this app does not take feedback snapshots');
       return { json: await opts.feedbackSnaps.snap(session.cwd, q.get('path'), await readJson(req), 'Claude') };
     }
 
     if (root === 'sessions' && sub === 'feedback' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'project'))) {
       const session = liveSession(id);
-      if (!opts.feedback) throw new HttpError(503, 'unavailable', 'this app does not keep feedback items');
+      if (!opts.feedback) throw unavailable('this app does not keep feedback items');
       if (parts.length === 4 && method === 'GET') return { json: opts.feedback.project(session.cwd) };
       if (method === 'GET') return { json: opts.feedback.read(session.cwd, q.get('path'), { orphan: true }) };
       if (method === 'POST') return { json: opts.feedback.update(session.cwd, q.get('path'), await readJson(req), 'Claude') };
@@ -345,7 +346,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
 
     if (root === 'sessions' && sub === 'outline' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'project'))) {
       const session = liveSession(id);
-      if (!opts.outlines) throw new HttpError(503, 'unavailable', 'this app does not keep outlines');
+      if (!opts.outlines) throw unavailable('this app does not keep outlines');
       if (parts.length === 4 && method === 'GET') return { json: opts.outlines.project(session.cwd) };
       if (parts.length === 3 && method === 'GET') return { json: opts.outlines.read(session.cwd, q.get('path')) };
       if (parts.length === 3 && method === 'POST') return { json: opts.outlines.update(session.cwd, q.get('path'), await readJson(req), 'claude') };
@@ -369,8 +370,8 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       if (parts.length === 2 && method === 'PATCH') {
         const patch = parseSessionPatch(await readJson(req));
         const s = liveSession(id);
-        if (patch.tracking && !backend.setTracking) throw new HttpError(503, 'unavailable', 'this app does not track items');
-        if (patch.mode && !backend.setMode) throw new HttpError(503, 'unavailable', 'this app does not mirror modes');
+        if (patch.tracking && !backend.setTracking) throw unavailable('this app does not track items');
+        if (patch.mode && !backend.setMode) throw unavailable('this app does not mirror modes');
         if (patch.tracking) await backend.setTracking!(id, patch.tracking.trackItems);
         if (patch.mode) await backend.setMode!(id, patch.mode);
         emitSessions();
@@ -425,7 +426,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
 
     if (root === 'notes' && parts.length === 1 && method === 'POST') {
       const body = parseNote(await readJson(req));
-      if (!backend.addNote) throw new HttpError(503, 'unavailable', 'this app does not take notes');
+      if (!backend.addNote) throw unavailable('this app does not take notes');
       if (body.sessionId !== undefined && !body.draftId) liveSession(body.sessionId);
       return { json: await backend.addNote(body) };
     }

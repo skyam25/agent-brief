@@ -720,7 +720,8 @@ export type FeedbackOp =
   | { op: 'open'; item: number };
 
 export interface FeedbackUpdate {
-  version: string;
+  /** Writes only at this version. Without it, the ops apply to the file as it stands, since they only add. */
+  version?: string;
   ops: FeedbackOp[];
 }
 
@@ -948,7 +949,8 @@ export type OutlineOp =
   | { op: 'clearDirection' };
 
 export interface OutlineUpdate {
-  version: string;
+  /** Writes only at this version, and `missing` creates the file. Without it, the ops apply to the file as it stands, since they target ids. */
+  version?: string;
   ops: OutlineOp[];
 }
 
