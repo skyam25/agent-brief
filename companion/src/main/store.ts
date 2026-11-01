@@ -228,6 +228,10 @@ export interface AppState extends Settings {
   sessionBriefs?: SessionBriefs;
   /** The board Unfiled last opened. */
   unfiledBoard?: string;
+  /** Boards the sidebar lists under Pinned, in pin order. */
+  pinnedBoards?: string[];
+  /** When each board was sent or marked done, in ms since the epoch. */
+  doneBoards?: Record<string, number>;
 }
 
 export const DEFAULT_STATE: AppState = {

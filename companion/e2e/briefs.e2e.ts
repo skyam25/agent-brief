@@ -195,7 +195,8 @@ test('an ended session keeps its tab, which still opens its board', async () => 
   await openFor({ sessionId: 's2' });
   await sock(socketPath, 'DELETE', '/sessions/s1');
 
-  // Ended sessions fold away until the group opens.
+  // Recent lists ended sessions until the group folds.
+  await page.getByTestId('ended-toggle').click();
   await expect(briefTab(page, 'Alpha')).toHaveCount(0);
   await showEnded(page);
   await expect(briefTab(page, 'Alpha').locator('.dot')).not.toHaveClass(/live/);
@@ -238,8 +239,7 @@ test('the sidebar lists running sessions, folds ended ones, hides, and opens as 
     await openFor({ sessionId: id });
   }
   await sock(socketPath, 'DELETE', '/sessions/s1');
-  await expect(tabs(page)).toHaveCount(2);
-  await expect(page.getByTestId('ended-toggle')).toHaveText('Ended 1');
+  await expect(page.getByTestId('ended-toggle')).toHaveText('Recent');
   await showEnded(page);
   await expect(tabs(page)).toHaveCount(3);
   if (SHOTS) await page.screenshot({ path: join(SHOTS, 'sidebar.png'), clip: { x: 0, y: 0, width: 600, height: 360 } });
@@ -430,20 +430,66 @@ test("a session row reads its transcript's name and shows whether Claude is work
   await expect(row.getByTestId('session-dot')).not.toHaveClass(/working/);
 });
 
-test('the Ended group lists its newest five until Show more', async () => {
+test('Recent lists the newest five ended sessions, and All sessions finds any session or board', async () => {
   const { page } = ctx;
   for (let i = 1; i <= 7; i++) {
     await register(`s${i}`, `Session ${i}`);
-    await openFor({ sessionId: `s${i}` });
+    await openFor({ sessionId: `s${i}`, board: `board ${i}` });
   }
   await openFor({ sessionId: 's7' });
   for (let i = 1; i <= 6; i++) await sock(socketPath, 'DELETE', `/sessions/s${i}`);
-  await expect(page.getByTestId('ended-toggle')).toHaveText('Ended 6');
   await showEnded(page);
   await expect(page.getByTestId('brief-tab')).toHaveCount(6);
-  await page.getByTestId('ended-more').click();
-  await expect(page.getByTestId('brief-tab')).toHaveCount(7);
-  await expect(page.getByTestId('ended-more')).toHaveText('Show fewer');
+  await expect(page.getByTestId('all-sessions')).toHaveText('All sessions 7');
+
+  await page.getByTestId('all-sessions').click();
+  const sheet = page.getByTestId('all-sessions-sheet');
+  await expect(sheet.getByTestId('all-sessions-row')).toHaveCount(8);
+  await sheet.getByTestId('all-sessions-find').fill('board 1');
+  await expect(sheet.getByTestId('all-sessions-row')).toHaveText([/Session 1/]);
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'all-sessions.png') });
+  await sheet.getByTestId('all-sessions-board').click();
+  await expect(sheet).toHaveCount(0);
+  await expect(briefTab(page, 'Session 1')).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByTestId('board-picker')).toHaveText('board 1');
+});
+
+test('a done board folds under Done until it changes, and a pinned one heads the sidebar', async () => {
+  const { app, page } = ctx;
+  await register('s1', 'Alpha');
+  await openFor({ sessionId: 's1', board: 'one' });
+  await openFor({ sessionId: 's1', board: 'two' });
+  const list = page.getByTestId('brief-children').getByTestId('brief-board');
+  await expect(list).toHaveText(['one', 'two']);
+
+  await boardRowMenu(page, 'one');
+  await page.getByTestId('board-row-done').click();
+  await expect(list).toHaveText(['two']);
+  await expect(page.getByTestId('done-toggle')).toHaveText('Done 1');
+  await page.getByTestId('done-toggle').click();
+  await expect(list).toHaveText(['two', 'one']);
+  await expect(boardRow(page, 'one')).toHaveAttribute('data-done', 'true');
+
+  // Pin it, then open it from Unfiled. Pinned switches back to its session.
+  await boardRowMenu(page, 'one');
+  await page.getByTestId('board-row-pin').click();
+  const pinned = page.getByTestId('pinned').getByTestId('brief-board');
+  await expect(pinned).toHaveText(['oneAlpha']);
+  await page.getByTestId('notes-tab').getByRole('tab').click();
+  await expect(crumb(page)).toHaveText('Unfiled');
+  await pinned.click();
+  await expect(briefTab(page, 'Alpha')).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByTestId('board-picker')).toHaveText('one');
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'pinned-done.png'), clip: { x: 0, y: 0, width: 600, height: 400 } });
+
+  // Claude drawing on it after the grace brings it back to the list.
+  await page.getByTestId('notes-tab').getByRole('tab').click();
+  await page.waitForTimeout(5100);
+  await drawBox(app, 'one', 0);
+  await briefTab(page, 'Alpha').getByRole('tab').click();
+  await expect(boardRow(page, 'one')).toHaveAttribute('data-done', 'false');
+  await expect(page.getByTestId('done-toggle')).toHaveCount(0);
+  expect(await app.evaluate(() => globalThis.__companion.state.state.pinnedBoards)).toEqual(['one']);
 });
 
 test('Clean up moves what an ended session left to the Trash, and an unchecked note stays kept', async () => {

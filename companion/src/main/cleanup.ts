@@ -28,6 +28,8 @@ export interface CleanupDeps {
   draftFile: (id: string) => string;
   boardFiles: (name: string) => string[];
   currentBoard: () => string | undefined;
+  /** Boards pinned to the sidebar. */
+  pinned?: () => string[];
   initiatives: () => Initiative[];
   /** The absolute paths among `files` that git tracks in `cwd`. */
   tracked: (cwd: string, files: string[]) => Promise<Set<string>>;
@@ -112,7 +114,7 @@ export class Cleanup {
       let files: string[];
       try { files = this.deps.boardFiles(name); } catch { return []; }
       const id = `board:${name}`;
-      const keep: KeepReason | false = (kept.has(id) && 'kept') || (others.includes(name) && 'shared') || (this.deps.currentBoard() === name && 'open');
+      const keep: KeepReason | false = (kept.has(id) && 'kept') || (this.deps.pinned?.().includes(name) && 'pinned') || (others.includes(name) && 'shared') || (this.deps.currentBoard() === name && 'open');
       return [{ id, sessionId, kind: 'board' as const, label: `Board · ${name}`, bytes: files.reduce((n, f) => n + bytesOf(f), 0), files, ...keepIf(keep) }];
     });
   }

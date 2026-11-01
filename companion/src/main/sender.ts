@@ -12,6 +12,7 @@ import { cleanAnnotations } from '../shared/annotations';
 import { cleanReview } from '../shared/review';
 import { portablePrompt } from '../shared/sessions';
 import { composeDelivery, findTool } from '../voice/compose';
+import { mark } from './board-marks';
 import type { Briefs } from './briefs';
 import { deliveryImages, type DraftStore } from './drafts';
 import type { SendHistory } from './history';
@@ -218,11 +219,16 @@ export class Sender {
     if (realpathSync(source) !== realpathSync(destination)) throw new Error('This note reviews a file in another project. Send it to a session in its original project, or copy its text into a new note.');
   }
 
+  /** Records the send in history. A sent board is done until it changes. */
   private record(entry: Parameters<SendHistory['add']>[0], input: DeliveryInput): void {
     try {
       this.deps.history.add(entry, { png: input.png, scene: input.scene });
     } catch (err) {
       console.warn(`[companion] could not record the send: ${(err as Error).message}`);
+    }
+    if (entry.board) {
+      const { state } = this.deps;
+      state.update(mark(state.state, [entry.board], { done: true }, entry.sentAt));
     }
   }
 

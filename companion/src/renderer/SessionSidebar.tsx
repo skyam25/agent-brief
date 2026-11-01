@@ -7,14 +7,16 @@ import { ContextMenu, type MenuPoint } from './ContextMenu';
 import type { DraftBook } from './drafts';
 import type { FilingTab } from './FilingMenu';
 import { useStore } from './hooks';
-import { BoardIcon, ChevronIcon, CloseIcon, MoreIcon, NotesIcon, StackIcon } from './Icons';
+import { AllSessions } from './AllSessions';
+import { BoardIcon, ChevronIcon, CloseIcon, MoreIcon, NotesIcon, PinIcon, StackIcon } from './Icons';
 import { BoardMenu, RenameField, SelectionBar, useBoardSelection, type BoardActions, type BoardSelection } from './SidebarBoards';
 import { ago } from './WriteView';
 
 /** Below this width the sidebar opens over the work instead of beside it. */
 const NARROW = '(max-width: 719px)';
 const HIDDEN_KEY = 'sidebar.hidden';
-const ENDED_KEY = 'sidebar.endedOpen';
+const RECENT_CLOSED_KEY = 'sidebar.recentClosed';
+const DONE_KEY = 'sidebar.doneOpen';
 
 function readFlag(key: string): boolean {
   try {
@@ -40,11 +42,11 @@ export function sessionState(b: Pick<SessionBriefEntry, 'isLive' | 'isWorking' |
 }
 
 /** A session's second line: its state, and its folder's name. */
-function whereLine(b: SessionBriefEntry): string {
+export function whereLine(b: SessionBriefEntry): string {
   return [sessionState(b).label, b.cwd && folderName(b.cwd)].filter(Boolean).join(' · ');
 }
 
-/** Ended sessions shown before "Show more". */
+/** Ended sessions the Recent group lists. All sessions lists the rest. */
 export const ENDED_SHOWN = 5;
 
 /** Splits the briefs into running and ended sessions, each newest first. */
@@ -100,16 +102,25 @@ export interface ChildProps {
   onOpenBoard: (name: string) => void;
   /** The note count opens Write view, which lists the container's notes. */
   onNotes: () => void;
+  /** Opens a board in its own container, switching to it first. */
+  onOpenAnywhere: (board: BoardEntry) => void;
   actions: BoardActions;
+}
+
+/** The boards a container lists, and the done ones it folds away. The open board always stays listed. */
+export function splitDone(boards: readonly BoardEntry[], open: string | undefined): { listed: BoardEntry[]; folded: BoardEntry[] } {
+  const listed = boards.filter((b) => !b.done || b.name === open);
+  return { listed, folded: boards.filter((b) => !listed.includes(b)) };
 }
 
 /** "1 note", "3 notes". */
 export const noteCountLabel = (n: number) => `${n} ${n === 1 ? 'note' : 'notes'}`;
 
 /**
- * Unfiled, then each Claude Code session's brief: running sessions first, ended
- * ones in a group that folds away. The active session is the one Send goes to.
- * The active container lists its boards and a note count under its row.
+ * Pinned boards, Unfiled, then each Claude Code session's brief: running sessions
+ * first, then the newest ended ones under Recent. All sessions lists every one.
+ * The active session is the one Send goes to. The active container lists its
+ * boards and a note count under its row, with done boards folded away.
  */
 export function SessionSidebar(props: {
   briefs: SessionBriefEntry[];
@@ -126,16 +137,16 @@ export function SessionSidebar(props: {
   cleanup: CleanupHost;
   onNotify: (text: string) => void;
 }) {
-  const [endedOpen, setEndedOpen] = useState(() => readFlag(ENDED_KEY));
-  const [allEnded, setAllEnded] = useState(false);
+  const [endedOpen, setEndedOpen] = useState(() => !readFlag(RECENT_CLOSED_KEY));
+  const [doneOpen, setDoneOpen] = useState(() => readFlag(DONE_KEY));
+  const [allOpen, setAllOpen] = useState(false);
   const [cleaning, setCleaning] = useState<SessionBriefEntry[]>();
   const { running, ended } = groupBriefs(props.briefs);
   const { sidebar } = props;
 
-  // The group shows its newest few until "Show more". A folded or cut group still shows the ended session on show.
-  const endedListed = !endedOpen ? [] : allEnded ? ended : ended.slice(0, ENDED_SHOWN);
+  // Recent lists the newest few. A folded group, or one the active session fell out of, still shows the active one.
+  const endedListed = endedOpen ? ended.slice(0, ENDED_SHOWN) : [];
   const endedShown = ended.filter((b) => endedListed.includes(b) || b.sessionId === props.activeId);
-  const endedMore = endedOpen && ended.length > ENDED_SHOWN;
   /** A pick in the drawer closes it. */
   const picked = (go: () => void) => {
     go();
@@ -152,8 +163,12 @@ export function SessionSidebar(props: {
   const tabs = props.briefs.map((b) => b.sessionId);
   const { contents } = props;
   const filing: FilingTab[] = [...running, ...ended].map((b) => ({ sessionId: b.sessionId, title: b.title, where: whereLine(b) }));
-  const names = boardsOf(contents.boards, props.activeId).map((b) => b.name);
+  const open = contents.mode === 'sketch' ? contents.board : undefined;
+  const split = splitDone(boardsOf(contents.boards, props.activeId), open);
+  const names = [...split.listed, ...(doneOpen ? split.folded : [])].map((b) => b.name);
   const selection = useBoardSelection(names, contents.board, props.activeId);
+  const pinned = contents.boards.filter((b) => b.pinned);
+  const titleOf = (sessionId: string | undefined) => (sessionId ? (props.briefs.find((b) => b.sessionId === sessionId)?.title ?? 'Ended session') : 'Unfiled');
   const childList = (sessionId: string | undefined) => (
     <Children
       {...contents}
@@ -161,6 +176,11 @@ export function SessionSidebar(props: {
       tabs={tabs}
       filing={filing}
       selection={selection}
+      doneOpen={doneOpen}
+      onDoneOpen={(on) => {
+        writeFlag(DONE_KEY, on);
+        setDoneOpen(on);
+      }}
       onOpenBoard={(name) => picked(() => contents.onOpenBoard(name))}
       onNotes={() => picked(contents.onNotes)}
     />
@@ -178,6 +198,16 @@ export function SessionSidebar(props: {
       {sidebar.overlay && <button className="sidebar-scrim" aria-label="Close sessions" onClick={sidebar.dismiss} />}
       <nav className={sidebar.overlay ? 'sessions overlay' : 'sessions'} aria-label="Sessions" data-testid="brief-tabs">
         <div className="tabs" role="tablist" aria-orientation="vertical">
+          {pinned.length > 0 && (
+            <Pinned
+              boards={pinned}
+              open={open}
+              titleOf={titleOf}
+              filing={filing}
+              actions={contents.actions}
+              onOpen={(b) => picked(() => contents.onOpenAnywhere(b))}
+            />
+          )}
           <div className="tab notes-tab" aria-current={props.activeId === undefined} data-testid="notes-tab">
             <button
               className="ghost label"
@@ -199,25 +229,21 @@ export function SessionSidebar(props: {
             <button
               className="ghost group toggle"
               aria-expanded={endedOpen}
+              title="Ended sessions, newest first"
               onClick={() => {
-                writeFlag(ENDED_KEY, !endedOpen);
+                writeFlag(RECENT_CLOSED_KEY, endedOpen);
                 setEndedOpen(!endedOpen);
               }}
               data-testid="ended-toggle"
             >
               <ChevronIcon />
-              Ended <span className="count">{ended.length}</span>
+              Recent
             </button>
           )}
           {endedShown.map(row)}
-          {endedMore && (
-            <button className="ghost group more" onClick={() => setAllEnded(!allEnded)} data-testid="ended-more">
-              {allEnded ? 'Show fewer' : `Show ${ended.length - ENDED_SHOWN} more`}
-            </button>
-          )}
-          {endedOpen && ended.length > 0 && (
-            <button className="ghost group more" title="Move what the ended sessions left behind to the Trash" onClick={() => setCleaning(ended)} data-testid="ended-cleanup">
-              Clean up ended sessions…
+          {props.briefs.length > 0 && (
+            <button className="ghost group more" title="Find any session or board" onClick={() => setAllOpen(true)} data-testid="all-sessions">
+              All sessions <span className="count">{props.briefs.length}</span>
             </button>
           )}
         </div>
@@ -225,6 +251,18 @@ export function SessionSidebar(props: {
           <SelectionBar selection={selection} container={props.activeId} tabs={filing} actions={contents.actions} />
         )}
       </nav>
+      {allOpen && (
+        <AllSessions
+          briefs={props.briefs}
+          boards={contents.boards}
+          activeId={props.activeId}
+          onSwitch={(id) => picked(() => props.onSwitch(id))}
+          onUnfiled={() => picked(props.onNotes)}
+          onOpenBoard={(b) => picked(() => contents.onOpenAnywhere(b))}
+          onCleanUp={(briefs) => setCleaning(briefs)}
+          onClose={() => setAllOpen(false)}
+        />
+      )}
       {cleaning && (
         <CleanupSheet
           host={props.cleanup}
@@ -238,16 +276,26 @@ export function SessionSidebar(props: {
 }
 
 /**
- * The active container's boards, then its note count, indented under its row.
- * Each board has a ⋯ and right-click menu. ⌘ and ⇧ select several.
+ * The active container's boards, then its note count, then its done boards folded
+ * under Done. Each board has a ⋯ and right-click menu. ⌘ and ⇧ select several.
  */
-function Children(props: ChildProps & { sessionId?: string; tabs: string[]; filing: FilingTab[]; selection: BoardSelection }) {
+function Children(
+  props: ChildProps & {
+    sessionId?: string;
+    tabs: string[];
+    filing: FilingTab[];
+    selection: BoardSelection;
+    doneOpen: boolean;
+    onDoneOpen: (on: boolean) => void;
+  },
+) {
   const book = useStore(props.book);
   const [menu, setMenu] = useState<{ names: string[]; at: MenuPoint }>();
   const [renaming, setRenaming] = useState<string>();
   const { selection } = props;
   const kids = childrenOf(props.boards, book.drafts, props.sessionId, props.tabs);
   if (!kids.boards.length && !kids.noteCount) return null;
+  const { listed, folded } = splitDone(kids.boards, props.mode === 'sketch' ? props.board : undefined);
 
   /** A selected board's menu acts on the whole selection. Any other board's acts on it alone. */
   const openMenu = (name: string, at: MenuPoint) => {
@@ -255,61 +303,28 @@ function Children(props: ChildProps & { sessionId?: string; tabs: string[]; fili
     if (!many) selection.clear();
     setMenu({ names: many ? selection.selected : [name], at });
   };
-  const onContext = (e: MouseEvent, name: string) => {
-    e.preventDefault();
-    openMenu(name, { x: e.clientX, y: e.clientY });
-  };
+  const row = (b: BoardEntry) => (
+    <BoardRow
+      key={b.name}
+      board={b}
+      current={props.mode === 'sketch' && b.name === props.board}
+      selected={selection.selected.includes(b.name)}
+      renaming={renaming === b.name}
+      menuOpen={!!menu?.names.includes(b.name)}
+      onClick={(e) => selection.click(e, b.name) || props.onOpenBoard(b.name)}
+      onMenu={(at) => openMenu(b.name, at)}
+      onRenameStart={() => setRenaming(b.name)}
+      onRenamed={(to) => {
+        setRenaming(undefined);
+        if (to) props.actions.rename(b.name, to);
+      }}
+    />
+  );
+  const marked = (names: string[]) => kids.boards.filter((b) => names.includes(b.name));
 
   return (
     <ul className="children" aria-label="Boards and notes" data-testid="brief-children">
-      {kids.boards.map((b) => (
-        <li key={b.name} className="board-row" data-selected={selection.selected.includes(b.name)}>
-          {renaming === b.name ? (
-            <RenameField
-              name={b.name}
-              onDone={(to) => {
-                setRenaming(undefined);
-                if (to) props.actions.rename(b.name, to);
-              }}
-            />
-          ) : (
-            <button
-              className="ghost child"
-              title={`${b.name}${b.layout === 'stack' ? ' · Stack board' : ''}\nOpen in Sketch. ⌘-click to select.`}
-              aria-current={props.mode === 'sketch' && b.name === props.board}
-              onClick={(e) => selection.click(e, b.name) || props.onOpenBoard(b.name)}
-              onDoubleClick={() => setRenaming(b.name)}
-              onContextMenu={(e) => onContext(e, b.name)}
-              data-testid="brief-board"
-            >
-              {b.layout === 'stack' ? (
-                <span className="layout-mark" data-testid="board-stack-mark">
-                  <StackIcon />
-                </span>
-              ) : (
-                <BoardIcon />
-              )}
-              <span className="title">{b.name}</span>
-            </button>
-          )}
-          {renaming !== b.name && (
-            <button
-              className="ghost icon-button small more"
-              aria-label={`More for ${b.name}`}
-              aria-haspopup="menu"
-              aria-expanded={!!menu?.names.includes(b.name)}
-              title="Rename, copy a reference, file under a session, or delete"
-              onClick={(e) => {
-                const box = e.currentTarget.getBoundingClientRect();
-                openMenu(b.name, { x: box.left, y: box.bottom + 4 });
-              }}
-              data-testid="board-more"
-            >
-              <MoreIcon />
-            </button>
-          )}
-        </li>
-      ))}
+      {listed.map(row)}
       {kids.noteCount > 0 && (
         <li>
           <button className="ghost child note-count" title="Open in Write" onClick={props.onNotes} data-testid="brief-notes">
@@ -317,6 +332,21 @@ function Children(props: ChildProps & { sessionId?: string; tabs: string[]; fili
           </button>
         </li>
       )}
+      {folded.length > 0 && (
+        <li>
+          <button
+            className="ghost child done-toggle"
+            aria-expanded={props.doneOpen}
+            title="Boards you sent or marked done. Editing one brings it back."
+            onClick={() => props.onDoneOpen(!props.doneOpen)}
+            data-testid="done-toggle"
+          >
+            <ChevronIcon />
+            Done <span className="count">{folded.length}</span>
+          </button>
+        </li>
+      )}
+      {props.doneOpen && folded.map(row)}
       {menu && (
         <BoardMenu
           names={menu.names}
@@ -324,12 +354,132 @@ function Children(props: ChildProps & { sessionId?: string; tabs: string[]; fili
           container={props.sessionId}
           tabs={props.filing}
           actions={props.actions}
+          pinned={marked(menu.names).every((b) => b.pinned)}
+          done={marked(menu.names).every((b) => b.done)}
           onRename={setRenaming}
           onClose={() => setMenu(undefined)}
           onDone={selection.clear}
         />
       )}
     </ul>
+  );
+}
+
+/** Pinned boards from every container, each naming where it is filed. */
+function Pinned(props: {
+  boards: BoardEntry[];
+  open: string | undefined;
+  titleOf: (sessionId: string | undefined) => string;
+  filing: FilingTab[];
+  actions: BoardActions;
+  onOpen: (board: BoardEntry) => void;
+}) {
+  const [menu, setMenu] = useState<{ board: BoardEntry; at: MenuPoint }>();
+  const [renaming, setRenaming] = useState<string>();
+  return (
+    <>
+      <h3 className="group">Pinned</h3>
+      <ul className="children pinned" aria-label="Pinned boards" data-testid="pinned">
+        {props.boards.map((b) => (
+          <BoardRow
+            key={b.name}
+            board={b}
+            meta={props.titleOf(b.sessionId)}
+            current={b.name === props.open}
+            renaming={renaming === b.name}
+            menuOpen={menu?.board.name === b.name}
+            onClick={() => props.onOpen(b)}
+            onMenu={(at) => setMenu({ board: b, at })}
+            onRenameStart={() => setRenaming(b.name)}
+            onRenamed={(to) => {
+              setRenaming(undefined);
+              if (to) props.actions.rename(b.name, to);
+            }}
+          />
+        ))}
+      </ul>
+      {menu && (
+        <BoardMenu
+          names={[menu.board.name]}
+          at={menu.at}
+          container={menu.board.sessionId}
+          tabs={props.filing}
+          actions={props.actions}
+          pinned
+          done={!!menu.board.done}
+          onRename={setRenaming}
+          onClose={() => setMenu(undefined)}
+          onDone={() => undefined}
+        />
+      )}
+    </>
+  );
+}
+
+/** One board in the sidebar: its icon and name, a ⋯ on hover, and a field while it is renamed. */
+function BoardRow(props: {
+  board: BoardEntry;
+  /** Where the board is filed, shown after its name. */
+  meta?: string;
+  current: boolean;
+  selected?: boolean;
+  renaming: boolean;
+  menuOpen: boolean;
+  onClick: (e: MouseEvent) => void;
+  onMenu: (at: MenuPoint) => void;
+  onRenameStart: () => void;
+  onRenamed: (to?: string) => void;
+}) {
+  const b = props.board;
+  return (
+    <li className="board-row" data-selected={!!props.selected} data-done={!!b.done}>
+      {props.renaming ? (
+        <RenameField name={b.name} onDone={props.onRenamed} />
+      ) : (
+        <button
+          className="ghost child"
+          title={`${b.name}${b.layout === 'stack' ? ' · Stack board' : ''}${props.meta ? ` · ${props.meta}` : ''}\nOpen in Sketch. ⌘-click to select.`}
+          aria-current={props.current}
+          onClick={props.onClick}
+          onDoubleClick={props.onRenameStart}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            props.onMenu({ x: e.clientX, y: e.clientY });
+          }}
+          data-testid="brief-board"
+        >
+          {b.pinned && !props.meta ? (
+            <span className="layout-mark" title="Pinned" data-testid="board-pin-mark">
+              <PinIcon />
+            </span>
+          ) : b.layout === 'stack' ? (
+            <span className="layout-mark" data-testid="board-stack-mark">
+              <StackIcon />
+            </span>
+          ) : (
+            <BoardIcon />
+          )}
+          <span className="title">{b.name}</span>
+          {props.meta && <span className="meta">{props.meta}</span>}
+        </button>
+      )}
+      {!props.renaming && (
+        <button
+          className="ghost icon-button small more"
+          aria-label={`More for ${b.name}`}
+          aria-haspopup="menu"
+          aria-expanded={props.menuOpen}
+          title="Rename, copy a reference, pin, mark done, file under a session, or delete"
+          onClick={(e) => {
+            const box = e.currentTarget.getBoundingClientRect();
+            props.onMenu({ x: box.left, y: box.bottom + 4 });
+          }}
+          data-testid="board-more"
+        >
+          <MoreIcon />
+        </button>
+      )}
+    </li>
   );
 }
 

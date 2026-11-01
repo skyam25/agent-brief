@@ -73,6 +73,7 @@ import { overlayFileFrom, REVIEW_SCHEME, ReviewRoots, serveReview } from './revi
 import { rememberProjects, Sender } from './sender';
 import { unfiledBoardChoice } from './session-briefs';
 import { SessionNames } from './session-names';
+import { forgetMarks, mark, renameMarks } from './board-marks';
 import { SessionFiles, webUrl, type Opener } from './session-files';
 import { SessionModes } from './session-modes';
 import { TemplateStore } from './templates';
@@ -637,6 +638,7 @@ async function start(): Promise<void> {
     if (state.state.unfiledBoard === from) state.update({ unfiledBoard: name });
     drafts.renameBoard(from, name);
     briefs.renameBoard(from, name);
+    state.update(renameMarks(state.state, from, name));
     return name;
   });
   ipc.handle('deleteBoard', async (raw: string) => {
@@ -648,6 +650,7 @@ async function start(): Promise<void> {
     else for (const f of paths) await shell.trashItem(f);
     drafts.forgetBoard(name);
     briefs.forgetBoard(name);
+    state.update(forgetMarks(state.state, [name]));
     if (state.state.unfiledBoard === name) state.update({ unfiledBoard: undefined });
   });
 
@@ -660,6 +663,7 @@ async function start(): Promise<void> {
     draftFile: (id) => drafts.path(id),
     boardFiles: (name) => store.files(name),
     currentBoard: () => state.state.currentBoard,
+    pinned: () => state.state.pinnedBoards ?? [],
     initiatives: () => initiatives.all(),
     tracked: gitTracked,
     trash: async (path) => (testMode ? rmSync(path, { recursive: true, force: true }) : shell.trashItem(path)),
@@ -671,6 +675,7 @@ async function start(): Promise<void> {
     forgetBoard: (name) => {
       drafts.forgetBoard(name);
       briefs.forgetBoard(name);
+      state.update(forgetMarks(state.state, [name]));
       if (state.state.unfiledBoard === name) state.update({ unfiledBoard: undefined });
     },
     feedbackGone: (cwd, output) => projectChanged(CH.feedbackChanged, cwd, output),
@@ -690,6 +695,10 @@ async function start(): Promise<void> {
     const names = raw.map(cleanName);
     briefs.move(names, sessionId);
     if (state.state.unfiledBoard && names.includes(state.state.unfiledBoard)) state.update({ unfiledBoard: undefined });
+  });
+  ipc.handle('markBoards', (raw: string[], change: { pinned?: boolean; done?: boolean }) => {
+    state.update(mark(state.state, raw.map(cleanName), change, Date.now()));
+    briefs.publish();
   });
 
   // Drafts, templates and history.

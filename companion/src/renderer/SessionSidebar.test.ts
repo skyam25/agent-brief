@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { SessionBriefEntry } from '../shared/ipc';
-import { groupBriefs, noteCountLabel, sessionState, sidebarOrder } from './SessionSidebar';
+import type { BoardEntry, SessionBriefEntry } from '../shared/ipc';
+import { groupBriefs, noteCountLabel, sessionState, sidebarOrder, splitDone } from './SessionSidebar';
 
 const brief = (sessionId: string, isLive: boolean): SessionBriefEntry => ({ sessionId, title: sessionId, at: 0, isLive, isTarget: false, hasContent: false });
 
@@ -30,5 +30,15 @@ describe('sessionState', () => {
     expect(sessionState({ isLive: true, activeAt: now - 5 * 60_000, at: 0 }, now).label).toBe('Idle 5m');
     expect(sessionState({ isLive: true, at: 0 }, now).label).toBe('Idle');
     expect(sessionState({ isLive: false, at: now - 3 * 60_000 }, now)).toEqual({ label: '3m', tip: 'Ended: Claude Code closed. Resume it from here' });
+  });
+});
+
+describe('splitDone', () => {
+  const board = (name: string, done = false): BoardEntry => ({ name, updatedAt: 0, elementCount: 0, ...(done ? { done } : {}) });
+
+  it('folds done boards away but keeps the open one listed', () => {
+    const { listed, folded } = splitDone([board('a'), board('b', true), board('c', true)], 'c');
+    expect(listed.map((b) => b.name)).toEqual(['a', 'c']);
+    expect(folded.map((b) => b.name)).toEqual(['b']);
   });
 });

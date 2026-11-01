@@ -324,6 +324,10 @@ export interface BoardsResponse {
     layout?: BoardLayout;
     /** The session whose brief holds this board. Absent for an unfiled board. */
     sessionId?: string;
+    /** The user pinned it to the top of the sidebar. */
+    pinned?: boolean;
+    /** It was sent or marked done and has not changed since, so the sidebar folds it away. */
+    done?: boolean;
   }[];
   current: string;
 }

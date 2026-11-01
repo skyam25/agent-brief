@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { CompanionApi, InitInfo, ItemReference, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
+import type { BoardEntry, CompanionApi, InitInfo, ItemReference, Mode, SessionBriefEntry, Settings, Theme, UpdateStatus } from '../shared/ipc';
 import { BoardCanvas, openBoardSearch } from './BoardCanvas';
 import { workspaceComments } from './workspace-boards';
 import { BoardCommentsStore } from './board-comments';
@@ -335,6 +335,13 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     }
     boardList.refresh();
   };
+  const markBoards = (names: string[], change: { pinned?: boolean; done?: boolean }) =>
+    void host.markBoards(names, change).catch(report('mark the board')).finally(boardList.refresh);
+  /** Opens a board where it is filed, switching to its session or to Unfiled first. */
+  const openBoardAnywhere = async (b: BoardEntry) => {
+    if (b.sessionId !== activeBrief) await (b.sessionId ? switchBrief(b.sessionId) : openNotes());
+    openBoard(b.name);
+  };
   /** Files boards under a session, or detaches them from the active one to Unfiled. */
   const fileBoards = async (names: string[], sessionId: string | undefined) => {
     try {
@@ -365,11 +372,13 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
           mode,
           onOpenBoard: openBoard,
           onNotes: () => changeMode('write'),
+          onOpenAnywhere: (b) => void openBoardAnywhere(b),
           actions: {
             rename: renameBoard,
             copy: (name) => copyReference({ kind: 'board', name }),
             remove: (names) => void deleteBoards(names),
             file: (names, sessionId) => void fileBoards(names, sessionId),
+            mark: markBoards,
           },
         }}
         cleanup={host}

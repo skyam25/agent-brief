@@ -320,6 +320,8 @@ export interface BoardHost {
   cleanUp(discard: string[], keep: string[]): Promise<CleanupResult>;
   /** Files boards under a session, out of Unfiled or any other session. */
   moveBoards(names: string[], sessionId: string): Promise<void>;
+  /** Pins or unpins boards, and marks them done or active again. */
+  markBoards(names: string[], change: { pinned?: boolean; done?: boolean }): Promise<void>;
   send(payload: SendPayload): Promise<{ ok: boolean; message: string }>;
   onTheme(fn: (theme: Theme) => void): Subscription;
 }
@@ -363,7 +365,7 @@ export interface NewNote {
 
 /** A watched output that changed on disk. */
 /** Why Clean up leaves an item: tracked in git, an initiative lists it, you kept it, another session holds it, or it is open. */
-export type KeepReason = 'git' | 'initiative' | 'kept' | 'shared' | 'open';
+export type KeepReason = 'git' | 'initiative' | 'kept' | 'shared' | 'open' | 'pinned';
 
 /** Something an ended session left behind. */
 export interface CleanupItem {
@@ -674,6 +676,7 @@ export const CH = {
   cleanupPlan: 'cleanup:plan',
   cleanUp: 'cleanup:run',
   moveBoards: 'boards:move',
+  markBoards: 'boards:mark',
   send: 'panel:send',
   setTarget: 'sessions:target',
   request: 'board:request',
@@ -795,6 +798,7 @@ export const IPC_INVOKE = {
   cleanupPlan: CH.cleanupPlan,
   cleanUp: CH.cleanUp,
   moveBoards: CH.moveBoards,
+  markBoards: CH.markBoards,
   send: CH.send,
   setTarget: CH.setTarget,
   getSettings: CH.getSettings,

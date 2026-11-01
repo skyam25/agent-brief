@@ -32,7 +32,7 @@ export interface PanelTabs {
   active: SessionBriefEntry | undefined;
   /** Shows a session's tab. With `open`, that draft opens in Write instead of what the tab last showed. */
   switchBrief: (sessionId: string, open?: string) => Promise<void>;
-  openNotes: () => void;
+  openNotes: () => Promise<void>;
   closeBrief: (sessionId: string) => void;
   /** Drops an opened ended session, so the tab follows the Send target again. */
   leaveEnded: () => void;
@@ -76,7 +76,7 @@ export function useBriefTabs({ host, book, controller, sessions, modeRef, tabSco
   const openNotes = () => {
     setEndedActive(undefined);
     if (modeRef.current === 'review') changeMode('write');
-    void host
+    return host
       .openUnfiled()
       .then(({ board }) => (board !== controller.board ? controller.switchTo(board) : undefined))
       .catch(report('open Unfiled'));

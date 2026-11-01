@@ -5,6 +5,7 @@ import { outputsFile, type SessionInfo, type SessionsResponse } from '../protoco
 import { newDraftId } from '../shared/drafts';
 import { isWorkspaceNotes } from '../shared/feedback-workspace';
 import { CH, type BoardEntry, type NewNote, type OpenDraft, type ReviewTab, type SessionBriefEntry } from '../shared/ipc';
+import { DONE_GRACE_MS, isDone, mark } from './board-marks';
 import type { DraftStore } from './drafts';
 import { resumeCommand } from './launch';
 import {
@@ -114,10 +115,15 @@ export class Briefs {
     this.save(remember(this.all(), sessionId, patch, at));
   }
 
-  /** Republishes when a board or note a tab shows changes, for its unsent-content mark. */
+  /** Republishes when a board or note a tab shows changes, for its unsent-content mark. An edit to a done board brings it back. */
   touched(what: { board?: string; draftId?: string }): void {
+    const { state } = this.deps;
+    const doneAt = what.board ? state.state.doneBoards?.[what.board] : undefined;
+    const now = Date.now();
+    const revived = !!what.board && doneAt !== undefined && now > doneAt + DONE_GRACE_MS;
+    if (revived) state.update(mark(state.state, [what.board!], { done: false }, now));
     const shown = Object.values(this.all()).some((b) => (what.board && b.board === what.board) || (what.draftId && b.draftId === what.draftId));
-    if (shown) this.publish();
+    if (shown || revived) this.publish();
   }
 
   /** Takes the live sessions' titles and folders, then republishes. */
@@ -160,11 +166,17 @@ export class Briefs {
     return boardHolder(this.all(), board, (id) => !!this.live(id));
   }
 
-  /** Every board, each with the session that holds it. */
+  /** Every board, each with the session that holds it and its pin and done marks. */
   boardsWithHolders(): BoardEntry[] {
+    const marks = this.deps.state.state;
     return this.deps.store.list().map((b) => {
       const sessionId = this.holderOf(b.name);
-      return sessionId ? { ...b, sessionId } : b;
+      return {
+        ...b,
+        ...(sessionId ? { sessionId } : {}),
+        ...(marks.pinnedBoards?.includes(b.name) ? { pinned: true } : {}),
+        ...(isDone(marks, b.name, b.updatedAt) ? { done: true } : {}),
+      };
     });
   }
 

@@ -369,7 +369,7 @@ export function briefTab(page: Page, title: string) {
   return page.getByTestId('brief-tab').filter({ hasText: title });
 }
 
-/** Unfolds the sidebar's Ended group, where ended sessions wait. */
+/** Unfolds the sidebar's Recent group, where ended sessions wait. */
 export async function showEnded(page: Page): Promise<void> {
   const toggle = page.getByTestId('ended-toggle');
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();

@@ -1255,6 +1255,55 @@ button.stop-talk:hover {
   font-size: 12px;
 }
 
+/* Pinned boards head the sidebar at full width, each naming where it is filed. */
+
+.sessions .children.pinned {
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.sessions button.child > .meta {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: right;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* The board's name keeps its width. Where it is filed takes what is left. */
+.sessions button.child > .title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* Sent or done boards fold under Done at the end of their container. */
+
+.sessions button.done-toggle {
+  color: var(--muted);
+}
+
+.sessions button.done-toggle .icon {
+  width: 12px;
+  height: 12px;
+  transform: rotate(-90deg);
+  transition: transform 0.12s;
+}
+
+.sessions button.done-toggle[aria-expanded='true'] .icon {
+  transform: none;
+}
+
+.sessions .done-toggle .count {
+  font-weight: 500;
+}
+
+.sessions .board-row[data-done='true'] button.child:not([aria-current='true']) {
+  color: var(--muted);
+}
+
 /* Shows while boards are selected, pinned to the sidebar's foot. */
 
 .selection-bar {
@@ -4154,4 +4203,80 @@ button.feedback-option.on .key { color: var(--accent); }
 
 .sessions .tab:hover:has(> .more) .label {
   padding-right: 56px;
+}
+
+/* All sessions: every session with its boards, over the panel. */
+
+.popover-panel.all-sessions {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.popover-panel.all-sessions input[type='search'] {
+  width: 100%;
+}
+
+.popover-panel.all-sessions .session-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+
+.popover-panel.all-sessions button.session {
+  width: 100%;
+  height: auto;
+  min-height: 32px;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.popover-panel.all-sessions button.session[aria-current='true'] {
+  background: var(--selected);
+}
+
+.popover-panel.all-sessions button.session .dot {
+  margin-top: 5px;
+}
+
+.popover-panel.all-sessions button.session .lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.popover-panel.all-sessions button.session .title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-panel.all-sessions button.session .muted {
+  font-size: 11px;
+}
+
+.popover-panel.all-sessions .board-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 4px 28px;
+}
+
+.popover-panel.all-sessions button.board {
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.popover-panel.all-sessions button.board .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+}
+
+.popover-panel.all-sessions button.board[data-done='true'] {
+  color: var(--muted);
 }

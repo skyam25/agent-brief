@@ -156,7 +156,7 @@ test('with the sidebar open, the board menu holds only New, and each row has its
   // A row's ⋯ and its right-click open the same menu.
   await boardRowMenu(page, 'second');
   const menu = page.getByTestId('board-row-menu');
-  await expect(menu.getByRole('menuitem')).toHaveText(['Rename', 'Copy reference', 'File under…', 'Delete board']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Rename', 'Copy reference', 'Pin', 'Mark done', 'File under…', 'Delete board']);
 
   // Copy reference puts a line a new session can act on.
   await page.getByTestId('board-row-copy').click();
@@ -226,7 +226,7 @@ test('⌘ and ⇧ select several boards, and the selection bar deletes them afte
   await row(first).click({ modifiers: ['Meta'] });
   await row(third).click({ modifiers: ['Meta'] });
   await boardRowMenu(page, first);
-  await expect(page.getByTestId('board-row-menu').getByRole('menuitem')).toHaveText(['File under…', 'Delete 2 boards']);
+  await expect(page.getByTestId('board-row-menu').getByRole('menuitem')).toHaveText(['Pin', 'Mark done', 'File under…', 'Delete 2 boards']);
   await page.keyboard.press('Escape');
 
   // The bar asks before it deletes. Cancel keeps everything.

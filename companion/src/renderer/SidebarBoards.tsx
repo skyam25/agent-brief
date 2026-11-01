@@ -1,10 +1,10 @@
-/** What the sidebar does to the active container's boards: rename, copy a reference, file under a session, delete, one or many at a time. */
+/** What the sidebar does to boards: rename, copy a reference, pin, mark done, file under a session, delete, one or many at a time. */
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { ContextMenu, type MenuPoint } from './ContextMenu';
 import { FileUnder, FilingList, type FilingTab } from './FilingMenu';
 import { DeleteItem } from './FooterMenu';
-import { CloseIcon, LinkIcon, PencilIcon, TrashIcon } from './Icons';
+import { CheckIcon, CloseIcon, LinkIcon, PencilIcon, PinIcon, TrashIcon } from './Icons';
 
 export interface BoardActions {
   rename: (from: string, to: string) => void;
@@ -14,6 +14,8 @@ export interface BoardActions {
   remove: (names: string[]) => void;
   /** Files boards under a session, or under Unfiled when `sessionId` is undefined. */
   file: (names: string[], sessionId: string | undefined) => void;
+  /** Pins or unpins boards, and folds them away as done or brings them back. */
+  mark: (names: string[], change: { pinned?: boolean; done?: boolean }) => void;
 }
 
 /** "1 board", "3 boards". */
@@ -65,6 +67,10 @@ export function BoardMenu(props: {
   container: string | undefined;
   tabs: FilingTab[];
   actions: BoardActions;
+  /** Every named board is pinned. */
+  pinned: boolean;
+  /** Every named board is done. */
+  done: boolean;
   onRename: (name: string) => void;
   onClose: () => void;
   /** The boards left the list, so the selection empties. */
@@ -108,6 +114,24 @@ export function BoardMenu(props: {
           </button>
         </>
       )}
+      <button
+        className="ghost"
+        role="menuitem"
+        title={props.pinned ? 'Take it off the top of the sidebar' : 'Keep it at the top of the sidebar'}
+        onClick={done(() => actions.mark(names, { pinned: !props.pinned }))}
+        data-testid="board-row-pin"
+      >
+        <PinIcon /> <span className="label-text">{props.pinned ? 'Unpin' : 'Pin'}</span>
+      </button>
+      <button
+        className="ghost"
+        role="menuitem"
+        title={props.done ? 'Bring it back to the list' : 'Fold it away under Done until it changes'}
+        onClick={done(() => actions.mark(names, { done: !props.done }))}
+        data-testid="board-row-done"
+      >
+        <CheckIcon /> <span className="label-text">{props.done ? 'Move back' : 'Mark done'}</span>
+      </button>
       <FileUnder
         filed={props.container}
         tabs={props.tabs}
@@ -121,7 +145,7 @@ export function BoardMenu(props: {
   );
 }
 
-/** Shows while boards are selected: File under…, Delete, and clear. Escape clears too. */
+/** Shows while boards are selected: Done, File under…, Delete, and clear. Escape clears too. */
 export function SelectionBar(props: {
   selection: BoardSelection;
   container: string | undefined;
@@ -152,6 +176,9 @@ export function SelectionBar(props: {
   return (
     <div className="selection-bar" ref={bar} role="toolbar" aria-label="Selected boards" data-escape-owner data-testid="board-selection">
       <span className="count">{selected.length} selected</span>
+      <button className="ghost small" title="Fold them away under Done" onClick={() => finish(() => props.actions.mark(selected, { done: true }))} data-testid="selection-done">
+        Done
+      </button>
       <button className="ghost small" onClick={() => show('file')} data-testid="selection-file">
         File under…
       </button>

@@ -14,6 +14,7 @@ const WHY: Record<KeepReason, string> = {
   kept: 'kept by you',
   shared: 'another session holds it',
   open: 'open now',
+  pinned: 'pinned',
 };
 
 const ORDER: CleanupItem['kind'][] = ['note', 'board', 'feedback', 'items'];
