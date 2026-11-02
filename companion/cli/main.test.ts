@@ -330,6 +330,38 @@ describe('update and delete', () => {
   });
 });
 
+describe('ipad and handoff', () => {
+  const handoff = { id: 'h1', sessionId: 's9', sessionLabel: 'x', boardName: 'ipad-h1', createdAt: 1, state: 'open' };
+
+  it('shows the paired iPads, or how to pair one', async () => {
+    app.handler = () => ({ json: { paired: true, devices: [{ id: 'd', name: 'iPad Pro', lastSeen: 1 }] } });
+    expect((await run(['ipad'])).stdout).toContain('Paired: iPad Pro');
+    app.handler = () => ({ json: { paired: false, devices: [] } });
+    expect((await run(['ipad'])).stdout).toContain('Pair iPad…');
+  });
+
+  it('hands off with a prompt and board', async () => {
+    app.handler = () => ({ json: handoff });
+    const r = await run(['handoff', '--prompt', 'Mark it up', '--board', 'flow', '--session', 's9']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('ipad-h1');
+    expect(app.seen[0]).toEqual({ method: 'POST', url: '/handoffs', body: { sessionId: 's9', prompt: 'Mark it up', board: 'flow' } });
+  });
+
+  it('needs a session', async () => {
+    const r = await run(['handoff']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('--session');
+  });
+
+  it('reports no paired iPad', async () => {
+    app.handler = () => ({ status: 409, json: { error: 'No iPad is paired.', code: 'conflict' } });
+    const r = await run(['handoff', '--session', 's9']);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('No iPad is paired.');
+  });
+});
+
 describe('errors and help', () => {
   it('exits 3 with the message when the app is not running', async () => {
     await new Promise((ok) => app.server.close(ok));

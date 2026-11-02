@@ -1,0 +1,71 @@
+name: AgentBrief
+options:
+  bundleIdPrefix: com.skyam25
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: KFDNEQ68KH
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "2"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  AgentBrief:
+    type: application
+    platform: iOS
+    sources:
+      - path: AgentBrief/Sources
+      - path: AgentBrief/Assets.xcassets
+      - path: AgentBrief/Web
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.skyam25.agentbrief
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_PREVIEWS: NO
+    info:
+      path: AgentBrief/Info.plist
+      properties:
+        CFBundleDisplayName: Agent Brief
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLName: com.skyam25.agentbrief.pair
+            CFBundleURLSchemes:
+              - agentbrief
+        NSMicrophoneUsageDescription: Agent Brief listens while you press Talk and turns your speech into text on this iPad.
+        NSSpeechRecognitionUsageDescription: Agent Brief turns what you say into text on this iPad and sends the text to your Mac.
+        NSLocalNetworkUsageDescription: Agent Brief talks to the Mac you paired with on this network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  AgentBriefUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: AgentBriefUITests
+    dependencies:
+      - target: AgentBrief
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.skyam25.agentbrief.uitests
+schemes:
+  AgentBrief:
+    build:
+      targets:
+        AgentBrief: all
+        AgentBriefUITests: [test]
+    test:
+      targets:
+        - AgentBriefUITests

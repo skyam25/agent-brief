@@ -18,6 +18,8 @@ export interface ComposeInput {
   text?: string;
   strokes: StrokeEvent[];
   segments: VoiceSegment[];
+  /** Speech already turned into text. It takes the place of transcribing `segments`, and has no audio to point at. */
+  utterances?: { t: number; tEnd: number; text: string }[];
   /** The board's bounding box, for position words. */
   bounds: { x: number; y: number; width: number; height: number };
   mode?: 'fill' | 'submit';
@@ -26,8 +28,11 @@ export interface ComposeInput {
 }
 
 export async function composeDelivery(input: ComposeInput): Promise<DeliveryInput> {
-  const utterances =
-    input.segments.length > 0 ? await transcribe(input.segments, input.transcribe) : [];
+  const utterances = input.utterances?.length
+    ? input.utterances.map((u) => ({ ...u, audio: '', audioStart: 0 }))
+    : input.segments.length > 0
+      ? await transcribe(input.segments, input.transcribe)
+      : [];
   const hasTimeline = input.strokes.length > 0 || utterances.length > 0;
   const timeline = hasTimeline
     ? buildTimeline({

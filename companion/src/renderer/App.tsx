@@ -28,6 +28,7 @@ import { ResumeRow } from './ResumeRow';
 import { ReviewMode } from './ReviewMode';
 import { SessionDot, SessionSidebar, sessionState, sidebarOrder, useSidebar } from './SessionSidebar';
 import { SendTo } from './SendTo';
+import { IpadSheet } from './IpadSheet';
 import { SettingsPopover } from './SettingsPopover';
 import { Toast, type ToastKind, type ToastMessage } from './Toast';
 import { PromptBanner, TopStrip } from './TopStrip';
@@ -179,6 +180,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     void host.copyReference(ref).then(() => notify('Copied. Paste it into any Claude Code session.'), report('copy the reference'));
   const [settings, setSettings] = useState<Settings>(info.settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ipadSheetOpen, setIpadSheetOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateStatus>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
@@ -245,6 +247,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     const subscriptions = [
       host.onPrompt(setPrompt), host.onTheme(setTheme),
       host.onOpenSettings(() => setSettingsOpen(true)), host.onUpdate(setUpdate),
+      host.onOpenIpadSheet(() => setIpadSheetOpen(true)),
       // Edit › Find opens the find of the view on show.
       host.onFind(() => {
         if (modeRef.current === 'sketch' && controller.api) openBoardSearch(controller.api);
@@ -504,6 +507,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
           />
         )}
         <PromptBanner prompt={prompt} onDismiss={() => setPrompt(undefined)} />
+        {ipadSheetOpen && <IpadSheet host={host} onClose={() => setIpadSheetOpen(false)} />}
         <main className="body">
           <div className="sheet">
             {mode === 'sketch' && (

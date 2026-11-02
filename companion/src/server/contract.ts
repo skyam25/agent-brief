@@ -21,6 +21,9 @@ import type {
   InitiativeSnapshot,
   InitiativeSummary,
   InitiativeUpdateRequest,
+  Handoff,
+  HandoffRequest,
+  IpadStatus,
   ModePatch,
   MutateResponse,
   NoteRequest,
@@ -120,6 +123,15 @@ export interface InitiativeBackend {
   snapshot(sessionId: string): InitiativeSnapshot | undefined;
 }
 
+/** Implemented by the app's iPad module. Every `/ipad` and `/handoffs` route calls into it. */
+export interface IpadBackend {
+  status(): IpadStatus;
+  /** Throws a `conflict` error with no paired iPad. The session is live. */
+  createHandoff(req: HandoffRequest): Handoff;
+  listHandoffs(sessionId?: string): Handoff[];
+  removeHandoff(id: string): boolean;
+}
+
 export interface CompanionServerOptions {
   socketPath: string;
   backend: BoardBackend;
@@ -132,6 +144,8 @@ export interface CompanionServerOptions {
   feedbackSnaps?: Pick<FeedbackSnaps, 'snap'>;
   /** Absent, the outline routes answer 503. */
   outlines?: Pick<OutlineStore, 'read' | 'update' | 'project'>;
+  /** Absent, the iPad routes answer 503. */
+  ipad?: IpadBackend;
   now?: () => number;
 }
 

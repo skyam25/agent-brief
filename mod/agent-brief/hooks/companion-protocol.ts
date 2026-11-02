@@ -115,6 +115,60 @@ export interface SessionsResponse {
    * pick sets it, and it clears when that session leaves.
    */
   targetSessionId?: string;
+  /** True when at least one iPad is paired, so the mod can offer the iPad hand-off. */
+  ipadPaired?: boolean;
+}
+
+// ── iPad hand-offs ────────────────────────────────────────────────────────
+// A hand-off asks the paired iPad for a sketch or note and ties the answer to one session.
+// GET  /ipad            → IpadStatus
+// POST /handoffs        HandoffRequest → Handoff. `sessionId` must be live. With no paired iPad, 409 `conflict`.
+// GET  /handoffs        → HandoffsResponse, optionally `?sessionId=`
+// DELETE /handoffs/:id  → RemoveHandoffResponse
+
+export interface IpadDevice {
+  id: string;
+  name: string;
+  /** Epoch ms of its last authenticated request. */
+  lastSeen: number;
+  /** Epoch ms when it paired with this Mac. */
+  pairedAt?: number;
+}
+
+export interface IpadStatus {
+  paired: boolean;
+  devices: IpadDevice[];
+}
+
+export interface HandoffRequest {
+  sessionId: string;
+  /** What Claude or the user asks for. The iPad's inbox shows it. */
+  prompt?: string;
+  /** Board the iPad starts from. Absent starts a blank one. */
+  board?: string;
+}
+
+export type HandoffState = 'open' | 'delivered' | 'filed';
+
+export interface Handoff {
+  id: string;
+  sessionId: string;
+  /** The session's name when the hand-off was made. */
+  sessionLabel: string;
+  prompt?: string;
+  /** The board the iPad's work is saved as on the Mac. */
+  boardName: string;
+  createdAt: number;
+  /** `filed` means the session had ended by Send, so the board waits on the Mac under that session. */
+  state: HandoffState;
+}
+
+export interface HandoffsResponse {
+  handoffs: Handoff[];
+}
+
+export interface RemoveHandoffResponse {
+  removed: boolean;
 }
 
 // ── POST /open ────────────────────────────────────────────────────────────

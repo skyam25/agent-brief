@@ -395,9 +395,10 @@ export function buildTimeline(input: TimelineInput): Timeline {
     ...body,
   ];
 
-  if (utterances.length > 0) {
+  const heard = utterances.filter((u) => u.audio);
+  if (heard.length > 0) {
     md.push('', '## Audio', '');
-    for (const u of utterances) {
+    for (const u of heard) {
       md.push(`- ${stamp(u.t, u.tEnd)} ${u.audio} at ${seconds(u.t - u.audioStart)}`);
     }
   }

@@ -20,6 +20,11 @@ export const SKETCH_OPENED = 'Agent Brief open — sketch, then press Send.'
 export const WRITE_OPENED = 'Agent Brief open — write, then press Send.'
 export const STACK_OPENED = 'Agent Brief open in Stack — drop or paste screenshots, talk, then press Send.'
 
+export const IPAD_SENT = 'Sent to your iPad. Open Agent Brief there, then press Send.'
+export const IPAD_NOT_PAIRED = 'No iPad is paired. In Agent Brief, choose Pair iPad…, then try again.'
+export const IPAD_UNSUPPORTED = 'This Agent Brief cannot hand off to an iPad. Update the app, then try again.'
+export const IPAD_FAILED = 'Agent Brief did not make the iPad hand-off.'
+
 export const ITEMS_SECTION = 'agent-brief:items'
 export const TRACK_NOT_RUNNING = 'Agent Brief is not running. Start it, then run /track again.'
 export const TRACK_USAGE = 'Use /track, /track on or /track off.'
@@ -30,6 +35,28 @@ export function socketPathOf(setting: string, home: string): string {
   const custom = setting.trim()
   if (custom === '') return defaultSocketPath(home)
   return custom.startsWith('~/') ? `${home}${custom.slice(1)}` : custom
+}
+
+/** `/sketch --ipad what to ask`. The flag counts only as the first word, so the ask can mention it. */
+export function sketchArgs(args: string): { isIpad: boolean; prompt: string } {
+  const text = args.trim()
+  const flag = /^--ipad(?:\s+|$)/.exec(text)
+  return flag ? { isIpad: true, prompt: text.slice(flag[0].length).trim() } : { isIpad: false, prompt: text }
+}
+
+/** Whether the app's answer to POST /sessions says an iPad is paired. An app without iPads leaves it out. */
+export function ipadPairedOf(body: unknown): boolean {
+  return (body as { ipadPaired?: unknown } | null | undefined)?.ipadPaired === true
+}
+
+/** The sentence for the answer to POST /handoffs. Undefined means the app did not answer. */
+export function handoffText(reply: { ok: boolean; status: number; body: unknown } | undefined): string {
+  if (reply?.ok) return IPAD_SENT
+  const error = (reply?.body as { error?: unknown } | null | undefined)?.error
+  const said = typeof error === 'string' && error.trim() !== '' ? error : undefined
+  if (reply?.status === 404 && (said === undefined || said === 'no such route')) return IPAD_UNSUPPORTED
+  if (reply?.status === 409) return said ?? IPAD_NOT_PAIRED
+  return said ?? IPAD_FAILED
 }
 
 /** Doubles the wait after each failed health check, within the bounds. */

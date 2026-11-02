@@ -83,6 +83,21 @@ describe('composeDelivery', () => {
     expect(out.audio).toEqual([{ name: 'seg-0.webm', data: segment.data }]);
   });
 
+  it('uses speech already turned into text in place of transcribing', async () => {
+    const out = await composeDelivery({
+      ...base,
+      strokes: [stroke(0)],
+      segments: [],
+      utterances: [{ t: 100, tEnd: 900, text: 'circle this' }],
+      transcribe: { ffmpegPath: 'ffmpeg', yapPath: 'yap', tmpDir: mkdtempSync(join(tmpdir(), 'cp')), run: async () => { throw new Error('ran a transcriber'); } },
+    });
+    expect(out.speech).toBe('circle this');
+    expect(out.transcript).toEqual([{ t: 100, tEnd: 900, text: 'circle this', audio: '', audioStart: 0 }]);
+    expect(out.timelineMd).toContain('circle this');
+    expect(out.timelineMd).not.toContain('## Audio');
+    expect(out.audio).toBeUndefined();
+  });
+
   it('keeps the audio when transcription fails', async () => {
     const errors: string[] = [];
     const out = await composeDelivery({

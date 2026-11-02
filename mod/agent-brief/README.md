@@ -83,6 +83,8 @@ A fill never replaces the box. If the box is empty, the draft goes in as it is. 
 3. Registers the session, then opens the panel with this session as the Send target. Any text after `/sketch` shows at the top of the panel.
 4. Replies `Agent Brief open — sketch, then press Send.`
 
+`/sketch --ipad [what to ask]` asks the paired iPad instead of opening the panel. The ask lands in the iPad's inbox, and its Send comes back to this session. With no iPad paired, the reply points at Pair iPad… in the app.
+
 ### `/stack [what to capture or ask]`
 
 The Stack button above the prompt does the same. Works like `/sketch`, but sets the board to the Stack layout and replies `Agent Brief open in Stack — drop or paste screenshots, talk, then press Send.`
@@ -114,7 +116,7 @@ Works like `/sketch`, but opens Write mode on a new note instead of the board, a
 
 Starting text needs Agent Brief 0.2.3 or newer.
 
-The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While the session is attached to an initiative, the band ends with **◆ Pricing**, which opens the pick. Without one, it ends with **attach initiative** whenever there are initiatives to pick.
+The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While an iPad is paired, **▭ iPad** does what `/sketch --ipad` does, with the prompt box's text as the ask. While the session is attached to an initiative, the band ends with **◆ Pricing**, which opens the pick. Without one, it ends with **attach initiative** whenever there are initiatives to pick.
 
 ### Dictation
 

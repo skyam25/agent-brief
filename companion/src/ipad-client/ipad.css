@@ -1,0 +1,24 @@
+html,
+body,
+#root,
+.ipad-board {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.ipad-board {
+  display: flex;
+}
+
+/* The app's own toolbar holds these. */
+.ipad-board .excalidraw .sidebar-trigger,
+.ipad-board .excalidraw .layer-ui__wrapper__footer-right {
+  display: none;
+}

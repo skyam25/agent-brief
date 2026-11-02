@@ -138,6 +138,8 @@ declare module 'claude-code' {
       promptAt: number | null
       /** True once the session has a submitted prompt. The band drops its Mode button then. */
       hasPrompted: boolean
+      /** The app's last answer on whether an iPad is paired. The band's iPad button shows while it is true. */
+      ipadPaired: boolean
       /** The session's outputs file records, kept current by each write. */
       outputs: BriefOutput[]
       /** This session's boards in the app, read with the Brief, after each agent-brief command and each minute the pane shows. */

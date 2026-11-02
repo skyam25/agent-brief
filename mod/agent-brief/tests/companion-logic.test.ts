@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  IPAD_FAILED,
+  IPAD_NOT_PAIRED,
+  IPAD_SENT,
+  IPAD_UNSUPPORTED,
+  handoffText,
+  ipadPairedOf,
+  sketchArgs,
   expandPastes,
   fillRequest,
   itemsInstructions,
@@ -175,5 +182,32 @@ describe('upkeep', () => {
   test('a loop that never stepped counts from clock zero', () => {
     expect(upkeep(5_000, 0, 0).isLoopStale).toBe(false)
     expect(upkeep(130_000, 0, 0).isLoopStale).toBe(true)
+  })
+})
+
+describe('iPad hand-off logic', () => {
+  test('reads --ipad only as the first word', () => {
+    expect(sketchArgs('  --ipad  mark this up ')).toEqual({ isIpad: true, prompt: 'mark this up' })
+    expect(sketchArgs('--ipad')).toEqual({ isIpad: true, prompt: '' })
+    expect(sketchArgs('what does --ipad do')).toEqual({ isIpad: false, prompt: 'what does --ipad do' })
+    expect(sketchArgs('--ipadfoo x')).toEqual({ isIpad: false, prompt: '--ipadfoo x' })
+    expect(sketchArgs('')).toEqual({ isIpad: false, prompt: '' })
+  })
+
+  test('takes ipadPaired only when the app says true', () => {
+    expect(ipadPairedOf({ ipadPaired: true })).toBe(true)
+    expect(ipadPairedOf({ ipadPaired: false })).toBe(false)
+    expect(ipadPairedOf({ sessions: [] })).toBe(false)
+    expect(ipadPairedOf(undefined)).toBe(false)
+  })
+
+  test('words each answer to POST /handoffs', () => {
+    expect(handoffText({ ok: true, status: 200, body: {} })).toBe(IPAD_SENT)
+    expect(handoffText({ ok: false, status: 409, body: { error: 'Pair first' } })).toBe('Pair first')
+    expect(handoffText({ ok: false, status: 409, body: {} })).toBe(IPAD_NOT_PAIRED)
+    expect(handoffText({ ok: false, status: 404, body: { error: 'no such route' } })).toBe(IPAD_UNSUPPORTED)
+    expect(handoffText({ ok: false, status: 404, body: { error: 'no session s1' } })).toBe('no session s1')
+    expect(handoffText({ ok: false, status: 500, body: undefined })).toBe(IPAD_FAILED)
+    expect(handoffText(undefined)).toBe(IPAD_FAILED)
   })
 })

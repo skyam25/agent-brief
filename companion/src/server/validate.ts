@@ -9,6 +9,7 @@ import {
   type SessionInitiativeRequest,
 } from '../protocol';
 import type {
+  HandoffRequest,
   DeleteRequest,
   DrawRequest,
   ElementUpdate,
@@ -274,6 +275,16 @@ function openOutput(o: Obj): OpenRequest['output'] {
 
 /** The longest note title, in characters. */
 const MAX_NOTE_TITLE = 200;
+
+export function parseHandoff(body: unknown): HandoffRequest {
+  const o = object(body ?? {}, 'body');
+  const sessionId = optString(o, 'sessionId', 'body');
+  if (!sessionId) fail('body.sessionId is required');
+  const prompt = optString(o, 'prompt', 'body')?.trim();
+  if (prompt !== undefined && prompt.length > MAX_NOTE_TITLE * 20) fail('body.prompt is too long');
+  const board = optString(o, 'board', 'body');
+  return { sessionId, ...(prompt ? { prompt } : {}), ...(board ? { board } : {}) };
+}
 
 export function parseNote(body: unknown): NoteRequest {
   const o = object(body ?? {}, 'body');

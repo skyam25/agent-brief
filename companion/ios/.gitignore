@@ -1,0 +1,7 @@
+AgentBrief/Web/
+AgentBrief/Info.plist
+*.xcodeproj/
+build/
+test/.run/
+build-device/
+test/.run-device/

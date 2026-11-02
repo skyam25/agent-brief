@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import { IPAD_SENT, IPAD_UNSUPPORTED, REREGISTER_MS } from '../hooks/companion-logic'
 import { DEFAULT_SOCKET, SESSION_ID, setupCompanion } from './companion-world'
 import { BAND, command, textOf } from './world'
 
@@ -223,3 +224,75 @@ describe('the Sketch and Write buttons above the prompt', () => {
   })
 })
 
+
+describe('the iPad hand-off', () => {
+  const PAIR_FIRST = 'Pair an iPad first: Agent Brief › Pair iPad…'
+
+  test('/sketch --ipad asks the iPad and does not open the panel', async ($, on) => {
+    const { app, clock, start } = await setupCompanion($, on)
+    await start()
+    await clock.settle()
+    const out = await $.command.run(command('sketch', ' --ipad mark up the flow '))
+    expect(out).toEqual({ text: IPAD_SENT })
+    expect(app.to('POST', '/handoffs')[0]!.body).toEqual({ sessionId: SESSION_ID, prompt: 'mark up the flow' })
+    expect(app.to('POST', '/open')).toEqual([])
+  })
+
+  test('/sketch --ipad with no ask sends no prompt, and plain /sketch never hands off', async ($, on) => {
+    const { app, clock, start } = await setupCompanion($, on)
+    await start()
+    await clock.settle()
+    await $.command.run(command('sketch', '--ipad'))
+    expect(app.to('POST', '/handoffs')[0]!.body).toEqual({ sessionId: SESSION_ID })
+    await $.command.run(command('sketch', 'what does --ipad do'))
+    expect(app.to('POST', '/handoffs')).toHaveLength(1)
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, prompt: 'what does --ipad do' })
+  })
+
+  test('with no iPad paired, the reply is the app\'s own sentence', async ($, on) => {
+    const { app, clock, start } = await setupCompanion($, on)
+    app.handoffRefusal = { status: 409, error: PAIR_FIRST }
+    await start()
+    await clock.settle()
+    expect(await $.command.run(command('sketch', '--ipad'))).toEqual({ text: PAIR_FIRST })
+  })
+
+  test('an app without the route gets a plain sentence', async ($, on) => {
+    const { app, clock, start } = await setupCompanion($, on)
+    app.handoffRefusal = { status: 404, error: 'no such route' }
+    await start()
+    await clock.settle()
+    expect(await $.command.run(command('sketch', '--ipad'))).toEqual({ text: IPAD_UNSUPPORTED })
+  })
+
+  test('the band shows iPad only while the app says one is paired', async ($, on) => {
+    const { app, clock, start } = await setupCompanion($, on)
+    await start()
+    await clock.settle()
+    expect(JSON.stringify(await $.ui.render(BAND)), 'an app without iPads').not.toContain('▭ iPad')
+
+    app.ipadPaired = true
+    await clock.advance(REREGISTER_MS + 30_000)
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"▭ iPad"')
+
+    app.ipadPaired = false
+    await clock.advance(REREGISTER_MS + 30_000)
+    expect(JSON.stringify(await $.ui.render(BAND))).not.toContain('▭ iPad')
+  })
+
+  test('a press uses the box as the ask, leaves the box, and toasts', async ($, on) => {
+    const { app, world, clock, start } = await setupCompanion($, on)
+    app.ipadPaired = true
+    app.box.text = 'circle the broken step'
+    await start()
+    await clock.settle()
+    await $.ui.render(BAND)
+    await $.ui.press({ plugin: 'agent-brief', key: 'ipad' })
+    await clock.settle()
+    expect(app.to('POST', '/handoffs')[0]!.body).toEqual({ sessionId: SESSION_ID, prompt: 'circle the broken step' })
+    expect(app.box.text).toBe('circle the broken step')
+    expect(app.fills).toEqual([])
+    expect(app.to('POST', '/open')).toEqual([])
+    expect(world.toasts).toEqual([IPAD_SENT])
+  })
+})

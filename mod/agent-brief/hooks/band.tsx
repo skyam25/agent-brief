@@ -22,12 +22,16 @@ export type BandView = {
   initiative: AttachedInitiative | null
   /** What the change row offers: the attached initiative, then the recent ones. */
   choices: { id: string; title: string }[]
+  /** The iPad button shows only while the app says an iPad is paired. */
+  ipadPaired: boolean
   /** Draws show.tsx's clear pixel at the row's end, until it learns whether pictures draw here. */
   probe?: { key: string; png: string }
 }
 
 export type BandActions = {
   open: (target: 'sketch' | 'stack' | 'write') => Promise<void>
+  /** Asks the paired iPad for a sketch, tied to this session. */
+  ipad: () => Promise<void>
   /** Opens the Brief pane, or closes it while open. */
   brief: () => Promise<void>
   /** Starts dictation, or stops it while listening. */
@@ -40,7 +44,7 @@ export type BandActions = {
 }
 
 /**
- * One row with Sketch, Stack, Write, Talk, Mode and Brief buttons.
+ * One row with Sketch, Stack, Write, Talk, Mode and Brief buttons, and an iPad button while an iPad is paired.
  * Mode shows until the session's first prompt; then the Brief pane's Select and /mode set it.
  * The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
  * An attached initiative adds `◆ <title>`, which opens the pick. Without one, `attach initiative` shows while there are any to pick.
@@ -49,7 +53,7 @@ export type BandActions = {
 export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
   const { Box, Button, Text } = table
   const { Image } = table as Partial<ElementTable<'terminal'>>
-  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, initiative, choices, probe } = view
+  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, initiative, choices, ipadPaired, probe } = view
   const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
 
   if (picking === 'mode') {
@@ -112,6 +116,8 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
       <Text> </Text>
       <Button key="write" label="¶ Write" hotkey="w" onPress={() => void act.open('write')} />
       <Text> </Text>
+      {ipadPaired && <Button key="ipad" label="▭ iPad" hotkey="p" onPress={() => void act.ipad()} />}
+      {ipadPaired && <Text> </Text>}
       <Button
         key="talk"
         label={voice === null ? '🎙 Talk' : '■ Stop'}

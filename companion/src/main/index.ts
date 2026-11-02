@@ -27,7 +27,8 @@ import {
   webFrameMain,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { defaultSocketPath, SOCKET_ENV, type OpenResponse, type SessionsResponse } from '../protocol';
+import { CURRENT_BOARD, defaultSocketPath, SOCKET_ENV, type OpenResponse, type SessionsResponse } from '../protocol';
+import { notFound } from '../board/errors';
 import type { BoardBackend } from '../server/contract';
 import { createCompanionServer, type CompanionServer } from '../server/index';
 import { BadRequest, parseInitiativeCreate, parseInitiativeUpdate } from '../server/validate';
@@ -75,6 +76,7 @@ import { unfiledBoardChoice } from './session-briefs';
 import { SessionNames } from './session-names';
 import { forgetMarks, mark, renameMarks } from './board-marks';
 import { SessionFiles, webUrl, type Opener } from './session-files';
+import { Ipad } from '../ipad';
 import { SessionModes } from './session-modes';
 import { TemplateStore } from './templates';
 import { Terminals } from './terminals';
@@ -463,12 +465,59 @@ async function start(): Promise<void> {
       },
     },
   });
-  const server: CompanionServer = createCompanionServer({ socketPath, backend, initiatives, behaviors, feedback, feedbackSnaps, workspaces, outlines });
+
+  // The paired iPad's hand-offs. Its LAN listener is separate from the socket server.
+  const ipadPort = process.env.COMPANION_IPAD_PORT;
+  const ipad = new Ipad({
+    dataDir,
+    isLive: (id) => server.sessions().sessions.some((s) => s.sessionId === id),
+    sessionLabel: (id) => {
+      const s = server.sessions().sessions.find((x) => x.sessionId === id);
+      return names.name(id) || s?.title || s?.cwd.split('/').filter(Boolean).pop() || id;
+    },
+    resolveBoard: (name) => {
+      const board = name === CURRENT_BOARD ? state.state.currentBoard : cleanName(name);
+      if (!store.exists(board)) throw notFound(`no board named ${JSON.stringify(board)}`);
+      return board;
+    },
+    loadBoard: (name) => store.load(name),
+    saveBoard: (name, scene, notes) => {
+      store.create(name);
+      store.saveScene(name, scene);
+      if (notes) store.saveNotes(name, notes);
+    },
+    fileBoard: (name, sessionId) => briefs.move([name], sessionId),
+    send: (payload, sessionId) => sender.send(payload, sessionId),
+    onStatus: (status) => send(CH.ipadStatus, status),
+    onPairedChange: () => server.refreshSessions(),
+    ...(process.env.COMPANION_IPAD_HOST ? { host: process.env.COMPANION_IPAD_HOST } : {}),
+    ...(ipadPort ? { port: Number(ipadPort) } : {}),
+  });
+  const server: CompanionServer = createCompanionServer({
+    socketPath,
+    backend,
+    initiatives,
+    behaviors,
+    feedback,
+    feedbackSnaps,
+    workspaces,
+    outlines,
+    ipad: {
+      status: () => ipad.status(),
+      createHandoff: (req) => {
+        // The brief outlives the session, so an answer after it ends still has somewhere to file.
+        if (!briefs.get(req.sessionId)) briefs.remember(req.sessionId, {});
+        return ipad.createHandoff(req);
+      },
+      listHandoffs: (sessionId) => ipad.listHandoffs(sessionId),
+      removeHandoff: (id) => ipad.removeHandoff(id),
+    },
+  });
 
   // Writes pending saves and closes the socket once before quitting.
   const quitter = new Quitter({
     flush: () => bridge.request('flush', {}, 2000),
-    closeServer: () => server.close(),
+    closeServer: () => Promise.all([server.close(), ipad.stop()]),
     quit: () => app.quit(),
     exit: () => app.exit(0),
   });
@@ -514,6 +563,7 @@ async function start(): Promise<void> {
   files.sync();
 
   const sender = new Sender({ state, history, drafts, server, briefs, terminals, voiceDir });
+  void ipad.sync();
   /** Shows the panel and returns it, so a dialog opens as its sheet in front of other apps. */
   const dialogParent = (): BrowserWindow => {
     panel.show();
@@ -691,6 +741,10 @@ async function start(): Promise<void> {
     else if (target) briefs.remember(target, { board, last: 'board' }, false);
   });
   ipc.handle('detachBoard', (sessionId: string, name: string) => briefs.detach(sessionId, name));
+  ipc.handle('ipadSheetOpen', () => ipad.openSheet());
+  ipc.handle('ipadNewCode', () => ipad.newCode());
+  ipc.handle('ipadSheetClose', () => ipad.closeSheet());
+  ipc.handle('ipadForget', async (id: string) => ipad.forget(id));
   ipc.handle('moveBoards', (raw: string[], sessionId: string) => {
     const names = raw.map(cleanName);
     briefs.move(names, sessionId);
@@ -907,6 +961,8 @@ async function start(): Promise<void> {
         clipboard: () => terminals.copied,
         richClipboard: () => copiedRich,
         openedOutputs,
+        ipad,
+        pairIpad: () => controls.actions().pairIpad(),
       },
     });
   }

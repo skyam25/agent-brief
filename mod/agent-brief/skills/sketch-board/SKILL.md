@@ -216,6 +216,10 @@ When you drive a browser for the user, with Playwright or another browser tool, 
 3. Tell the user the board is ready, and that they can mark it up, add notes or record voice, then press Send. Their Send arrives in this session as your next prompt, with a PNG of the board and the user's notes. Send also empties the board, and History keeps a copy, so start the next round of snapshots on a fresh board.
 4. When you read their feedback, run `agent-brief read --board <run>`. The user's strokes inside a step's frame list under that frame. Crop each marked frame with `png --region` and Read it, because a stroke only means something against the screenshot under it.
 
+## Handing a board to the iPad
+
+When the user asks to work on their iPad, run `agent-brief handoff --session "$CLAUDE_CODE_SESSION_ID" [--board <name>] [--prompt <text>]`. Only do this when they ask. The hand-off lands in the iPad's inbox with `--board` as its starting point, or a blank board. Their Send arrives in this session as your next prompt. With no iPad paired, the command says so, and you tell the user to choose Pair iPad… in the app.
+
 ## Showing a picture in the chat
 
 The `show_image` tool draws a picture inline in the user's terminal, in Ghostty or kitty. The picture goes to their screen, not to you, so it costs no tokens. Use it so the user sees what you did without opening a file.

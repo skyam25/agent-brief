@@ -237,6 +237,14 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - Main transcribes the clips with ffmpeg and yap, which it finds in Homebrew or on PATH. It writes `timeline.md`, `transcript.json` and `audio/` into the bundle.
 - If either tool is missing, the sketch and audio still go out, and a message at the foot of the panel says so.
 
+## iPad
+
+- `src/ipad/` serves a TLS LAN API on port 47613, IPv4 only, and refuses peers outside the Mac's subnets. `COMPANION_IPAD_HOST` and `COMPANION_IPAD_PORT` override the address.
+- The iPad pins the certificate fingerprint from the pairing QR. Pairing is many-to-many, and each hand-off stays bound to one Mac and one session.
+- Hand-offs are store and forward, with no live sync. A second iPad's Send becomes its own delivery on its own board.
+- The iPad transcribes on device and sends phrases, not audio. Strokes and phrases share its clock, and `composeDelivery` uses them as `utterances`.
+- App source and test recipes live in `ios/README.md`. `node ios/test/run-sim.mjs` runs the simulator suite and `node ios/test/run-device.mjs <udid>` runs a real iPad.
+
 ## Tests
 
 - `COMPANION_TEST=1` runs the app off screen, unfocused, out of the Dock, without a tray, and with a fake hotkey registrar. It exposes `globalThis.__companion` in main and `window.__board`/`window.__excalidraw` in the renderer.

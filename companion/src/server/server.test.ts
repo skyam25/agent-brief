@@ -1,10 +1,11 @@
 import { existsSync, statSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BoardError } from '../board/errors';
 import { createCompanionServer } from './index';
 import { closeServers, openServers, start } from './server-testkit';
-import { harness, request, tempDir } from './testkit';
+import { fakeBackend, harness, request, tempDir } from './testkit';
 import { BadRequest } from './validate';
 
 afterEach(closeServers);
@@ -308,5 +309,67 @@ describe('open', () => {
     const r = await h.call('POST', '/open', { sessionId: 'a', output: { path: '../escape.md' } });
     expect(r.status).toBe(400);
     expect(r.body).toEqual({ error: '../escape.md is outside the project', code: 'bad_request' });
+  });
+});
+
+describe('iPad routes', () => {
+  const handoff = { id: 'h1', sessionId: 'a', sessionLabel: 'a', boardName: 'ipad-h1', createdAt: 1, state: 'open' as const };
+
+  async function withIpad(paired = true) {
+    const dir = tempDir();
+    const socketPath = join(dir, 's.sock');
+    const ipad = {
+      status: vi.fn(() => ({ paired, devices: paired ? [{ id: 'd', name: 'iPad', lastSeen: 1 }] : [] })),
+      createHandoff: vi.fn(() => handoff),
+      listHandoffs: vi.fn(() => [handoff]),
+      removeHandoff: vi.fn(() => true),
+    };
+    const server = createCompanionServer({ socketPath, backend: fakeBackend(), ipad });
+    await server.listen();
+    openServers.push(server);
+    return { ipad, call: (method: string, path: string, body?: unknown) => request(socketPath, method, path, body) };
+  }
+
+  it('answers 503 without the iPad module', async () => {
+    const { call } = await start();
+    expect((await call('GET', '/ipad')).status).toBe(503);
+    expect((await call('GET', '/handoffs')).status).toBe(503);
+  });
+
+  it('reports pairing in the session list', async () => {
+    const { call } = await withIpad();
+    expect((await call('POST', '/sessions', { sessionId: 'a', cwd: '/x' })).body.ipadPaired).toBe(true);
+    expect((await call('GET', '/ipad')).body).toMatchObject({ paired: true, devices: [{ name: 'iPad' }] });
+    const { call: none } = await withIpad(false);
+    expect((await none('GET', '/sessions')).body.ipadPaired).toBe(false);
+  });
+
+  it('makes a hand-off for a live session only', async () => {
+    const { call, ipad } = await withIpad();
+    expect((await call('POST', '/handoffs', {})).status).toBe(400);
+    expect((await call('POST', '/handoffs', { sessionId: 'gone' })).status).toBe(404);
+    expect(ipad.createHandoff).not.toHaveBeenCalled();
+    await call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    const made = await call('POST', '/handoffs', { sessionId: 'a', prompt: ' mark it ', board: 'flow' });
+    expect(made.body).toEqual(handoff);
+    expect(ipad.createHandoff).toHaveBeenCalledWith({ sessionId: 'a', prompt: 'mark it', board: 'flow' });
+  });
+
+  it('answers conflict when nothing is paired', async () => {
+    const { call, ipad } = await withIpad();
+    ipad.createHandoff.mockImplementation(() => {
+      throw new BoardError('conflict', 'No iPad is paired.');
+    });
+    await call('POST', '/sessions', { sessionId: 'a', cwd: '/x' });
+    const reply = await call('POST', '/handoffs', { sessionId: 'a' });
+    expect(reply.status).toBe(409);
+    expect(reply.body).toEqual({ error: 'No iPad is paired.', code: 'conflict' });
+  });
+
+  it('lists and removes hand-offs', async () => {
+    const { call, ipad } = await withIpad();
+    expect((await call('GET', '/handoffs?sessionId=a')).body).toEqual({ handoffs: [handoff] });
+    expect(ipad.listHandoffs).toHaveBeenCalledWith('a');
+    expect((await call('DELETE', '/handoffs/h1')).body).toEqual({ removed: true });
   });
 });

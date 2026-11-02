@@ -127,6 +127,16 @@ Ops target ids (s1, p3, S2). apply reads the version first and retries once when
     about: "Saves Markdown as a note in Agent Brief's Write mode without opening the panel. Prints the note's id and the `agent-brief open --note` line that shows it. --id replaces that note's text in place, and its title when one is given, so the user keeps one copy. Reads stdin unless --text or --file is given. Files a new note under the Claude Code session that runs it, or --session, else under Notes. Exits 3 when the app is not running.",
     example: `agent-brief note "Launch message" <<'EOF'\nHi team, **v2 is live**.\nEOF`,
   },
+  ipad: {
+    usage: 'agent-brief ipad [--json]',
+    about: 'Shows whether an iPad is paired, and which. Pair one from the app with File > Pair iPad….',
+    example: 'agent-brief ipad',
+  },
+  handoff: {
+    usage: 'agent-brief handoff [--prompt <text>] [--board <name>] [--session <id>] [--json]',
+    about: "Asks the paired iPad for a sketch or note. It lists in the iPad's inbox, and Send there returns to this session and no other. --board starts from that board's drawing, else a blank one. --session defaults to the Claude Code session that runs it. Fails when no iPad is paired.",
+    example: 'agent-brief handoff --prompt "Mark up the checkout flow" --board checkout-flow',
+  },
   'herdr-pictures': {
     usage: 'agent-brief herdr-pictures [on|off|status]',
     about: 'Lets Claude Code draw pictures in Herdr panes. "on" adds a marked block to your zsh and bash startup files, and a fish conf.d file, that sets CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1 only when HERDR_ENV is set. "off" removes it. "status" shows each file and this shell.',

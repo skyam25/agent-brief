@@ -4280,3 +4280,41 @@ button.feedback-option.on .key { color: var(--accent); }
 .popover-panel.all-sessions button.board[data-done='true'] {
   color: var(--muted);
 }
+
+/* File › Pair iPad…: a sheet over the panel. */
+
+.ipad-pairing {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.ipad-pairing ol {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ipad-qr {
+  width: 168px;
+  height: 168px;
+  background: #ffffff;
+  border-radius: 6px;
+}
+
+.ipad-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ipad-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}

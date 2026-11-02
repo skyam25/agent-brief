@@ -26,6 +26,10 @@ export type FakeCompanion = {
   isPreOutputsApp: boolean
   /** Set, a POST /open with `output` answers 400 with this reason. */
   outputRefusal: string | undefined
+  /** What POST /sessions says about a paired iPad. Undefined leaves the field out, like an app without iPads. */
+  ipadPaired: boolean | undefined
+  /** Set, POST /handoffs answers with this status and error. */
+  handoffRefusal: { status: number; error: string } | undefined
   /** Initiatives the app knows, by id, most recent first. */
   initiatives: Map<string, Omit<InitiativeSnapshot, 'attachmentRevision'>>
   /** Every board, each with the session that holds it, as GET /boards lists them. */
@@ -80,6 +84,8 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
     isPreTrackingApp: false,
     isPreOutputsApp: false,
     outputRefusal: undefined,
+    ipadPaired: undefined,
+    handoffRefusal: undefined,
     initiatives: new Map(),
     boards: [],
     attachments: new Map(),
@@ -146,7 +152,11 @@ export function fakeCompanion(on: On, clock: MockClock): FakeCompanion {
       const info = JSON.parse(text!) as { sessionId: string; cwd: string }
       const known = fake.sessions.get(info.sessionId)
       fake.sessions.set(info.sessionId, { ...known, cwd: info.cwd, trackItems: known?.trackItems ?? false })
-      return reply(200, { sessions: [] })
+      return reply(200, { sessions: [], ...(fake.ipadPaired === undefined ? {} : { ipadPaired: fake.ipadPaired }) })
+    }
+    if (path === '/handoffs' && method === 'POST') {
+      const refused = fake.handoffRefusal
+      return refused ? reply(refused.status, { error: refused.error, code: 'conflict' }) : reply(200, { id: 'h1', state: 'open' })
     }
     if (path === '/initiatives/recent') {
       const limit = Number(url.searchParams.get('limit') ?? 3)

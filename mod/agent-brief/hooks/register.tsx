@@ -66,6 +66,9 @@ import {
   rowKey,
   SKETCH_OPENED,
   STACK_OPENED,
+  handoffText,
+  ipadPairedOf,
+  sketchArgs,
   TRACK_NOT_RUNNING,
   TRACK_UNSUPPORTED,
   TRACK_USAGE,
@@ -92,7 +95,7 @@ import {
 } from './companion-logic'
 import type { RowOpen, Tracking, TurnOpens } from './companion-logic'
 import { outputsFile } from './companion-protocol'
-import type { BoardLayout, BoardsResponse, Delivery, OpenRequest, TrackingPatch } from './companion-protocol'
+import type { BoardLayout, BoardsResponse, Delivery, HandoffRequest, OpenRequest, TrackingPatch } from './companion-protocol'
 import {
   MODE_SECTION,
   MODE_USAGE,
@@ -183,6 +186,8 @@ const activeAtRef = atom({ plugin: 'agent-brief', key: 'activeAt' } as const, nu
 const startedAtRef = atom({ plugin: 'agent-brief', key: 'startedAt' } as const, null)
 const promptAtRef = atom({ plugin: 'agent-brief', key: 'promptAt' } as const, null)
 const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as const, false)
+/** The app's last answer on whether an iPad is paired. Each registration refreshes it. */
+const ipadPairedRef = atom({ plugin: 'agent-brief', key: 'ipadPaired' } as const, false)
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const boardsRef = atom({ plugin: 'agent-brief', key: 'boards' } as const, [])
 const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
@@ -297,6 +302,8 @@ async function registerSession($: EngineInterface): Promise<boolean> {
   if (!reply?.ok) return false
   registeredId = sessionId
   registeredAt = await $.clock.now()
+  const ipadPaired = ipadPairedOf(reply.body)
+  await update($, ipadPairedRef, () => ipadPaired)
   if (isNew && (await read($, modeRef)) !== 'default') await mirrorMode($)
   if (isNew) void loadInitiative($, initiativeEnvironment($)).catch(err => log($, `initiative load failed: ${String(err)}`))
   return true
@@ -582,6 +589,14 @@ async function openCompanion(
   if (!opened?.ok) return fail('Agent Brief is running but did not open the panel.')
   const tookText = (opened.body as { noteText?: unknown } | undefined)?.noteText === true
   return { message: mode === 'write' ? WRITE_OPENED : layout === 'stack' ? STACK_OPENED : SKETCH_OPENED, tookText }
+}
+
+/** Answers `/sketch --ipad` and the iPad button: asks the paired iPad for a sketch tied to this session. */
+async function handOffToIpad($: EngineInterface, prompt: string): Promise<string> {
+  const failed = await readyApp($)
+  if (failed !== undefined) return failed
+  const body: HandoffRequest = { sessionId: await $.session.id(), ...(prompt === '' ? {} : { prompt }) }
+  return handoffText(await call($, 'POST', '/handoffs', body))
 }
 
 /** `/write last` takes Claude's newest reply; anything else after `/write` starts the note. */
@@ -1300,7 +1315,7 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name: 'sketch',
         description: 'Open the Agent Brief sketch board for this session',
-        argumentHint: '[what to draw or ask]',
+        argumentHint: '[--ipad] [what to draw or ask]',
       })
       await $.command.register({
         name: 'stack',
@@ -1443,6 +1458,7 @@ export const register: Register = (on, options) => {
   })
 
   // A one-row band with Sketch, Stack, Write, Talk, Mode and Brief buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write or /mode does.
+  // iPad shows while an iPad is paired and does what /sketch --ipad does, with the prompt box's text as the ask. It leaves the box as it is.
   // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
   // Talk dictates into the prompt box until pressed again. Mode shows until the first prompt.
   // Brief opens and closes the Brief pane. An attached initiative adds `◆ <title>`, and none adds `attach initiative`.
@@ -1461,6 +1477,7 @@ export const register: Register = (on, options) => {
       voice: await read($, voiceRef),
       initiative,
       choices,
+      ipadPaired: await read($, ipadPairedRef),
       ...(e.surface === 'terminal' && needsProbe() ? { probe: { key: PROBE_KEY, png: CLEAR_PIXEL } } : {}),
     }
     if (view.probe && !isBandProbing) {
@@ -1490,6 +1507,10 @@ export const register: Register = (on, options) => {
             ? await writeFromBox($)
             : (await openCompanion($, 'sketch', target === 'stack' ? { layout: 'stack' } : {})).message
         if (result !== SKETCH_OPENED && result !== STACK_OPENED && result !== WRITE_OPENED) $.ui.toast(result, { timeoutMs: 8000 })
+      },
+      ipad: async () => {
+        const box = await $.prompt.read().catch(() => ({ text: '' }))
+        $.ui.toast(await handOffToIpad($, expandPastes(box.text, pastes).trim()), { timeoutMs: 8000 })
       },
       brief: () => toggleBrief($),
       talk: () => toggleDictation($),
@@ -1752,7 +1773,10 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'sketch' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim() })).message }))
+  on('command.run', { command: 'sketch' }, async ($, e) => {
+    const { isIpad, prompt } = sketchArgs(e.args)
+    return { text: isIpad ? await handOffToIpad($, prompt) : (await openCompanion($, 'sketch', { prompt })).message }
+  })
   on('command.run', { command: 'stack' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim(), layout: 'stack' })).message }))
   on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
   on('command.run', { command: 'outline' }, async ($, e) => {

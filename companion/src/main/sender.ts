@@ -106,6 +106,7 @@ export class Sender {
       notes: p.notes || undefined,
       strokes: p.strokes,
       segments,
+      ...(p.utterances ? { utterances: p.utterances } : {}),
       bounds: p.bounds,
       mode: this.deps.state.state.deliveryMode,
       text: p.text || undefined,

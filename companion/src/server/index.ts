@@ -17,11 +17,12 @@ import {
 } from '../protocol';
 import { buildDraft, freeId, writeBundle } from './bundle';
 import { feedbackDir, tidyFeedback } from './feedback-dir';
-import type { CompanionServer, CompanionServerOptions, DeliveryInput, InitiativeBackend } from './contract';
+import type { CompanionServer, CompanionServerOptions, DeliveryInput, InitiativeBackend, IpadBackend } from './contract';
 import {
   BadRequest,
   parseDelete,
   parseDraw,
+  parseHandoff,
   parseInitiativeCreate,
   parseInitiativeUpdate,
   parseLimit,
@@ -101,6 +102,12 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
   const { socketPath, backend } = opts;
   const now = opts.now ?? Date.now;
 
+  /** The app's iPad module, or 503. */
+  function ipad(): IpadBackend {
+    if (!opts.ipad) throw unavailable('this app keeps no iPad pairing');
+    return opts.ipad;
+  }
+
   /** The app's initiative store, or 503. */
   function initiatives(): InitiativeBackend {
     if (!opts.initiatives) throw unavailable('this app keeps no initiatives');
@@ -136,6 +143,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
     return {
       sessions: [...sessionMap.values()].map(withAppState),
       targetSessionId: target,
+      ...(opts.ipad ? { ipadPaired: opts.ipad.status().paired } : {}),
     };
   }
 
@@ -422,6 +430,20 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       for (const fn of openListeners) fn(body);
       const opened = body.output || body.note || body.initiative ? res.opened : (res.opened ?? (body.mode === 'write' ? 'note' : 'board'));
       return { json: { ...res, ...(opened ? { opened } : {}), targetSessionId: target } };
+    }
+
+    if (root === 'ipad' && parts.length === 1 && method === 'GET') return { json: ipad().status() };
+
+    if (root === 'handoffs') {
+      if (parts.length === 1 && method === 'POST') {
+        const body = parseHandoff(await readJson(req));
+        liveSession(body.sessionId);
+        return { json: ipad().createHandoff(body) };
+      }
+      if (parts.length === 1 && method === 'GET') {
+        return { json: { handoffs: ipad().listHandoffs(q.get('sessionId') ?? undefined) } };
+      }
+      if (parts.length === 2 && method === 'DELETE') return { json: { removed: ipad().removeHandoff(id) } };
     }
 
     if (root === 'notes' && parts.length === 1 && method === 'POST') {

@@ -14,6 +14,7 @@ export interface MenuActions {
   newBoard: () => void;
   newNote: () => void;
   openSettings: () => void;
+  pairIpad: () => void;
   /** Opens the find of the view on show. */
   find: () => void;
   installCli: () => void;
@@ -86,6 +87,8 @@ export function appMenuTemplate(a: MenuActions): MenuItemConstructorOptions[] {
         { label: 'New Board', accelerator: a.mode === 'sketch' ? 'Command+N' : undefined, click: a.newBoard },
         { label: 'New Note', accelerator: a.mode === 'write' ? 'Command+N' : undefined, click: a.newNote },
         { label: `Show or Hide Panel (${acceleratorLabel(a.hotkey)})`, click: a.togglePanel },
+        { type: 'separator' },
+        { label: 'Pair iPad…', click: a.pairIpad },
         { type: 'separator' },
         { role: 'close' },
       ],

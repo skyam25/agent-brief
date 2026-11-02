@@ -14,6 +14,8 @@ import {
   type BoardsResponse,
   type DetachInitiativeResponse,
   type DrawResponse,
+  type Handoff,
+  type HandoffRequest,
   type Health,
   type Initiative,
   type InitiativeCreateRequest,
@@ -21,6 +23,7 @@ import {
   type InitiativeSnapshot,
   type InitiativeSummary,
   type InitiativeUpdateRequest,
+  type IpadStatus,
   type MutateResponse,
   type NoteRequest,
   type NoteResponse,
@@ -691,6 +694,25 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
       `To show it, run: agent-brief open --note ${res.draftId}\n` +
       `To change it later, run: agent-brief note --id ${res.draftId} with the full new text`,
     );
+  },
+
+  async ipad(ctx) {
+    const status = await callJson<IpadStatus>(ctx.socket, 'GET', '/ipad');
+    show(ctx, status, (s) =>
+      s.paired
+        ? `Paired: ${s.devices.map((d) => d.name).join(', ')}`
+        : 'No iPad is paired. In Agent Brief, choose File > Pair iPad…',
+    );
+  },
+
+  async handoff(ctx) {
+    const sessionId = sessionOf(ctx);
+    if (!sessionId) throw new UsageError('handoff needs --session, or run it from Claude Code');
+    const prompt = str(ctx.args, 'prompt');
+    const board = str(ctx.args, 'board');
+    const body: HandoffRequest = { sessionId, ...(prompt ? { prompt } : {}), ...(board ? { board } : {}) };
+    const handoff = await callJson<Handoff>(ctx.socket, 'POST', '/handoffs', body);
+    show(ctx, handoff, (h) => `Handed off to the iPad as ${h.id}. It comes back to this session as board ${h.boardName} when the user presses Send there.`);
   },
 
   async 'herdr-pictures'(ctx) {

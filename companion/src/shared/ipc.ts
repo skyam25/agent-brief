@@ -1,4 +1,4 @@
-import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult } from '../protocol';
+import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult, IpadDevice } from '../protocol';
 import type { FeedbackWorkspace, OutlineDocument, OutlineKind, OutlineProject, OutlineUpdate, OutlineUpdateResult } from '../protocol';
 import type { OutlineChanges } from './outline-changes';
 import type { WorkspaceSnapshot } from './feedback-workspace';
@@ -76,6 +76,8 @@ export interface SendPayload {
   strokes: StrokeEvent[];
   /** Voice clips, timed on the same clock as `strokes`. */
   segments: { name: string; data: Uint8Array; startMs: number; mimeType: string }[];
+  /** Speech already turned into text, on the same clock as `strokes`. Takes the place of transcribing `segments`. */
+  utterances?: { t: number; tEnd: number; text: string }[];
   /** The board's bounding box, for position words in the timeline. */
   bounds: { x: number; y: number; width: number; height: number };
   /** A written draft that leads the prompt. */
@@ -478,6 +480,19 @@ export interface OutputsInfo {
   hiddenRefs?: string[];
 }
 
+/** What File › Pair iPad… shows. */
+export interface IpadSheetStatus {
+  devices: IpadDevice[];
+  /** The pairing link the QR code holds. Absent after a pairing used it, or with no network. */
+  url?: string;
+  qrSvg?: string;
+  /** The Mac's network, such as `192.168.1.x`, for the iPad to join. */
+  network?: string;
+  error?: string;
+  /** A device the listener turned away for being on another network. */
+  refused?: string;
+}
+
 export interface CompanionApi extends BoardHost {
   init(): Promise<InitInfo>;
   listBoardComments(): Promise<Record<string, BoardComments>>;
@@ -497,6 +512,15 @@ export interface CompanionApi extends BoardHost {
   setSettings(patch: Partial<Settings>): Promise<SettingsResult>;
   requestMicrophone(): Promise<MicrophoneAccess>;
   onOpenSettings(fn: () => void): Subscription;
+  /** Starts the iPad listener if needed and makes a fresh pairing code. */
+  ipadSheetOpen(): Promise<IpadSheetStatus>;
+  /** Makes a fresh pairing code. The previous code stops working. */
+  ipadNewCode(): Promise<IpadSheetStatus>;
+  ipadSheetClose(): Promise<void>;
+  ipadForget(id: string): Promise<IpadSheetStatus>;
+  /** Fires when File › Pair iPad… is chosen. */
+  onOpenIpadSheet(fn: () => void): Subscription;
+  onIpadStatus(fn: (status: IpadSheetStatus) => void): Subscription;
   /** Fires when Edit › Find is chosen. */
   onFind(fn: () => void): Subscription;
   onNewBoard(fn: () => void): Subscription;
@@ -690,6 +714,12 @@ export const CH = {
   setSettings: 'settings:set',
   mic: 'mic:request',
   openSettings: 'panel:open-settings',
+  ipadSheetOpen: 'ipad:sheet-open',
+  ipadNewCode: 'ipad:new-code',
+  ipadSheetClose: 'ipad:sheet-close',
+  ipadForget: 'ipad:forget',
+  openIpadSheet: 'ipad:open-sheet',
+  ipadStatus: 'ipad:status',
   newBoard: 'panel:new-board',
   visibility: 'panel:visibility',
   historyList: 'history:list',
@@ -784,6 +814,10 @@ export type SendMethod = Exclude<ApiMethod, InvokeMethod | EventMethod>;
 
 export const IPC_INVOKE = {
   init: CH.init,
+  ipadSheetOpen: CH.ipadSheetOpen,
+  ipadNewCode: CH.ipadNewCode,
+  ipadSheetClose: CH.ipadSheetClose,
+  ipadForget: CH.ipadForget,
   listBoards: CH.listBoards,
   loadBoard: CH.loadBoard,
   saveBoard: CH.saveBoard,
@@ -882,6 +916,8 @@ export const IPC_EVENT = {
   onSessions: CH.sessions,
   onTheme: CH.theme,
   onOpenSettings: CH.openSettings,
+  onOpenIpadSheet: CH.openIpadSheet,
+  onIpadStatus: CH.ipadStatus,
   onFind: CH.find,
   onNewBoard: CH.newBoard,
   onUpdate: CH.update,
