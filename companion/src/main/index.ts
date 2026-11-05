@@ -27,7 +27,7 @@ import {
   webFrameMain,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { CURRENT_BOARD, defaultSocketPath, SOCKET_ENV, type OpenResponse, type SessionsResponse } from '../protocol';
+import { CURRENT_BOARD, defaultSocketPath, SOCKET_ENV, type HandoffRequest, type OpenResponse, type SessionsResponse } from '../protocol';
 import { notFound } from '../board/errors';
 import type { BoardBackend } from '../server/contract';
 import { createCompanionServer, type CompanionServer } from '../server/index';
@@ -490,6 +490,11 @@ async function start(): Promise<void> {
     ...(process.env.COMPANION_IPAD_HOST ? { host: process.env.COMPANION_IPAD_HOST } : {}),
     ...(ipadPort ? { port: Number(ipadPort) } : {}),
   });
+  const createHandoff = (req: HandoffRequest) => {
+    // The brief outlives the session, so an answer after it ends still has somewhere to file.
+    if (!briefs.get(req.sessionId)) briefs.remember(req.sessionId, {});
+    return ipad.createHandoff(req);
+  };
   const server: CompanionServer = createCompanionServer({
     socketPath,
     backend,
@@ -501,11 +506,7 @@ async function start(): Promise<void> {
     outlines,
     ipad: {
       status: () => ipad.status(),
-      createHandoff: (req) => {
-        // The brief outlives the session, so an answer after it ends still has somewhere to file.
-        if (!briefs.get(req.sessionId)) briefs.remember(req.sessionId, {});
-        return ipad.createHandoff(req);
-      },
+      createHandoff,
       listHandoffs: (sessionId) => ipad.listHandoffs(sessionId),
       removeHandoff: (id) => ipad.removeHandoff(id),
     },
@@ -740,6 +741,10 @@ async function start(): Promise<void> {
   ipc.handle('ipadNewCode', () => ipad.newCode());
   ipc.handle('ipadSheetClose', () => ipad.closeSheet());
   ipc.handle('ipadForget', async (id: string) => ipad.forget(id));
+  ipc.handle('ipadHandoff', async (sessionId: string, board: string) => {
+    if (!server.sessions().sessions.some((s) => s.sessionId === sessionId)) throw new Error('That session has ended.');
+    return createHandoff({ sessionId, board });
+  });
   ipc.handle('moveBoards', (raw: string[], sessionId: string) => {
     const names = raw.map(cleanName);
     briefs.move(names, sessionId);

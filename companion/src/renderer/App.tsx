@@ -184,6 +184,10 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   const [update, setUpdate] = useState<UpdateStatus>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
+  const [ipadPicking, setIpadPicking] = useState(false);
+  useEffect(() => {
+    if (!chooserOpen) setIpadPicking(false);
+  }, [chooserOpen]);
   const commentError = useSyncExternalStore((fn) => comments.subscribe(fn), () => comments.saveError);
   useEffect(() => {
     if (commentError) notify(`Could not save board comments: ${commentError}`, 'error');
@@ -197,7 +201,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   useCommentKeys(comments, mode === 'sketch');
   const sidebar = useSidebar();
   const boardList = useBoards(host, controller, briefs);
-  const { send, sendTo, sendNew, copyPrompt, openChooser, sendText } = useSend({
+  const { send, sendTo, sendNew, copyPrompt, openChooser, handOffToIpad, sendText } = useSend({
     host,
     book,
     controller,
@@ -296,6 +300,15 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
       loadPlaces={() => host.sessionPlaces()}
       chooseFolder={() => host.chooseFolder()}
       decisions={mode === 'review' ? decisions : undefined}
+      ipadPicking={ipadPicking}
+      onIpad={mode === 'sketch' && sessions.ipadPaired ? (id) => {
+        if (id) void handOffToIpad(id);
+        else if (chooserOpen && ipadPicking) setChooserOpen(false);
+        else {
+          setIpadPicking(true);
+          setChooserOpen(true);
+        }
+      } : undefined}
       mic={
         onMicrophone && (
           <Mic

@@ -610,6 +610,11 @@ button.stop-talk:hover {
   color: var(--muted);
 }
 
+.send-to .send-ipad {
+  flex: none;
+  gap: 6px;
+}
+
 .send-to .send-named {
   flex: none;
   min-width: 80px;

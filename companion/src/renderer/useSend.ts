@@ -50,6 +50,8 @@ export interface PanelSend {
   sendNew: (cwd: string, via: Launcher) => Promise<void>;
   copyPrompt: (cwd: string) => Promise<void>;
   openChooser: (open: boolean) => void;
+  /** Hands the open board to the paired iPad. Its answer returns to `sessionId`. */
+  handOffToIpad: (sessionId: string) => Promise<void>;
   /** Hands a running session what `build` makes, or says why `build` made nothing. */
   sendText: (sessionId: string, build: () => Promise<FixedSend | string>) => Promise<void>;
 }
@@ -254,6 +256,22 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     deliver((p) => host.send(p, sessionId), build, () => host.setTarget(sessionId));
   const sendNew = (cwd: string, via: Launcher) => deliver((p) => host.sendNew(p, { cwd, via }));
   const copyPrompt = (cwd: string) => deliver((p) => host.copyPrompt(p, cwd));
+  const handOffToIpad = async (sessionId: string) => {
+    if (sending.current) return;
+    sending.current = true;
+    try {
+      const board = controller.board;
+      await Promise.all([controller.flush(), comments.flush()]);
+      await host.setTarget(sessionId);
+      await host.ipadHandoff(sessionId, board);
+      setChooserOpen(false);
+      notify(hasBoardComments(comments.of(board)) ? 'Sent to your iPad. Comments stay on this Mac.' : 'Sent to your iPad.');
+    } catch (err) {
+      notify(`Could not hand off to the iPad: ${(err as Error).message}`, 'error');
+    } finally {
+      sending.current = false;
+    }
+  };
   /** An empty note says so before any session is picked. */
   const openChooser = (open: boolean) => {
     const blocked = open ? chooserBlocker() : undefined;
@@ -275,5 +293,5 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     return !note || (!note.body.trim() && !note.board) ? 'Write something first.' : undefined;
   };
 
-  return { send, sendTo, sendNew, copyPrompt, openChooser, sendText };
+  return { send, sendTo, sendNew, copyPrompt, openChooser, handOffToIpad, sendText };
 }

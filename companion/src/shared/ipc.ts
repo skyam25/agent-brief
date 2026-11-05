@@ -1,4 +1,4 @@
-import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult, IpadDevice } from '../protocol';
+import type { BehaviorDocument, BehaviorDecision, FeedbackDocument, FeedbackProject, FeedbackUpdate, FeedbackUpdateResult, Handoff, IpadDevice } from '../protocol';
 import type { FeedbackWorkspace, OutlineDocument, OutlineKind, OutlineProject, OutlineUpdate, OutlineUpdateResult } from '../protocol';
 import type { OutlineChanges } from './outline-changes';
 import type { WorkspaceSnapshot } from './feedback-workspace';
@@ -518,6 +518,8 @@ export interface CompanionApi extends BoardHost {
   ipadNewCode(): Promise<IpadSheetStatus>;
   ipadSheetClose(): Promise<void>;
   ipadForget(id: string): Promise<IpadSheetStatus>;
+  /** Hands a board to the paired iPad. Its answer returns to `sessionId`. */
+  ipadHandoff(sessionId: string, board: string): Promise<Handoff>;
   /** Fires when File › Pair iPad… is chosen. */
   onOpenIpadSheet(fn: () => void): Subscription;
   onIpadStatus(fn: (status: IpadSheetStatus) => void): Subscription;
@@ -718,6 +720,7 @@ export const CH = {
   ipadNewCode: 'ipad:new-code',
   ipadSheetClose: 'ipad:sheet-close',
   ipadForget: 'ipad:forget',
+  ipadHandoff: 'ipad:handoff',
   openIpadSheet: 'ipad:open-sheet',
   ipadStatus: 'ipad:status',
   newBoard: 'panel:new-board',
@@ -818,6 +821,7 @@ export const IPC_INVOKE = {
   ipadNewCode: CH.ipadNewCode,
   ipadSheetClose: CH.ipadSheetClose,
   ipadForget: CH.ipadForget,
+  ipadHandoff: CH.ipadHandoff,
   listBoards: CH.listBoards,
   loadBoard: CH.loadBoard,
   saveBoard: CH.saveBoard,

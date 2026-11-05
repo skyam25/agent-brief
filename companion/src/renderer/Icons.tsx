@@ -97,6 +97,13 @@ export const SidebarIcon = () => (
   </Icon>
 );
 
+export const IpadIcon = () => (
+  <Icon>
+    <rect x="5" y="2" width="14" height="20" rx="2" />
+    <path d="M11 18h2" />
+  </Icon>
+);
+
 export const CheckIcon = () => (
   <Icon>
     <path d="M20 6 9 17l-5-5" />

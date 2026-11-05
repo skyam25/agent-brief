@@ -124,3 +124,69 @@ test('pair iPad: the sheet, a full hand-off through the real Sender, and Forget'
   expect((await lan(link, 'GET', '/v1/handoffs', credential)).status).toBe(401);
   await app.close();
 });
+
+test('the panel hands the open board to the iPad, and the answer belongs to the session picked', async () => {
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  const { app, page } = await launch(dataDir, { COMPANION_IPAD_HOST: '127.0.0.1', COMPANION_IPAD_PORT: '0' });
+  await showPanel(app, page);
+  const button = page.getByTestId('ipad-handoff');
+  const chooser = page.getByTestId('send-chooser');
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: tempDataDir() });
+  await sock(socketPath, 'POST', '/boards/current/draw', { elements: [{ type: 'text', label: 'from the Mac', x: 0, y: 0 }] });
+
+  // No button until an iPad is paired.
+  await expect(button).toHaveCount(0);
+  await app.evaluate(() => globalThis.__companion.pairIpad());
+  const link = parsePairUrl((await page.getByTestId('ipad-qr').getAttribute('data-url'))!)!;
+  const paired = await lan(link, 'POST', '/v1/pair', undefined, { code: link.code, deviceName: 'Test iPad' });
+  const credential: string = paired.body.credential;
+  await page.getByTestId('ipad-close').click();
+  await expect(button).toBeVisible();
+
+  // With no target, it asks for a session and offers nothing but running ones. It never guesses.
+  await button.click();
+  await expect(chooser).toBeVisible();
+  await expect(page.getByTestId('ipad-pick-hint')).toBeVisible();
+  await expect(page.getByTestId('new-folder')).toHaveCount(0);
+  await page.screenshot({ path: join(RESULTS, 'ipad-handoff-chooser.png') });
+  expect((await sock<any>(socketPath, 'GET', '/handoffs')).body.handoffs).toHaveLength(0);
+
+  // A second press closes the chooser, and Send's chooser keeps its other options.
+  await button.click();
+  await expect(chooser).toHaveCount(0);
+  await page.getByTestId('send').click();
+  await expect(page.getByTestId('new-folder')).toBeVisible();
+  await expect(page.getByTestId('ipad-pick-hint')).toHaveCount(0);
+  await page.getByTestId('send').click();
+  await expect(chooser).toHaveCount(0);
+
+  await button.click();
+  await page.getByTestId('send-to-session').click();
+  await expect(chooser).toHaveCount(0);
+  await expect(page.getByText('Sent to your iPad.')).toBeVisible();
+  await page.screenshot({ path: join(RESULTS, 'ipad-handoff-sent.png') });
+  const first = (await sock<any>(socketPath, 'GET', '/handoffs?sessionId=s1')).body.handoffs;
+  expect(first).toHaveLength(1);
+
+  // The iPad gets a copy of the board.
+  const detail = await lan(link, 'GET', `/v1/handoffs/${first[0].id}`, credential);
+  expect(JSON.stringify(detail.body.scene)).toContain('from the Mac');
+
+  // The pick is now the target, so the next press goes straight there.
+  await button.click();
+  await expect(chooser).toHaveCount(0);
+  await expect.poll(async () => (await sock<any>(socketPath, 'GET', '/handoffs?sessionId=s1')).body.handoffs.length).toBe(2);
+
+  // Only a board goes this way, and Forget takes the button away.
+  await page.getByTestId('mode-write').click();
+  await expect(button).toHaveCount(0);
+  await page.getByTestId('mode-sketch').click();
+  await expect(button).toBeVisible();
+  await app.evaluate(() => globalThis.__companion.pairIpad());
+  const device = (await sock<any>(socketPath, 'GET', '/ipad')).body.devices[0];
+  await page.getByTestId(`ipad-forget-${device.id}`).click();
+  await page.getByTestId('ipad-close').click();
+  await expect(button).toHaveCount(0);
+  await app.close();
+});

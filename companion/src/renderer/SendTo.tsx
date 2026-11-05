@@ -4,7 +4,7 @@ import type { Launcher, LaunchOptions } from '../shared/ipc';
 import type { SessionInfo } from '../protocol';
 import type { DecisionsClaim } from './decisions-send';
 import { activeAgo, folderName, hostLabel, hueOf, shortFolder } from '../shared/sessions';
-import { CheckIcon, ChevronIcon, TerminalIcon } from './Icons';
+import { CheckIcon, ChevronIcon, IpadIcon, TerminalIcon } from './Icons';
 import { usePointerOutside } from './hooks';
 
 export const LAUNCHER_LABELS: Record<Launcher, string> = {
@@ -44,6 +44,10 @@ export function SendTo(props: {
   mic?: ReactNode;
   /** A Feedback view's decisions, which Send hands its own session in place of the chooser. */
   decisions?: DecisionsClaim;
+  /** Set while the board can go to a paired iPad. Without a session, it asks the chooser for one. */
+  onIpad?: (sessionId: string | undefined) => void;
+  /** The chooser is picking a session for the iPad, so it offers only running sessions. */
+  ipadPicking?: boolean;
 }) {
   const target = props.sessions.sessions.find((s) => s.sessionId === props.sessions.targetSessionId);
   const name = target && (target.name || target.title || folderName(target.cwd));
@@ -91,6 +95,18 @@ export function SendTo(props: {
           <ChevronIcon />
         </button>
       )}
+      {props.onIpad && (
+        <button
+          className="ghost send-ipad"
+          title={target ? `Hand this board to your iPad. Its answer returns to ${name}.` : 'Hand this board to your iPad'}
+          aria-haspopup={target ? undefined : 'dialog'}
+          onClick={() => props.onIpad?.(target?.sessionId)}
+          data-testid="ipad-handoff"
+        >
+          <IpadIcon />
+          iPad
+        </button>
+      )}
       <button
         className="primary send-named"
         title={target ? `Send to ${name}` : 'Choose a session to send to'}
@@ -136,12 +152,14 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
   const sessions = byRelevance(props.sessions.sessions, props.holder);
   const now = Date.now();
   const [first, ...others] = options?.launchers ?? [];
+  const picking = !!props.onIpad && props.ipadPicking;
 
   return (
-    <div className="popover-panel chooser" ref={ref} role="dialog" aria-label="Send to" data-testid="send-chooser">
+    <div className="popover-panel chooser" ref={ref} role="dialog" aria-label={picking ? 'Hand off to iPad' : 'Send to'} data-testid="send-chooser">
       <h3>Running</h3>
+      {picking && <p className="muted small" data-testid="ipad-pick-hint">The iPad's answer comes back to the session you pick.</p>}
       {sessions.length === 0 ? (
-        <p className="muted">No Claude Code session has the companion open. Start one below, or run /sketch in one.</p>
+        <p className="muted">{picking ? 'No Claude Code session has the companion open. Run /sketch in one first.' : 'No Claude Code session has the companion open. Start one below, or run /sketch in one.'}</p>
       ) : (
         <ul>
           {sessions.map((s) => (
@@ -150,7 +168,7 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
                 className="ghost session"
                 title={s.cwd}
                 aria-current={s.sessionId === props.sessions.targetSessionId}
-                onClick={() => props.onSendTo(s.sessionId)}
+                onClick={() => (picking ? props.onIpad?.(s.sessionId) : props.onSendTo(s.sessionId))}
                 data-testid="send-to-session"
               >
                 <span className="avatar" aria-hidden="true" style={{ '--hue': hueOf(s.sessionId) } as CSSProperties}>
@@ -176,8 +194,8 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
           ))}
         </ul>
       )}
-      <h3>Somewhere else</h3>
-      <div className="row">
+      {!picking && <h3>Somewhere else</h3>}
+      {!picking && <div className="row">
         <select
           value={folder}
           onChange={(e) => setFolder(e.target.value)}
@@ -194,8 +212,8 @@ function Chooser(props: Parameters<typeof SendTo>[0] & { onClose: () => void }) 
         <button onClick={() => void choose()} data-testid="new-choose">
           Choose…
         </button>
-      </div>
-      {first && (
+      </div>}
+      {!picking && first && (
         <div className="launchers">
           <div className="launch-row">
           <div className="split-button">
