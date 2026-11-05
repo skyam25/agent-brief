@@ -99,6 +99,17 @@ final class LocalStore: @unchecked Sendable {
     queue.sync { (try? String(contentsOf: dir(id).appendingPathComponent("notes.txt"), encoding: .utf8)) ?? "" }
   }
 
+  func saveComments(_ id: String, json: String) {
+    queue.async { [self] in
+      write(Data(json.utf8), to: dir(id).appendingPathComponent("comments.json"))
+      markEdited(id)
+    }
+  }
+
+  func comments(_ id: String) -> String? {
+    queue.sync { try? String(contentsOf: dir(id).appendingPathComponent("comments.json"), encoding: .utf8) }
+  }
+
   func savePhrases(_ id: String, _ phrases: [Phrase]) {
     queue.async { [self] in
       if let data = try? JSONEncoder().encode(phrases) { write(data, to: dir(id).appendingPathComponent("phrases.json")) }

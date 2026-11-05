@@ -1,6 +1,6 @@
 /** Hand-offs the iPad answers, each tied to one session, kept across restarts. */
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Handoff } from '../protocol';
@@ -14,13 +14,29 @@ const SETTLED_KEEP_MS = 30 * 24 * 3600_000;
 export interface StoredHandoff extends Handoff {
   /** The board the iPad starts from. */
   baseBoard?: string;
+  /** What `baseBoard` held at hand-off. Send updates that board only while it still holds this. */
+  baseMark?: string;
   /** Each iPad's answer, by device id. */
   results?: Record<string, IpadDeliveryResult>;
   settledAt?: number;
 }
 
+/**
+ * Identifies a board's drawing and notes. Excalidraw bumps an element's version on each change,
+ * so this ignores the view and how the file was written. Undefined for a scene it cannot read.
+ */
+export function boardMark(board: { scene: string | null; notes: string }): string | undefined {
+  try {
+    const elements = (JSON.parse(board.scene ?? '') as { elements: { id: string; version?: number; isDeleted?: boolean }[] }).elements;
+    const drawn = elements.filter((e) => !e.isDeleted).map((e) => `${e.id}:${e.version ?? 0}`).sort();
+    return createHash('sha256').update(JSON.stringify([drawn, board.notes])).digest('base64url');
+  } catch {
+    return undefined;
+  }
+}
+
 export function publicHandoff(h: StoredHandoff): Handoff {
-  const { baseBoard: _base, results: _results, settledAt: _settled, ...rest } = h;
+  const { baseBoard: _base, baseMark: _mark, results: _results, settledAt: _settled, ...rest } = h;
   return rest;
 }
 
@@ -43,7 +59,7 @@ export class HandoffStore {
     if (this.prune()) this.save();
   }
 
-  create(fields: { sessionId: string; sessionLabel: string; prompt?: string; baseBoard?: string }): StoredHandoff {
+  create(fields: { sessionId: string; sessionLabel: string; prompt?: string; baseBoard?: string; baseMark?: string }): StoredHandoff {
     const id = randomBytes(4).toString('hex');
     const handoff: StoredHandoff = {
       id,
@@ -54,6 +70,7 @@ export class HandoffStore {
       createdAt: this.now(),
       state: 'open',
       ...(fields.baseBoard ? { baseBoard: fields.baseBoard } : {}),
+      ...(fields.baseMark ? { baseMark: fields.baseMark } : {}),
     };
     this.items.set(id, handoff);
     this.save();

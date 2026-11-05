@@ -1,5 +1,6 @@
 /** Puts the iPad's strokes and on-device speech on one clock and shapes the delivery. */
 
+import type { BoardComments } from '../shared/board-comments';
 import type { IpadDelivery, IpadUtterance } from '../shared/ipad';
 import type { StrokeEvent } from '../voice/types';
 
@@ -23,6 +24,19 @@ export function onOneClock(
   };
 }
 
+/** Where the voice pointed from `at` on. Undefined is the overall note. */
+export interface VoiceAim {
+  at: number;
+  target: string | undefined;
+}
+
+/** The target a phrase belongs to: the one the voice pointed at when the phrase began. Later clicks do not move it. */
+export function targetAt(aims: readonly VoiceAim[], t: number): string | undefined {
+  let target: string | undefined;
+  for (const aim of aims) if (aim.at <= t) target = aim.target;
+  return target;
+}
+
 export function toBase64(bytes: Uint8Array): string {
   const chunk = 0x8000;
   let binary = '';
@@ -39,6 +53,7 @@ export function deliveryOf(
   strokeOrigin: number | undefined,
   spoken: readonly IpadUtterance[],
   board: string,
+  comments?: BoardComments,
 ): IpadDelivery {
   if (payload.boardName !== board) throw new Error('The board on screen is not the one being sent.');
   return {
@@ -46,5 +61,6 @@ export function deliveryOf(
     scene: payload.scene,
     bounds: payload.bounds,
     ...onOneClock(payload.strokes, strokeOrigin, spoken),
+    ...(comments ? { comments } : {}),
   };
 }

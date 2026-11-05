@@ -80,3 +80,20 @@ describe('pen range and touch filter', () => {
     expect(f.block({ type: 'pointerdown', pointerId: 3 }, false, 30)).toBe(false);
   });
 });
+
+describe('a pen lift', () => {
+  it('leaves range after the wait, with or without a pointerout', () => {
+    const range = new PenRange();
+    range.seen('pointerdown', 0);
+    range.seen('pointerup', 100);
+    expect(range.inRange(100 + PEN_RANGE_MS - 1)).toBe(true);
+    expect(range.inRange(100 + PEN_RANGE_MS)).toBe(false);
+  });
+
+  it('stays in range while the pen hovers on after the lift', () => {
+    const range = new PenRange();
+    range.seen('pointerup', 100);
+    range.seen('pointermove', 200);
+    expect(range.inRange(100_000)).toBe(true);
+  });
+});

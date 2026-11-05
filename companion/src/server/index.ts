@@ -438,7 +438,7 @@ export function createCompanionServer(opts: CompanionServerOptions): CompanionSe
       if (parts.length === 1 && method === 'POST') {
         const body = parseHandoff(await readJson(req));
         liveSession(body.sessionId);
-        return { json: ipad().createHandoff(body) };
+        return { json: await ipad().createHandoff(body) };
       }
       if (parts.length === 1 && method === 'GET') {
         return { json: { handoffs: ipad().listHandoffs(q.get('sessionId') ?? undefined) } };

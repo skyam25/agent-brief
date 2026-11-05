@@ -48,6 +48,7 @@ private final class WeakHandler: NSObject, WKScriptMessageHandler {
 final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   let webView: WKWebView
   var onSave: (_ board: String, _ json: String) -> Void = { _, _ in }
+  var onComments: (_ board: String, _ json: String) -> Void = { _, _ in }
   var onReady: () -> Void = {}
   var onCrash: () -> Void = {}
   private var ready = false
@@ -85,6 +86,8 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
       onReady()
     case "saveBoard":
       if let board = body["board"] as? String, let json = body["json"] as? String { onSave(board, json) }
+    case "saveComments":
+      if let board = body["board"] as? String, let json = body["json"] as? String { onComments(board, json) }
     case "log":
       print("[board] \(body["text"] ?? "")")
     default:
@@ -103,9 +106,9 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     await withCheckedContinuation { waiting.append($0) }
   }
 
-  func open(board: String, scene: String?, notes: String) async throws {
+  func open(board: String, scene: String?, notes: String, comments: String?) async throws {
     await whenReady()
-    let arg: [String: Any] = ["boardName": board, "scene": scene ?? NSNull(), "notes": notes]
+    let arg: [String: Any] = ["boardName": board, "scene": scene ?? NSNull(), "notes": notes, "comments": comments ?? NSNull()]
     _ = try await webView.callAsyncJavaScript("await window.__ipad.open(arg);", arguments: ["arg": arg], contentWorld: .page)
   }
 
@@ -116,6 +119,24 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     let result = try await webView.callAsyncJavaScript("return await window.__ipad.collect(spoken, board);", arguments: ["spoken": spoken, "board": board], contentWorld: .page)
     guard let json = result as? String else { throw LanError.unreachable("The board did not hand over its drawing.") }
     return Data(json.utf8)
+  }
+
+  func setCommenting(_ on: Bool) async {
+    await whenReady()
+    _ = try? await webView.callAsyncJavaScript("window.__ipad.setCommenting(on);", arguments: ["on": on], contentWorld: .page)
+  }
+
+  func setListening(_ on: Bool) async {
+    await whenReady()
+    _ = try? await webView.callAsyncJavaScript("window.__ipad.setListening(on);", arguments: ["on": on], contentWorld: .page)
+  }
+
+  /// Offers a heard phrase to the comments. True means a comment took it.
+  func heard(_ phrase: Phrase) async -> Bool {
+    await whenReady()
+    let result = try? await webView.callAsyncJavaScript(
+      "return window.__ipad.heard(text, t);", arguments: ["text": phrase.text, "t": phrase.atMs], contentWorld: .page)
+    return (result as? Bool) ?? false
   }
 
   func setTheme(dark: Bool) async {

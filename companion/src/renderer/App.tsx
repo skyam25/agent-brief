@@ -201,6 +201,8 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
   useCommentKeys(comments, mode === 'sketch');
   const sidebar = useSidebar();
   const boardList = useBoards(host, controller, briefs);
+  const activeBriefRef = useRef(activeBrief);
+  activeBriefRef.current = activeBrief;
   const { send, sendTo, sendNew, copyPrompt, openChooser, handOffToIpad, sendText } = useSend({
     host,
     book,
@@ -252,6 +254,10 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
       host.onPrompt(setPrompt), host.onTheme(setTheme),
       host.onOpenSettings(() => setSettingsOpen(true)), host.onUpdate(setUpdate),
       host.onOpenIpadSheet(() => setIpadSheetOpen(true)),
+      host.onIpadBoard(({ name, sessionId }) => {
+        if (modeRef.current !== 'sketch' || activeBriefRef.current !== sessionId || controller.recorder.recording) return;
+        void controller.switchTo(name).catch(report('open the iPad board'));
+      }),
       // Edit › Find opens the find of the view on show.
       host.onFind(() => {
         if (modeRef.current === 'sketch' && controller.api) openBoardSearch(controller.api);

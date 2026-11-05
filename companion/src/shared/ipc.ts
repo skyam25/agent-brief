@@ -51,6 +51,8 @@ export interface BoardOps {
   flush: { args: Record<string, never>; result: void };
   /** Sets a board's layout. */
   layout: { args: { board: string; layout: BoardLayout }; result: void };
+  /** Shows new content on a board if it is open. False means the open board has edits of its own, or a recording, so it stayed as it was. */
+  replaceBoard: { args: { board: string; scene: string; notes: string }; result: boolean };
 }
 
 export type BoardOpName = keyof BoardOps;
@@ -523,6 +525,8 @@ export interface CompanionApi extends BoardHost {
   /** Fires when File › Pair iPad… is chosen. */
   onOpenIpadSheet(fn: () => void): Subscription;
   onIpadStatus(fn: (status: IpadSheetStatus) => void): Subscription;
+  /** Fires when an iPad's answer made a new board for a session. */
+  onIpadBoard(fn: (board: { name: string; sessionId: string }) => void): Subscription;
   /** Fires when Edit › Find is chosen. */
   onFind(fn: () => void): Subscription;
   onNewBoard(fn: () => void): Subscription;
@@ -723,6 +727,7 @@ export const CH = {
   ipadHandoff: 'ipad:handoff',
   openIpadSheet: 'ipad:open-sheet',
   ipadStatus: 'ipad:status',
+  ipadBoard: 'ipad:board',
   newBoard: 'panel:new-board',
   visibility: 'panel:visibility',
   historyList: 'history:list',
@@ -922,6 +927,7 @@ export const IPC_EVENT = {
   onOpenSettings: CH.openSettings,
   onOpenIpadSheet: CH.openIpadSheet,
   onIpadStatus: CH.ipadStatus,
+  onIpadBoard: CH.ipadBoard,
   onFind: CH.find,
   onNewBoard: CH.newBoard,
   onUpdate: CH.update,

@@ -8,7 +8,7 @@ import type { Handoff, HandoffRequest, IpadStatus } from '../protocol';
 import type { IpadSheetStatus, SendPayload } from '../shared/ipc';
 import { IPAD_LAN_PORT, pairUrl, type IpadDelivery, type IpadDeliveryResult, type LanHandoffDetail } from '../shared/ipad';
 import { ensureCert, type LanCert } from './cert';
-import { HandoffStore, publicHandoff, type StoredHandoff } from './handoffs';
+import { boardMark, HandoffStore, publicHandoff, type StoredHandoff } from './handoffs';
 import { lanAddresses, macNames, networkLabel, type Interfaces } from './lan';
 import { createLanServer, type LanServer } from './lan-server';
 import { PairingStore } from './pairing';
@@ -30,6 +30,13 @@ export interface IpadDeps {
   saveBoard(name: string, scene: string, notes: string | undefined): void;
   /** Lists the board under the session, live or ended. */
   fileBoard(name: string, sessionId: string): void;
+  /**
+   * Puts the iPad's work on a board that may be open in the panel, once pending edits are saved.
+   * Answers false, writing nothing, if `unchanged` says no or the panel has edits of its own.
+   */
+  updateBoard?(name: string, scene: string, notes: string, unchanged: () => boolean): Promise<boolean>;
+  /** Fires when an answer to a blank hand-off made a new board for this session. */
+  onNewBoard?(name: string, sessionId: string): void;
   /** Sends to exactly this session. */
   send(payload: SendPayload, sessionId: string): Promise<{ ok: boolean; message: string }>;
   /** Fires when the sheet's content changes. */
@@ -203,12 +210,15 @@ export class Ipad {
 
   createHandoff(req: HandoffRequest): Handoff {
     if (!this.pairing.paired) throw new BoardError('conflict', NOT_PAIRED);
+    const baseBoard = req.board ? this.deps.resolveBoard(req.board) : undefined;
+    const baseMark = baseBoard ? boardMark(this.deps.loadBoard(baseBoard)) : undefined;
     return publicHandoff(
       this.handoffs.create({
         sessionId: req.sessionId,
         sessionLabel: this.deps.sessionLabel(req.sessionId),
         ...(req.prompt ? { prompt: req.prompt } : {}),
-        ...(req.board ? { baseBoard: this.deps.resolveBoard(req.board) } : {}),
+        ...(baseBoard ? { baseBoard } : {}),
+        ...(baseMark ? { baseMark } : {}),
       }),
     );
   }
@@ -248,25 +258,39 @@ export class Ipad {
     if (running) return running;
     const answered = Object.keys(handoff.results ?? {}).length > 0 || [...this.inFlight.keys()].some((k) => k.startsWith(`${id}:`));
     const board = answered ? `${handoff.boardName}-${deviceId.slice(0, 6)}` : handoff.boardName;
-    const work = this.settle(handoff, deviceId, board, delivery).finally(() => this.inFlight.delete(key));
+    const work = this.settle(handoff, deviceId, board, !answered, delivery).finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, work);
     return work;
   }
 
-  private async settle(handoff: StoredHandoff, deviceId: string, board: string, delivery: IpadDelivery): Promise<IpadDeliveryResult> {
-    const { id, sessionId, sessionLabel } = handoff;
+  /** Whether the iPad's work now sits on the board the hand-off started from. */
+  private async updateBase(handoff: StoredHandoff, scene: string, notes: string): Promise<boolean> {
+    const { baseBoard, baseMark } = handoff;
+    if (!baseBoard || !baseMark || !this.deps.updateBoard) return false;
+    const unchanged = () => boardMark(this.deps.loadBoard(baseBoard)) === baseMark;
+    return this.deps.updateBoard(baseBoard, scene, notes, unchanged).catch(() => false);
+  }
+
+  private async settle(handoff: StoredHandoff, deviceId: string, newBoard: string, mayUpdate: boolean, delivery: IpadDelivery): Promise<IpadDeliveryResult> {
+    const { id, sessionId, sessionLabel, baseBoard } = handoff;
+    const scene = JSON.stringify(delivery.scene);
 
     // The work reaches the Mac's board first, so a failed Send loses nothing.
-    this.deps.saveBoard(board, JSON.stringify(delivery.scene), delivery.notes);
+    const updated = mayUpdate && (await this.updateBase(handoff, scene, delivery.notes ?? ''));
+    const board = updated ? baseBoard! : newBoard;
+    if (!updated) this.deps.saveBoard(board, scene, delivery.notes);
+    const kept = baseBoard && !updated ? ` "${baseBoard}" changed on the Mac, so this is a new board, "${board}".` : '';
     let result: IpadDeliveryResult;
     if (this.deps.isLive(sessionId)) {
       const sent = await this.deps.send(toSendPayload(board, delivery), sessionId);
       if (!sent.ok) throw new BoardError('unavailable', sent.message);
-      result = { ok: true, state: 'delivered', message: sent.message };
+      result = { ok: true, state: 'delivered', message: kept ? `${sent.message}.${kept}` : sent.message };
     } else {
-      result = { ok: true, state: 'filed', message: `"${sessionLabel}" has ended, so your work waits on the Mac under that session.` };
+      const where = updated ? `your work is on "${board}" on the Mac` : 'your work waits on the Mac under that session';
+      result = { ok: true, state: 'filed', message: `"${sessionLabel}" has ended, so ${where}.${kept}` };
     }
-    this.deps.fileBoard(board, sessionId);
+    if (!updated) this.deps.fileBoard(board, sessionId);
+    if (!baseBoard) this.deps.onNewBoard?.(board, sessionId);
     this.handoffs.settle(id, deviceId, result);
     return result;
   }
@@ -282,5 +306,6 @@ function toSendPayload(board: string, d: IpadDelivery): SendPayload {
     segments: [],
     utterances: d.utterances,
     bounds: d.bounds,
+    ...(d.comments !== undefined ? { comments: d.comments as SendPayload['comments'] } : {}),
   };
 }

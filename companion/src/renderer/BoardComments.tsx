@@ -11,8 +11,14 @@ import { pinLabel, type BoardPin } from '../shared/board-comments';
 import type { BoardCommentsStore } from './board-comments';
 import { useStore } from './hooks';
 import { CommentIcon, TrashIcon } from './Icons';
-import { OVERALL, type ReviewVoice } from './review-voice';
-import { VoiceState } from './VoiceState';
+import { OVERALL } from './review-voice';
+import { VoiceState, type ColumnVoice } from './VoiceState';
+
+/** A finger or Pencil is the main input, so a board tap pins and the words say tap. */
+const touchFirst = () => typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+
+/** How far a press may move and still count as a tap. */
+const TAP_SLOP = 10;
 
 const editable = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
@@ -86,12 +92,9 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
   useEffect(() => {
     root.dataset.commenting = String(tool);
     if (!tool) return;
-    // Runs before Excalidraw sees the press, so the click pins instead of selecting or drawing.
-    const onDown = (e: PointerEvent) => {
-      const onBoard = e.target instanceof HTMLCanvasElement || (e.target instanceof HTMLElement && !!e.target.closest('[id*="-frame-name-"]'));
-      if (!onBoard || e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
+    const onBoard = (e: PointerEvent) =>
+      e.target instanceof HTMLCanvasElement || (e.target instanceof HTMLElement && !!e.target.closest('[id*="-frame-name-"]'));
+    const drop = (e: PointerEvent) => {
       const { offsetLeft, offsetTop, scrollX, scrollY, zoom } = api.getAppState();
       const at: [number, number] = [(e.clientX - offsetLeft) / zoom.value - scrollX, (e.clientY - offsetTop) / zoom.value - scrollY];
       const target = pinTarget(api.getSceneElements() as unknown as Pinnable[], at);
@@ -99,9 +102,34 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
       // Focus moves to the new card, so typing goes straight in.
       requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-testid="board-comment-card"].active textarea')?.focus());
     };
+    // A finger or Pencil press may become a pan or a pinch, so only a tap pins, and Excalidraw still sees the press.
+    let press: { id: number; x: number; y: number } | undefined;
+    let down = 0;
+    const onUp = (e: PointerEvent) => {
+      down = Math.max(0, down - 1);
+      const tap = press?.id === e.pointerId && e.type === 'pointerup' && Math.hypot(e.clientX - press.x, e.clientY - press.y) < TAP_SLOP;
+      if (press?.id === e.pointerId) press = undefined;
+      if (tap) drop(e);
+    };
+    // Runs before Excalidraw sees the press, so a mouse click pins instead of selecting or drawing.
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') {
+        down++;
+        press = down === 1 && onBoard(e) ? { id: e.pointerId, x: e.clientX, y: e.clientY } : undefined;
+        return;
+      }
+      if (!onBoard(e) || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      drop(e);
+    };
+    window.addEventListener('pointerup', onUp, { capture: true });
+    window.addEventListener('pointercancel', onUp, { capture: true });
     root.addEventListener('pointerdown', onDown, { capture: true });
     return () => {
       root.removeEventListener('pointerdown', onDown, { capture: true });
+      window.removeEventListener('pointerup', onUp, { capture: true });
+      window.removeEventListener('pointercancel', onUp, { capture: true });
       delete root.dataset.commenting;
     };
   }, [api, root, comments, board, tool]);
@@ -146,7 +174,7 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
       })}
       {tool && (
         <div className="review-hint" data-testid="comment-hint">
-          Click to pin · <kbd>Esc</kbd> to draw
+          {touchFirst() ? 'Tap to pin. Tap Comment again to draw.' : <>Click to pin · <kbd>Esc</kbd> to draw</>}
         </div>
       )}
     </div>
@@ -154,7 +182,7 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
 }
 
 /** The comment column beside the board: an overall note, one card per pin, then `children`. */
-export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ReviewVoice; onSendKeys: (e: KeyboardEvent) => void; foot?: string; children?: ReactNode }) {
+export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ColumnVoice; onSendKeys: (e: KeyboardEvent) => void; foot?: string; children?: ReactNode }) {
   const { comments, board, voice } = props;
   useStore(comments);
   useStore(voice);
@@ -188,7 +216,7 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
       </h3>
       {pins.length === 0 ? (
         <p className="muted review-empty" data-testid="board-comments-empty">
-          Click anything on the board to pin a comment, then type or talk.
+          {touchFirst() ? 'Tap' : 'Click'} anything on the board to pin a comment, then type or talk.
         </p>
       ) : (
         <ol className="review-cards">
@@ -219,7 +247,7 @@ function PinCard(props: {
   pin: BoardPin;
   n: number;
   active: boolean;
-  voice: ReviewVoice;
+  voice: ColumnVoice;
   onSelect: () => void;
   onEdit: (text: string) => void;
   onRemove: () => void;

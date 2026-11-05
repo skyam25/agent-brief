@@ -242,6 +242,9 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - `src/ipad/` serves a TLS LAN API on port 47613, IPv4 only, and refuses peers outside the Mac's subnets. `COMPANION_IPAD_HOST` and `COMPANION_IPAD_PORT` override the address.
 - The iPad pins the certificate fingerprint from the pairing QR. Pairing is many-to-many, and each hand-off stays bound to one Mac and one session.
 - The panel's iPad button shows on a board while an iPad is paired. It hands off a copy of the board's drawing and notes to the Send target, or to the session picked in the chooser. Board comments stay on the Mac.
+- The iPad's Send updates the board a hand-off started from, and reloads it if it is open. If that board changed on the Mac since the hand-off, by a saved or pending edit, or a recording is running on it, the work becomes a new `ipad-<id>` board instead. A blank hand-off makes a new board, and the panel opens it if it is on that session in Sketch.
+- Comment on the iPad toolbar reuses the Mac's pin layer and comment column. A finger or Pencil tap pins, and a drag or pinch moves the view. Words go to the comment selected when they began and stay out of the timeline. Comments live with the hand-off's work on the iPad, and Send delivers them as `comments.md`. Comments on the Mac stay on the Mac.
+- `src/ipad-client/pinch.ts` lets a pinch zoom after a Pencil turned on Excalidraw's pen mode, which otherwise fixes the scale at 1 under the draw tool.
 - Hand-offs are store and forward, with no live sync. A second iPad's Send becomes its own delivery on its own board.
 - The iPad transcribes on device and sends phrases, not audio. Strokes and phrases share its clock, and `composeDelivery` uses them as `utterances`.
 - App source and test recipes live in `ios/README.md`. `node ios/test/run-sim.mjs` runs the simulator suite and `node ios/test/run-device.mjs <udid>` runs a real iPad.

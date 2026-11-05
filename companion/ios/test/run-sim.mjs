@@ -23,6 +23,7 @@ const useCanned = process.env.AB_CANNED !== '0';
 const stub = await startStub({ dir });
 const stubA = await startStub({ dir: join(dir, 'mac-a'), macName: 'First Stub Mac', promptPrefix: 'First Mac: ' });
 const stubB = await startStub({ dir: join(dir, 'mac-b'), macName: 'Second Stub Mac', promptPrefix: 'Second Mac: ' });
+const stubC = await startStub({ dir: join(dir, 'mac-c'), macName: 'Comment Stub Mac' });
 console.log(`stub on ${stub.port}, fingerprint ${stub.fingerprint}`);
 
 const env = {
@@ -30,6 +31,7 @@ const env = {
   TEST_RUNNER_AB_PAIR_URL: stub.pairUrl,
   TEST_RUNNER_AB_PAIR_URL_A: stubA.pairUrl,
   TEST_RUNNER_AB_PAIR_URL_B: stubB.pairUrl,
+  TEST_RUNNER_AB_PAIR_URL_C: stubC.pairUrl,
   TEST_RUNNER_AB_STUB_DIR: dir,
   TEST_RUNNER_AB_TALK_SECONDS: process.env.AB_TALK_SECONDS ?? (useCanned ? '3' : '8'),
   ...(useCanned ? { TEST_RUNNER_AB_TEST_PHRASES: phrases } : { TEST_RUNNER_AB_TEST_AUDIO: audio }),
@@ -38,7 +40,7 @@ const result = await new Promise((resolve) => {
   import('node:child_process').then(({ spawn }) => {
     const child = spawn(
       'xcodebuild',
-      ['test', '-project', 'AgentBrief.xcodeproj', '-scheme', 'AgentBrief', '-destination', simulator, '-derivedDataPath', 'build', '-parallel-testing-enabled', 'NO', '-only-testing:AgentBriefUITests/HandoffFlowTests/testPairDrawTalkNoteSend', '-only-testing:AgentBriefUITests/HandoffFlowTests/testSendWaitsSurvivesKillThenLands', '-only-testing:AgentBriefUITests/HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', '-only-testing:AgentBriefUITests/HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs', 'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM='],
+      ['test', '-project', 'AgentBrief.xcodeproj', '-scheme', 'AgentBrief', '-destination', simulator, '-derivedDataPath', 'build', '-parallel-testing-enabled', 'NO', '-only-testing:AgentBriefUITests/CommentFlowTests', '-only-testing:AgentBriefUITests/HandoffFlowTests/testPairDrawTalkNoteSend', '-only-testing:AgentBriefUITests/HandoffFlowTests/testSendWaitsSurvivesKillThenLands', '-only-testing:AgentBriefUITests/HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', '-only-testing:AgentBriefUITests/HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs', 'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM='],
       { cwd: ios, env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let tail = '';
@@ -53,7 +55,7 @@ const result = await new Promise((resolve) => {
 });
 stub.server.close();
 stub.server.closeAllConnections();
-for (const other of [stubA, stubB]) {
+for (const other of [stubA, stubB, stubC]) {
   other.server.close();
   other.server.closeAllConnections();
 }
@@ -100,6 +102,13 @@ check(!stubA.received.some((r) => r.kind === 'deliver'), 'a Send to the second M
 check(!stubA.received.some((r) => r.kind === 'unpair'), 'forgetting the second Mac left the first alone');
 check(stubB.received.some((r) => r.kind === 'unpair'), 'forgetting a Mac told it');
 check(Boolean(paired?.installId), 'pairing sent an install id');
+
+const commented = stubC.received.find((r) => r.kind === 'deliver')?.payload;
+check(Boolean(commented), 'a board with comments delivered');
+const pins = commented?.comments?.pins ?? [];
+check(pins.length === 1 && pins[0].text.includes('Make this bigger'), `the pin arrived after a relaunch: ${JSON.stringify(pins.map((p) => p.text))}`);
+check(pins[0]?.text.includes('Circle'), 'words said on a selected pin landed on it');
+check((commented?.utterances ?? []).length === 0, `words said on a pin stay out of the timeline: ${JSON.stringify(commented?.utterances)}`);
 
 console.log(fail.length ? `\n${fail.length} failed` : '\nall passed');
 console.log(`screenshots and deliveries in ${dir}`);

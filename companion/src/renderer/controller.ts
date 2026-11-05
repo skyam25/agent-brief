@@ -320,6 +320,23 @@ export class BoardController {
     });
   }
 
+  /** Puts new content on the open board. An edit or recording that started since the last save keeps the board as it is. */
+  private replaceBoard(board: string, scene: string, notes: string): boolean {
+    if (board !== this.board || !this.api) return true;
+    if (this.sceneTimer !== undefined || this.notesTimer !== undefined || this.recorder.recording) return false;
+    const loaded = parseScene(scene);
+    this.notes = notes;
+    this.layout = loaded.layout;
+    this.markLoaded(loaded.elements);
+    this.strokes.absorb(loaded.elements);
+    this.api.updateScene({ elements: loaded.elements, captureUpdate: CaptureUpdateAction.NEVER });
+    const files = Object.values(loaded.files);
+    if (files.length) this.api.addFiles(files);
+    this.api.history.clear();
+    this.emit();
+    return true;
+  }
+
   private async show(board: string): Promise<void> {
     const api = this.api!;
     if (board === this.board) return;
@@ -547,6 +564,8 @@ export class BoardController {
           return this.flush();
         case 'layout':
           return this.layoutOf(a.board, a.layout);
+        case 'replaceBoard':
+          return this.replaceBoard(a.board, a.scene, a.notes);
         default:
           throw Object.assign(new Error(`unknown op ${String(req.op)}`), { code: 'bad_request' });
       }

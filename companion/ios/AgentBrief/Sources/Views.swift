@@ -306,6 +306,15 @@ struct WorkView: View {
       .accessibilityIdentifier("talk-button")
 
       Button {
+        model.toggleComment()
+      } label: {
+        toolLabel("Comment", icon: model.commenting ? "text.bubble.fill" : "text.bubble")
+      }
+      .tint(model.commenting ? .accentColor : nil)
+      .disabled(sending)
+      .accessibilityIdentifier("comment-button")
+
+      Button {
         model.notePresented.toggle()
       } label: {
         toolLabel("Note", icon: "note.text")

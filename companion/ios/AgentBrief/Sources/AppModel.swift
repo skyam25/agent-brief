@@ -49,6 +49,10 @@ final class AppModel {
   private(set) var liveWords = ""
   private(set) var talkError: String?
   private var phrases: [Phrase] = []
+  /// The comment tool is on for the open board.
+  private(set) var commenting = false
+  /// Phrases reach the board one at a time, and Send waits for the last.
+  private var phraseWork: Task<Void, Never>?
 
   let web = BoardWeb()
   private let store = LocalStore()
@@ -82,20 +86,34 @@ final class AppModel {
       guard board != "__start" else { return }
       self?.store.saveScene(board, json: json)
     }
+    web.onComments = { [weak self] board, json in
+      guard board != "__start" else { return }
+      self?.store.saveComments(board, json: json)
+    }
     web.onCrash = { [weak self] in
       guard let self, let id = openId else { return }
       openId = nil
       selectedId = id
       Task { await self.openSelected() }
     }
-    dictation.onStatus = { [weak self] in self?.talk = $0 }
+    dictation.onStatus = { [weak self] status in
+      guard let self else { return }
+      talk = status
+      Task { await self.web.setListening(status != .idle) }
+    }
     dictation.onLive = { [weak self] in self?.liveWords = $0 }
     dictation.onFailure = { [weak self] in self?.talkError = $0 }
     dictation.onPhrase = { [weak self] phrase in
       guard let self, let id = openId else { return }
-      phrases.append(phrase)
       liveWords = phrase.text
-      store.savePhrases(id, phrases)
+      let earlier = phraseWork
+      phraseWork = Task {
+        await earlier?.value
+        if await self.web.heard(phrase) { return }
+        guard self.openId == id else { return }
+        self.phrases.append(phrase)
+        self.store.savePhrases(id, self.phrases)
+      }
     }
   }
 
@@ -309,7 +327,7 @@ final class AppModel {
     }
     guard mine == openGeneration else { return }
     do {
-      try await web.open(board: id, scene: store.scene(id), notes: "")
+      try await web.open(board: id, scene: store.scene(id), notes: "", comments: store.comments(id))
     } catch {
       if mine == openGeneration { boardError = "The board didn't open: \(error.localizedDescription)" }
       return
@@ -319,6 +337,7 @@ final class AppModel {
     phrases = store.phrases(id)
     liveWords = ""
     talkError = nil
+    commenting = false
     openId = id
   }
 
@@ -340,6 +359,16 @@ final class AppModel {
 
   private func stopTalking() async {
     await dictation.stop()
+    await phraseWork?.value
+  }
+
+  // MARK: Comment
+
+  func toggleComment() {
+    guard openId != nil else { return }
+    commenting.toggle()
+    let on = commenting
+    Task { await web.setCommenting(on) }
   }
 
   // MARK: Send

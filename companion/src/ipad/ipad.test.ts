@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Handoff } from '../protocol';
 import { IPAD_MAX_BODY_BYTES, parsePairUrl, type IpadDelivery, type PairLink } from '../shared/ipad';
 import type { SendPayload } from '../shared/ipc';
+import { boardMark } from './handoffs';
 import { Ipad, NOT_PAIRED, NO_LAN, type IpadDeps } from './index';
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64');
@@ -328,5 +329,70 @@ describe('delivery', () => {
     expect(big.status).toBe(413);
     const missing = await call(link, 'POST', '/v1/handoffs/none/deliver', { body: delivery(), credential });
     expect(missing.status).toBe(404);
+  });
+});
+
+describe('the board a hand-off started from', () => {
+  const scene = (version: number) => JSON.stringify({ elements: [{ id: 'a', version }] });
+
+  async function handedOff(over: Partial<IpadDeps> = {}) {
+    let disk = { scene: scene(1), notes: 'base notes' };
+    const updateBoard = vi.fn<NonNullable<IpadDeps['updateBoard']>>(async (_name, next, notes, unchanged) => {
+      if (!unchanged()) return false;
+      disk = { scene: next, notes };
+      return true;
+    });
+    const made = await paired({ loadBoard: () => disk, updateBoard, ...over });
+    const { credential, link } = made;
+    const handoff = made.ipad.createHandoff({ sessionId: 's1', board: 'flow' });
+    const deliver = (cred = credential) => call(link, 'POST', `/v1/handoffs/${handoff.id}/deliver`, { body: delivery(), credential: cred });
+    return { ...made, handoff, deliver, updateBoard, edit: () => { disk = { ...disk, scene: scene(2) }; }, disk: () => disk };
+  }
+
+  it('updates that board and sends under its name when nothing changed on the Mac', async () => {
+    const { deliver, sends, boards, filed, disk } = await handedOff();
+    const reply = await deliver();
+    expect(reply.body.state).toBe('delivered');
+    expect(JSON.parse(disk().scene).elements).toEqual([{ id: 'a' }]);
+    expect(disk().notes).toBe('a note');
+    expect(sends[0][0].boardName).toBe('flow');
+    expect(boards.size).toBe(0);
+    expect(filed).toEqual([]);
+  });
+
+  it('keeps an edited board and makes a new one, and says so', async () => {
+    const { deliver, handoff, edit, sends, boards, filed, disk } = await handedOff();
+    edit();
+    const reply = await deliver();
+    expect(JSON.parse(disk().scene).elements).toEqual([{ id: 'a', version: 2 }]);
+    expect(boards.has(handoff.boardName)).toBe(true);
+    expect(sends[0][0].boardName).toBe(handoff.boardName);
+    expect(filed).toEqual([[handoff.boardName, 's1']]);
+    expect(reply.body.message).toContain('"flow" changed on the Mac');
+  });
+
+  it('makes a new board when the panel cannot answer', async () => {
+    const { deliver, handoff, boards } = await handedOff({ updateBoard: async () => { throw new Error('panel is not ready'); } });
+    expect((await deliver()).status).toBe(200);
+    expect(boards.has(handoff.boardName)).toBe(true);
+  });
+
+  it('ignores how the view or file changed', () => {
+    const elements = [{ id: 'a', version: 1 }, { id: 'b', version: 3, isDeleted: true }];
+    const mark = boardMark({ scene: JSON.stringify({ elements, appState: { zoom: 1 } }), notes: '' });
+    expect(boardMark({ scene: JSON.stringify({ elements: [elements[0]], appState: { zoom: 2 }, files: {} }), notes: '' })).toBe(mark);
+    expect(boardMark({ scene: JSON.stringify({ elements: [{ id: 'a', version: 2 }] }), notes: '' })).not.toBe(mark);
+    expect(boardMark({ scene: JSON.stringify({ elements }), notes: 'more' })).not.toBe(mark);
+    expect(boardMark({ scene: null, notes: '' })).toBeUndefined();
+  });
+
+  it('tells the panel about a blank hand-off, and never about an updated board', async () => {
+    const onNewBoard = vi.fn();
+    const { deliver, ipad, credential, link } = await handedOff({ onNewBoard });
+    await deliver();
+    expect(onNewBoard).not.toHaveBeenCalled();
+    const blank = ipad.createHandoff({ sessionId: 's1' });
+    await call(link, 'POST', `/v1/handoffs/${blank.id}/deliver`, { body: delivery(), credential });
+    expect(onNewBoard).toHaveBeenCalledWith(blank.boardName, 's1');
   });
 });

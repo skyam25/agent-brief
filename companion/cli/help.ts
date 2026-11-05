@@ -134,7 +134,7 @@ Ops target ids (s1, p3, S2). apply reads the version first and retries once when
   },
   handoff: {
     usage: 'agent-brief handoff [--prompt <text>] [--board <name>] [--session <id>] [--json]',
-    about: "Asks the paired iPad for a sketch or note. It lists in the iPad's inbox, and Send there returns to this session and no other. --board starts from that board's drawing, else a blank one. --session defaults to the Claude Code session that runs it. Fails when no iPad is paired.",
+    about: "Asks the paired iPad for a sketch or note. It lists in the iPad's inbox, and Send there returns to this session and no other. --board starts from that board's drawing, and Send there updates that board unless it changed on the Mac, else makes a new board. Without --board, it starts blank and makes a new board. --session defaults to the Claude Code session that runs it. Fails when no iPad is paired.",
     example: 'agent-brief handoff --prompt "Mark up the checkout flow" --board checkout-flow',
   },
   'herdr-pictures': {

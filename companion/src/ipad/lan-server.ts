@@ -93,7 +93,7 @@ function isStroke(v: unknown): v is StrokeEvent {
 /** Checks a delivery body. Timeline code trusts these shapes. */
 export function parseIpadDelivery(raw: unknown): IpadDelivery {
   if (!isRecord(raw)) throw bad('body must be an object');
-  const { pngBase64, scene, notes, strokes, utterances, bounds } = raw;
+  const { pngBase64, scene, notes, strokes, utterances, bounds, comments } = raw;
   if (typeof pngBase64 !== 'string' || !pngBase64.startsWith('iVBOR')) throw bad('pngBase64 must be a base64 PNG');
   if (!isRecord(scene) || !Array.isArray(scene.elements)) throw bad('scene must be an Excalidraw scene');
   if (notes !== undefined && typeof notes !== 'string') throw bad('notes must be a string');
@@ -102,7 +102,7 @@ export function parseIpadDelivery(raw: unknown): IpadDelivery {
     throw bad('utterances must have t, tEnd and text');
   }
   if (!isBox(bounds)) throw bad('bounds must have x, y, width and height');
-  return { pngBase64, scene, ...(notes !== undefined ? { notes } : {}), strokes, utterances: utterances as IpadDelivery['utterances'], bounds };
+  return { pngBase64, scene, ...(notes !== undefined ? { notes } : {}), strokes, utterances: utterances as IpadDelivery['utterances'], bounds, ...(comments !== undefined ? { comments } : {}) };
 }
 
 function bearer(req: IncomingMessage): string | undefined {

@@ -49,7 +49,8 @@ export class PenRange {
   seen(type: string, t: number): void {
     this.lastPenAt = t;
     if (type === 'pointerover' || type === 'pointerdown' || type === 'pointermove') this.hovering = true;
-    if (type === 'pointerout' || type === 'pointercancel') this.hovering = false;
+    // A lift ends it too, because a Pencil may send no pointerout. A pen still hovering sends moves.
+    if (type === 'pointerup' || type === 'pointerout' || type === 'pointercancel') this.hovering = false;
   }
 
   inRange(t: number): boolean {

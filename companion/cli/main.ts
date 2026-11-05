@@ -712,7 +712,7 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     const board = str(ctx.args, 'board');
     const body: HandoffRequest = { sessionId, ...(prompt ? { prompt } : {}), ...(board ? { board } : {}) };
     const handoff = await callJson<Handoff>(ctx.socket, 'POST', '/handoffs', body);
-    show(ctx, handoff, (h) => `Handed off to the iPad as ${h.id}. It comes back to this session as board ${h.boardName} when the user presses Send there.`);
+    show(ctx, handoff, (h) => `Handed off to the iPad as ${h.id}. It comes back to this session when the user presses Send there.`);
   },
 
   async 'herdr-pictures'(ctx) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrokeEvent } from '../voice/types';
-import { deliveryOf, onOneClock, toBase64 } from './capture';
+import { deliveryOf, onOneClock, toBase64, targetAt } from './capture';
 
 const stroke = (t: number, tEnd = t + 50): StrokeEvent => ({
   t,
@@ -54,5 +54,16 @@ describe('deliveryOf', () => {
   it('encodes pictures larger than one chunk', () => {
     const bytes = new Uint8Array(0x10001).fill(65);
     expect(atob(toBase64(bytes))).toBe('A'.repeat(0x10001));
+  });
+});
+
+describe('targetAt', () => {
+  const aims = [{ at: 100, target: 'p1' }, { at: 200, target: undefined }, { at: 300, target: 'p2' }];
+
+  it('finds what the voice pointed at when a phrase began', () => {
+    expect(targetAt(aims, 50)).toBeUndefined();
+    expect(targetAt(aims, 150)).toBe('p1');
+    expect(targetAt(aims, 250)).toBeUndefined();
+    expect(targetAt(aims, 300)).toBe('p2');
   });
 });

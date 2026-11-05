@@ -484,15 +484,26 @@ async function start(): Promise<void> {
       if (notes) store.saveNotes(name, notes);
     },
     fileBoard: (name, sessionId) => briefs.move([name], sessionId),
+    updateBoard: async (name, scene, notes, unchanged) => {
+      await bridge.request('flush', {}, 2000);
+      if (!unchanged() || !(await bridge.request('replaceBoard', { board: name, scene, notes }, 5000))) return false;
+      store.saveScene(name, scene);
+      store.saveNotes(name, notes);
+      briefs.touched({ board: name });
+      return true;
+    },
+    onNewBoard: (name, sessionId) => send(CH.ipadBoard, { name, sessionId }),
     send: (payload, sessionId) => sender.send(payload, sessionId),
     onStatus: (status) => send(CH.ipadStatus, status),
     onPairedChange: () => server.refreshSessions(),
     ...(process.env.COMPANION_IPAD_HOST ? { host: process.env.COMPANION_IPAD_HOST } : {}),
     ...(ipadPort ? { port: Number(ipadPort) } : {}),
   });
-  const createHandoff = (req: HandoffRequest) => {
+  const createHandoff = async (req: HandoffRequest) => {
     // The brief outlives the session, so an answer after it ends still has somewhere to file.
     if (!briefs.get(req.sessionId)) briefs.remember(req.sessionId, {});
+    // A pending edit reaches disk first, so the hand-off records what the board really holds.
+    if (req.board) await bridge.request('flush', {}, 2000).catch(() => undefined);
     return ipad.createHandoff(req);
   };
   const server: CompanionServer = createCompanionServer({

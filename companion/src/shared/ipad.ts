@@ -114,6 +114,8 @@ export interface IpadDelivery {
   strokes: StrokeEvent[];
   utterances: IpadUtterance[];
   bounds: { x: number; y: number; width: number; height: number };
+  /** Comments pinned on the iPad. The Mac checks them when it sends. */
+  comments?: unknown;
 }
 
 export interface IpadDeliveryResult {

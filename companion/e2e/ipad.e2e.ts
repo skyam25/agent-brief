@@ -5,7 +5,7 @@ import https from 'node:https';
 import { join } from 'node:path';
 import type { TLSSocket } from 'node:tls';
 import { parsePairUrl, type IpadDelivery, type PairLink } from '../src/shared/ipad';
-import { launch, RESULTS, showPanel, sock, tempDataDir } from './helpers';
+import { launch, RESULTS, sceneElements, showPanel, sock, tempDataDir } from './helpers';
 
 const NEUTRAL_BOUNDS = { x: 0, y: 0, width: 400, height: 300 };
 
@@ -188,5 +188,89 @@ test('the panel hands the open board to the iPad, and the answer belongs to the 
   await page.getByTestId(`ipad-forget-${device.id}`).click();
   await page.getByTestId('ipad-close').click();
   await expect(button).toHaveCount(0);
+  await app.close();
+});
+
+test("the iPad's Send updates the board it started from, or keeps both when the Mac changed it", async () => {
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  const { app, page } = await launch(dataDir, { COMPANION_IPAD_HOST: '127.0.0.1', COMPANION_IPAD_PORT: '0' });
+  await showPanel(app, page);
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: tempDataDir() });
+  await sock(socketPath, 'POST', '/boards/current/draw', { elements: [{ type: 'text', label: 'from the Mac', x: 0, y: 0 }] });
+  await app.evaluate(() => globalThis.__companion.pairIpad());
+  const link = parsePairUrl((await page.getByTestId('ipad-qr').getAttribute('data-url'))!)!;
+  const credential: string = (await lan(link, 'POST', '/v1/pair', undefined, { code: link.code, deviceName: 'Test iPad' })).body.credential;
+  await page.getByTestId('ipad-close').click();
+  const texts = () => sceneElements(page).then((els: readonly any[]) => els.filter((e) => !e.isDeleted && e.type === 'text').map((e) => e.text));
+  const boardNames = async () => (await sock<any>(socketPath, 'GET', '/boards')).body.boards.map((b: { name: string }) => b.name);
+  const current: string = (await sock<any>(socketPath, 'GET', '/boards')).body.current;
+  await expect.poll(texts).toEqual(['from the Mac']);
+
+  /** Hands off the open board and answers with what the iPad drew on its copy. */
+  const handOffAndDraw = async (before: () => Promise<unknown> = async () => {}) => {
+    const made = (await sock<any>(socketPath, 'POST', '/handoffs', { sessionId: 's1', board: current })).body;
+    const base = (await lan(link, 'GET', `/v1/handoffs/${made.id}`, credential)).body.scene;
+    const scene = typeof base === 'string' ? JSON.parse(base) : base;
+    const added = { ...scene.elements[0], id: `ipad-${made.id}`, text: `from the iPad ${made.id}`, originalText: `from the iPad ${made.id}`, y: 200, version: 1 };
+    await before();
+    const delivery: IpadDelivery = { pngBase64: Buffer.from('x').toString('base64'), scene: { ...scene, elements: [...scene.elements, added] }, notes: '', strokes: [], utterances: [], bounds: NEUTRAL_BOUNDS };
+    const png = await app.evaluate(() => globalThis.__companion.backend.png('current', {}).then((b) => b.toString('base64')));
+    return { made, reply: await lan(link, 'POST', `/v1/handoffs/${made.id}/deliver`, credential, { ...delivery, pngBase64: png }) };
+  };
+
+  // Nothing changed on the Mac: the open board shows the iPad's work, and no new board appears.
+  const first = await handOffAndDraw();
+  expect(first.reply.body.state).toBe('delivered');
+  await expect.poll(texts).toEqual(['from the Mac', `from the iPad ${first.made.id}`]);
+  expect(await boardNames()).not.toContain(first.made.boardName);
+  await page.screenshot({ path: join(RESULTS, 'ipad-board-updated.png') });
+
+  // The delivery names the board the user knows.
+  const delivered = (await sock<any>(socketPath, 'GET', '/deliveries?session=s1&wait=0')).body.deliveries;
+  expect(delivered.at(-1).prompt ?? JSON.stringify(delivered.at(-1))).toContain(current);
+
+  // An edit on the Mac stays, and the iPad's work becomes its own board.
+  const second = await handOffAndDraw(() => sock(socketPath, 'POST', '/boards/current/draw', { elements: [{ type: 'text', label: 'edited on the Mac', x: 0, y: 400 }] }));
+  expect(second.reply.body.message).toContain('changed on the Mac');
+  expect(await texts()).toContain('edited on the Mac');
+  expect(await texts()).not.toContain(`from the iPad ${second.made.id}`);
+  await expect.poll(boardNames).toContain(second.made.boardName);
+  expect((await sock<any>(socketPath, 'GET', '/boards')).body.current).toBe(current);
+
+  // A blank hand-off opens its new board only when the panel is on that session.
+  const blank = (await sock<any>(socketPath, 'POST', '/handoffs', { sessionId: 's1' })).body;
+  const blankScene = { type: 'excalidraw', version: 2, elements: [], appState: {}, files: {} };
+  const png = await app.evaluate(() => globalThis.__companion.backend.png('current', {}).then((b) => b.toString('base64')));
+  await lan(link, 'POST', `/v1/handoffs/${blank.id}/deliver`, credential, { pngBase64: png, scene: blankScene, notes: '', strokes: [], utterances: [], bounds: NEUTRAL_BOUNDS });
+  await expect.poll(boardNames).toContain(blank.boardName);
+  expect((await sock<any>(socketPath, 'GET', '/boards')).body.current).toBe(current);
+
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  const shown = (await sock<any>(socketPath, 'POST', '/handoffs', { sessionId: 's1' })).body;
+  await lan(link, 'POST', `/v1/handoffs/${shown.id}/deliver`, credential, { pngBase64: png, scene: blankScene, notes: '', strokes: [], utterances: [], bounds: NEUTRAL_BOUNDS });
+  await expect.poll(async () => (await sock<any>(socketPath, 'GET', '/boards')).body.current).toBe(shown.boardName);
+  await app.close();
+});
+
+test("the iPad's comments reach the session as comments.md", async () => {
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  const { app, page } = await launch(dataDir, { COMPANION_IPAD_HOST: '127.0.0.1', COMPANION_IPAD_PORT: '0' });
+  await showPanel(app, page);
+  const project = tempDataDir();
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd: project });
+  await app.evaluate(() => globalThis.__companion.pairIpad());
+  const link = parsePairUrl((await page.getByTestId('ipad-qr').getAttribute('data-url'))!)!;
+  const credential: string = (await lan(link, 'POST', '/v1/pair', undefined, { code: link.code, deviceName: 'Test iPad' })).body.credential;
+  const made = (await sock<any>(socketPath, 'POST', '/handoffs', { sessionId: 's1' })).body;
+  const png = await app.evaluate(() => globalThis.__companion.backend.png('current', {}).then((b) => b.toString('base64')));
+  const comments = { overall: 'Tighten this flow', pins: [{ id: 'p1', x: 10, y: 10, type: 'rectangle', text: 'Make this bigger', createdAt: 1 }] };
+  const sent = await lan(link, 'POST', `/v1/handoffs/${made.id}/deliver`, credential, { pngBase64: png, scene: { type: 'excalidraw', version: 2, elements: [], appState: {}, files: {} }, notes: '', strokes: [], utterances: [], bounds: NEUTRAL_BOUNDS, comments });
+  expect(sent.status).toBe(200);
+  const sketches = join(project, '.feedback', 'sketches');
+  const written = readFileSync(join(sketches, readdirSync(sketches)[0], 'comments.md'), 'utf8');
+  expect(written).toContain('Make this bigger');
+  expect(written).toContain('Tighten this flow');
   await app.close();
 });

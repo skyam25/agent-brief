@@ -218,7 +218,7 @@ When you drive a browser for the user, with Playwright or another browser tool, 
 
 ## Handing a board to the iPad
 
-When the user asks to work on their iPad, run `agent-brief handoff --session "$CLAUDE_CODE_SESSION_ID" [--board <name>] [--prompt <text>]`. Only do this when they ask. The hand-off lands in the iPad's inbox with `--board` as its starting point, or a blank board. Their Send arrives in this session as your next prompt. With no iPad paired, the command says so, and you tell the user to choose Pair iPad… in the app.
+When the user asks to work on their iPad, run `agent-brief handoff --session "$CLAUDE_CODE_SESSION_ID" [--board <name>] [--prompt <text>]`. Only do this when they ask. The hand-off lands in the iPad's inbox with `--board` as its starting point, or a blank board. Their Send arrives in this session as your next prompt. It also updates the `--board` board, unless that board changed on the Mac meanwhile. Then, and for a blank hand-off, the work is a new board, which the prompt names. With no iPad paired, the command says so, and you tell the user to choose Pair iPad… in the app.
 
 ## Showing a picture in the chat
 

@@ -127,7 +127,7 @@ export interface InitiativeBackend {
 export interface IpadBackend {
   status(): IpadStatus;
   /** Throws a `conflict` error with no paired iPad. The session is live. */
-  createHandoff(req: HandoffRequest): Handoff;
+  createHandoff(req: HandoffRequest): Handoff | Promise<Handoff>;
   listHandoffs(sessionId?: string): Handoff[];
   removeHandoff(id: string): boolean;
 }

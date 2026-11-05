@@ -1,7 +1,10 @@
 import type { ReviewVoice } from './review-voice';
 
+/** The parts of a voice the comment column reads. */
+export type ColumnVoice = Pick<ReviewVoice, 'version' | 'subscribe' | 'recording' | 'target' | 'pending' | 'settling' | 'starting' | 'aim'>;
+
 /** Says when the mic is on this target, shows words still settling there, or says they are turning into text. */
-export function VoiceState(props: { voice: ReviewVoice; target: string }) {
+export function VoiceState(props: { voice: ColumnVoice; target: string }) {
   const listening = props.voice.recording && props.voice.target === props.target;
   const pending = props.voice.pending.has(props.target);
   const settling = props.voice.settling.get(props.target);

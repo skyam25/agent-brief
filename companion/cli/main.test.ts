@@ -344,7 +344,7 @@ describe('ipad and handoff', () => {
     app.handler = () => ({ json: handoff });
     const r = await run(['handoff', '--prompt', 'Mark it up', '--board', 'flow', '--session', 's9']);
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain('ipad-h1');
+    expect(r.stdout).toContain('Handed off to the iPad as h1');
     expect(app.seen[0]).toEqual({ method: 'POST', url: '/handoffs', body: { sessionId: 's9', prompt: 'Mark it up', board: 'flow' } });
   });
 
