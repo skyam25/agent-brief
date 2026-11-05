@@ -16,6 +16,10 @@ files:
   - '!**/node_modules/**'
   - '!**/*.map'
 extraResources:
+  # electron-updater reads this before every download. electron-builder only
+  # generates it for zip and dmg targets, so a --dir build needs this copy.
+  - from: build/app-update.yml
+    to: app-update.yml
   - from: bin/agent-brief.mjs
     to: bin/agent-brief.mjs
   - from: bin/agent-brief

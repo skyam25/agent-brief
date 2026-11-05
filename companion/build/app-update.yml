@@ -1,0 +1,4 @@
+owner: skyam25
+repo: agent-brief
+provider: github
+updaterCacheDirName: agent-brief-app-updater
