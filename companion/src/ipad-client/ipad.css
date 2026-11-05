@@ -22,3 +22,22 @@ body {
 .ipad-board .excalidraw .layer-ui__wrapper__footer-right {
   display: none;
 }
+
+/* Touch targets reach 44pt where the toolbar has room. The narrow layout keeps its own sizes, because 44pt tools overflow it. */
+.ipad-board .excalidraw:not(.excalidraw--mobile) {
+  --lg-button-size: 2.75rem;
+  --lg-icon-size: 1.375rem;
+  --default-button-size: 2.75rem;
+  --default-icon-size: 1.375rem;
+}
+
+/* Desktop keyboard hints don't belong on a touch board. */
+.ipad-board .excalidraw .ToolIcon__keybinding,
+.ipad-board .excalidraw .HintViewer {
+  display: none;
+}
+
+/* The canvas runs under the home indicator, and the controls stay above it. */
+.ipad-board .excalidraw .layer-ui__wrapper__footer {
+  padding-bottom: env(safe-area-inset-bottom);
+}

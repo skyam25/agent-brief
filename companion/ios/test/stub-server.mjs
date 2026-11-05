@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { join } from 'node:path';
 
-export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '' }) {
+export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [] }) {
   mkdirSync(dir, { recursive: true });
   const keyFile = join(dir, 'key.pem');
   const certFile = join(dir, 'cert.pem');
@@ -27,6 +27,7 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
   const handoffs = new Map([
     ['h1', { id: 'h1', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', prompt: `${promptPrefix}${promptPrefix ? 'mark' : 'Mark'} up the sign-up flow`, boardName: 'signup', createdAt: now - 120_000, state: 'open' }],
     ['h2', { id: 'h2', sessionId: 's2', sessionLabel: 'other session', prompt: `${promptPrefix}Blank board, no base scene`, boardName: 'blank', createdAt: now - 60_000, state: 'open' }],
+    ...extra.map((h, i) => [h.id, { sessionId: `x${i}`, boardName: h.id, createdAt: now - 180_000 - i * 3_600_000, state: 'open', ...h }]),
   ]);
   const delivered = new Map();
   const received = [];
@@ -59,7 +60,9 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
         return reply(res, 200, { ok: true });
       }
       if (req.method === 'GET' && path === '/v1/handoffs') {
-        return reply(res, 200, { handoffs: [...handoffs.values()].filter((h) => h.state === 'open').sort((a, b) => b.createdAt - a.createdAt) });
+        if (existsSync(join(dir, 'empty'))) return reply(res, 200, { handoffs: [] });
+        const open = [...handoffs.values()].filter((h) => h.state === 'open' && !existsSync(join(dir, `closed-${h.id}`)));
+        return reply(res, 200, { handoffs: open.sort((a, b) => b.createdAt - a.createdAt) });
       }
       const detail = /^\/v1\/handoffs\/([^/]+)$/.exec(path);
       if (req.method === 'GET' && detail) {
@@ -72,12 +75,14 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
         const h = handoffs.get(deliver[1]);
         if (!h) return reply(res, 404, { error: 'no such hand-off', code: 'not_found' });
         if (delivered.has(h.id)) return reply(res, 200, delivered.get(h.id));
+        if (existsSync(join(dir, 'refuse'))) return reply(res, 400, { error: 'This session has ended on the Mac.', code: 'bad_request' });
         const payload = JSON.parse(body);
         writeFileSync(join(dir, `delivery-${h.id}.json`), body);
         received.push({ kind: 'deliver', id: h.id, payload });
         h.state = 'delivered';
         const result = { ok: true, state: 'delivered', message: `Sent to ${h.sessionLabel}` };
         delivered.set(h.id, result);
+        if (existsSync(join(dir, 'slow'))) return void setTimeout(() => reply(res, 200, result), 6_000);
         return reply(res, 200, result);
       }
       reply(res, 404, { error: 'no route', code: 'not_found' });

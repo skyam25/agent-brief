@@ -23,3 +23,5 @@ On the Mac, choose Pair iPad… in Agent Brief. Point the iPad's Camera app at t
 ## Test
 
 `node ios/test/run-sim.mjs` runs the UI test on a simulator against `ios/test/stub-server.mjs` and checks what the stub received. `src/ipad-client/capture.test.ts` runs in `pnpm test`.
+
+`node ios/test/tour-sim.mjs <out-dir> [light|dark] [landscape|portrait]` walks every screen on a simulator and writes screenshots to `<out-dir>`, for checking UI changes by eye.
