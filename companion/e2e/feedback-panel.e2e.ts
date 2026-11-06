@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSy
 import { dirname, join } from 'node:path';
 import type { FeedbackDocument, OutputRecord } from '../src/protocol';
 import { isoDate, parseFeedback } from '../src/shared/feedback';
-import { deliveriesFor, launch, launchShown, RESULTS, ROOT, showPanel, sock, tempDataDir, type Launched } from './helpers';
+import { deliveriesFor, launch, launchShown, RESULTS, ROOT, showPanel, sock, tempDataDir, type Launched, expandCard } from './helpers';
 
 let ctx: Launched;
 test.afterEach(async () => { await ctx?.app.close(); });
@@ -23,11 +23,7 @@ async function agent(socketPath: string, route: string, ops: unknown[]) {
 }
 
 /** Opens a card unless it is open already. */
-const expand = async (card: Locator) => {
-  const head = card.getByTestId('feedback-expand');
-  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
-  await expect(head).toHaveAttribute('aria-expanded', 'true');
-};
+const expand = expandCard;
 
 const panelVisible = () => ctx.app.evaluate(() => globalThis.__companion.panel.isVisible());
 
@@ -161,6 +157,7 @@ test('receipts cover more than one update holds, and a failed receipt keeps the 
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'fp-2' });
   await page.getByTestId('mode-review').click();
   await page.getByTestId('outputs-feedback').locator('button.output-feedback').click();
+  await expand(view.getByTestId('feedback-item-1'));
   await view.getByTestId('feedback-item-1').getByTestId('feedback-reopen').click();
   await expect(sendButton).toHaveText('Send decisions · 1');
   chmodSync(join(cwd, 'site'), 0o555);
@@ -193,7 +190,7 @@ test('page clicks list their items, pins carry them into review.md, and a quote 
   const frame = page.frameLocator('[data-testid="review-frame"]');
 
   // The quote's time opens the round's transcript.
-  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
+  await expand(page.getByTestId('feedback-item-1'));
   await page.getByTestId('feedback-item-1').getByTestId('feedback-source').click();
   await expect.poll(() => app.evaluate(() => [...globalThis.__companion.openedOutputs])).toContain(join(cwd, 'transcripts/cust-1.md'));
 
@@ -381,13 +378,19 @@ test('cards show compact, open one at a time, and the Open filter folds closed r
   const first = page.getByTestId('feedback-item-1');
   const second = page.getByTestId('feedback-item-2');
 
-  // Compact: title, state, round, a one-line quote, the proposed change and the decision buttons.
-  await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
-  await expect(first.getByTestId('feedback-quote-line')).toContainText('Where do I filter?');
+  // The review opens on the first open item. The rest stay one line: title, state and the proposed change.
+  await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
+  await expect(second.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('feedback-steps')).toContainText('2 to decide');
+  await expect(page.getByTestId('feedback-step-1')).toHaveAttribute('aria-current', 'step');
+  // The source speaks under its own name, apart from Claude's proposal.
+  await expect(first.getByTestId('feedback-quote')).toContainText('Ana');
+  await expect(first.getByTestId('feedback-quote')).toContainText('Where do I filter?');
+  await expect(first.getByTestId('feedback-claude')).toHaveText(/Claude.*Move the filter row above the results\./);
+  await first.getByTestId('feedback-expand').click();
   await expect(first.getByTestId('feedback-change-line')).toHaveText('Move the filter row above the results.');
   await expect(second.getByTestId('feedback-change-line')).toHaveCount(0);
-  for (const id of ['feedback-accept', 'feedback-reject']) await expect(first.getByTestId(id)).toBeVisible();
-  for (const id of ['feedback-note', 'feedback-show', 'feedback-workspace-open', 'feedback-voice']) await expect(first.getByTestId(id)).toHaveCount(0);
+  for (const id of ['feedback-accept', 'feedback-reject', 'feedback-next', 'feedback-note', 'feedback-show', 'feedback-workspace-open', 'feedback-voice']) await expect(first.getByTestId(id)).toHaveCount(0);
 
   // Round 2 holds only a done item, so Open folds it to one line.
   await expect(page.getByTestId('feedback-filter-open')).toHaveAttribute('aria-pressed', 'true');
@@ -396,12 +399,12 @@ test('cards show compact, open one at a time, and the Open filter folds closed r
   await page.screenshot({ path: join(RESULTS, 'feedback-compact.png') });
 
   // One card opens at a time.
-  await first.getByTestId('feedback-quote-line').click();
+  await first.getByTestId('feedback-change-line').click();
   await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
   await expect(first).toContainText('Move the filter row above the results.');
   await expect(first.getByTestId('feedback-note')).toHaveAttribute('placeholder', 'Note or reason');
   await page.screenshot({ path: join(RESULTS, 'feedback-expanded.png') });
-  await second.getByTestId('feedback-expand').click();
+  await expand(second);
   await expect(second.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
   await expect(first.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
 
@@ -415,20 +418,28 @@ test('cards show compact, open one at a time, and the Open filter folds closed r
   await expect(page.getByTestId('feedback-pointed')).toHaveCount(0);
   await expect(second).not.toHaveClass(/focused/);
 
-  // A decision on a compact card shows under its title, and the card stays listed.
+  // A decision keeps the card open and listed. Next moves to the next open item.
+  await expand(first);
   await first.getByTestId('feedback-accept').click();
   await expect(first.getByTestId('feedback-state')).toHaveText('Accepted');
   // A bare accept says nothing the state chip doesn't.
   await expect(first.getByTestId('feedback-said')).toHaveCount(0);
+  await expect(page.getByTestId('feedback-step-1')).toHaveClass(/accepted/);
+  await first.getByTestId('feedback-next').click();
+  await expect(second.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
   await second.getByTestId('feedback-reject').click();
   await expect(second.getByTestId('feedback-state')).toHaveText('Rejected');
   await expect(second).toBeVisible();
+  await expect(page.getByTestId('feedback-finished')).toContainText('Nothing left to decide.');
+  // With nothing left, Next closes the card.
+  await second.getByTestId('feedback-next').click();
+  await expect(second.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
 
   // All lists closed items, which offer only Reopen.
   await page.getByTestId('feedback-filter-all').click();
   const third = page.getByTestId('feedback-item-3');
   await expect(third).toBeVisible();
-  await third.getByTestId('feedback-expand').click();
+  await expand(third);
   await expect(third.getByTestId('feedback-reopen')).toBeVisible();
   for (const id of ['feedback-accept', 'feedback-reject', 'feedback-note', 'feedback-voice', 'feedback-workspace-open', 'feedback-show']) await expect(third.getByTestId(id)).toHaveCount(0);
   await expect(panel.locator('.feedback-round h4')).toHaveText([/Round 2 · SME/, /Round 1 · customers/]);
@@ -455,6 +466,9 @@ test('Updated marks a reply after your send, the history leaves out receipts, an
   await card.getByTestId('feedback-accept').click();
   await expect(send).toHaveText('Send decisions · 1');
   await page.screenshot({ path: join(RESULTS, 'feedback-footer-send.png') });
+  // Next leaves the card, so a later reply marks it Updated.
+  await card.getByTestId('feedback-next').click();
+  await expect(card.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'false');
   await send.click();
   await expect.poll(async () => (await deliveriesFor(h.socketPath, 'fp-8')).length).toBe(1);
   expect((await deliveriesFor(h.socketPath, 'fp-8'))[0]!.draft).toContain('- #1 Title is vague: accept');
@@ -466,7 +480,7 @@ test('Updated marks a reply after your send, the history leaves out receipts, an
   await expect(card.getByTestId('feedback-updated')).toBeVisible();
   await expect(page.getByTestId('feedback-item-2').getByTestId('feedback-updated')).toHaveCount(0);
   await page.screenshot({ path: join(RESULTS, 'feedback-updated.png') });
-  await card.getByTestId('feedback-expand').click();
+  await expand(card);
   await expect(card.getByTestId('feedback-updated')).toHaveCount(0);
   await expect(card.locator('summary')).toHaveText('History · 3');
   await card.locator('summary').click();
@@ -474,9 +488,12 @@ test('Updated marks a reply after your send, the history leaves out receipts, an
   await card.getByTestId('feedback-expand').click();
   await expect(card.getByTestId('feedback-updated')).toHaveCount(0);
 
-  // Off the Feedback tab, Send is the review's own again.
-  await page.getByRole('tab', { name: 'Comments' }).click();
+  // While your comments show over the page, Send is the review's own again.
+  await page.getByTestId('review-comments-toggle').click();
+  await expect(page.getByTestId('review-comments-float')).toBeVisible();
   await expect(send).toHaveText('Send');
+  await page.getByTestId('review-comments-close').click();
+  await expect(send).toHaveText('Send decisions');
 });
 
 /** Option and raised-again parsing comes from the core fixes; these checks wait for it. */
@@ -518,20 +535,18 @@ test('options are choices, an accept names the one picked, and a raised-again it
   await page.getByTestId('feedback-tab').click();
   const raised = page.getByTestId('feedback-item-2');
   await expect(raised.getByTestId('feedback-raised')).toHaveText('Raised again · round 2');
+  await expand(raised);
   await expect(raised.getByTestId('feedback-reopen')).toBeVisible();
 
-  // A compact card with options asks for one, and its button opens the card to pick.
+  // A card with options has no Accept button. Picking an option accepts it.
   const card = page.getByTestId('feedback-item-1');
-  await expect(card.getByTestId('feedback-accept')).toHaveText('Choose A or B');
-  await card.getByTestId('feedback-accept').click();
-  await expect(card.getByTestId('feedback-expand')).toHaveAttribute('aria-expanded', 'true');
+  await expand(card);
+  await expect(card.getByTestId('feedback-accept')).toHaveCount(0);
   // A source with no time names only the speaker.
-  await expect(card.locator('.review-quote .muted')).toHaveText(/— Ben$/);
+  await expect(card.locator('.feedback-voice-head').first()).toHaveText('Ben');
+  await page.screenshot({ path: join(RESULTS, 'feedback-options.png') });
   await card.getByTestId('feedback-option-B').click();
   await expect(card.getByTestId('feedback-option-B')).toHaveAttribute('aria-checked', 'true');
-  await expect(card.getByTestId('feedback-accept')).toHaveText('Accept B');
-  await page.screenshot({ path: join(RESULTS, 'feedback-options.png') });
-  await card.getByTestId('feedback-accept').click();
   await expect(card.getByTestId('feedback-state')).toHaveText('Accepted');
   expect(readFileSync(join(cwd, 'checkout.html.feedback.md'), 'utf8')).toMatch(/You: \d{4}-\d{2}-\d{2} · accept · option B\n/);
   await page.getByTestId('send').click();

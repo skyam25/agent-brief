@@ -385,7 +385,7 @@ function start(): void {
       if (element && element.getBoundingClientRect().width && element.getBoundingClientRect().height) showElement(element);
       else {
         hideShown();
-        window.parent.postMessage({ source: REVIEW_SOURCE, type: 'behavior-missing' }, '*');
+        if (!m.quiet) window.parent.postMessage({ source: REVIEW_SOURCE, type: 'behavior-missing' }, '*');
       }
     }
     if (m.type === 'measure') {

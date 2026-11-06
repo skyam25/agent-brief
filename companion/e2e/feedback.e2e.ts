@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { FeedbackDocument, OutputRecord } from '../src/protocol';
 import { isoDate } from '../src/shared/feedback';
-import { deliveriesFor, launchShown, RESULTS, sock, tempDataDir, type Launched } from './helpers';
+import { deliveriesFor, launchShown, RESULTS, sock, tempDataDir, type Launched, expandCard } from './helpers';
 
 let ctx: Launched;
 test.afterEach(async () => { await ctx?.app.close(); });
@@ -46,9 +46,9 @@ test('lists feedback by round, saves decisions as You lines, and sends them', as
   const first = page.getByTestId('feedback-item-1');
   await expect(page.getByTestId('feedback-round-1')).toContainText('Hard to find the filters');
   await expect(first.getByTestId('feedback-also')).toHaveText('also round 2');
-  await expect(first).toContainText('Where do I filter?');
   await expect(first.getByTestId('feedback-change-line')).toHaveText('Move the filter row above the results.');
-  await first.getByTestId('feedback-expand').click();
+  await expandCard(first);
+  await expect(first).toContainText('Where do I filter?');
   await expect(first).toContainText('Move the filter row above the results.');
   await first.getByTestId('feedback-show').click();
 
@@ -62,7 +62,7 @@ test('lists feedback by round, saves decisions as You lines, and sends them', as
 
   // A rejected card keeps only Reopen.
   const second = page.getByTestId('feedback-item-2');
-  await second.getByTestId('feedback-expand').click();
+  await expandCard(second);
   await second.getByTestId('feedback-note').fill('copy belongs to marketing');
   await second.getByTestId('feedback-reject').click();
   await expect(second.getByTestId('feedback-state')).toHaveText('Rejected');
@@ -73,7 +73,7 @@ test('lists feedback by round, saves decisions as You lines, and sends them', as
 
   // Claude's writes reach the open panel, and the history shows every line.
   await agent(h.socketPath, route, [{ op: 'append', item: 1, key: 'Claude', text: 'note · checking mobile first' }]);
-  await first.getByTestId('feedback-expand').click();
+  await expandCard(first);
   await first.locator('summary').click();
   await expect(first.getByTestId('feedback-line').last()).toHaveText(`Claude${today} · note · checking mobile first`);
   await page.screenshot({ path: join(RESULTS, 'feedback-tab.png') });
@@ -110,7 +110,7 @@ test('opens feedback full width for an output with no page', async () => {
   await page.getByTestId('output-feedback-0').click();
   const view = page.getByTestId('feedback-view');
   await expect(view).toContainText('docs/prd.md');
-  await view.getByTestId('feedback-expand').click();
+  await expandCard(view);
   await expect(view.getByTestId('feedback-item-1')).toContainText('Where · ## Pricing');
   await expect(view.getByTestId('feedback-show')).toHaveCount(0);
   await view.getByTestId('feedback-accept').click();

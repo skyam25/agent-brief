@@ -3285,6 +3285,7 @@ button.stop-talk:hover {
 }
 
 .review-notes h3,
+.review-comments-float h3,
 .review-overall .section-head {
   display: flex;
   align-items: center;
@@ -3303,7 +3304,8 @@ button.stop-talk:hover {
   gap: 4px;
 }
 
-.review-notes textarea {
+.review-notes textarea,
+.review-comments-float textarea {
   width: 100%;
   box-sizing: border-box;
   min-height: 52px;
@@ -3318,7 +3320,8 @@ button.stop-talk:hover {
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-.review-notes textarea:focus {
+.review-notes textarea:focus,
+.review-comments-float textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -4323,3 +4326,35 @@ button.feedback-option.on .key { color: var(--accent); }
   gap: 8px;
   padding: 2px 0;
 }
+
+/* Review side column: a drag edge on its left, an expand button in its tab row. */
+.review > .review-notes-edge { grid-area: 2 / 2; justify-self: start; position: relative; left: -3px; z-index: 5; width: 6px; cursor: col-resize; }
+.review-notes-edge:hover, .review.resizing .review-notes-edge { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+.review.resizing { cursor: col-resize; user-select: none; }
+.review.resizing iframe { pointer-events: none; }
+.review-notes-tabs { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; background: var(--bg); }
+.review-notes-tabs .spacer { flex: 1; }
+.review-notes-tabs .icon-button.on { color: var(--accent); }
+
+/* With feedback items, your comments float over the page's bottom right, clear of its top. */
+.review-comments-float { position: absolute; right: 10px; bottom: 52px; z-index: 4; display: flex; flex-direction: column; gap: 4px; width: min(320px, calc(100% - 20px)); max-height: min(55%, 440px); overflow-y: auto; padding: 4px 10px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--fg); box-shadow: 0 8px 28px rgb(0 0 0 / 0.18); }
+.review-comments-float-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 6px 0 2px; font-size: 12px; font-weight: 600; background: var(--bg); }
+
+/* Feedback walks one item at a time: a step strip, the open card, then Next. */
+.feedback-steps { position: sticky; top: 38px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 4px 0; background: var(--bg); }
+button.feedback-step { min-width: 22px; height: 20px; padding: 0 5px; border-radius: 5px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); background: var(--hover); }
+button.feedback-step.open { color: var(--fg); background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+button.feedback-step.accepted, button.feedback-step.done { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+button.feedback-step[aria-current='step'] { color: var(--accent-fg); background: var(--accent); box-shadow: none; }
+.feedback-steps-left { margin-left: 4px; font-size: 11px; }
+.feedback-finished { padding: 6px 8px; border-radius: 6px; font-size: 12px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.feedback-item .behavior-actions { display: flex; align-items: center; gap: 4px; }
+.feedback-item .behavior-actions .spacer { flex: 1; }
+.feedback-voice-head { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.feedback-voice-head .who { font-weight: 600; color: var(--muted); }
+.feedback-said-by { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.feedback-said-by .review-quote { margin: 0; }
+.feedback-claude { display: flex; flex-direction: column; gap: 2px; }
+.feedback-claude .who { color: var(--accent); }
+.feedback-item button.chip.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
+.feedback-item button.chip.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }

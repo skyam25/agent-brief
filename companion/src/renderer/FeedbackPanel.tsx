@@ -1,6 +1,7 @@
 /**
  * Feedback items for one output: grouped by the round they first came up in,
- * newest round on top. Cards show compact, and one at a time opens in full.
+ * newest round on top. The panel walks the open items one at a time: one card opens in full,
+ * the rest stay one line, and Next moves to the next item that needs a decision.
  * Each decision, note and voice note saves to the file at once as a dated You line.
  * While the panel shows, the footer Send hands Claude what you said and saved since the last send.
  * On a page, a click lists the items on that element, and a picked item ties the next pin to it.
@@ -9,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { FeedbackDocument, FeedbackFileSummary, FeedbackItem, FeedbackOp } from '../protocol';
-import { decisionsPrompt, pendingDecisions, quoted, receiptBatches, type PendingDecision } from '../shared/feedback';
+import { decisionsPrompt, pendingDecisions, receiptBatches, type PendingDecision } from '../shared/feedback';
 import { workspaceSummary } from '../shared/feedback-workspace';
 import { concerns, type CompanionApi } from '../shared/ipc';
 import { BeforeAfter, type PictureHost } from './BeforeAfter';
@@ -117,6 +118,13 @@ export function useFeedbackFiles(host: FeedbackHost, sessionId: string | undefin
 /** Items that wait on the user: open ones and closed ones raised again. */
 export const openCount = (doc?: FeedbackDocument) => doc?.items.filter(needsLook).length ?? 0;
 
+/** Items in the order the panel lists them: newest round first, then items with no known round. */
+function itemOrder(doc: FeedbackDocument): FeedbackItem[] {
+  const rounds = [...(doc.rounds ?? [])].sort((a, b) => b.n - a.n).map((r) => r.n);
+  const known = new Set(rounds);
+  return [...rounds.flatMap((n) => doc.items.filter((i) => i.round === n)), ...doc.items.filter((i) => i.round === undefined || !known.has(i.round))];
+}
+
 const STATE_LABELS: Record<FeedbackItem['state'], string> = { open: 'Open', accepted: 'Accepted', rejected: 'Rejected', done: 'Done' };
 
 export function FeedbackPanel(props: {
@@ -125,6 +133,8 @@ export function FeedbackPanel(props: {
   feedback: FeedbackDocState;
   /** Highlights an item's `Where:` on the page. Absent where no page shows. */
   onShow?: (selector: string) => void;
+  /** Scrolls the page to an opened item's `Where:`, and stays quiet when the element is gone. */
+  onFollow?: (selector: string) => void;
   onSend: SendFeedback;
   /** False when the session has ended, so nothing can be sent. */
   canSend: boolean;
@@ -146,6 +156,8 @@ export function FeedbackPanel(props: {
   onPick?: (n: number | undefined) => void;
   /** Draws the graph in place of the list. Otherwise it covers the review page as a layer. */
   inlineGraph?: boolean;
+  /** Leaves the footer Send to the review, while your comments show. */
+  yieldSend?: boolean;
 }) {
   const { doc, error, apply } = props.feedback;
   const [graphShown, setGraphShown] = useState(false);
@@ -163,6 +175,22 @@ export function FeedbackPanel(props: {
     root.current?.querySelector(`[data-testid="feedback-item-${expanded}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [graphShown, expanded, doc?.path]);
   const expandedItem = doc?.items.find((i) => i.n === expanded);
+
+  // The review opens on the first item that needs a decision.
+  const started = useRef(props.focus !== undefined);
+  useEffect(() => {
+    if (started.current || !doc) return;
+    started.current = true;
+    const first = itemOrder(doc).find(needsLook);
+    if (first) setExpanded(first.n);
+  }, [doc]);
+
+  // The page follows the open card.
+  const follow = useRef(props.onFollow);
+  follow.current = props.onFollow;
+  useEffect(() => {
+    if (expandedItem?.where && !isClosed(expandedItem)) follow.current?.(expandedItem.where);
+  }, [expanded]);
   // A pick lasts while its card stays open and the item stays open.
   const pickedItem = doc?.items.find((i) => i.n === props.picked);
   useEffect(() => {
@@ -279,12 +307,21 @@ export function FeedbackPanel(props: {
   const sendRef = useRef(send);
   sendRef.current = send;
   const blocked = readOnly ? 'This feedback is read-only, since its output is gone.' : !props.canSend ? 'This session has ended. Resume it to send.' : undefined;
-  useEffect(() => claimDecisions({ count: waiting, blocked, send: () => sendRef.current() }), [waiting, blocked]);
+  const yieldSend = !!props.yieldSend;
+  useEffect(() => (yieldSend ? undefined : claimDecisions({ count: waiting, blocked, send: () => sendRef.current() })), [waiting, blocked, yieldSend]);
 
   const rounds = [...(doc?.rounds ?? [])].sort((a, b) => b.n - a.n);
   const known = new Set(rounds.map((r) => r.n));
   const loose = items.filter((i) => i.round === undefined || !known.has(i.round));
   const listed = (i: FeedbackItem) => filter === 'all' || inOpenFilter(i) || i.n === expanded || kept.has(i.n);
+  const order = doc ? itemOrder(doc).filter(listed) : [];
+  const left = openCount(doc);
+  /** Opens the next item after `n` that needs a decision, wrapping to the top. Closes the card when none is left. */
+  const next = (n: number) => {
+    const at = order.findIndex((i) => i.n === n);
+    const after = [...order.slice(at + 1), ...order.slice(0, Math.max(at, 0))].find((i) => i.n !== n && needsLook(i));
+    setExpanded(after?.n);
+  };
   const showItem = (item: FeedbackItem) =>
     props.onShow &&
     ((selector: string) => {
@@ -307,6 +344,8 @@ export function FeedbackPanel(props: {
       }}
       expanded={item.n === expanded}
       onExpand={(open) => setExpanded(open ? item.n : undefined)}
+      onNext={() => next(item.n)}
+      grouped={item.round !== undefined && known.has(item.round)}
       note={drafts[item.n] ?? ''}
       onNote={(text) => setDraft(item.n, text)}
       updated={!!doc && item.n !== expanded && updatedSince(item, seenCount(doc.path, item.n))}
@@ -383,6 +422,28 @@ export function FeedbackPanel(props: {
           </section>,
           layerHost,
         )}
+      {!graphInline && order.length > 1 && (
+        <nav className="feedback-steps" aria-label="Items" data-testid="feedback-steps">
+          {order.map((i) => (
+            <button
+              key={i.n}
+              className={`feedback-step ${needsLook(i) ? 'open' : i.state}`}
+              aria-current={i.n === expanded ? 'step' : undefined}
+              title={`#${i.n} ${i.title}`}
+              onClick={() => setExpanded(i.n)}
+              data-testid={`feedback-step-${i.n}`}
+            >
+              {i.n}
+            </button>
+          ))}
+          <span className="muted feedback-steps-left">{left ? `${left} to decide` : 'All decided'}</span>
+        </nav>
+      )}
+      {!graphInline && items.length > 0 && !left && !readOnly && (
+        <p className="feedback-finished" data-testid="feedback-finished">
+          Nothing left to decide.{waiting ? ' Send decisions hands them to Claude.' : ''}
+        </p>
+      )}
       {!graphInline && props.onPick && items.length > 0 && (props.pointed || props.picked !== undefined) && (
         <div className="feedback-pointed" data-testid="feedback-pointed">
           {props.picked !== undefined ? (
@@ -458,6 +519,10 @@ function ItemCard(props: {
   /** Shows the whole card. Otherwise it shows compact. */
   expanded: boolean;
   onExpand: (open: boolean) => void;
+  /** Opens the next item that needs a decision. */
+  onNext: () => void;
+  /** The card sits under its round's heading, so it needs no round tag. */
+  grouped?: boolean;
   /** The note being typed, kept by the panel so Send can save it. */
   note: string;
   onNote: (text: string) => void;
@@ -489,13 +554,13 @@ function ItemCard(props: {
   const time = sourceTime(src);
   const closed = isClosed(item);
   const options = item.options ?? [];
-  const say = async (verb: 'accept' | 'reject' | 'reopen' | 'note') => {
+  const say = async (verb: 'accept' | 'reject' | 'reopen' | 'note', picked = option) => {
     const detail = oneLine(note);
     if (verb === 'note' && !detail) return;
     // An item with options opens to have one picked before an accept.
-    if (verb === 'accept' && options.length && !option) return props.onExpand(true);
+    if (verb === 'accept' && options.length && !picked) return props.onExpand(true);
     setSaving(true);
-    const ok = await props.onApply([{ op: 'append', item: item.n, key: 'You', text: decisionText(verb, verb === 'accept' ? option : undefined, detail) }]);
+    const ok = await props.onApply([{ op: 'append', item: item.n, key: 'You', text: decisionText(verb, verb === 'accept' ? picked : undefined, detail) }]);
     setSaving(false);
     if (ok) setNote('');
   };
@@ -504,6 +569,12 @@ function ItemCard(props: {
   const said = latestSaid(item);
   const saidText = said?.detail;
   const acceptable = item.state !== 'accepted' || (!!option && option !== item.chosen) || !!oneLine(note);
+  /** Picking an option accepts it. */
+  const choose = (key: string) => {
+    if (item.state === 'accepted' && key === item.chosen && !oneLine(note)) return;
+    setOption(key);
+    void say('accept', key);
+  };
 
   const actions = !props.readOnly && (
     <div className="behavior-actions">
@@ -513,9 +584,11 @@ function ItemCard(props: {
         </button>
       ) : (
         <>
-          <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => acceptable && void say('accept')} data-testid="feedback-accept">
-            {acceptLabel(options, option)}
-          </button>
+          {!options.length && (
+            <button className={item.state === 'accepted' ? 'chip on' : 'chip'} aria-pressed={item.state === 'accepted'} disabled={saving} onClick={() => acceptable && void say('accept')} data-testid="feedback-accept">
+              {acceptLabel(options, option)}
+            </button>
+          )}
           <button className="chip" disabled={saving} onClick={() => void say('reject')} data-testid="feedback-reject">
             Reject
           </button>
@@ -526,6 +599,10 @@ function ItemCard(props: {
           )}
         </>
       )}
+      <span className="spacer" />
+      <button className="chip primary" onClick={props.onNext} data-testid="feedback-next">
+        Next
+      </button>
     </div>
   );
 
@@ -548,7 +625,7 @@ function ItemCard(props: {
         <span className={`feedback-state ${item.state}`} data-testid="feedback-state">
           {STATE_LABELS[item.state]}
         </span>
-        {first !== undefined && <span className="kind-tag">Round {first}</span>}
+        {first !== undefined && !props.grouped && <span className="kind-tag">Round {first}</span>}
         {later.map((n) => (
           <span key={n} className="kind-tag also" data-testid="feedback-also">
             also round {n}
@@ -565,40 +642,34 @@ function ItemCard(props: {
           </span>
         )}
       </div>
-      {src && !expanded && (
-        <p className="feedback-quote-line" title={src.quote} data-testid="feedback-quote-line">
-          {quoted(src.quote)}{src.speaker && <span className="muted"> — {src.speaker}</span>}
-        </p>
-      )}
       {!expanded && item.change && (
         <p className="feedback-change-line" title={item.change} data-testid="feedback-change-line">
           {item.change}
         </p>
       )}
       {src && expanded && (
-        <blockquote className="review-quote">
-          {src.quote}
-          {src.speaker && (
-            <span className="muted">
-              {' '}
-              — {src.speaker}
-              {time && props.source && props.onSource ? (
-                <>
-                  {' · '}
-                  <button className="ghost link" title={`Open ${props.source}`} onClick={() => props.onSource!(props.source!)} data-testid="feedback-source">
-                    {time}
-                  </button>
-                </>
-              ) : time ? (
-                ` · ${time}`
-              ) : (
-                ''
-              )}
-            </span>
-          )}
-        </blockquote>
+        <figure className="feedback-said-by" data-testid="feedback-quote">
+          <figcaption className="feedback-voice-head">
+            <span className="who">{src.speaker ?? 'Source'}</span>
+            {time && props.source && props.onSource ? (
+              <button className="ghost link" title={`Open ${props.source}`} onClick={() => props.onSource!(props.source!)} data-testid="feedback-source">
+                {time}
+              </button>
+            ) : (
+              time && <span className="muted">{time}</span>
+            )}
+          </figcaption>
+          <blockquote className="review-quote">{src.quote}</blockquote>
+        </figure>
       )}
-      {expanded && item.change && <p className="feedback-change">{item.change}</p>}
+      {expanded && item.change && (
+        <div className="feedback-claude" data-testid="feedback-claude">
+          <span className="feedback-voice-head">
+            <span className="who">Claude</span>
+          </span>
+          <p className="feedback-change">{item.change}</p>
+        </div>
+      )}
       {expanded && options.length > 0 && (
         <div className="feedback-options" role="radiogroup" aria-label={`Options for #${item.n}`}>
           {options.map((o) => (
@@ -608,7 +679,7 @@ function ItemCard(props: {
               aria-checked={option === o.key}
               className={option === o.key ? 'feedback-option on' : 'feedback-option'}
               disabled={props.readOnly || closed}
-              onClick={() => setOption(o.key)}
+              onClick={() => choose(o.key)}
               data-testid={`feedback-option-${o.key}`}
             >
               <span className="key">{o.key}</span>
@@ -617,20 +688,15 @@ function ItemCard(props: {
           ))}
         </div>
       )}
-      {expanded && item.where && !closed && (
-        <p className="muted feedback-where">
-          {props.onShow ? (
+      {expanded && item.where && !closed && !props.onShow && <p className="muted feedback-where">Where · {item.where}</p>}
+      {expanded && props.pictures}
+      {expanded && ((props.onWorkspace && !closed) || workspace || (item.where && !closed && props.onShow)) && (
+        <div className="feedback-workspace">
+          {item.where && !closed && props.onShow && (
             <button className="ghost link" onClick={() => props.onShow!(item.where!)} data-testid="feedback-show">
               Show on page
             </button>
-          ) : (
-            <>Where · {item.where}</>
           )}
-        </p>
-      )}
-      {expanded && props.pictures}
-      {expanded && ((props.onWorkspace && !closed) || workspace) && (
-        <div className="feedback-workspace">
           {props.onWorkspace && !closed && (
             <button className="chip" disabled={props.opening} onClick={() => props.onWorkspace!(item)} data-testid="feedback-workspace-open">
               {props.opening ? 'Opening…' : 'Open workspace'}
@@ -649,7 +715,7 @@ function ItemCard(props: {
           {[said.verb, saidText].join(' · ')}
         </p>
       )}
-      {actions}
+      {expanded && actions}
       {expanded && !props.readOnly && !closed && (
         <>
           <div className="feedback-note">

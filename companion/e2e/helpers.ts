@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'n
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test';
+import { _electron as electron, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import type { DeliveriesResponse, OpenResponse, Skeleton } from '../src/protocol';
 import type { BoardBackend } from '../src/server/contract';
 import type { Draft } from '../src/shared/ipc';
@@ -384,4 +384,14 @@ export async function themeShots(ctx: Launched, name: string, clip?: { x: number
     await ctx.page.waitForTimeout(250);
     await ctx.page.screenshot({ path: join(dir, `${name}-${theme}.png`), ...(clip ? { clip } : {}) });
   }
+}
+
+/** Opens a feedback card unless it is open already. The review opens its first open item by itself. */
+export async function expandCard(card: Locator): Promise<void> {
+  const head = card.getByTestId('feedback-expand');
+  // The first open card may open while the click lands, so check again until it stays open.
+  await expect(async () => {
+    if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+    await expect(head).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
+  }).toPass();
 }

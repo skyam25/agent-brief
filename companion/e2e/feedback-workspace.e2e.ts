@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { BoardsResponse, FeedbackDocument, OutputRecord, ReadResponse } from '../src/protocol';
 import { isoDate } from '../src/shared/feedback';
 import { shortDate } from '../src/shared/feedback-workspace';
-import { deliveriesFor, launch, launchShown, ROOT, RESULTS, showPanel, sock, tempDataDir, type Launched } from './helpers';
+import { deliveriesFor, launch, launchShown, ROOT, RESULTS, showPanel, sock, tempDataDir, type Launched, expandCard } from './helpers';
 
 let ctx: Launched;
 test.afterEach(async () => { await ctx?.app.close(); });
@@ -47,7 +47,7 @@ test('opens an item workspace over the page, saves it to the item, and reopens t
   await expect(page.getByTestId('review')).toBeVisible();
   await page.getByTestId('feedback-tab').click();
   const card = page.getByTestId('feedback-item-1');
-  await card.getByTestId('feedback-expand').click();
+  await expandCard(card);
   await card.getByTestId('feedback-note').fill('check mobile too');
   await card.getByTestId('feedback-note').press('Enter');
   await expect(card.getByTestId('feedback-note')).toHaveValue('');
@@ -217,7 +217,7 @@ test('the layer keeps one column and a one-line header, and hides the panel foot
   await sock(h.socketPath, 'POST', '/open', { sessionId: 'ws-5', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
   const card = page.getByTestId('feedback-item-1');
-  await card.getByTestId('feedback-expand').click();
+  await expandCard(card);
   await card.getByTestId('feedback-note').fill('chips, not a dropdown');
   await card.getByTestId('feedback-note').press('Enter');
   await expect(card.getByTestId('feedback-note')).toHaveValue('');
@@ -277,7 +277,7 @@ test('Add to note opens one Write note linked to the item', async () => {
   const openLayer = async () => {
     await sock(h.socketPath, 'POST', '/open', { sessionId: 'ws-3', output: { path: 'checkout.html' } });
     await page.getByTestId('feedback-tab').click();
-    await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
+    await expandCard(page.getByTestId('feedback-item-1'));
     await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
     await expect(page.getByTestId('workspace-layer')).toBeVisible();
   };
@@ -317,7 +317,7 @@ test('speech in the workspace lands on its pin and saves with it', async () => {
   await agent(socketPath, '/sessions/ws-4/feedback?path=checkout.html', [{ op: 'addRound', label: 'customers' }, { op: 'addItem', title: 'Pricing is unclear' }]);
   await sock(socketPath, 'POST', '/open', { sessionId: 'ws-4', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
-  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
+  await expandCard(page.getByTestId('feedback-item-1'));
   await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
   const layer = page.getByTestId('workspace-layer');
   const canvas = layer.locator('canvas.excalidraw__canvas.interactive');
@@ -353,7 +353,7 @@ test('hiding the panel stops the workspace mic', async () => {
   await agent(socketPath, '/sessions/ws-6/feedback?path=checkout.html', [{ op: 'addRound', label: 'customers' }, { op: 'addItem', title: 'Pricing is unclear' }]);
   await sock(socketPath, 'POST', '/open', { sessionId: 'ws-6', output: { path: 'checkout.html' } });
   await page.getByTestId('feedback-tab').click();
-  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
+  await expandCard(page.getByTestId('feedback-item-1'));
   await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
   const layer = page.getByTestId('workspace-layer');
   await expect(layer.locator('canvas.excalidraw__canvas.interactive')).toBeVisible();
@@ -385,7 +385,7 @@ test('opens a workspace over the full-width feedback view', async () => {
   await page.getByTestId('mode-review').click();
   await page.getByTestId('output-feedback-0').click();
   const view = page.getByTestId('feedback-view');
-  await view.getByTestId('feedback-expand').click();
+  await expandCard(view);
 
   // Claude's opens overlap the user's, and the round still gets one frame and one quote.
   const cli = () => sock(h.socketPath, 'POST', '/sessions/ws-2/feedback/workspace?path=docs/prd.md&item=1');

@@ -54,7 +54,8 @@ export type FromPage =
 
 /** From the pane to the page. */
 export type ToPage =
-  | { type: 'show-behavior'; selector: string }
+  /** `quiet` skips the missing-element notice, for a page that follows the open feedback card. */
+  | { type: 'show-behavior'; selector: string; quiet?: boolean }
   | { type: 'commenting'; on: boolean }
   | { type: 'pins'; pins: PagePin[] }
   /** Scrolls a pin's element into view and flashes it. */

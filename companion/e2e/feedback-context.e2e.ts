@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FeedbackDocument, FeedbackSnapResult, ReadResponse } from '../src/protocol';
-import { launchShown, sock, tempDataDir, type Launched } from './helpers';
+import { launchShown, sock, tempDataDir, type Launched, expandCard } from './helpers';
 
 let ctx: Launched;
 test.afterEach(async () => { await ctx?.app.close(); });
@@ -69,7 +69,7 @@ test('a workspace seed crops the element inside its section, outlined', async ()
   });
   await sock(socketPath, 'POST', '/open', { sessionId: 'fc-2', output: { path: 'cart.html' } });
   await page.getByTestId('feedback-tab').click();
-  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
+  await expandCard(page.getByTestId('feedback-item-1'));
   await page.getByTestId('feedback-item-1').getByTestId('feedback-workspace-open').click();
   const elements = async () => (await sock<ReadResponse>(socketPath, 'GET', '/boards/fb-cart-1/elements')).body.elements;
   await expect.poll(async () => (await elements())?.some((e) => e.type === 'image') ?? false).toBe(true);
@@ -90,7 +90,7 @@ test('Show on page scrolls the element into view and keeps it outlined', async (
   await page.getByTestId('feedback-tab').click();
   const coupon = page.frameLocator('[data-testid="review-frame"]').locator('#coupon');
   await expect(coupon).not.toBeInViewport();
-  await page.getByTestId('feedback-item-1').getByTestId('feedback-expand').click();
+  await expandCard(page.getByTestId('feedback-item-1'));
   await page.getByTestId('feedback-item-1').getByTestId('feedback-show').click();
   await expect(coupon).toBeInViewport();
   // The pulse is over by now, and the outline stays.

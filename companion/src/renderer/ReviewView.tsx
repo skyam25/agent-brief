@@ -1,7 +1,7 @@
 import type { BehaviorDocument, BehaviorDecision, FeedbackDocument } from '../protocol';
 import { BehaviorPanel } from './BehaviorPanel';
 import { FeedbackPanel, openCount, useFeedbackDoc, type FeedbackHost, type SendFeedback } from './FeedbackPanel';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { concerns, type CompanionApi, type Draft } from '../shared/ipc';
 import { isLocalUrl } from '../shared/outputs';
 import { anchorLabel, baseName, commentCount, sitePage, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
@@ -10,7 +10,7 @@ import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } fro
 import type { DraftBook } from './drafts';
 import { newPictureId } from './editor/pictures';
 import { useStore } from './hooks';
-import { CommentIcon, ExternalIcon, LinkIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIcon } from './Icons';
+import { CloseIcon, CommentIcon, ExpandIcon, ExternalIcon, LinkIcon, PencilIcon, ReloadIcon, SidebarIcon, TrashIcon } from './Icons';
 import { Inspector } from './Inspector';
 import { useOutputWatch, type OutputWatchHost } from './output-watch';
 import { PageFind } from './PageFind';
@@ -34,6 +34,21 @@ const READY_WAIT_MS = 2000;
 const MEASURE_WAIT_MS = 1500;
 /** How long a workspace capture waits for the page to load. */
 const PAGE_WAIT_MS = 8000;
+
+/** The side column's width: its default, its narrowest, and its widest share of the pane. */
+const NOTES_WIDTH = 300;
+const NOTES_MIN = 260;
+const NOTES_MAX_SHARE = 0.7;
+const WIDTH_KEY = 'agent-brief.review-notes-width';
+
+const savedWidth = () => {
+  try {
+    const n = Number(localStorage.getItem(WIDTH_KEY));
+    return Number.isFinite(n) && n >= NOTES_MIN ? n : NOTES_WIDTH;
+  } catch {
+    return NOTES_WIDTH;
+  }
+};
 
 const newCommentId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -68,6 +83,8 @@ const siteHref = (site: boolean, base: string, page: string) =>
  * its pinned comments on the right. Comment mode turns a click or a text selection into a pin, and
  * the mic sends what you say to the selected pin. Pins keep the page they sit on, so a link can lead on.
  * Edit mode changes a file's elements in place and saves each change to the file, with the inspector on the right.
+ * When the file has feedback items, the side column walks Claude's items and your comments float over the page.
+ * The side column's left edge drags to resize it, and its expand button widens it to half the pane.
  */
 export function ReviewView(props: {
   host: ReviewHost;
@@ -216,12 +233,74 @@ export function ReviewView(props: {
   /** The feedback item the next pin joins. */
   const [picked, setPicked] = useState<number>();
   const items = feedback.doc?.items ?? [];
+  /** Claude's items fill the side column, so your comments move onto the page. */
+  const queue = !site && items.length > 0;
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const shownSide = queue && side === 'comments' ? 'feedback' : side;
+
+  const root = useRef<HTMLDivElement>(null);
+  const [notesWidth, setNotesWidth] = useState(savedWidth);
+  /** The width to go back to after the column was widened. */
+  const narrowWidth = useRef<number>(undefined);
+  const keepWidth = (w: number) => {
+    setNotesWidth(w);
+    try {
+      localStorage.setItem(WIDTH_KEY, String(Math.round(w)));
+    } catch {
+      /* storage off: the width lasts until the view closes */
+    }
+  };
+  const [paneWidth, setPaneWidth] = useState(0);
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const watch = new ResizeObserver(() => setPaneWidth(el.clientWidth));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+  const clampWidth = (w: number) => Math.round(Math.min(Math.max(w, NOTES_MIN), Math.max(NOTES_MIN, paneWidth * NOTES_MAX_SHARE)));
+  const half = () => Math.round(paneWidth / 2);
+  const wide = paneWidth > 0 && notesWidth >= half() - 4;
+  const toggleWide = () => {
+    if (wide) {
+      keepWidth(clampWidth(narrowWidth.current ?? NOTES_WIDTH));
+      narrowWidth.current = undefined;
+    } else {
+      narrowWidth.current = notesWidth;
+      keepWidth(clampWidth(half()));
+    }
+  };
+  /** Drags the column's left edge. The frame ignores the pointer meanwhile, so the drag survives crossing it. */
+  const startResize = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const edge = e.currentTarget as HTMLElement;
+    edge.setPointerCapture(e.pointerId);
+    const right = root.current?.getBoundingClientRect().right ?? window.innerWidth;
+    root.current?.classList.add('resizing');
+    const move = (ev: PointerEvent) => setNotesWidth(clampWidth(right - ev.clientX));
+    const end = (ev: PointerEvent) => {
+      edge.removeEventListener('pointermove', move);
+      edge.removeEventListener('pointerup', end);
+      edge.removeEventListener('pointercancel', end);
+      root.current?.classList.remove('resizing');
+      narrowWidth.current = undefined;
+      keepWidth(clampWidth(right - ev.clientX));
+    };
+    edge.addEventListener('pointermove', move);
+    edge.addEventListener('pointerup', end);
+    edge.addEventListener('pointercancel', end);
+  };
 
   // The latest values, for the message handler.
   // Edits go to the page the frame shows, which a link may have moved off the output.
   const editPath = pagePath ?? review.path;
-  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, home, site, editPath, shownPage, commenting, editing, onPage, items, picked });
-  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, home, site, editPath, shownPage, commenting, editing, onPage, items, picked };
+  const live = useRef({ draftId: draft.id, sessionId: draft.sessionId, path: review.path, home, site, editPath, shownPage, commenting, editing, onPage, items, picked, queue });
+  live.current = { draftId: draft.id, sessionId: draft.sessionId, path: review.path, home, site, editPath, shownPage, commenting, editing, onPage, items, picked, queue };
+  /** Shows your comments: the floating panel beside Claude's items, or the Comments tab. */
+  const showComments = useCallback(() => {
+    if (live.current.queue) setCommentsOpen(true);
+    else setSide('comments');
+  }, []);
   /** The items whose `Where:` is among the selectors an element matched. */
   const itemsAt = useCallback((matches: string[] = []) => live.current.items.filter((i) => i.where && matches.includes(i.where)).map((i) => i.n), []);
 
@@ -252,9 +331,9 @@ export function ReviewView(props: {
     const started = voice.recording && !wasRecording.current;
     wasRecording.current = voice.recording;
     if (!started) return;
-    setSide('comments');
+    showComments();
     setCommenting(true);
-  }, [voice.recording, setCommenting]);
+  }, [voice.recording, setCommenting, showComments]);
 
   const post = useCallback((m: ToPage) => frame.current?.contentWindow?.postMessage({ source: REVIEW_SOURCE, ...m }, '*'), []);
 
@@ -387,7 +466,8 @@ export function ReviewView(props: {
       const picture = room ? await host.capturePanel(cropRect(box, view)).catch(() => undefined) : undefined;
       const comment: ReviewComment = { id: newCommentId(), text: '', anchor: onPage ? anchor : { ...anchor, page: shownPage }, createdAt: Date.now(), ...(picture ? { picture: newPictureId() } : {}), ...(feedback ? { feedback } : {}) };
       book.addComment(current.id, comment, picture);
-      pickSide('comments');
+      if (live.current.queue) setCommentsOpen(true);
+      else pickSide('comments');
       // The crop above takes a moment, so the voice moves to the pin from the click.
       select(comment.id, true, clickedAt);
     },
@@ -422,7 +502,10 @@ export function ReviewView(props: {
       if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
       if (m.type === 'pin') void addPin(m.anchor, m.view, m.matches, m.at);
       if (m.type === 'pointed') setPointed(itemsAt(m.matches));
-      if (m.type === 'open-pin') select(m.id, true);
+      if (m.type === 'open-pin') {
+        if (live.current.queue) setCommentsOpen(true);
+        select(m.id, true);
+      }
       if (m.type === 'behavior-missing') props.onError(sideRef.current === 'feedback' ? 'That element is not on the page now. Ask Claude to update the item\'s Where line.' : 'That element is not visible. Open the indicated prototype state, or ask the agent to update its target.');
       if (m.type === 'missing') setMissing(m.ids);
       if (m.type === 'measured') measures.current.get(m.id)?.(m.view);
@@ -546,8 +629,53 @@ export function ReviewView(props: {
   const src = url && (reloads && !site ? `${url}?reload=${reloads}` : url);
   const count = review.comments.length;
 
+  const comments = (
+    <>
+      <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
+        <span className="section-head">Overall</span>
+        <textarea
+          placeholder="Anything about the page as a whole"
+          value={draft.body}
+          onChange={(e) => book.edit(draft.id, e.target.value)}
+          onFocus={() => select(undefined)}
+          onKeyDown={sendKeys}
+          data-testid="review-overall"
+        />
+        <VoiceState voice={voice} target={OVERALL} />
+      </label>
+      <h3 className="section-head">
+        Comments{count > 0 && <span className="count">{count}</span>}
+      </h3>
+      {count === 0 ? (
+        <p className="muted review-empty" data-testid="review-empty">
+          Click anything on the page to pin a comment, or turn on the mic and talk as you go.
+        </p>
+      ) : (
+        <ol className="review-cards">
+          {review.comments.map((c, i) => (
+            <CommentCard
+              key={c.id}
+              comment={c}
+              n={i + 1}
+              active={c.id === activeId}
+              missing={missing.includes(c.id)}
+              voice={voice}
+              onSelect={() => showComment(c)}
+              onEdit={(text) => book.editComment(draft.id, c.id, text)}
+              onRemove={() => remove(c.id)}
+              onKeyDown={sendKeys}
+            />
+          ))}
+        </ol>
+      )}
+      <footer className="muted review-foot">
+        {count > 0 ? `${commentCount(count)} · ⌘↩ sends with pictures` : 'Send hands Claude each comment with a picture of its element.'}
+      </footer>
+    </>
+  );
+
   return (
-    <div className="review" data-testid="review" data-escape-owner={commenting || isEditing ? '' : undefined}>
+    <div ref={root} className="review" style={{ gridTemplateColumns: `minmax(0, 1fr) min(${notesWidth}px, ${NOTES_MAX_SHARE * 100}%)` }} data-testid="review" data-escape-owner={commenting || isEditing ? '' : undefined}>
       <header className="review-bar">
         <button
           className="ghost icon-button"
@@ -573,6 +701,17 @@ export function ReviewView(props: {
         >
           <CommentIcon /> Comment <kbd>C</kbd>
         </button>
+        {queue && (
+          <button
+            className={commentsOpen ? 'chip on' : 'chip'}
+            aria-pressed={commentsOpen}
+            title={commentsOpen ? 'Hide your comments' : 'Show your comments over the page'}
+            onClick={() => setCommentsOpen((o) => !o)}
+            data-testid="review-comments-toggle"
+          >
+            Comments{count > 0 ? ` · ${count}` : ''}
+          </button>
+        )}
         {!site && <button
           className={isEditing ? 'chip on' : 'chip'}
           aria-pressed={isEditing}
@@ -633,6 +772,17 @@ export function ReviewView(props: {
             Click to select · drag to move · double-click to retype · <kbd>Esc</kbd> to browse
           </div>
         )}
+        {queue && commentsOpen && !isEditing && (
+          <section className="review-comments-float" aria-label="Your comments" data-testid="review-comments-float">
+            <header className="review-comments-float-head">
+              <span>Your comments</span>
+              <button className="ghost icon-button small" title="Hide your comments" aria-label="Hide your comments" onClick={() => setCommentsOpen(false)} data-testid="review-comments-close">
+                <CloseIcon />
+              </button>
+            </header>
+            {comments}
+          </section>
+        )}
       </div>
       {/* An item's workspace covers the page and the list beside it. */}
       {workspace.open && draft.sessionId && (
@@ -648,6 +798,7 @@ export function ReviewView(props: {
           onError={props.onError}
         />
       )}
+      <div className="review-notes-edge" role="separator" aria-orientation="vertical" aria-label="Resize the side column" onPointerDown={startResize} onDoubleClick={toggleWide} data-testid="review-notes-edge" />
       {isEditing ? (
         <Inspector
           selected={selected}
@@ -660,54 +811,16 @@ export function ReviewView(props: {
         />
       ) : (
         <aside className="review-notes" aria-label="Review details">
-          {!site && <div className="behavior-tabs" role="tablist" aria-label="Review details">
-            <button className={side === 'comments' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'comments'} onClick={() => pickSide('comments')}>Comments</button>
-            <button className={side === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'behavior'} data-testid="behavior-tab" onClick={() => { pickSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>
-            <button className={side === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={side === 'feedback'} data-testid="feedback-tab" onClick={() => { showFeedback(); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>
-          </div>}
-          {side === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} pointed={pointed} picked={picked} onPick={setPicked} onOpenItem={props.onOpenFeedbackItem} onWorkspace={(item) => { setCommenting(false); void workspace.openItem(item); }} workspaceOpening={workspace.opening} /> : side === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : <>
-
-          <label className={activeId === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
-            <span className="section-head">Overall</span>
-            <textarea
-              placeholder="Anything about the page as a whole"
-              value={draft.body}
-              onChange={(e) => book.edit(draft.id, e.target.value)}
-              onFocus={() => select(undefined)}
-              onKeyDown={sendKeys}
-              data-testid="review-overall"
-            />
-            <VoiceState voice={voice} target={OVERALL} />
-          </label>
-          <h3 className="section-head">
-            Comments{count > 0 && <span className="count">{count}</span>}
-          </h3>
-          {count === 0 ? (
-            <p className="muted review-empty" data-testid="review-empty">
-              Click anything on the page to pin a comment, or turn on the mic and talk as you go.
-            </p>
-          ) : (
-            <ol className="review-cards">
-              {review.comments.map((c, i) => (
-                <CommentCard
-                  key={c.id}
-                  comment={c}
-                  n={i + 1}
-                  active={c.id === activeId}
-                  missing={missing.includes(c.id)}
-                  voice={voice}
-                  onSelect={() => showComment(c)}
-                  onEdit={(text) => book.editComment(draft.id, c.id, text)}
-                  onRemove={() => remove(c.id)}
-                  onKeyDown={sendKeys}
-                />
-              ))}
-            </ol>
-          )}
-          <footer className="muted review-foot">
-            {count > 0 ? `${commentCount(count)} · ⌘↩ sends with pictures` : 'Send hands Claude each comment with a picture of its element.'}
-          </footer>
-          </>}
+          <div className="behavior-tabs review-notes-tabs" role="tablist" aria-label="Review details">
+            {!site && !queue && <button className={shownSide === 'comments' ? 'chip on' : 'chip'} role="tab" aria-selected={shownSide === 'comments'} onClick={() => pickSide('comments')}>Comments</button>}
+            {!site && <button className={shownSide === 'behavior' ? 'chip on' : 'chip'} role="tab" aria-selected={shownSide === 'behavior'} data-testid="behavior-tab" onClick={() => { pickSide('behavior'); setCommenting(false); void loadBehavior(); }}>Behavior{behavior?.rules.some((r) => r.status === 'proposed') ? ` · ${behavior.rules.filter((r) => r.status === 'proposed').length} open` : ''}</button>}
+            {!site && <button className={shownSide === 'feedback' ? 'chip on' : 'chip'} role="tab" aria-selected={shownSide === 'feedback'} data-testid="feedback-tab" onClick={() => { showFeedback(); feedback.refresh(); }}>Feedback{openCount(feedback.doc) ? ` · ${openCount(feedback.doc)} open` : ''}</button>}
+            <span className="spacer" />
+            <button className={wide ? 'ghost icon-button small on' : 'ghost icon-button small'} aria-pressed={wide} title={wide ? 'Narrow the column' : 'Widen the column to half the pane'} aria-label={wide ? 'Narrow the column' : 'Widen the column'} onClick={toggleWide} data-testid="review-notes-wide">
+              <ExpandIcon />
+            </button>
+          </div>
+          {shownSide === 'feedback' ? <FeedbackPanel key={draft.id} host={host} sessionId={draft.sessionId} feedback={feedback} canSend={props.canSend} onSend={props.onSendFeedback} onError={props.onError} beforeRecord={() => props.voice.stop()} onShow={(selector) => post({ type: 'show-behavior', selector })} onFollow={(selector) => post({ type: 'show-behavior', selector, quiet: true })} pointed={pointed} picked={picked} onPick={setPicked} onOpenItem={props.onOpenFeedbackItem} onWorkspace={(item) => { setCommenting(false); setCommentsOpen(false); void workspace.openItem(item); }} workspaceOpening={workspace.opening} yieldSend={commentsOpen} /> : shownSide === 'behavior' ? <BehaviorPanel key={draft.id} doc={behavior} error={behaviorError} onRefresh={() => void loadBehavior()} onDecide={decideBehavior} onBusy={behaviorBusy} onShow={(selector) => post({ type: 'show-behavior', selector })} /> : comments}
         </aside>
       )}
     </div>

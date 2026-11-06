@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { FeedbackDocument, FeedbackSnapResult } from '../src/protocol';
-import { launchShown, RESULTS, sock, tempDataDir, type Launched } from './helpers';
+import { launchShown, RESULTS, sock, tempDataDir, type Launched, expandCard } from './helpers';
 
 let ctx: Launched;
 test.afterEach(async () => { await ctx?.app.close(); });
@@ -70,16 +70,16 @@ test('snaps before and after pictures into a slider, and the graph opens items',
   await expect(panel.getByTestId('review')).toBeVisible();
   await panel.getByTestId('feedback-tab').click();
   const first = panel.getByTestId('feedback-item-1');
-  await first.getByTestId('feedback-expand').click();
+  await expandCard(first);
   const slider = first.getByTestId('feedback-slider');
   await expect(slider).toBeVisible();
   await expect(slider.locator('img')).toHaveCount(2);
   await expect(slider.locator('img.before')).toHaveAttribute('src', /^data:image\/png;base64,/);
   await slider.locator('input[type=range]').fill('30');
   await expect(slider).toHaveAttribute('style', /--split: 30%/);
-  await panel.getByTestId('feedback-item-2').getByTestId('feedback-expand').click();
+  await expandCard(panel.getByTestId('feedback-item-2'));
   await expect(panel.getByTestId('feedback-item-2').getByTestId('feedback-pictures')).toHaveCount(0);
-  await first.getByTestId('feedback-expand').click();
+  await expandCard(first);
   await panel.screenshot({ path: join(RESULTS, 'feedback-slider.png') });
 
   // The graph covers the page as a layer, and links both outputs through the shared source and the Related line.
