@@ -134,6 +134,7 @@ export class Ipad {
           detail: (id) => this.detail(id),
           page: (id, path) => this.page(id, path),
           deliver: (id, deviceId, delivery) => this.deliver(id, deviceId, delivery),
+          remove: (id) => this.removeHandoff(id),
           unpair: (deviceId) => {
             this.pairing.revoke(deviceId);
             // The reply goes out before the listener may stop.

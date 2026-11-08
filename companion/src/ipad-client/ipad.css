@@ -112,22 +112,6 @@ body {
   background: var(--accent);
 }
 
-.ipad-pin {
-  flex: none;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 18px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.ipad-pin[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--accent-fg);
-}
-
 .ipad-note {
   flex: 1;
   margin: 10px;
@@ -195,6 +179,7 @@ body {
   min-width: 0;
   min-height: 0;
   display: flex;
+  position: relative;
   background: #fff;
 }
 
@@ -203,4 +188,41 @@ body {
   width: 100%;
   height: 100%;
   border: 0;
+}
+
+/* While Comment is on, taps on the page place pins. The hint sits low and lets taps through, so it never hides the spot. */
+.ipad-page-hint {
+  position: absolute;
+  bottom: 12px;
+  pointer-events: none;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+  background: rgb(30 30 46 / 0.9);
+  color: #fff;
+  font: 600 13px/1.2 -apple-system, system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
+}
+
+.ipad-page-hint span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ipad-page-hint button {
+  flex: none;
+  pointer-events: auto;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.18);
+  color: #fff;
+  font: inherit;
 }

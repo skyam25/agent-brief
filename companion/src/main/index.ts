@@ -496,8 +496,7 @@ async function start(): Promise<void> {
     send: (payload, sessionId) => sender.send(payload, sessionId),
     sessionRoot: (id) => briefs.cwdOf(id) ?? server.sessions().sessions.find((s) => s.sessionId === id)?.cwd,
     fileReview: (sessionId, payload) => {
-      const now = Date.now();
-      drafts.save({ id: newDraftId(now), body: payload.text, status: 'note', sessionId, review: payload.review, rank: 0, createdAt: now, updatedAt: now });
+      drafts.addNote({ text: payload.text, sessionId, review: payload.review });
       send(CH.draftsChanged);
     },
     onStatus: (status) => send(CH.ipadStatus, status),
@@ -758,9 +757,9 @@ async function start(): Promise<void> {
   ipc.handle('ipadNewCode', () => ipad.newCode());
   ipc.handle('ipadSheetClose', () => ipad.closeSheet());
   ipc.handle('ipadForget', async (id: string) => ipad.forget(id));
-  ipc.handle('ipadHandoff', async (sessionId: string, board: string, page?: string) => {
+  ipc.handle('ipadHandoff', async (sessionId: string, target: { board?: string; page?: string }) => {
     if (!server.sessions().sessions.some((s) => s.sessionId === sessionId)) throw new Error('That session has ended.');
-    return createHandoff(page ? { sessionId, page } : { sessionId, board });
+    return createHandoff(target.page ? { sessionId, page: target.page } : { sessionId, board: target.board });
   });
   ipc.handle('moveBoards', (raw: string[], sessionId: string) => {
     const names = raw.map(cleanName);

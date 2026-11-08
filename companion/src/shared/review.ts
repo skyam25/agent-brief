@@ -25,6 +25,8 @@ export interface ReviewAnchor {
   text?: string;
   /** The nearest heading above the element. */
   heading?: string;
+  /** For an element in a table cell, the cell's row and column as the table labels them, so a bare number says what it counts. */
+  cell?: { row?: string; column?: string };
   /** The pin's spot inside the element, as fractions of its width and height. */
   fx: number;
   fy: number;
@@ -95,12 +97,16 @@ function cleanAnchor(raw: unknown): ReviewAnchor | undefined {
   const text = clip(raw.text, 500);
   const heading = clip(raw.heading, 300);
   const page = clip(raw.page, 1024);
+  const rawCell = isRecord(raw.cell) ? raw.cell : {};
+  const row = clip(rawCell.row, 200);
+  const column = clip(rawCell.column, 200);
   return {
     selector,
     tag: clip(raw.tag, 40)?.toLowerCase() ?? 'element',
     ...(quote ? { quote } : {}),
     ...(text ? { text } : {}),
     ...(heading ? { heading } : {}),
+    ...(row || column ? { cell: { ...(row ? { row } : {}), ...(column ? { column } : {}) } } : {}),
     fx: Math.min(1, Math.max(0, num(raw.fx))),
     fy: Math.min(1, Math.max(0, num(raw.fy))),
     rect: cleanRect(raw.rect),
@@ -183,6 +189,7 @@ export function reviewMarkdown(review: ReviewPayload, picturePath: (id: string) 
     lines.push('', `## ${i + 1}. ${anchorLabel(a)}`, '', c.text.trim() || '(No words. The pin marks this element.)', '');
     if (a.page) lines.push(`- Page: ${a.page}`);
     lines.push(`- Element: \`${a.selector.replace(/`/g, '\\`')}\``);
+    if (a.cell) lines.push(`- Table cell: ${[a.cell.row && `row “${cut(oneLine(a.cell.row), 120)}”`, a.cell.column && `column “${cut(oneLine(a.cell.column), 120)}”`].filter(Boolean).join(', ')}`);
     if (a.heading) lines.push(`- Under heading: “${cut(oneLine(a.heading), 120)}”`);
     if (a.quote) lines.push(`- Selected text: “${cut(oneLine(a.quote), 400)}”`);
     else if (a.text) lines.push(`- Element text: “${cut(oneLine(a.text), 200)}”`);

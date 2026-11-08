@@ -6,7 +6,7 @@ import { hasReviewContent } from '../shared/review';
 import { draftKind, inWrite, keptImages, newDraftId, sortDrafts } from '../shared/drafts';
 import type { CompanionApi, Draft, DraftSource, ReviewTab } from '../shared/ipc';
 import { SaveQueue } from './save-queue';
-import { MAX_EDITS, type DraftReview, type ReviewComment } from '../shared/review';
+import { MAX_EDITS, type DraftReview, type ReviewAnchor, type ReviewComment } from '../shared/review';
 
 export const DRAFT_SAVE_MS = 400;
 /** How long a failed save waits before it tries again. */
@@ -196,6 +196,18 @@ export class DraftBook {
     const review = { ...draft.review, comments: [...draft.review.comments, comment] };
     const attachments = { ...draft.attachments, ...(picture && comment.picture ? { [comment.picture]: picture } : {}) };
     this.patch(id, { review, attachments });
+  }
+
+  /** Moves a pin to another element. Its picture becomes `picture` when there is one, and goes when there is none. */
+  moveComment(id: string, commentId: string, anchor: ReviewAnchor, picture?: { id: string; data: string }): void {
+    const draft = this.get(id);
+    const old = draft?.review?.comments.find((c) => c.id === commentId);
+    if (!draft?.review || !old) return;
+    const { picture: _gone, ...rest } = old;
+    const moved: ReviewComment = { ...rest, anchor: old.anchor.page ? { ...anchor, page: old.anchor.page } : anchor, ...(picture ? { picture: picture.id } : {}) };
+    const review = { ...draft.review, comments: draft.review.comments.map((c) => (c.id === commentId ? moved : c)) };
+    const withPicture = picture ? { ...draft, attachments: { ...draft.attachments, [picture.id]: picture.data } } : draft;
+    this.patch(id, { review, attachments: this.keep(withPicture, { body: draft.body, review }) });
   }
 
   /** Notes an edit the pane saved to the file, for the review.md a Send writes. */

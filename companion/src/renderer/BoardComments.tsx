@@ -174,7 +174,7 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
       })}
       {tool && (
         <div className="review-hint" data-testid="comment-hint">
-          {touchFirst() ? 'Tap to pin. Tap Done to draw.' : <>Click to pin · <kbd>Esc</kbd> to draw</>}
+          {touchFirst() ? 'Tap to pin. Turn Comment off to draw.' : <>Click to pin · <kbd>Esc</kbd> to draw</>}
         </div>
       )}
     </div>
@@ -240,7 +240,7 @@ export function CommentColumn(props: {
       </h3>
       {pins.length === 0 ? (
         <p className="muted review-empty" data-testid="board-comments-empty">
-          {comments.tool ? `${touchFirst() ? 'Tap' : 'Click'} anything on the ${subject} to pin a comment, then type or talk.` : `Tap Pin, then tap the ${subject} where you want a comment.`}
+          {comments.tool ? `${touchFirst() ? 'Tap' : 'Click'} anything on the ${subject} to pin a comment, then type or talk.` : `Tap Comment, then tap the ${subject} where you want a comment.${subject === 'page' ? ' Drag a marker to move its comment.' : ''}`}
         </p>
       ) : (
         <ol className="review-cards">

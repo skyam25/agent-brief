@@ -46,9 +46,4 @@ enum PromptText {
     }
     return out
   }
-
-  /// Whether the prompt likely runs past two lines, so the board offers to show the rest.
-  static func isLong(_ text: String) -> Bool {
-    plain(text).count > 90 || text.contains("\n")
-  }
 }

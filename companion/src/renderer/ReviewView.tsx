@@ -6,7 +6,7 @@ import { concerns, type CompanionApi, type Draft } from '../shared/ipc';
 import { isLocalUrl } from '../shared/outputs';
 import { anchorLabel, baseName, commentCount, sitePage, type DraftReview, type ReviewAnchor, type ReviewComment, type ReviewRect } from '../shared/review';
 import type { InsertKind, ReviewEdit, SelectedElement } from '../shared/review-edit';
-import { isTagged, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from '../review/messages';
+import { isTagged, pagePin, REVIEW_SOURCE, type FromPage, type PagePin, type ToPage } from '../review/messages';
 import type { DraftBook } from './drafts';
 import { newPictureId } from './editor/pictures';
 import { useStore } from './hooks';
@@ -474,6 +474,19 @@ export function ReviewView(props: {
     [book, host, select, itemsAt, pickSide],
   );
 
+  /** A marker dragged onto another element: the comment keeps its words and takes the new anchor and picture. */
+  const movePin = useCallback(
+    async (id: string, anchor: ReviewAnchor, view: ReviewRect) => {
+      const box = frame.current?.getBoundingClientRect();
+      const current = book.get(live.current.draftId);
+      if (!box || !current?.review?.comments.some((c) => c.id === id)) return;
+      const data = await host.capturePanel(cropRect(box, view)).catch(() => undefined);
+      book.moveComment(current.id, id, anchor, data ? { id: newPictureId(), data } : undefined);
+      select(id, true);
+    },
+    [book, host, select],
+  );
+
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (!frame.current || e.source !== frame.current.contentWindow || !isTagged(e.data)) return;
@@ -501,6 +514,7 @@ export function ReviewView(props: {
       if (m.type === 'key' && m.key === 'e') setEditing((on) => !on);
       if (m.type === 'key' && (m.key === 'undo' || m.key === 'redo')) void history(m.key);
       if (m.type === 'pin') void addPin(m.anchor, m.view, m.matches, m.at);
+      if (m.type === 'move-pin') void movePin(m.id, m.anchor, m.view);
       if (m.type === 'pointed') setPointed(itemsAt(m.matches));
       if (m.type === 'open-pin') {
         if (live.current.queue) setCommentsOpen(true);
@@ -521,7 +535,7 @@ export function ReviewView(props: {
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [addPin, select, host, props.onError, saveEdit, reload, history, setCommenting, setEditing, itemsAt, post, openFind, closeFind]);
+  }, [addPin, movePin, select, host, props.onError, saveEdit, reload, history, setCommenting, setEditing, itemsAt, post, openFind, closeFind]);
 
   // The page reports clicks on elements that feedback items name.
   const wheres = JSON.stringify([...new Set(items.flatMap((i) => (i.where ? [i.where] : [])))]);
@@ -574,7 +588,7 @@ export function ReviewView(props: {
   }, [history, setCommenting, setEditing, openFind, closeFind, post]);
 
   const pins: PagePin[] = review.comments.flatMap((c, i) =>
-    (c.anchor.page ?? home) === shownPage ? [{ id: c.id, n: i + 1, selector: c.anchor.selector, fx: c.anchor.fx, fy: c.anchor.fy, active: c.id === activeId }] : [],
+    (c.anchor.page ?? home) === shownPage ? [pagePin(c.id, i + 1, c.anchor, c.id === activeId)] : [],
   );
   const pinKey = JSON.stringify(pins);
   useEffect(() => {

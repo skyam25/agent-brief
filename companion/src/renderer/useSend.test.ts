@@ -92,7 +92,7 @@ it('saves the board before handing it to the iPad, and leaves the panel open', a
   vi.mocked(host.ipadHandoff).mockImplementationOnce(async () => { order.push('handoff'); return {} as never; });
   await send.handOffToIpad('B');
   expect(order).toEqual(['flush', 'handoff']);
-  expect(host.ipadHandoff).toHaveBeenCalledWith('B', 'flow');
+  expect(host.ipadHandoff).toHaveBeenCalledWith('B', { board: 'flow' });
   expect(host.setTarget).toHaveBeenCalledWith('B');
   expect(deps.setChooserOpen).toHaveBeenCalledWith(false);
   expect(deps.notify).toHaveBeenLastCalledWith('Sent to your iPad.');

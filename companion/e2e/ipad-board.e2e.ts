@@ -5,7 +5,7 @@ import { createServer, type Server } from 'node:http';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PEN_RANGE_MS } from '../src/renderer/pen';
-import { chromiumExecutable } from './helpers';
+import { chromiumExecutable, openShadowRoots } from './helpers';
 
 /** The iPad's board page, in a browser, with synthetic finger and Pencil input. */
 
@@ -14,7 +14,7 @@ const WEB = resolve(HERE, '../ios/AgentBrief/Web');
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2' };
 const BASE = { type: 'excalidraw', version: 2, elements: [{ id: 'base1', type: 'rectangle', x: 300, y: 300, width: 200, height: 120, version: 1, versionNonce: 1, angle: 0, strokeColor: '#1971c2', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 2, strokeStyle: 'solid', roughness: 1, opacity: 100, groupIds: [], frameId: null, roundness: null, seed: 1, isDeleted: false, boundElements: null, updated: 1, link: null, locked: false, index: 'a0' }], appState: {}, files: {} };
 
-const PLAN = '<!doctype html><html><head><script src="/overlay.js"></script><title>Plan</title></head><body style="margin:0;font:16px sans-serif"><h1 style="margin:20px">Keep the cart when a card fails</h1><p style="margin:20px">Today a declined card empties the form.</p></body></html>';
+const PLAN = '<!doctype html><html><head><script src="/overlay.js"></script><title>Plan</title></head><body style="margin:0;font:16px sans-serif"><h1 style="margin:20px">Keep the cart when a card fails</h1><p style="margin:20px">Today a declined card empties the form.</p><table style="margin:20px"><thead><tr><th>Measure</th><th>Today</th><th>Pilot</th></tr></thead><tbody><tr><td>Recovered after decline</td><td>21.4%</td><td id="pilot">34.9%</td></tr></tbody></table></body></html>';
 
 let server: Server;
 let browser: Browser;
@@ -86,7 +86,7 @@ const pinch = async (page: Page) => {
 };
 
 const zoom = (page: Page) => page.locator('.excalidraw .reset-zoom-button').innerText();
-const collect = (page: Page) => page.evaluate(async () => JSON.parse(await (window as any).__ipad.collect([], 'h1')));
+const collect = (page: Page, board = 'h1') => page.evaluate(async (name) => JSON.parse(await (window as any).__ipad.collect([], name)), board);
 const drawing = (page: Page) => page.locator('.excalidraw input[data-testid="toolbar-freedraw"]');
 
 test('a pinch zooms after an Apple Pencil has turned on pen mode, and the pen tool comes back', async () => {
@@ -256,8 +256,8 @@ test('a page hand-off shows the page, pins comments on its elements, takes words
   const frame = page.frameLocator('[data-testid="ipad-page-frame"]');
   await expect(frame.locator('h1')).toBeVisible();
 
-  // Pin turns on comment mode in the page, and a tap on the heading pins it.
-  await page.getByTestId('pin-toggle').click();
+  // The toolbar's Comment turns on comment mode in the page, and a tap on the heading pins it.
+  await page.evaluate(() => (window as any).__ipad.setCommenting(true));
   await expect.poll(() => frame.locator('agent-brief-overlay').count()).toBe(1);
   await frame.locator('h1').click();
   await expect(page.getByTestId('board-comment-card')).toHaveCount(1);
@@ -265,7 +265,7 @@ test('a page hand-off shows the page, pins comments on its elements, takes words
   expect(await page.evaluate(() => (window as any).__ipad.heard('Make it shorter', Date.now()))).toBe(true);
   await expect(page.getByTestId('board-comment-card').locator('textarea')).toHaveValue(/Make it shorter/);
 
-  const sent = JSON.parse(await page.evaluate(() => (window as any).__ipad.collect([], 'p1')));
+  const sent = await collect(page, 'p1');
   expect(sent).not.toHaveProperty('pngBase64');
   expect(sent.review.comments).toHaveLength(1);
   expect(sent.review.comments[0]).toMatchObject({ text: expect.stringMatching(/Make it shorter/), anchor: { tag: 'h1', text: expect.stringContaining('Keep the cart') } });
@@ -277,20 +277,89 @@ test('a page hand-off shows the page, pins comments on its elements, takes words
   await page.reload();
   await page.waitForFunction(() => (window as any).__ipad);
   await open(saved);
-  const again = JSON.parse(await page.evaluate(() => (window as any).__ipad.collect([], 'p1')));
+  const again = await collect(page, 'p1');
   expect(again.review.comments[0].anchor.selector).toBe(sent.review.comments[0].anchor.selector);
   await expect.poll(() => page.frameLocator('[data-testid="ipad-page-frame"]').locator('agent-brief-overlay').count()).toBe(1);
   await page.close();
 });
 
+test('on a page, Comment stays on pin after pin, each marker shows at once, and a drag moves a comment to another element', async () => {
+  const page = await browser.newPage({ viewport: { width: 420, height: 880 } });
+  // The overlay's shadow root is closed. Opening it lets the test find the markers.
+  await openShadowRoots(page);
+  await page.addInitScript(() => {
+    (window as any).__commenting = [];
+    (window as any).webkit = { messageHandlers: { agentBrief: { postMessage: (m: any) => m.type === 'commenting' && (window as any).__commenting.push(m.on) } } };
+  });
+  const toolbar = () => page.evaluate(() => (window as any).__commenting.at(-1));
+  await page.goto(url);
+  await page.waitForFunction(() => (window as any).__ipad);
+  await page.evaluate(async (pageUrl) => (window as any).__ipad.open({ boardName: 'p2', scene: null, notes: '', comments: null, page: pageUrl }), `${url}project/plan.html`);
+  const frame = page.frameLocator('[data-testid="ipad-page-frame"]');
+  await expect(frame.locator('h1')).toBeVisible();
+
+  await expect.poll(toolbar).toBe(false);
+  await page.evaluate(() => (window as any).__ipad.setCommenting(true));
+  await expect.poll(toolbar).toBe(true);
+  await expect(page.getByTestId('page-pin-hint')).toBeVisible();
+  await frame.locator('h1').click();
+
+  // The marker draws with the pin, and the mode stays on for the next one.
+  const marker = frame.locator('agent-brief-overlay .pin');
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toBeVisible();
+  await expect(page.getByTestId('page-pin-hint')).toBeVisible();
+  await page.getByTestId('board-comment-card').locator('textarea').fill('Say what changed');
+  await frame.locator('p').click({ position: { x: 300, y: 8 } });
+  await expect(marker).toHaveCount(2);
+  await page.getByTestId('board-comment-delete').click();
+  await expect(marker).toHaveCount(1);
+
+  // A pin on a table cell names the cell's row and column.
+  await frame.locator('#pilot').click();
+  await expect(marker).toHaveCount(2);
+  expect((await collect(page, 'p2')).review.comments[1].anchor.cell).toEqual({ row: 'Recovered after decline', column: 'Pilot' });
+  await page.getByTestId('board-comment-delete').click();
+  await expect(marker).toHaveCount(1);
+
+  // Hiding the panel leaves the mode on. Done in the hint turns it off, and the toolbar follows.
+  await page.evaluate(() => (window as any).__ipad.setPanel(false));
+  await expect(page.getByTestId('page-pin-hint')).toBeVisible();
+  await page.evaluate(() => (window as any).__ipad.setPanel(true));
+  await page.getByTestId('page-pin-done').click();
+  await expect(page.getByTestId('page-pin-hint')).toBeHidden();
+  await expect.poll(toolbar).toBe(false);
+  const first = (await collect(page, 'p2')).review.comments[0];
+  expect(first.anchor).toMatchObject({ tag: 'h1' });
+  expect(first.anchor).not.toHaveProperty('heading');
+
+  // A drag drops the marker on the paragraph: same comment, same words, new element.
+  // The marker takes its place on the next frame.
+  await expect.poll(async () => (await marker.boundingBox())?.x ?? 0).toBeGreaterThan(20);
+  const from = (await marker.boundingBox())!;
+  const to = (await frame.locator('p').boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(from.x + ((to.x + 40 - from.x) * i) / 8, from.y + ((to.y + to.height / 2 - from.y) * i) / 8);
+  await page.mouse.up();
+  await expect(page.getByTestId('board-comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('board-comment-card')).toContainText('p “Today a declined card');
+  const moved = (await collect(page, 'p2')).review.comments;
+  expect(moved).toHaveLength(1);
+  expect(moved[0]).toMatchObject({ id: first.id, text: 'Say what changed', anchor: { tag: 'p', heading: 'Keep the cart when a card fails' } });
+  await expect(marker).toHaveCount(1);
+  await page.close();
+});
+
+
 test('comments pin on a tap, not on a pinch, take words, and go out with the delivery', async () => {
   const page = await openBoard();
   const cards = page.getByTestId('board-comment-card');
   await expect(page.getByTestId('board-comments')).toBeVisible();
-  await expect(page.getByTestId('pin-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('comment-hint')).toHaveCount(0);
 
   await page.evaluate(() => (window as any).__ipad.setCommenting(true));
-  await expect(page.getByTestId('pin-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('comment-hint')).toBeVisible();
 
   // A pinch or a drag moves the view and leaves no pin.
   await pinch(page);
@@ -402,12 +471,13 @@ test('the note lives in the panel and goes out with the delivery', async () => {
   await page.close();
 });
 
-test('hiding the panel turns the pin tool off', async () => {
+test('hiding the panel keeps the comment tool on', async () => {
   const page = await openBoard();
   await page.evaluate(() => (window as any).__ipad.setCommenting(true));
   await page.evaluate(() => (window as any).__ipad.setPanel(false));
   await expect(page.getByTestId('ipad-panel')).toHaveCount(0);
-  await expect(drawing(page)).toBeChecked();
+  await expect(page.getByTestId('comment-hint')).toBeVisible();
+  await expect(drawing(page)).not.toBeChecked();
   await page.close();
 });
 

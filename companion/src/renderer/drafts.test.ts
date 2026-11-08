@@ -390,6 +390,19 @@ describe('DraftBook reviews', () => {
     expect(book.get(review.id)?.review?.comments.map((c) => c.id)).toEqual(['c2']);
   });
 
+  it('moves a pin to another element with its words, and swaps its picture', () => {
+    const book = new DraftBook(fakeHost(), () => t++);
+    const review = book.create('', undefined, 's1', undefined, { path: 'a.html', comments: [] });
+    book.addComment(review.id, { ...pin('c1', 'crop0001'), text: 'Shorter' }, jpg);
+    const p = { ...anchor, selector: 'p', tag: 'p' };
+    book.moveComment(review.id, 'c1', p, { id: 'crop0002', data: 'data:image/jpeg;base64,DDDD' });
+    expect(book.get(review.id)?.review?.comments[0]).toMatchObject({ id: 'c1', text: 'Shorter', anchor: { tag: 'p' }, picture: 'crop0002' });
+    expect(book.get(review.id)?.attachments).toEqual({ crop0002: 'data:image/jpeg;base64,DDDD' });
+    book.moveComment(review.id, 'c1', anchor);
+    expect(book.get(review.id)?.review?.comments[0]).not.toHaveProperty('picture');
+    expect(book.get(review.id)?.attachments).toBeUndefined();
+  });
+
   it('adds heard words to a pin or the overall note', () => {
     const book = new DraftBook(fakeHost(), () => t++);
     const review = book.create('Start.', undefined, 's1', undefined, { path: 'a.html', comments: [] });

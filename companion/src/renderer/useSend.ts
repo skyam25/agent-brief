@@ -268,7 +268,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       const page = modeRef.current === 'review' ? reviewPage(book.selected) : undefined;
       if (page) {
         await host.setTarget(sessionId);
-        await host.ipadHandoff(sessionId, '', page);
+        await host.ipadHandoff(sessionId, { page });
         setChooserOpen(false);
         notify(book.selected?.review?.comments.length ? 'Sent the page to your iPad. Comments stay on this Mac.' : 'Sent the page to your iPad.');
         return;
@@ -276,7 +276,7 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
       const board = controller.board;
       await Promise.all([controller.flush(), comments.flush()]);
       await host.setTarget(sessionId);
-      await host.ipadHandoff(sessionId, board);
+      await host.ipadHandoff(sessionId, { board });
       setChooserOpen(false);
       notify(hasBoardComments(comments.of(board)) ? 'Sent to your iPad. Comments stay on this Mac.' : 'Sent to your iPad.');
     } catch (err) {

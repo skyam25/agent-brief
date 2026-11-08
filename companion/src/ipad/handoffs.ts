@@ -70,12 +70,11 @@ export class HandoffStore {
       ...(fields.prompt ? { prompt: fields.prompt } : {}),
       boardName: `ipad-${id}`,
       ...(fields.baseBoard ? { fromBoard: fields.baseBoard } : {}),
-      ...(fields.page && fields.pageRoot ? { page: fields.page } : {}),
       createdAt: this.now(),
       state: 'open',
       ...(fields.baseBoard ? { baseBoard: fields.baseBoard } : {}),
       ...(fields.baseMark ? { baseMark: fields.baseMark } : {}),
-      ...(fields.page && fields.pageRoot ? { pageRoot: fields.pageRoot } : {}),
+      ...(fields.page && fields.pageRoot ? { page: fields.page, pageRoot: fields.pageRoot } : {}),
     };
     this.items.set(id, handoff);
     this.save();

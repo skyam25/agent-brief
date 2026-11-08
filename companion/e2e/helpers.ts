@@ -395,3 +395,13 @@ export async function expandCard(card: Locator): Promise<void> {
     await expect(head).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
   }).toPass();
 }
+
+/** Opens closed shadow roots, such as the review overlay's, so the test can read inside them. */
+export async function openShadowRoots(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const attach = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (init) {
+      return attach.call(this, { ...init, mode: 'open' });
+    };
+  });
+}

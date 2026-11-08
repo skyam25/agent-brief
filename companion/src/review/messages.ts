@@ -16,6 +16,8 @@ export interface PagePin {
   active?: boolean;
 }
 
+export const pagePin = (id: string, n: number, anchor: ReviewAnchor, active: boolean): PagePin => ({ id, n, selector: anchor.selector, fx: anchor.fx, fy: anchor.fy, active });
+
 /** From the page to the pane. */
 export type FromPage =
   | { type: 'behavior-missing' }
@@ -31,6 +33,8 @@ export type FromPage =
   | { type: 'pin'; anchor: ReviewAnchor; view: ReviewRect; matches?: string[]; at?: number }
   /** The user clicked a marker. */
   | { type: 'open-pin'; id: string }
+  /** The user dragged a marker onto another element. The pin keeps its id and words and takes the new anchor. */
+  | { type: 'move-pin'; id: string; anchor: ReviewAnchor; view: ReviewRect }
   /** Pins whose element the page no longer has. */
   | { type: 'missing'; ids: string[] }
   /** An http or https link the user clicked. */

@@ -302,13 +302,15 @@ final class Dictation {
           let found = words(result.text)
           guard !found.isEmpty else { continue }
           let text = found.map(\.text).joined(separator: " ")
-          // A word without its own time starts where the one before it did.
+          // A final word without its own time starts where the one before it did.
+          // Settling words mostly come untimed, and those are the newest, so they sit at the result's end and follow the comment picked last.
           var last = result.range.start.seconds
+          let end = result.range.end.seconds
           let timed = found.map { word in
-            last = word.start ?? last
+            last = word.start ?? (result.isFinal ? last : end)
             return SpokenWord(text: word.text, atMs: startMs + last * 1000)
           }
-          let phrase = Phrase(text: text, atMs: timed[0].atMs, endMs: startMs + result.range.end.seconds * 1000, words: timed)
+          let phrase = Phrase(text: text, atMs: timed[0].atMs, endMs: startMs + end * 1000, words: timed)
           if result.isFinal {
             await MainActor.run { self?.onPhrase(phrase) }
           } else {

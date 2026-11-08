@@ -144,6 +144,11 @@ export class BoardCommentsStore {
     return id;
   }
 
+  /** Points a pin at what it now sits on, keeping its id and words. */
+  relabel(board: string, id: string, on: Pick<BoardPin, 'type' | 'label'>): void {
+    this.change(board, (c) => ({ ...c, pins: c.pins.map((p) => (p.id === id ? { ...p, type: on.type, label: on.label } : p)) }));
+  }
+
   edit(board: string, id: string, text: string): void {
     this.change(board, (c) => ({ ...c, pins: c.pins.map((p) => (p.id === id ? { ...p, text } : p)) }));
   }

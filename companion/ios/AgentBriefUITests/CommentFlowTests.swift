@@ -20,9 +20,10 @@ final class CommentFlowTests: XCTestCase {
     try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "\(env["AB_STUB_DIR"]!)/\(name).png"))
   }
 
-  /// Pin is a toggle on the page, so it is found by its label, whatever its element type.
-  private func control(_ app: XCUIApplication, _ label: String) -> XCUIElement {
-    app.webViews.firstMatch.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+  /// Waits for a toggle's accessibility value, such as On or Off.
+  private func reads(_ element: XCUIElement, _ value: String) -> Bool {
+    let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: element)
+    return XCTWaiter().wait(for: [expectation], timeout: 5) == .completed
   }
 
   private func openRow(_ app: XCUIApplication) {
@@ -30,7 +31,7 @@ final class CommentFlowTests: XCTestCase {
     XCTAssertTrue(row.waitForExistence(timeout: 20), "the inbox never listed the hand-off")
     row.tap()
     XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 15), "the board never opened")
-    XCTAssertTrue(control(app, "Pin").waitForExistence(timeout: 5), "the panel has no Pin button")
+    XCTAssertTrue(app.buttons["comment-button"].waitForExistence(timeout: 5), "the toolbar has no Comment button")
   }
 
   func testPinCommentRelaunchTalkSend() throws {
@@ -44,8 +45,9 @@ final class CommentFlowTests: XCTestCase {
     shot(app, "comment-1-off")
 
     let board = app.webViews.firstMatch
-    control(app, "Pin").tap()
-    XCTAssertTrue(control(app, "Done").waitForExistence(timeout: 5), "Pin never turned on")
+    let comment = app.buttons["comment-button"]
+    comment.tap()
+    XCTAssertTrue(reads(comment, "On"), "Comment never turned on")
     shot(app, "comment-2-on")
 
     board.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.35)).tap()
@@ -56,7 +58,11 @@ final class CommentFlowTests: XCTestCase {
     let typed = board.textViews.matching(NSPredicate(format: "value == 'Make this bigger'")).firstMatch
     XCTAssertTrue(typed.waitForExistence(timeout: 10), "the typing never finished")
     shot(app, "comment-3-pinned")
-    control(app, "Done").tap()
+    // A phone folds the toolbar while the keyboard is up, so the keyboard goes first.
+    let done = app.toolbars.buttons["Done"]
+    if done.exists { done.tap() }
+    comment.tap()
+    XCTAssertTrue(reads(comment, "Off"), "Comment never turned off")
     // Comments save 400 ms after the last edit.
     sleep(2)
 

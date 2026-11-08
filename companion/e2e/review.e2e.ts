@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { OutputRecord } from '../src/protocol';
-import { deliveriesFor, launch, type Launched, RESULTS, ROOT, showPanel, sock, tempDataDir } from './helpers';
+import { deliveriesFor, launch, type Launched, openShadowRoots, RESULTS, ROOT, showPanel, sock, tempDataDir } from './helpers';
 
 let ctx: Launched;
 let socketPath: string;
@@ -201,12 +201,7 @@ test('the hover box follows the page when it scrolls under a still pointer', asy
   put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs: [PAGE] }));
 
   // The overlay's shadow root is closed. Opening it lets the test read the hover box.
-  await page.addInitScript(() => {
-    const attach = Element.prototype.attachShadow;
-    Element.prototype.attachShadow = function (init) {
-      return attach.call(this, { ...init, mode: 'open' });
-    };
-  });
+  await openShadowRoots(page);
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(ctx.app, page);
@@ -241,12 +236,7 @@ test('the page background takes no hover box and no pin', async () => {
   put(cwd, '.feedback/outputs/s1.json', JSON.stringify({ version: 1, sessionId: 's1', outputs: [PAGE] }));
 
   // The overlay's shadow root is closed. Opening it lets the test read the hover box.
-  await page.addInitScript(() => {
-    const attach = Element.prototype.attachShadow;
-    Element.prototype.attachShadow = function (init) {
-      return attach.call(this, { ...init, mode: 'open' });
-    };
-  });
+  await openShadowRoots(page);
   await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
   await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
   await showPanel(ctx.app, page);

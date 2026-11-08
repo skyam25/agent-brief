@@ -131,6 +131,11 @@ final class LanClient: @unchecked Sendable {
     try JSONDecoder().decode(LanHandoffDetail.self, from: await request("GET", "/v1/handoffs/\(escaped(id))", timeout: 30))
   }
 
+  /// Removes a hand-off from the Mac, and so from every paired device.
+  func remove(id: String) async throws {
+    _ = try JSONDecoder().decode(LanRemoveResponse.self, from: await request("DELETE", "/v1/handoffs/\(escaped(id))", timeout: 5))
+  }
+
   /// Finds a live address first, so a large body never waits out a dead one.
   func deliver(id: String, json: Data) async throws -> IpadDeliveryResult {
     _ = try await handoffs()
@@ -144,9 +149,7 @@ final class LanClient: @unchecked Sendable {
     return (data, response.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream")
   }
 
-  private func escaped(_ id: String) -> String {
-    id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
-  }
+  private func escaped(_ id: String) -> String { id.pathSegmentEscaped }
 
   private func request(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval, onlyWorking: Bool = false) async throws -> Data {
     try await exchange(method, path, body: body, timeout: timeout, onlyWorking: onlyWorking).0
@@ -192,5 +195,12 @@ final class LanClient: @unchecked Sendable {
     }
     let code = (error as? URLError).map { " (error \($0.errorCode))" } ?? ""
     return "Can't reach \(mac). Check that it's awake, Agent Brief is open, and both are on the same network.\(code)"
+  }
+}
+
+extension String {
+  /// Percent-encoded as one URL path segment, so a slash inside it stays part of the segment.
+  var pathSegmentEscaped: String {
+    addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? self
   }
 }

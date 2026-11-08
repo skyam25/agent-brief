@@ -41,6 +41,15 @@ describe('cleanReview', () => {
     expect(review!.comments[0]!.picture).toBeUndefined();
   });
 
+  it("keeps a table cell's row and column, and says them in review.md", () => {
+    const cell = { ...anchor, tag: 'td', quote: undefined, text: '34.9%', cell: { row: 'Recovered after decline', column: 'Pilot', junk: 1 } };
+    const review = cleanReview({ path: 'a.html', comments: [{ id: 'c1', text: 'Is this real?', anchor: cell, createdAt: 1 }] })!;
+    expect(review.comments[0]!.anchor.cell).toEqual({ row: 'Recovered after decline', column: 'Pilot' });
+    expect(reviewMarkdown(review, () => undefined)).toContain('- Table cell: row “Recovered after decline”, column “Pilot”');
+    const bare = cleanReview({ path: 'a.html', comments: [{ id: 'c1', text: '', anchor: { ...cell, cell: { row: '' } }, createdAt: 1 }] })!;
+    expect(bare.comments[0]!.anchor).not.toHaveProperty('cell');
+  });
+
   it('is undefined without a path', () => {
     expect(cleanReview({ comments: [] })).toBeUndefined();
     expect(cleanReview('x')).toBeUndefined();

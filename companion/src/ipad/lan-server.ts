@@ -24,6 +24,8 @@ export interface LanBackend {
   page(id: string, path: string): Promise<{ body: Buffer | string; type: string }>;
   /** Removes this iPad from the Mac. */
   unpair(deviceId: string): void;
+  /** Removes a hand-off. False when there was none. */
+  remove(id: string): boolean;
 }
 
 export interface LanServerOptions {
@@ -101,9 +103,7 @@ export function parseIpadDelivery(raw: unknown): IpadDelivery | IpadPageDelivery
   if (!isRecord(scene) || !Array.isArray(scene.elements)) throw bad('scene must be an Excalidraw scene');
   if (notes !== undefined && typeof notes !== 'string') throw bad('notes must be a string');
   if (!Array.isArray(strokes) || !strokes.every(isStroke)) throw bad('strokes must be stroke events');
-  if (!Array.isArray(utterances) || !utterances.every((u) => isRecord(u) && isNum(u.t) && isNum(u.tEnd) && typeof u.text === 'string')) {
-    throw bad('utterances must have t, tEnd and text');
-  }
+  if (!Array.isArray(utterances) || !utterances.every(isUtterance)) throw bad('utterances must have t, tEnd and text');
   if (!isBox(bounds)) throw bad('bounds must have x, y, width and height');
   return { pngBase64, scene, ...(notes !== undefined ? { notes } : {}), strokes, utterances: utterances as IpadDelivery['utterances'], bounds, ...(comments !== undefined ? { comments } : {}) };
 }
@@ -126,6 +126,14 @@ function parsePageDelivery(raw: Record<string, unknown>): IpadPageDelivery {
   };
 }
 
+/** A file to send as is, in place of JSON. */
+class FileReply {
+  constructor(
+    readonly body: Buffer | string,
+    readonly type: string,
+  ) {}
+}
+
 function bearer(req: IncomingMessage): string | undefined {
   const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
   return m?.[1];
@@ -139,14 +147,6 @@ export function createLanServer(opts: LanServerOptions): LanServer {
   const deliveries = new RateLimiter(DELIVER_RATE, opts.now);
 
   const limited = () => new LanError(429, 'unavailable', 'too many requests');
-
-  /** A file to send as is, in place of JSON. */
-  class FileReply {
-    constructor(
-      readonly body: Buffer | string,
-      readonly type: string,
-    ) {}
-  }
 
   async function route(req: IncomingMessage): Promise<unknown> {
     const parts = new URL(req.url ?? '/', 'https://mac').pathname.split('/').filter(Boolean).map(decodeURIComponent);
@@ -176,6 +176,7 @@ export function createLanServer(opts: LanServerOptions): LanServer {
     }
     if (root === 'handoffs' && parts.length === 2 && method === 'GET') return backend.handoffs();
     if (root === 'handoffs' && parts.length === 3 && method === 'GET') return backend.detail(id);
+    if (root === 'handoffs' && parts.length === 3 && method === 'DELETE') return { removed: backend.remove(id) };
     if (root === 'handoffs' && parts.length >= 5 && verb === IPAD_PAGE_SEGMENT && method === 'GET') {
       const file = await backend.page(id, parts.slice(4).map(encodeURIComponent).join('/'));
       return new FileReply(file.body, file.type);

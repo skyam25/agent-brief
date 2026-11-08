@@ -69,6 +69,10 @@ struct LanHandoffsResponse: Decodable {
   let handoffs: [Handoff]
 }
 
+struct LanRemoveResponse: Decodable {
+  let removed: Bool
+}
+
 struct LanHandoffDetail: Decodable {
   let handoff: Handoff
   let scene: String?

@@ -34,6 +34,7 @@ final class LocalStore: @unchecked Sendable {
   private func dir(_ id: String) -> URL { root.appendingPathComponent("handoffs").appendingPathComponent(Self.safe(id)) }
   private func outboxFile(_ id: String) -> URL { root.appendingPathComponent("outbox").appendingPathComponent("\(Self.safe(id)).json") }
   private var listFile: URL { root.appendingPathComponent("handoffs.json") }
+  private var hiddenFile: URL { root.appendingPathComponent("hidden.json") }
 
   /// Hand-off ids come from the Mac, so they never become path segments as they are.
   private static func safe(_ id: String) -> String {
@@ -57,6 +58,20 @@ final class LocalStore: @unchecked Sendable {
     queue.sync {
       guard let data = try? Data(contentsOf: listFile) else { return [] }
       return (try? JSONDecoder().decode([Handoff].self, from: data)) ?? []
+    }
+  }
+
+  /// Hand-offs deleted here that their Mac still lists, because it could not take the delete. Keys, as `Handoff.key`.
+  func saveHidden(_ keys: Set<String>) {
+    queue.async { [self] in
+      if let data = try? JSONEncoder().encode(keys.sorted()) { write(data, to: hiddenFile) }
+    }
+  }
+
+  func loadHidden() -> Set<String> {
+    queue.sync {
+      guard let data = try? Data(contentsOf: hiddenFile) else { return [] }
+      return Set((try? JSONDecoder().decode([String].self, from: data)) ?? [])
     }
   }
 

@@ -126,6 +126,12 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
         return reply(res, 200, { handoffs: open.sort((a, b) => b.createdAt - a.createdAt) });
       }
       const detail = /^\/v1\/handoffs\/([^/]+)$/.exec(path);
+      if (req.method === 'DELETE' && detail) {
+        // An Agent Brief from before this route answers as for any route it lacks.
+        if (existsSync(join(dir, 'old-mac'))) return reply(res, 404, { error: 'no such route', code: 'not_found' });
+        received.push({ kind: 'remove', id: detail[1] });
+        return reply(res, 200, { removed: handoffs.delete(detail[1]) });
+      }
       if (req.method === 'GET' && detail) {
         const h = handoffs.get(detail[1]);
         if (!h) return reply(res, 404, { error: 'no such hand-off', code: 'not_found' });

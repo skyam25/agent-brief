@@ -22,6 +22,8 @@ final class AppModel {
   private(set) var handoffs: [Handoff] = []
   /// Hand-offs kept for work in progress after the Mac stopped listing them.
   private(set) var closed = Set<String>()
+  /// Hand-offs deleted here while their Mac could not remove them. The Mac still lists them, so polls skip them.
+  private var hidden = Set<String>()
   /// A `Handoff.key`, like every id below.
   var selectedId: String?
 
@@ -50,6 +52,8 @@ final class AppModel {
   private var pageTokens: [String: String] = [:]
   private(set) var canUndo = false
   private(set) var canRedo = false
+  /// Taps on the board or page place comments while this is on.
+  private(set) var commenting = false
   private(set) var talk: DictationStatus = .idle
   private(set) var liveWords = ""
   /// A comment in the panel shows the words, so the talk strip need not.
@@ -87,6 +91,7 @@ final class AppModel {
     macs = PairingStore.load()
     for mac in macs { clients[mac.id] = LanClient(mac) }
     handoffs = store.loadList()
+    hidden = store.loadHidden()
     for handoff in handoffs where store.hasOutbox(handoff.key) { outbox[handoff.key] = .waiting("Trying to reach the Mac.") }
 
     web.onSave = { [weak self] board, json in
@@ -107,6 +112,7 @@ final class AppModel {
       }
       return try await client.pageFile(id: handoff.id, path: path)
     }
+    web.onCommenting = { [weak self] on in self?.commenting = on }
     web.onHistory = { [weak self] undo, redo in
       self?.canUndo = undo
       self?.canRedo = redo
@@ -314,11 +320,19 @@ final class AppModel {
   /// Keeps what this Mac lists, anything of its still waiting in the outbox, and work in progress.
   /// Another iPad's answer closes a hand-off on the Mac, and that must not take this device's work away.
   private func merge(_ fromMac: [Handoff], from macId: String) {
-    let live = fromMac.filter { $0.state == "open" }.map { handoff -> Handoff in
+    let tagged = fromMac.filter { $0.state == "open" }.map { handoff -> Handoff in
       var tagged = handoff
       tagged.macId = macId
       return tagged
     }
+    // A hidden hand-off stays hidden while its Mac lists it, and is forgotten once the Mac lets it go.
+    let listed = Set(tagged.map(\.key))
+    let stale = hidden.filter { $0.hasPrefix("\(macId)-") && !listed.contains($0) }
+    if !stale.isEmpty {
+      hidden.subtract(stale)
+      store.saveHidden(hidden)
+    }
+    let live = tagged.filter { !hidden.contains($0.key) }
     let liveKeys = Set(live.map(\.key))
     let mine = handoffs.filter { $0.macId == macId && !liveKeys.contains($0.key) }
     let kept = mine.filter { store.hasOutbox($0.key) || $0.key == openId || store.isEdited($0.key) }
@@ -351,8 +365,7 @@ final class AppModel {
     guard let page = handoffs.first(where: { $0.key == key })?.page else { return nil }
     let token = pageTokens.first(where: { $0.value == key })?.key ?? UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
     pageTokens[token] = key
-    let segment = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
-    let path = page.split(separator: "/").map { $0.addingPercentEncoding(withAllowedCharacters: segment) ?? String($0) }.joined(separator: "/")
+    let path = page.split(separator: "/").map { String($0).pathSegmentEscaped }.joined(separator: "/")
     return "abpage://\(token)/\(path)"
   }
 
@@ -402,6 +415,12 @@ final class AppModel {
   }
 
   // MARK: Talk
+
+  func toggleCommenting() {
+    let on = !commenting
+    commenting = on
+    inOrder { await self.web.setCommenting(on) }
+  }
 
   func undo() {
     inOrder { await self.web.undo() }
@@ -504,6 +523,39 @@ final class AppModel {
   func canDiscard(_ handoff: Handoff) -> Bool {
     if case .refused = outbox[handoff.key] { return true }
     return closed.contains(handoff.key) || orphans.contains { $0.key == handoff.key }
+  }
+
+  /// Deletes a hand-off and its work here. One the Mac still has open leaves the Mac too, so it goes from every device.
+  /// A Mac that can't take the delete, because it runs an older Agent Brief or can't be reached, keeps it, so it is hidden here instead.
+  func delete(_ handoff: Handoff) async {
+    let macId = handoff.macId ?? ""
+    let name = macs.first { $0.id == macId }?.macName ?? "The Mac"
+    if !canDiscard(handoff), let client = clients[macId] {
+      do {
+        try await client.remove(id: handoff.id)
+      } catch LanError.unauthorized {
+        lostPairing(macId)
+        return
+      } catch LanError.rejected(let status, _) where status == 404 {
+        hide(handoff.key)
+        show("Deleted here. \(name) runs an older Agent Brief, so it still has this hand-off.")
+        return
+      } catch LanError.unreachable {
+        hide(handoff.key)
+        show("Deleted here. \(name) can't be reached, so it may still list this hand-off.")
+        return
+      } catch {
+        show("Couldn't delete it. \(error.localizedDescription)")
+        return
+      }
+    }
+    finish(handoff.key)
+  }
+
+  private func hide(_ key: String) {
+    hidden.insert(key)
+    store.saveHidden(hidden)
+    finish(key)
   }
 
   /// Throws away a hand-off's work, once the person says so.

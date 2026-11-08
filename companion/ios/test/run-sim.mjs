@@ -122,6 +122,8 @@ const pagePins = reviewed?.review?.comments ?? [];
 check(pagePins.length === 1 && pagePins[0].anchor?.tag === 'h1', `the page comment sits on the heading: ${JSON.stringify(pagePins.map((c) => c.anchor?.tag))}`);
 check(pagePins[0]?.text.includes('Shorter title'), `the page comment kept its words: ${JSON.stringify(pagePins[0]?.text)}`);
 check(!('pngBase64' in (reviewed ?? {})), 'a page review carries no sketch');
+check(stubS.received.some((r) => r.kind === 'remove' && r.id === 'h2'), 'deleting a hand-off in the inbox removed it on the Mac');
+check(!stubS.received.some((r) => r.kind === 'remove' && r.id === 'h1'), 'an older Mac kept the hand-off deleted on the device');
 
 console.log(fail.length ? `\n${fail.length} failed` : '\nall passed');
 console.log(`screenshots and deliveries in ${dir}`);

@@ -1,6 +1,13 @@
 import SwiftUI
 import WebKit
 
+/// Answers a scheme task with one response and its body.
+private func reply(_ task: WKURLSchemeTask, _ url: URL, status: Int = 200, _ data: Data, _ headers: [String: String]) {
+  task.didReceive(HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!)
+  task.didReceive(data)
+  task.didFinish()
+}
+
 /// Serves the bundled board page, so modules and fonts load as they would from a site.
 private final class BundleSchemeHandler: NSObject, WKURLSchemeHandler {
   private let root = Bundle.main.url(forResource: "Web", withExtension: nil)
@@ -18,16 +25,11 @@ private final class BundleSchemeHandler: NSObject, WKURLSchemeHandler {
     let path = url.path.isEmpty || url.path == "/" ? "index.html" : String(url.path.dropFirst())
     let file = root.appendingPathComponent(path).standardizedFileURL
     guard file.path.hasPrefix(root.standardizedFileURL.path + "/"), let data = try? Data(contentsOf: file) else {
-      let missing = HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: nil)!
-      task.didReceive(missing)
-      task.didFinish()
+      reply(task, url, status: 404, Data(), [:])
       return
     }
     let type = Self.types[file.pathExtension.lowercased()] ?? "application/octet-stream"
-    let headers = ["Content-Type": type, "Content-Length": String(data.count), "Access-Control-Allow-Origin": "*"]
-    task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!)
-    task.didReceive(data)
-    task.didFinish()
+    reply(task, url, data, ["Content-Type": type, "Content-Length": String(data.count), "Access-Control-Allow-Origin": "*"])
   }
 
   func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
@@ -42,10 +44,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
   private let overlay = Bundle.main.url(forResource: "Web", withExtension: nil)?.appendingPathComponent("overlay.js")
 
   private func respond(_ task: WKURLSchemeTask, _ url: URL, _ data: Data, type: String) {
-    let headers = ["Content-Type": type, "Content-Length": String(data.count), "Cache-Control": "no-store"]
-    task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!)
-    task.didReceive(data)
-    task.didFinish()
+    reply(task, url, data, ["Content-Type": type, "Content-Length": String(data.count), "Cache-Control": "no-store"])
   }
 
   func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
@@ -66,10 +65,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         if !stopped.contains(id) { respond(task, url, data, type: type) }
       } catch {
         guard !stopped.contains(id) else { return }
-        let missing = HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/plain"])!
-        task.didReceive(missing)
-        task.didReceive(Data(error.localizedDescription.utf8))
-        task.didFinish()
+        reply(task, url, status: 404, Data(error.localizedDescription.utf8), ["Content-Type": "text/plain"])
       }
     }
   }
@@ -101,6 +97,7 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   let pages = PageSchemeHandler()
   /// Whether the board can undo and redo now.
   var onHistory: (_ undo: Bool, _ redo: Bool) -> Void = { _, _ in }
+  var onCommenting: (_ on: Bool) -> Void = { _ in }
   var onCrash: () -> Void = {}
   private var ready = false
   private var waiting: [CheckedContinuation<Void, Never>] = []
@@ -146,6 +143,8 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
       }
     case "history":
       onHistory(body["undo"] as? Bool ?? false, body["redo"] as? Bool ?? false)
+    case "commenting":
+      onCommenting(body["on"] as? Bool ?? false)
     case "saveNotes":
       if let board = body["board"] as? String, let text = body["text"] as? String { onNotes(board, text) }
     case "log":
@@ -182,31 +181,22 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     return Data(json.utf8)
   }
 
-  func setListening(_ on: Bool) async {
+  /// Runs `js` once the board is ready. The page's answer is ignored.
+  private func call(_ js: String, _ arguments: [String: Any] = [:]) async {
     await whenReady()
-    _ = try? await webView.callAsyncJavaScript("window.__ipad.setListening(on);", arguments: ["on": on], contentWorld: .page)
+    _ = try? await webView.callAsyncJavaScript(js, arguments: arguments, contentWorld: .page)
   }
 
-  func undo() async {
-    await whenReady()
-    _ = try? await webView.callAsyncJavaScript("window.__ipad.undo();", arguments: [:], contentWorld: .page)
-  }
-
-  func redo() async {
-    await whenReady()
-    _ = try? await webView.callAsyncJavaScript("window.__ipad.redo();", arguments: [:], contentWorld: .page)
-  }
-
-  func setPanel(_ open: Bool) async {
-    await whenReady()
-    _ = try? await webView.callAsyncJavaScript("window.__ipad.setPanel(open);", arguments: ["open": open], contentWorld: .page)
-  }
+  func setListening(_ on: Bool) async { await call("window.__ipad.setListening(on);", ["on": on]) }
+  func undo() async { await call("window.__ipad.undo();") }
+  func redo() async { await call("window.__ipad.redo();") }
+  func setCommenting(_ on: Bool) async { await call("window.__ipad.setCommenting(on);", ["on": on]) }
+  func setPanel(_ open: Bool) async { await call("window.__ipad.setPanel(open);", ["open": open]) }
 
   /// Tells the page where the fold runs, so the panel takes one side of it. Nil when the screen is flat.
   func setFold(_ fold: CGRect?) async {
-    await whenReady()
     let arg: Any = fold.map { ["x": $0.minX, "y": $0.minY, "width": $0.width, "height": $0.height] } ?? NSNull()
-    _ = try? await webView.callAsyncJavaScript("window.__ipad.setFold(fold ?? undefined);", arguments: ["fold": arg], contentWorld: .page)
+    await call("window.__ipad.setFold(fold ?? undefined);", ["fold": arg])
   }
 
   /// Offers a finished phrase to the comments. True means a comment took it.
@@ -228,10 +218,7 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     return (result as? Bool) ?? false
   }
 
-  func setTheme(dark: Bool) async {
-    await whenReady()
-    _ = try? await webView.callAsyncJavaScript("window.__ipad.setTheme(theme);", arguments: ["theme": dark ? "dark" : "light"], contentWorld: .page)
-  }
+  func setTheme(dark: Bool) async { await call("window.__ipad.setTheme(theme);", ["theme": dark ? "dark" : "light"]) }
 }
 
 struct BoardWebView: UIViewRepresentable {

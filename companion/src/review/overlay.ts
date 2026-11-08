@@ -18,6 +18,8 @@ import { cut, oneLine } from '../shared/text';
 const VERSION = (document.currentScript as HTMLScriptElement | null)?.dataset.abVersion;
 
 const MARKER = 22;
+/** How far a press on a marker moves before it drags the marker instead of opening its comment. */
+const DRAG_START = 6;
 /** How long the snapshot outline stays after a measure, for the pane's crop to catch it. */
 const MARK_MS = 1500;
 const ACCENT = '#6965db';
@@ -54,6 +56,10 @@ function start(): void {
   /** Where the pointer last was over the page. A scroll or pan moves the page under it. */
   let pointer: { x: number; y: number } | undefined;
   const markers = new Map<string, HTMLButtonElement>();
+  /** A marker under a finger or the mouse. `dx` and `dy` keep its pointed corner where it was under the press. */
+  let drag: { id: string; pointerId: number; x: number; y: number; dx: number; dy: number; moved: boolean } | undefined;
+  /** A drag just ended on this marker, so the click that follows does not open its comment. */
+  let dropped: string | undefined;
   /** Feedback items' selectors, from the pane. */
   let wheres: string[] = [];
   const finder = createFind();
@@ -82,7 +88,10 @@ function start(): void {
         border: 2px solid #fff; background: ${ACCENT}; color: #fff; font: 600 11px/1 -apple-system, system-ui, sans-serif;
         display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; pointer-events: auto;
         box-shadow: 0 1px 4px rgb(0 0 0 / 0.35); box-sizing: border-box; }
+      .pin { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+      .pin::before { content: ''; position: absolute; inset: -10px -10px 0 0; }
       .pin.active { outline: 3px solid rgb(105 101 219 / 0.35); transform: scale(1.15); }
+      .pin.dragging { transform: scale(1.3); cursor: grabbing; box-shadow: 0 4px 12px rgb(0 0 0 / 0.35); }
       .mark { border: ${SNAPSHOT_MARK.width}px solid ${SNAPSHOT_MARK.color}; background: none; border-radius: 2px; }
     `;
     layer = document.createElement('div');
@@ -171,22 +180,48 @@ function start(): void {
     return parts.join(' > ') || el.tagName.toLowerCase();
   }
 
-  /** The last heading before `el` in document order, other than `el` itself. */
-  function headingBefore(el: Element): string | undefined {
-    let found: Element | undefined;
-    for (const h of document.querySelectorAll(HEADINGS)) {
-      if (h === el || h.contains(el)) continue;
-      if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) found = h;
-      else break;
+  /**
+   * The heading `el` sits under. A section that holds a heading sits under its own.
+   * A heading sits under the last one before it of a higher rank, and anything else under the last one before it.
+   */
+  function headingOf(el: Element): string | undefined {
+    const rank = (h: Element) => Number(h.tagName[1]);
+    const own = el.matches(HEADINGS) ? undefined : el.querySelector(HEADINGS);
+    let found = own ?? undefined;
+    if (!found) {
+      for (const h of document.querySelectorAll(HEADINGS)) {
+        if (h === el || h.contains(el)) continue;
+        if (!(h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) break;
+        if (!el.matches(HEADINGS) || rank(h) < rank(el)) found = h;
+      }
     }
     const text = found && oneLine((found as HTMLElement).innerText ?? found.textContent ?? '');
     return text ? cut(text, 200) : undefined;
   }
 
+  /** A table cell's row and column as the table labels them: the row's first cell and the column's header. Each is left out when it is the cell itself. */
+  function cellOf(el: Element): ReviewAnchor['cell'] {
+    const cell = el.closest('td, th');
+    const row = cell?.parentElement;
+    const table = cell?.closest('table');
+    if (!(cell instanceof HTMLTableCellElement) || !(row instanceof HTMLTableRowElement) || !table) return undefined;
+    const words = (c: Element | undefined | null) => (c && c !== cell ? cut(oneLine((c as HTMLElement).innerText ?? c.textContent ?? ''), 200) : '');
+
+    // Column positions count spans, so a header that spans two columns heads both.
+    const at = (r: HTMLTableRowElement, c: HTMLTableCellElement) => [...r.cells].slice(0, c.cellIndex).reduce((n, x) => n + x.colSpan, 0);
+    const column = at(row, cell);
+    const headRow = table.tHead?.rows[0] ?? (table.rows[0] !== row && [...(table.rows[0]?.cells ?? [])].every((c) => c.tagName === 'TH') ? table.rows[0] : undefined);
+    const header = headRow && [...headRow.cells].find((c) => at(headRow, c) <= column && column < at(headRow, c) + c.colSpan);
+    const rowLabel = words(row.cells[0]);
+    const columnLabel = headRow === row ? '' : words(header);
+    return rowLabel || columnLabel ? { ...(rowLabel ? { row: rowLabel } : {}), ...(columnLabel ? { column: columnLabel } : {}) } : undefined;
+  }
+
   function anchorFor(el: Element, spot: { x: number; y: number }, quote?: string): ReviewAnchor {
     const r = el.getBoundingClientRect();
     const text = oneLine((el as HTMLElement).innerText ?? el.textContent ?? '');
-    const heading = headingBefore(el);
+    const heading = headingOf(el);
+    const cell = cellOf(el);
     const fraction = (v: number, start: number, size: number) => (size > 0 ? Math.min(1, Math.max(0, (v - start) / size)) : 0.5);
     return {
       selector: selectorFor(el),
@@ -194,6 +229,7 @@ function start(): void {
       ...(quote ? { quote: cut(oneLine(quote), 2000) } : {}),
       ...(text ? { text: cut(text, 200) } : {}),
       ...(heading ? { heading } : {}),
+      ...(cell ? { cell } : {}),
       fx: fraction(spot.x, r.left, r.width),
       fy: fraction(spot.y, r.top, r.height),
       rect: { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height },
@@ -215,9 +251,12 @@ function start(): void {
     requestAnimationFrame(() => requestAnimationFrame(fn));
   };
 
+  /** Where a pin on `el` at `spot` sits, and the box the pane crops for its picture. */
+  const placement = (el: Element, spot: { x: number; y: number }) => ({ anchor: anchorFor(el, spot), view: visible(el.getBoundingClientRect()) });
+
   function pinElement(el: Element, x: number, y: number): void {
     const at = Date.now();
-    afterPaint(() => post({ type: 'pin', anchor: anchorFor(el, { x, y }), view: visible(el.getBoundingClientRect()), matches: matching(el), at }));
+    afterPaint(() => post({ type: 'pin', ...placement(el, { x, y }), matches: matching(el), at }));
   }
 
   function pinSelection(sel: Selection): boolean {
@@ -248,10 +287,14 @@ function start(): void {
 
   /** Outlines the element under the pointer, or hides the box when there is none. */
   function placeHover(): void {
+    const el = commenting && pointer && !following ? commentable(document.elementFromPoint(pointer.x, pointer.y)) : undefined;
+    outline(el);
+  }
+
+  function outline(el: Element | undefined): void {
     if (!hover) return;
-    const el = commenting && pointer ? commentable(document.elementFromPoint(pointer.x, pointer.y)) : undefined;
-    if (!el || following) hover.style.display = 'none';
-    else place(hover, el.getBoundingClientRect());
+    if (el) place(hover, el.getBoundingClientRect());
+    else hover.style.display = 'none';
   }
 
   /** ⌘ or Ctrl is down in comment mode, so a click on a link follows it. */
@@ -272,13 +315,13 @@ function start(): void {
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
-      placeHover();
+      if (!drag?.moved) placeHover();
       if (shown && shownBox) place(shownBox, shown.getBoundingClientRect(), SNAPSHOT_MARK.width);
       for (const pin of pins) {
         const marker = markers.get(pin.id);
         const el = find(pin.selector);
         const r = el?.getBoundingClientRect();
-        if (!marker) continue;
+        if (!marker || (drag?.moved && drag.id === pin.id)) continue;
         if (!r || (r.width === 0 && r.height === 0)) {
           marker.style.display = 'none';
           continue;
@@ -306,11 +349,21 @@ function start(): void {
       if (!marker) {
         marker = document.createElement('button');
         marker.className = 'pin';
+        const id = pin.id;
+        const el = marker;
         marker.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          post({ type: 'open-pin', id: pin.id });
+          if (dropped === id) {
+            dropped = undefined;
+            return;
+          }
+          post({ type: 'open-pin', id });
         });
+        marker.addEventListener('pointerdown', (e) => startDrag(e, id, el));
+        marker.addEventListener('pointermove', (e) => moveDrag(e, el));
+        marker.addEventListener('pointerup', (e) => endDrag(e, el, true));
+        marker.addEventListener('pointercancel', (e) => endDrag(e, el, false));
         markers.set(pin.id, marker);
         layer.append(marker);
       }
@@ -319,6 +372,63 @@ function start(): void {
       marker.classList.toggle('active', !!pin.active);
     }
     post({ type: 'missing', ids: pins.filter((p) => !find(p.selector)).map((p) => p.id) });
+    layout();
+  }
+
+  // ── Dragging a marker ──────────────────────────────────────────────────
+
+  /** The element a marker dropped at `spot` pins to. The overlay's own host is skipped. */
+  const dropTarget = (spot: { x: number; y: number }) => commentable(document.elementsFromPoint(spot.x, spot.y).find((el) => !ours(el)) ?? null);
+
+  /** Where the marker's pointed corner sits for the pointer at `e`. */
+  const cornerAt = (e: PointerEvent) => ({ x: e.clientX - (drag?.dx ?? 0), y: e.clientY - (drag?.dy ?? 0) });
+
+  function startDrag(e: PointerEvent, id: string, marker: HTMLButtonElement): void {
+    dropped = undefined;
+    if (e.button !== 0 || drag) return;
+    const r = marker.getBoundingClientRect();
+    drag = { id, pointerId: e.pointerId, x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.bottom, moved: false };
+    marker.setPointerCapture?.(e.pointerId);
+  }
+
+  /** Pointer moves arrive faster than frames, so the marker and the hit test run once per frame. */
+  let dragFrame = 0;
+
+  function moveDrag(e: PointerEvent, marker: HTMLButtonElement): void {
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < DRAG_START) return;
+    drag.moved = true;
+    marker.classList.add('dragging');
+    const spot = cornerAt(e);
+    const finger = { x: e.clientX, y: e.clientY };
+    cancelAnimationFrame(dragFrame);
+    dragFrame = requestAnimationFrame(() => {
+      if (!drag) return;
+
+      // The hit test reads layout before the marker moves, so the frame lays out once.
+      const el = dropTarget(spot) ?? dropTarget(finger);
+      marker.style.left = `${spot.x}px`;
+      marker.style.top = `${spot.y - MARKER}px`;
+      outline(el);
+    });
+  }
+
+  /**
+   * A drag that moved re-pins the comment to the element under the marker's corner, else the one under the finger.
+   * A drop on empty page puts it back.
+   */
+  function endDrag(e: PointerEvent, marker: HTMLButtonElement, drop: boolean): void {
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const { id, moved } = drag;
+    const spot = cornerAt(e);
+    drag = undefined;
+    cancelAnimationFrame(dragFrame);
+    marker.classList.remove('dragging');
+    if (!moved) return;
+    dropped = id;
+    const el = drop ? (dropTarget(spot) ?? dropTarget({ x: e.clientX, y: e.clientY })) : undefined;
+    if (el) afterPaint(() => post({ type: 'move-pin', id, ...placement(el, spot) }));
+    else outline(undefined);
     layout();
   }
 

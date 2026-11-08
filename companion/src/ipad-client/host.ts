@@ -24,6 +24,8 @@ export type NativeMessage =
   | { type: 'saveBoard'; board: string; json: string }
   | { type: 'saveNotes'; board: string; text: string }
   | { type: 'history'; undo: boolean; redo: boolean }
+  /** The comment tool turned on or off, for the toolbar's Comment button. */
+  | { type: 'commenting'; on: boolean }
   | { type: 'openLink'; href: string }
   | { type: 'log'; level: 'error'; text: string };
 
@@ -45,17 +47,25 @@ export class IpadHost implements BoardHost {
   private readonly boards = new Map<string, { scene: string | null; notes: string }>();
   private readonly themeListeners = new Set<(theme: Theme) => void>();
   private readonly comments: Record<string, BoardComments> = {};
+  /** The page each page hand-off reviews, by board. */
+  private readonly pages = new Map<string, string>();
   /** Where each page comment sits on its page, by board and pin id. Saved with the comments. */
   private readonly anchors = new Map<string, Record<string, ReviewAnchor>>();
 
   /** Holds what `open` asks the controller to load next. */
   offer(board: OpenBoard): void {
     this.boards.set(board.boardName, { scene: board.scene, notes: board.notes });
+    if (board.page) this.pages.set(board.boardName, board.page);
+    else this.pages.delete(board.boardName);
     const raw = parsed(board.comments);
     const saved = cleanBoardComments(raw);
     if (saved) this.comments[board.boardName] = saved;
     const anchors = (raw as { anchors?: unknown } | undefined)?.anchors;
     if (anchors && typeof anchors === 'object') this.anchors.set(board.boardName, anchors as Record<string, ReviewAnchor>);
+  }
+
+  pageOf(board: string): string | undefined {
+    return this.pages.get(board);
   }
 
   setAnchor(board: string, id: string, anchor: ReviewAnchor): void {

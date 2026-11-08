@@ -212,6 +212,16 @@ describe('hand-offs', () => {
     expect((await call(link, 'GET', '/v1/handoffs/none', { credential })).status).toBe(404);
   });
 
+  it('lets a paired device delete a hand-off, for every device', async () => {
+    const { ipad, link, credential } = await paired();
+    const a = ipad.createHandoff({ sessionId: 's1', prompt: 'mark this up' });
+    expect((await call(link, 'DELETE', `/v1/handoffs/${a.id}`)).status).toBe(401);
+    expect((await call(link, 'DELETE', `/v1/handoffs/${a.id}`, { credential })).body).toEqual({ removed: true });
+    expect(ipad.listHandoffs()).toEqual([]);
+    expect((await call(link, 'GET', '/v1/handoffs', { credential })).body.handoffs).toEqual([]);
+    expect((await call(link, 'DELETE', `/v1/handoffs/${a.id}`, { credential })).body).toEqual({ removed: false });
+  });
+
   it('keeps hand-offs across restarts', async () => {
     const { ipad } = await paired();
     const a = ipad.createHandoff({ sessionId: 's1', board: 'flow' });

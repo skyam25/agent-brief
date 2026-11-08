@@ -7,6 +7,7 @@
  * GET  /v1/handoffs/:id          → LanHandoffDetail
  * GET  /v1/handoffs/:id/page/*  → a file of a page hand-off's project, as is. HTML gets the review overlay.
  * POST /v1/handoffs/:id/deliver  IpadDelivery or IpadPageDelivery → IpadDeliveryResult
+ * DELETE /v1/handoffs/:id        → LanRemoveResponse. Removes the hand-off from the Mac and every device.
  * POST /v1/unpair                → UnpairResponse. Removes the calling iPad from this Mac.
  *
  * Other routes send `Authorization: Bearer <credential>`. A bad credential answers 401.
@@ -86,6 +87,11 @@ export interface UnpairResponse {
 export interface LanHandoffsResponse {
   /** Open hand-offs, newest first. Every paired iPad sees them. */
   handoffs: Handoff[];
+}
+
+export interface LanRemoveResponse {
+  /** False when the Mac had no such hand-off, which leaves the same result. */
+  removed: boolean;
 }
 
 export interface LanHandoffDetail {

@@ -41,6 +41,7 @@ final class BoardToolsTests: XCTestCase {
     let more = app.buttons["prompt-more"]
     XCTAssertTrue(more.exists, "a long prompt offers the rest")
     let short = prompt.frame.height
+    XCTAssertLessThan(short, 26, "the folded prompt takes more than one line")
     more.tap()
     XCTAssertTrue(app.buttons["Show less"].waitForExistence(timeout: 3))
     XCTAssertGreaterThan(prompt.frame.height, short, "Show all did not show more")

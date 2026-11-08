@@ -140,13 +140,14 @@ export class DraftStore {
   }
 
   /** Saves a new note from outside the panel, filed under `sessionId` when one is given. */
-  addNote(note: { text: string; title?: string; sessionId?: string }, now = Date.now()): Draft {
+  addNote(note: { text: string; title?: string; sessionId?: string; review?: Draft['review'] }, now = Date.now()): Draft {
     return this.save({
       id: newDraftId(now),
       body: note.text,
       status: 'note',
       ...(note.title ? { title: note.title } : {}),
       ...(note.sessionId ? { sessionId: note.sessionId } : {}),
+      ...(note.review ? { review: note.review } : {}),
       rank: 0,
       createdAt: now,
       updatedAt: now,

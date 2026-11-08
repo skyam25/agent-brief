@@ -185,11 +185,14 @@ struct InboxView: View {
   private func row(_ handoff: Handoff) -> some View {
     HandoffRow(handoff: handoff, state: model.outbox[handoff.key], closed: model.closed.contains(handoff.key))
       .tag(handoff.key)
-      .contextMenu {
-        if model.canDiscard(handoff) {
-          Button("Discard", role: .destructive) { model.discard(handoff.key) }
-        }
+      .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+        deleteButton(handoff).accessibilityIdentifier("delete-handoff")
       }
+      .contextMenu { deleteButton(handoff) }
+  }
+
+  private func deleteButton(_ handoff: Handoff) -> some View {
+    Button("Delete", systemImage: "trash", role: .destructive) { Task { await model.delete(handoff) } }
   }
 }
 
@@ -327,6 +330,17 @@ struct WorkView: View {
     }
 
     ToolbarItemGroup(placement: .primaryAction) {
+      // Stays on, pin after pin, until it is pressed again. An icon alone, so Send keeps its place beside Undo and Redo.
+      Button {
+        model.toggleCommenting()
+      } label: {
+        Image(systemName: model.commenting ? "text.bubble.fill" : "text.bubble").accessibilityLabel("Comment")
+      }
+      .tint(model.commenting ? .accentColor : nil)
+      .disabled(sending)
+      .accessibilityValue(model.commenting ? "On" : "Off")
+      .accessibilityIdentifier("comment-button")
+
       Button {
         model.toggleTalk()
       } label: {
@@ -374,30 +388,45 @@ struct WorkView: View {
     }
   }
 
-  /// Two lines leave the board room. A long prompt shows the rest on request, and its links open in the browser.
+  /// One small line leaves the board room, even in landscape. A longer prompt shows the rest on request, and its links open in the browser.
   @ViewBuilder
   private var promptLine: some View {
     if let prompt = model.open?.prompt, !prompt.isEmpty {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(PromptText.attributed(prompt))
-          .font(.callout)
-          .lineLimit(promptExpanded ? nil : 2)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .accessibilityIdentifier("handoff-prompt")
-        if PromptText.isLong(prompt) {
-          Button {
-            promptExpanded.toggle()
-          } label: {
-            Image(systemName: promptExpanded ? "chevron.up" : "chevron.down")
-              .accessibilityLabel(promptExpanded ? "Show less" : "Show all")
+      Group {
+        if promptExpanded || prompt.contains("\n") {
+          promptRow(prompt, lines: promptExpanded ? nil : 1, more: true)
+        } else {
+          ViewThatFits(in: .horizontal) {
+            promptRow(prompt, lines: 1, more: false)
+            promptRow(prompt, lines: 1, more: true)
           }
-          .accessibilityIdentifier("prompt-more")
         }
       }
-      .padding(.horizontal, 20)
-      .padding(.vertical, 10)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 6)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .background(.bar)
       .onChange(of: model.openId) { promptExpanded = false }
+    }
+  }
+
+  private func promptRow(_ prompt: String, lines: Int?, more: Bool) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      Text(PromptText.attributed(prompt))
+        .font(.footnote)
+        .lineLimit(lines)
+        .frame(maxWidth: more ? .infinity : nil, alignment: .leading)
+        .accessibilityIdentifier("handoff-prompt")
+      if more {
+        Button {
+          promptExpanded.toggle()
+        } label: {
+          Image(systemName: promptExpanded ? "chevron.up" : "chevron.down")
+            .font(.footnote)
+            .accessibilityLabel(promptExpanded ? "Show less" : "Show all")
+        }
+        .accessibilityIdentifier("prompt-more")
+      }
     }
   }
 
