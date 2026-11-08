@@ -1,10 +1,23 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import { bandFocusKey } from '../hooks/band'
 import { IPAD_SENT, IPAD_UNSUPPORTED, REREGISTER_MS } from '../hooks/companion-logic'
 import { DEFAULT_SOCKET, SESSION_ID, setupCompanion } from './companion-world'
 import { BAND, command, textOf } from './world'
 
 const LAUNCH = 'open -a "Agent Brief"'
+
+/** The band's open picker's props, wherever the tree holds it. */
+function findOpen(node: unknown): { value?: string } | undefined {
+  if (node === null || typeof node !== 'object') return undefined
+  const el = node as { type?: string; key?: string; props?: { key?: string; value?: string }; children?: unknown[] }
+  if (el.type === 'Select' && (el.key ?? el.props?.key) === 'open') return el.props ?? (el as { value?: string })
+  for (const child of el.children ?? []) {
+    const found = findOpen(child)
+    if (found) return found
+  }
+  return undefined
+}
 
 describe('/sketch', () => {
   test('opens the panel for this session when the app is up', async ($, on) => {
@@ -118,8 +131,8 @@ describe('/sketch', () => {
   })
 })
 
-describe('the Sketch and Write buttons above the prompt', () => {
-  test('draws one row with both buttons, and yields to a survey', async ($, on) => {
+describe('the open picker above the prompt', () => {
+  test('draws Sketch, Stack and Write in one picker, and yields to a survey', async ($, on) => {
     const { clock, start } = await setupCompanion($, on)
     await start()
     await clock.settle()
@@ -131,12 +144,23 @@ describe('the Sketch and Write buttons above the prompt', () => {
     expect(textOf(await $.ui.render(survey))).toBe('engine band')
   })
 
+  test('shows the last pick, which a later pick replaces', async ($, on) => {
+    const { app, clock, start } = await setupCompanion($, on)
+    await start()
+    await clock.settle()
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"value":"sketch"')
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'stack' })
+    expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, layout: 'stack' })
+    const band = await $.ui.render(BAND)
+    expect(findOpen(band)?.value).toBe('stack')
+  })
+
   test('a press opens the panel for this session, as /sketch does', async ($, on) => {
     const { app, world, clock, start } = await setupCompanion($, on)
     await start()
     await clock.settle()
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'sketch' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'sketch' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID })
     expect(world.toasts).toEqual([])
   })
@@ -146,7 +170,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await start()
     await clock.settle()
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'stack' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'stack' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, layout: 'stack' })
     expect(world.toasts).toEqual([])
   })
@@ -160,7 +184,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await start()
     await clock.settle()
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'write' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write', text: 'We shipped **v2**.' })
     expect(app.fills, 'the empty box is left alone').toEqual([])
     expect(world.toasts).toEqual([])
@@ -172,7 +196,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await start()
     await clock.settle()
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'write' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write' })
     expect(world.toasts).toEqual([])
   })
@@ -183,7 +207,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await clock.settle()
     app.box.text = 'half a thought'
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'write' })
     expect(app.to('POST', '/open')[0]!.body).toEqual({ sessionId: SESSION_ID, mode: 'write', text: 'half a thought' })
     expect(app.box.text).toBe('')
   })
@@ -195,7 +219,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await clock.settle()
     app.box.text = 'keep me too'
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'write' })
     expect(app.to('POST', '/open')).toHaveLength(1)
     expect(app.box.text).toBe('keep me too')
   })
@@ -207,7 +231,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await clock.settle()
     app.box.text = 'keep me'
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'write' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'write' })
     expect(app.box.text).toBe('keep me')
   })
 
@@ -217,7 +241,7 @@ describe('the Sketch and Write buttons above the prompt', () => {
     await start()
     await clock.settle()
     await $.ui.render(BAND)
-    await $.ui.press({ plugin: 'agent-brief', key: 'sketch' })
+    await $.ui.select({ plugin: 'agent-brief', key: 'open', value: 'sketch' })
     expect(world.toasts).toHaveLength(1)
     expect(world.toasts[0]).toContain('Could not reach Agent Brief')
     expect(app.to('POST', '/open')).toHaveLength(0)
@@ -269,15 +293,15 @@ describe('the iPad hand-off', () => {
     const { app, clock, start } = await setupCompanion($, on)
     await start()
     await clock.settle()
-    expect(JSON.stringify(await $.ui.render(BAND)), 'an app without iPads').not.toContain('▭ iPad')
+    expect(JSON.stringify(await $.ui.render(BAND)), 'an app without iPads').not.toContain('↗ iPad')
 
     app.ipadPaired = true
     await clock.advance(REREGISTER_MS + 30_000)
-    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"▭ iPad"')
+    expect(JSON.stringify(await $.ui.render(BAND))).toContain('"label":"↗ iPad"')
 
     app.ipadPaired = false
     await clock.advance(REREGISTER_MS + 30_000)
-    expect(JSON.stringify(await $.ui.render(BAND))).not.toContain('▭ iPad')
+    expect(JSON.stringify(await $.ui.render(BAND))).not.toContain('↗ iPad')
   })
 
   test('a press uses the box as the ask, leaves the box, and toasts', async ($, on) => {
@@ -294,5 +318,18 @@ describe('the iPad hand-off', () => {
     expect(app.fills).toEqual([])
     expect(app.to('POST', '/open')).toEqual([])
     expect(world.toasts).toEqual([IPAD_SENT])
+  })
+})
+
+describe('band focus when the row changes', () => {
+  test('lands on the current choice in a pick row, and on Brief back on the main row', () => {
+    const view = { mode: 'default' as const, fidelity: null, initiative: null, choices: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }] }
+    expect(bandFocusKey('mode', view)).toBe('mode-default')
+    expect(bandFocusKey('fidelity', view)).toBe('fidelity-wireframe')
+    expect(bandFocusKey('fidelity', { ...view, mode: 'prototype', fidelity: 'styled' })).toBe('fidelity-styled')
+    expect(bandFocusKey('initiative', view)).toBe('initiative-a')
+    expect(bandFocusKey('initiative', { ...view, initiative: { id: 'b', title: 'B' } as never })).toBe('initiative-b')
+    expect(bandFocusKey('initiative', { ...view, choices: [] })).toBe('initiative-cancel')
+    expect(bandFocusKey('none', view)).toBe('brief')
   })
 })

@@ -31,11 +31,13 @@ export async function until(fn, timeoutMs, stepMs = 300) {
 }
 
 /** Bundles the app's real server and starts it with a minimal backend. */
-export async function stubServer(tmp, socketPath, backend = {}) {
+/** `opts` passes server options such as `ipad` through. */
+export async function stubServer(tmp, socketPath, backend = {}, opts = {}) {
   const bundle = join(tmp, 'server.mjs')
   execFileSync(ESBUILD, [join(COMPANION, 'src/server/index.ts'), '--bundle', '--platform=node', '--format=esm', `--outfile=${bundle}`, '--log-level=error'])
   const { createCompanionServer } = await import(bundle)
   const server = createCompanionServer({
+    ...opts,
     socketPath,
     backend: {
       health: () => ({ panelVisible: false, currentBoard: 'main' }),

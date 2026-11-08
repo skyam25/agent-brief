@@ -140,6 +140,8 @@ declare module 'claude-code' {
       hasPrompted: boolean
       /** The app's last answer on whether an iPad is paired. The band's iPad button shows while it is true. */
       ipadPaired: boolean
+      /** The last of Sketch, Stack and Write picked from the band. Its open picker shows it. */
+      lastOpen: 'sketch' | 'stack' | 'write'
       /** The session's outputs file records, kept current by each write. */
       outputs: BriefOutput[]
       /** This session's boards in the app, read with the Brief, after each agent-brief command and each minute the pane shows. */

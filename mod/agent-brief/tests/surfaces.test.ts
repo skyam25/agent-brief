@@ -18,11 +18,12 @@ async function setup($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) {
 }
 
 describe('the band above the prompt', () => {
-  test('draws every button on the terminal and the desktop', async ($, on) => {
+  test('draws every control on each surface, with the open picker where the surface has fields', async ($, on) => {
     await setup($, on)
-    for (const surface of ['terminal', 'desktop'] as const) {
+    for (const surface of ['terminal', 'desktop', 'mobile'] as const) {
       const ui = await $.ui.mount({ plugin: 'agent-brief', surface, component: 'AbovePrompt', props: BAND.props })
-      for (const key of ['sketch', 'stack', 'write', 'talk', 'mode', 'brief']) {
+      const opens = surface === 'mobile' ? ['sketch', 'stack', 'write'] : ['open']
+      for (const key of [...opens, 'talk', 'mode', 'brief']) {
         expect(await ui.find({ key }), `${key} on ${surface}`).toBeDefined()
       }
       await ui.unmount()

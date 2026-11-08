@@ -8,6 +8,14 @@ import { clockText } from './voice'
 
 export type BandRow = 'none' | 'mode' | 'fidelity' | 'initiative'
 
+export type OpenTarget = 'sketch' | 'stack' | 'write'
+
+const OPEN_OPTIONS: { value: OpenTarget; label: string; hotkey: string }[] = [
+  { value: 'sketch', label: '✎ Sketch', hotkey: 's' },
+  { value: 'stack', label: '▤ Stack', hotkey: 'k' },
+  { value: 'write', label: '¶ Write', hotkey: 'w' },
+]
+
 export type BandView = {
   ingesting: string | null
   /** The Mode button shows until the session's first prompt. */
@@ -24,12 +32,17 @@ export type BandView = {
   choices: { id: string; title: string }[]
   /** The iPad button shows only while the app says an iPad is paired. */
   ipadPaired: boolean
+  /** What the open picker shows: the last of Sketch, Stack and Write picked in this session. */
+  lastOpen: OpenTarget
+  /** False on a surface that may draw no Select, as mobile. The row then has one button each. */
+  hasFields: boolean
   /** Draws show.tsx's clear pixel at the row's end, until it learns whether pictures draw here. */
   probe?: { key: string; png: string }
 }
 
 export type BandActions = {
-  open: (target: 'sketch' | 'stack' | 'write') => Promise<void>
+  /** Opens the target and makes it the one the open picker shows. */
+  open: (target: OpenTarget) => Promise<void>
   /** Asks the paired iPad for a sketch, tied to this session. */
   ipad: () => Promise<void>
   /** Opens the Brief pane, or closes it while open. */
@@ -44,7 +57,23 @@ export type BandActions = {
 }
 
 /**
- * One row with Sketch, Stack, Write, Talk, Mode and Brief buttons, and an iPad button while an iPad is paired.
+ * Where the band's focus goes when its row changes: the current choice in a pick row, and Brief back on the main row.
+ * The ring otherwise keeps its position, which can land on the wrong choice or on the open picker, which takes every key.
+ */
+export function bandFocusKey(row: BandRow, view: Pick<BandView, 'mode' | 'fidelity' | 'initiative' | 'choices'>): string {
+  if (row === 'mode') return `mode-${view.mode}`
+  if (row === 'fidelity') return `fidelity-${view.mode === 'prototype' && view.fidelity !== null ? view.fidelity : FIDELITY_IDS[0]}`
+  if (row === 'initiative') {
+    const current = view.choices.find(c => c.id === view.initiative?.id) ?? view.choices[0]
+    return current ? `initiative-${current.id}` : 'initiative-cancel'
+  }
+  return 'brief'
+}
+
+/**
+ * One row with the open picker, Talk, Mode and Brief, and an iPad button at the end while an iPad is paired.
+ * The picker shows the last of Sketch, Stack and Write picked. Enter opens it, and its list opens the others.
+ * A focused Select takes every key, so the band's focus starts on Brief and the hotkeys keep working.
  * Mode shows until the session's first prompt; then the Brief pane's Select and /mode set it.
  * The Mode button swaps the row for a mode picker, and Prototype for a fidelity picker.
  * An attached initiative adds `◆ <title>`, which opens the pick. Without one, `attach initiative` shows while there are any to pick.
@@ -52,8 +81,8 @@ export type BandActions = {
  */
 export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
   const { Box, Button, Text } = table
-  const { Image } = table as Partial<ElementTable<'terminal'>>
-  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, initiative, choices, ipadPaired, probe } = view
+  const { Image, Select } = table as Partial<ElementTable<'terminal'>>
+  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, initiative, choices, ipadPaired, lastOpen, hasFields, probe } = view
   const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
 
   if (picking === 'mode') {
@@ -110,14 +139,22 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
 
   return (
     <Box>
-      <Button key="sketch" label="✎ Sketch" hotkey="s" onPress={() => void act.open('sketch')} />
-      <Text> </Text>
-      <Button key="stack" label="▤ Stack" hotkey="k" onPress={() => void act.open('stack')} />
-      <Text> </Text>
-      <Button key="write" label="¶ Write" hotkey="w" onPress={() => void act.open('write')} />
-      <Text> </Text>
-      {ipadPaired && <Button key="ipad" label="▭ iPad" hotkey="p" onPress={() => void act.ipad()} />}
-      {ipadPaired && <Text> </Text>}
+      {hasFields && Select ? (
+        <Select
+          key="open"
+          value={lastOpen}
+          options={OPEN_OPTIONS.map(({ value, label }) => ({ value, label }))}
+          onSelect={value => void act.open(value as OpenTarget)}
+        />
+      ) : (
+        OPEN_OPTIONS.map(({ value, label, hotkey }) => (
+          <Box key={`open-${value}`}>
+            <Button key={value} label={label} hotkey={hotkey} onPress={() => void act.open(value)} />
+            <Text> </Text>
+          </Box>
+        ))
+      )}
+      {hasFields && Select && <Text> </Text>}
       <Button
         key="talk"
         label={voice === null ? '🎙 Talk' : '■ Stop'}
@@ -136,7 +173,7 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
         />
       )}
       <Text> </Text>
-      <Button key="brief" label={briefLabel} hotkey="b" onPress={() => void act.brief()} />
+      <Button key="brief" label={briefLabel} hotkey="b" {...(hasFields && Select ? { autoFocus: true as const } : {})} onPress={() => void act.brief()} />
       {initiative !== null && <Text>  </Text>}
       {initiative !== null && (
         <Button key="initiative-change" plain dimColor label={`◆ ${bandTitle(initiative.title)}`} hotkey="i" onPress={() => void act.pick('initiative')} />
@@ -145,6 +182,8 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
       {initiative === null && choices.length > 0 && (
         <Button key="initiative-attach" plain dimColor label="attach initiative" hotkey="i" onPress={() => void act.pick('initiative')} />
       )}
+      {ipadPaired && <Text> </Text>}
+      {ipadPaired && <Button key="ipad" label="↗ iPad" hotkey="p" onPress={() => void act.ipad()} />}
       {voice?.phase === 'listening' && <Text dimColor>{` Listening ${clockText(voice.seconds)}`}</Text>}
       {voice?.phase === 'finishing' && <Text dimColor> Transcribing…</Text>}
       {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}

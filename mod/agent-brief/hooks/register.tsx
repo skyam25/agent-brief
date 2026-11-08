@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FeedbackInboxSession, PrototypeFidelity, SessionMode } from '../types'
-import { bandTree } from './band'
+import { bandFocusKey, bandTree } from './band'
 import type { BandRow, BandView } from './band'
 import { briefTree } from './brief'
 import type { BriefPaneView } from './brief'
@@ -188,6 +188,7 @@ const promptAtRef = atom({ plugin: 'agent-brief', key: 'promptAt' } as const, nu
 const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as const, false)
 /** The app's last answer on whether an iPad is paired. Each registration refreshes it. */
 const ipadPairedRef = atom({ plugin: 'agent-brief', key: 'ipadPaired' } as const, false)
+const lastOpenRef = atom({ plugin: 'agent-brief', key: 'lastOpen' } as const, 'sketch')
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const boardsRef = atom({ plugin: 'agent-brief', key: 'boards' } as const, [])
 const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
@@ -1266,6 +1267,14 @@ export const register: Register = (on, options) => {
     }
     // A reload ends yap with the old module, so a kept listening state is stale.
     if (dictation === undefined) await update($, voiceRef, () => null).catch(() => undefined)
+    // The loop registers the session, and the band's iPad button waits on that answer, so it starts before the slower setup below.
+    // Mode resolves first, so a registration mirrors the folder's mode.
+    await resolveMode($).catch(err => log($, `mode resolution failed: ${String(err)}`))
+    try {
+      startCompanion($, companionSettings)
+    } catch (err) {
+      log($, `companion start failed: ${String(err)}`)
+    }
     // A resumed session already has prompts, so the band starts without its Mode button and no recent line goes out.
     try {
       const messages = await $.session.messages().catch(() => [])
@@ -1337,7 +1346,6 @@ export const register: Register = (on, options) => {
         description: "Track this session's items in the Agent Brief panel",
         argumentHint: '[on|off]',
       })
-      await resolveMode($).catch(err => log($, `mode resolution failed: ${String(err)}`))
       await $.command.register({
         name: 'mode',
         description: "Set this session's mode: default, product, prototype <fidelity>, orchestrate.",
@@ -1345,12 +1353,6 @@ export const register: Register = (on, options) => {
       })
     } catch (err) {
       log($, `command registration failed: ${String(err)}`)
-    }
-    // Apart from the commands, so a refused command never leaves the session unregistered.
-    try {
-      startCompanion($, companionSettings)
-    } catch (err) {
-      log($, `companion start failed: ${String(err)}`)
     }
     try {
       await $.tool.register({
@@ -1457,8 +1459,9 @@ export const register: Register = (on, options) => {
     return { text: `Applying feedback: ${session.name}` }
   })
 
-  // A one-row band with Sketch, Stack, Write, Talk, Mode and Brief buttons: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write or /mode does.
-  // iPad shows while an iPad is paired and does what /sketch --ipad does, with the prompt box's text as the ask. It leaves the box as it is.
+  // A one-row band with the open picker, Talk, Mode and Brief: a click, or ctrl+x tab then Enter, does what /sketch, /stack, /write or /mode does.
+  // The picker shows the last of Sketch, Stack and Write picked. Enter opens it, and Down lists the others.
+  // iPad shows at the row's end while an iPad is paired and does what /sketch --ipad does, with the prompt box's text as the ask. It leaves the box as it is.
   // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
   // Talk dictates into the prompt box until pressed again. Mode shows until the first prompt.
   // Brief opens and closes the Brief pane. An attached initiative adds `◆ <title>`, and none adds `attach initiative`.
@@ -1478,6 +1481,8 @@ export const register: Register = (on, options) => {
       initiative,
       choices,
       ipadPaired: await read($, ipadPairedRef),
+      lastOpen: await read($, lastOpenRef),
+      hasFields: e.surface !== 'mobile',
       ...(e.surface === 'terminal' && needsProbe() ? { probe: { key: PROBE_KEY, png: CLEAR_PIXEL } } : {}),
     }
     if (view.probe && !isBandProbing) {
@@ -1496,12 +1501,18 @@ export const register: Register = (on, options) => {
         }
       })
     }
+    const refocus = async (row: BandRow) => {
+      const at = { mode: await read($, modeRef), fidelity: await read($, fidelityRef), ...(await initiativeView($)) }
+      void $.ui.focus({ requestId: e.requestId, key: bandFocusKey(row, at) }).catch(() => undefined)
+    }
     const pick = async (row: BandRow) => {
       await update($, pickingRef, () => row)
       if (row === 'initiative') await loadRecent($, initiativeEnvironment($)).catch(err => log($, `recent initiatives failed: ${String(err)}`))
+      await refocus(row)
     }
     return bandTree($.ui.resolve(e), view, {
       open: async target => {
+        await update($, lastOpenRef, () => target)
         const result =
           target === 'write'
             ? await writeFromBox($)
@@ -1519,8 +1530,14 @@ export const register: Register = (on, options) => {
         await pick('none')
         $.ui.toast(await applyMode($, choice), { timeoutMs: 8000 })
       },
-      attach: id => attachFromBand($, initiativeEnvironment($), id),
-      detach: () => detachFromBand($, initiativeEnvironment($)),
+      attach: async id => {
+        await attachFromBand($, initiativeEnvironment($), id)
+        await refocus('none')
+      },
+      detach: async () => {
+        await detachFromBand($, initiativeEnvironment($))
+        await refocus('none')
+      },
     })
   })
 

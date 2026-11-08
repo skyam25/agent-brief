@@ -127,7 +127,7 @@ try {
   term.keys('Enter')
   await sleep(2500)
   term.capture()
-  const band = term.pane.split('\n').find(l => l.includes('Sketch ]')) ?? ''
+  const band = term.pane.split('\n').find(l => l.includes('▣ Brief')) ?? ''
   const keepsMode = band.includes('Mode')
   console.log(`${keepsMode ? 'PASS' : 'FAIL'}  band keeps Mode after a slash command`)
   if (!keepsMode) {

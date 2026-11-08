@@ -105,7 +105,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !detail ? '' : `: ${detail}`}`)
   if (!ok) console.log(`--- screen ---\n${pane.trimEnd()}\n---`)
 }
-const bandLine = () => capture().split('\n').find(l => l.includes('Sketch ]') || l.includes('Initiative ')) ?? ''
+const bandLine = () => capture().split('\n').find(l => l.includes('▣ Brief') || l.includes('Initiative ')) ?? ''
 /** Runs a slash command and waits for its answer. A model turn starting means the command went to Claude: it is stopped and fails. */
 const run = async (line, waitFor) => {
   type(line)
@@ -188,7 +188,7 @@ try {
   await closed
   await sleep(500)
   const down = await run('/initiative off', 'Agent Brief is not running. Start it, then run /initiative again.')
-  check('with the app gone, /initiative says so and the session carries on', Boolean(down) && /\? for shortcuts|Sketch \]/.test(capture()))
+  check('with the app gone, /initiative says so and the session carries on', Boolean(down) && /\? for shortcuts|▣ Brief/.test(capture()))
   if (results.some(ok => !ok)) process.exitCode = 1
 } finally {
   tmux('kill-session', '-t', SESSION)
