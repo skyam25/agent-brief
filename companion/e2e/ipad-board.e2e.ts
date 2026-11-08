@@ -39,7 +39,7 @@ test.afterAll(async () => {
   server?.close();
 });
 
-async function openBoard(comments: string | null = null, viewport = { width: 1100, height: 800 }, scene: object = BASE): Promise<Page> {
+async function openBoard(comments: string | null = null, viewport = { width: 1100, height: 800 }, notes = '', scene: object = BASE): Promise<Page> {
   const page = await browser.newPage({ viewport });
   // Synthetic pointers have no real capture to take, and the call would throw.
   await page.addInitScript(() => {
@@ -48,9 +48,9 @@ async function openBoard(comments: string | null = null, viewport = { width: 110
   });
   await page.goto(url);
   await page.waitForFunction(() => (window as any).__ipad);
-  await page.evaluate(async ([scene, saved]) => {
-    await (window as any).__ipad.open({ boardName: 'h1', scene, notes: '', comments: saved });
-  }, [JSON.stringify(scene), comments] as const);
+  await page.evaluate(async ([json, saved, note]) => {
+    await (window as any).__ipad.open({ boardName: 'h1', scene: json, notes: note, comments: saved });
+  }, [JSON.stringify(scene), comments, notes] as const);
   return page;
 }
 
@@ -126,7 +126,7 @@ test('a Stack board shows its pictures when its layout runs on open', async () =
   await blank.goto(url);
   const scene = await unlaidStack(blank);
   await blank.close();
-  const page = await openBoard(null, undefined, scene);
+  const page = await openBoard(null, undefined, '', scene);
   await expect.poll(() => bluePixels(page), { timeout: 5000 }).toBeGreaterThan(10_000);
   await page.close();
 });
@@ -151,6 +151,20 @@ const blueBox = (page: Page) =>
     return { top, bottom, canvasTop: rect.top, canvasBottom: rect.bottom };
   });
 
+test('on a narrow screen the first board fits above the docked panel', async () => {
+  const blank = await browser.newPage();
+  await blank.goto(url);
+  const scene = await unlaidStack(blank);
+  await blank.close();
+  const page = await openBoard(null, { width: 466, height: 678 }, '', scene);
+  await expect(page.getByTestId('ipad-panel')).toBeVisible();
+  await expect.poll(async () => {
+    const box = await blueBox(page);
+    return Number.isFinite(box.top) && box.top >= box.canvasTop && box.bottom <= box.canvasBottom;
+  }, { timeout: 5000 }).toBe(true);
+  await page.close();
+});
+
 test('the board fits again when its view changes size just after it opens, until a touch', async () => {
   const blank = await browser.newPage();
   await blank.goto(url);
@@ -162,7 +176,7 @@ test('the board fits again when its view changes size just after it opens, until
   };
 
   // The native view settles to a shorter size after the board opens.
-  const page = await openBoard(null, { width: 466, height: 1100 }, scene);
+  const page = await openBoard(null, { width: 466, height: 1100 }, '', scene);
   await expect.poll(() => inView(page)).toBe(true);
   // The canvas keeps its old picture for a moment after a resize.
   await page.setViewportSize({ width: 466, height: 520 });
@@ -181,10 +195,11 @@ test('the board fits again when its view changes size just after it opens, until
 test('comments pin on a tap, not on a pinch, take words, and go out with the delivery', async () => {
   const page = await openBoard();
   const cards = page.getByTestId('board-comment-card');
-  await expect(page.getByTestId('board-comments')).toHaveCount(0);
+  await expect(page.getByTestId('board-comments')).toBeVisible();
+  await expect(page.getByTestId('pin-toggle')).toHaveAttribute('aria-pressed', 'false');
 
   await page.evaluate(() => (window as any).__ipad.setCommenting(true));
-  await expect(page.getByTestId('board-comments')).toBeVisible();
+  await expect(page.getByTestId('pin-toggle')).toHaveAttribute('aria-pressed', 'true');
 
   // A pinch or a drag moves the view and leaves no pin.
   await pinch(page);
@@ -222,7 +237,138 @@ test('with no comments, speech stays in the timeline', async () => {
 test('saved comments come back when the board opens', async () => {
   const saved = JSON.stringify({ overall: 'Keep it simple', pins: [{ id: 'p1', x: 400, y: 350, text: 'Still here', createdAt: 1 }] });
   const page = await openBoard(saved);
-  await expect(page.getByTestId('board-comment-card').locator('textarea')).toHaveValue('Still here');
+  // Nothing is selected, so the overall note is open and the pin folds to a line.
+  await expect(page.getByTestId('board-comment-card')).toContainText('Still here');
   await expect(page.getByTestId('board-overall')).toHaveValue('Keep it simple');
+  await page.close();
+});
+
+const heard = (page: Page, text: string, t: number, words?: { text: string; atMs: number }[]) =>
+  page.evaluate(([x, at, w]) => (window as any).__ipad.heard(x, at, w), [text, t, words] as const);
+const live = (page: Page, text: string, t: number, words?: { text: string; atMs: number }[]) =>
+  page.evaluate(([x, at, w]) => (window as any).__ipad.live(x, at, w), [text, t, words] as const);
+const now = (page: Page) => page.evaluate(() => Date.now());
+
+test('words follow a tap made in the middle of a phrase', async () => {
+  const page = await openBoard();
+  await page.evaluate(() => (window as any).__ipad.setCommenting(true));
+  const cards = page.getByTestId('board-comment-card');
+
+  await tap(page, 'touch', 31, 300, 300);
+  await expect(cards).toHaveCount(1);
+  const first = await now(page);
+  await page.waitForTimeout(30);
+  await tap(page, 'touch', 32, 500, 500);
+  await expect(cards).toHaveCount(2);
+  const second = await now(page);
+
+  // One phrase, no pause, with the second tap between its words.
+  const words = [
+    { text: 'make', atMs: first + 5 },
+    { text: 'it', atMs: first + 10 },
+    { text: 'red,', atMs: second + 5 },
+    { text: 'this', atMs: second + 10 },
+  ];
+  expect(await heard(page, 'make it red, this', first + 5, words)).toBe(true);
+  const pins = (await collect(page)).comments.pins;
+  expect(pins.map((p: { text: string }) => p.text)).toEqual(['make it', 'red, this']);
+  await page.close();
+});
+
+test('words show in the selected comment while they settle', async () => {
+  const page = await openBoard();
+  await page.evaluate(() => (window as any).__ipad.setCommenting(true));
+  await page.evaluate(() => (window as any).__ipad.setListening(true));
+  await tap(page, 'touch', 31, 400, 300);
+  const card = page.locator('.review-card.active');
+  await expect(card).toHaveCount(1);
+
+  const t = await now(page);
+  expect(await live(page, 'make the', t, [{ text: 'make', atMs: t }, { text: 'the', atMs: t + 5 }])).toBe(true);
+  await expect(card.getByTestId('review-voice-settling')).toHaveText('make the');
+  await page.screenshot({ path: join(HERE, '../test-results/ipad-settling.png') });
+
+  expect(await heard(page, 'make the header blue', t, [{ text: 'make', atMs: t }])).toBe(true);
+  await expect(card.getByTestId('review-voice-settling')).toHaveCount(0);
+  await expect(card.locator('textarea')).toHaveValue('make the header blue');
+  await page.close();
+});
+
+test('with no comments, settling words stay out of the panel', async () => {
+  const page = await openBoard();
+  expect(await live(page, 'just talking', 1)).toBe(false);
+  await expect(page.getByTestId('review-voice-settling')).toHaveCount(0);
+  await page.close();
+});
+
+test('the note lives in the panel and goes out with the delivery', async () => {
+  const page = await openBoard(null, undefined, 'From the Mac');
+  await page.getByTestId('panel-note-tab').click();
+  const note = page.getByTestId('note-editor');
+  await expect(note).toHaveValue('From the Mac');
+  await note.fill('Use the blue from the logo');
+  expect((await collect(page)).notes).toBe('Use the blue from the logo');
+  await page.close();
+});
+
+test('hiding the panel turns the pin tool off', async () => {
+  const page = await openBoard();
+  await page.evaluate(() => (window as any).__ipad.setCommenting(true));
+  await page.evaluate(() => (window as any).__ipad.setPanel(false));
+  await expect(page.getByTestId('ipad-panel')).toHaveCount(0);
+  await expect(drawing(page)).toBeChecked();
+  await page.close();
+});
+
+const box = async (page: Page, testId: string) => (await page.getByTestId(testId).boundingBox())!;
+
+test('a narrow screen docks the panel under the board and folds other comments to a line', async () => {
+  const saved = JSON.stringify({ overall: '', pins: [{ id: 'p1', x: 400, y: 350, text: 'Move the header up', createdAt: 1 }, { id: 'p2', x: 300, y: 320, text: 'Darker', createdAt: 2 }] });
+  // The iPhone Duo's outer screen.
+  const page = await openBoard(saved, { width: 466, height: 678 });
+  const panel = await box(page, 'ipad-panel');
+  const canvas = await box(page, 'canvas');
+  expect(panel.y).toBeGreaterThanOrEqual(canvas.y + canvas.height - 1);
+  expect(panel.width).toBeGreaterThan(460);
+  expect(panel.height).toBeLessThanOrEqual(678 * 0.38 + 1);
+
+  await page.getByTestId('board-comment-card').first().getByRole('button').click();
+  await expect(page.locator('.review-card.active textarea')).toHaveValue('Move the header up');
+  await expect(page.locator('.review-card.folded')).toHaveCount(1);
+  await expect(page.getByTestId('board-overall-folded')).toBeVisible();
+  await page.screenshot({ path: join(HERE, '../test-results/ipad-duo-outer.png') });
+
+  // The last comment, once picked, scrolls into the short panel with its words.
+  await page.getByTestId('board-comment-card').last().getByRole('button').click();
+  const active = (await page.locator('.review-card.active').boundingBox())!;
+  const shown = await box(page, 'ipad-panel');
+  expect(active.y + active.height).toBeLessThanOrEqual(shown.y + shown.height + 1);
+
+  await page.close();
+});
+
+test('an upright fold puts the panel on the far side of it', async () => {
+  // The iPhone Duo's inner screen, partly folded like a book.
+  const page = await openBoard(null, { width: 626, height: 890 });
+  await page.evaluate(() => (window as any).__ipad.setFold({ x: 312, y: 0, width: 2, height: 890 }));
+  const panel = await box(page, 'ipad-panel');
+  expect(Math.round(panel.x)).toBe(314);
+  expect(Math.round(panel.width)).toBe(312);
+  await page.screenshot({ path: join(HERE, '../test-results/ipad-duo-book.png') });
+
+  // Laid flat again, a screen this narrow docks the panel under the board.
+  await page.evaluate(() => (window as any).__ipad.setFold(undefined));
+  await expect.poll(async () => (await box(page, 'ipad-panel')).width).toBeGreaterThan(620);
+  await page.screenshot({ path: join(HERE, '../test-results/ipad-duo-inner.png') });
+  await page.close();
+});
+
+test('a flat fold puts the panel under it', async () => {
+  // Tabletop: the board above the fold, the panel below.
+  const page = await openBoard(null, { width: 890, height: 626 });
+  await page.evaluate(() => (window as any).__ipad.setFold({ x: 0, y: 312, width: 890, height: 2 }));
+  const panel = await box(page, 'ipad-panel');
+  expect(Math.round(panel.y)).toBe(314);
+  expect(Math.round(panel.width)).toBe(890);
   await page.close();
 });

@@ -12,8 +12,8 @@ enum LanError: Error, LocalizedError {
   var errorDescription: String? {
     switch self {
     case .unreachable(let why): why
-    case .unauthorized: "The Mac no longer knows this iPad. Pair again."
-    case .certificateChanged: "The Mac's certificate changed, so this iPad will not talk to it. Pair again."
+    case .unauthorized: "The Mac no longer knows this device. Pair again."
+    case .certificateChanged: "The Mac's certificate changed, so this device will not talk to it. Pair again."
     case .rejected(_, let message): message
     }
   }
@@ -178,7 +178,7 @@ final class LanClient: @unchecked Sendable {
   private func reason(for error: Error?) -> String {
     let mac = macName.isEmpty ? "the Mac" : macName
     if let error = error as? URLError, error.code == .notConnectedToInternet {
-      return "This iPad has no network, or Local Network access is off in Settings. Agent Brief can't reach \(mac)."
+      return "This device has no network, or Local Network access is off in Settings. Agent Brief can't reach \(mac)."
     }
     let code = (error as? URLError).map { " (error \($0.errorCode))" } ?? ""
     return "Can't reach \(mac). Check that it's awake, Agent Brief is open, and both are on the same network.\(code)"

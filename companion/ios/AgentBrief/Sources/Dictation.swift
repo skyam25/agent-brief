@@ -155,7 +155,7 @@ enum DictationError: Error, LocalizedError {
   var errorDescription: String? {
     switch self {
     case .microphoneDenied: "Agent Brief can't use the microphone. Turn it on in Settings."
-    case .unavailable: "On-device speech recognition isn't available on this iPad."
+    case .unavailable: "On-device speech recognition isn't available on this device."
     case .noModel(let locale): "There's no speech model for \(locale)."
     case .failed(let message): message
     }
@@ -166,7 +166,8 @@ enum DictationError: Error, LocalizedError {
 @MainActor
 final class Dictation {
   var onStatus: (DictationStatus) -> Void = { _ in }
-  var onLive: (String) -> Void = { _ in }
+  /// Words still settling. Each call replaces the last.
+  var onLive: (Phrase) -> Void = { _ in }
   var onPhrase: (Phrase) -> Void = { _ in }
   var onFailure: (String) -> Void = { _ in }
 
@@ -301,12 +302,17 @@ final class Dictation {
           let found = words(result.text)
           guard !found.isEmpty else { continue }
           let text = found.map(\.text).joined(separator: " ")
+          // A word without its own time starts where the one before it did.
+          var last = result.range.start.seconds
+          let timed = found.map { word in
+            last = word.start ?? last
+            return SpokenWord(text: word.text, atMs: startMs + last * 1000)
+          }
+          let phrase = Phrase(text: text, atMs: timed[0].atMs, endMs: startMs + result.range.end.seconds * 1000, words: timed)
           if result.isFinal {
-            let first = found.first?.start ?? result.range.start.seconds
-            let phrase = Phrase(text: text, atMs: startMs + first * 1000, endMs: startMs + result.range.end.seconds * 1000)
             await MainActor.run { self?.onPhrase(phrase) }
           } else {
-            await MainActor.run { self?.onLive(text) }
+            await MainActor.run { self?.onLive(phrase) }
           }
         }
       } catch {
@@ -354,7 +360,7 @@ final class Dictation {
       canned = Task { [weak self] in
         for text in phrases {
           let began = epochMs()
-          self?.onLive(text)
+          self?.onLive(Phrase(text: text, atMs: began, endMs: began))
           try? await Task.sleep(for: .milliseconds(800))
           if Task.isCancelled { return }
           self?.onPhrase(Phrase(text: text, atMs: began, endMs: epochMs()))

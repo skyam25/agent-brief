@@ -39,20 +39,23 @@ final class AppModel {
   private(set) var pairError: String?
   var pairText = ""
 
-  var noteText = "" {
+  /// The side panel with comments and the note.
+  var panelOpen = true {
     didSet {
-      if let openId, noteText != oldValue { store.saveNotes(openId, noteText) }
+      let open = panelOpen
+      if open != oldValue { inOrder { await self.web.setPanel(open) } }
     }
   }
-  var notePresented = false
   private(set) var talk: DictationStatus = .idle
   private(set) var liveWords = ""
+  /// A comment in the panel shows the words, so the talk strip need not.
+  private(set) var liveInPanel = false
   private(set) var talkError: String?
   private var phrases: [Phrase] = []
-  /// The comment tool is on for the open board.
-  private(set) var commenting = false
-  /// Phrases reach the board one at a time, and Send waits for the last.
+  /// Calls into the board run one at a time, so words land in the order heard. Send waits for the last.
   private var phraseWork: Task<Void, Never>?
+  /// Settling words waiting for their turn on the board.
+  private var latestLive: Phrase?
 
   let web = BoardWeb()
   private let store = LocalStore()
@@ -90,6 +93,10 @@ final class AppModel {
       guard board != "__start" else { return }
       self?.store.saveComments(board, json: json)
     }
+    web.onNotes = { [weak self] board, text in
+      guard board != "__start" else { return }
+      self?.store.saveNotes(board, text)
+    }
     web.onCrash = { [weak self] in
       guard let self, let id = openId else { return }
       openId = nil
@@ -99,21 +106,46 @@ final class AppModel {
     dictation.onStatus = { [weak self] status in
       guard let self else { return }
       talk = status
-      Task { await self.web.setListening(status != .idle) }
+      let on = status != .idle
+      inOrder { await self.web.setListening(on) }
     }
-    dictation.onLive = { [weak self] in self?.liveWords = $0 }
+    dictation.onLive = { [weak self] live in
+      guard let self else { return }
+      liveWords = live.text
+      guard openId != nil else { return }
+
+      // Only the newest settling words matter, so a queued update takes them over instead of queueing another.
+      let queued = latestLive != nil
+      latestLive = live
+      if queued { return }
+      inOrder {
+        guard let newest = self.latestLive else { return }
+        self.latestLive = nil
+        self.liveInPanel = await self.web.live(newest)
+      }
+    }
     dictation.onFailure = { [weak self] in self?.talkError = $0 }
     dictation.onPhrase = { [weak self] phrase in
       guard let self, let id = openId else { return }
       liveWords = phrase.text
-      let earlier = phraseWork
-      phraseWork = Task {
-        await earlier?.value
-        if await self.web.heard(phrase) { return }
+      latestLive = nil
+      inOrder {
+        let took = await self.web.heard(phrase)
+        self.liveInPanel = took
+        if took { return }
         guard self.openId == id else { return }
         self.phrases.append(phrase)
         self.store.savePhrases(id, self.phrases)
       }
+    }
+  }
+
+  /// Queues a call into the board behind the ones before it.
+  private func inOrder(_ work: @escaping @MainActor () async -> Void) {
+    let earlier = phraseWork
+    phraseWork = Task {
+      await earlier?.value
+      await work()
     }
   }
 
@@ -183,7 +215,7 @@ final class AppModel {
   private func lostPairing(_ macId: String) {
     let name = macs.first { $0.id == macId }?.macName ?? "A Mac"
     remove(macId)
-    let message = "\(name) no longer knows this iPad. Pair again."
+    let message = "\(name) no longer knows this device. Pair again."
     if macs.isEmpty { pairError = message } else { show(message) }
   }
 
@@ -261,7 +293,7 @@ final class AppModel {
   }
 
   /// Keeps what this Mac lists, anything of its still waiting in the outbox, and work in progress.
-  /// Another iPad's answer closes a hand-off on the Mac, and that must not take this iPad's work away.
+  /// Another iPad's answer closes a hand-off on the Mac, and that must not take this device's work away.
   private func merge(_ fromMac: [Handoff], from macId: String) {
     let live = fromMac.filter { $0.state == "open" }.map { handoff -> Handoff in
       var tagged = handoff
@@ -306,7 +338,6 @@ final class AppModel {
       openId = nil
       phrases = []
       liveWords = ""
-      notePresented = false
       return
     }
     guard id != openId else { return }
@@ -327,17 +358,17 @@ final class AppModel {
     }
     guard mine == openGeneration else { return }
     do {
-      try await web.open(board: id, scene: store.scene(id), notes: "", comments: store.comments(id))
+      try await web.open(board: id, scene: store.scene(id), notes: store.notes(id), comments: store.comments(id))
     } catch {
       if mine == openGeneration { boardError = "The board didn't open: \(error.localizedDescription)" }
       return
     }
     guard mine == openGeneration else { return }
-    noteText = store.notes(id)
+    await web.setPanel(panelOpen)
     phrases = store.phrases(id)
     liveWords = ""
+    liveInPanel = false
     talkError = nil
-    commenting = false
     openId = id
   }
 
@@ -349,6 +380,7 @@ final class AppModel {
     case .idle:
       guard openId != nil else { return }
       liveWords = ""
+      liveInPanel = false
       Task { await dictation.start() }
     case .stopping:
       break
@@ -360,15 +392,6 @@ final class AppModel {
   private func stopTalking() async {
     await dictation.stop()
     await phraseWork?.value
-  }
-
-  // MARK: Comment
-
-  func toggleComment() {
-    guard openId != nil else { return }
-    commenting.toggle()
-    let on = commenting
-    Task { await web.setCommenting(on) }
   }
 
   // MARK: Send
@@ -383,12 +406,10 @@ final class AppModel {
           outbox[id] = nil
           return
         }
-        let note = noteText
         let captured = try await web.collect(board: id, phrases: phrases)
         guard var delivery = try JSONSerialization.jsonObject(with: captured) as? [String: Any] else {
           throw LanError.unreachable("The board handed over something this app can't read.")
         }
-        if !note.isEmpty { delivery["notes"] = note }
         let body = try JSONSerialization.data(withJSONObject: delivery)
         guard body.count <= ipadMaxBodyBytes else {
           throw LanError.unreachable("This board is too large to send. Remove some pictures and send again.")

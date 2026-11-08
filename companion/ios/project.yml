@@ -9,7 +9,7 @@ settings:
     DEVELOPMENT_TEAM: KFDNEQ68KH
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
-    TARGETED_DEVICE_FAMILY: "2"
+    TARGETED_DEVICE_FAMILY: "1,2"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:
@@ -35,6 +35,10 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations~iphone:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -44,8 +48,8 @@ targets:
           - CFBundleURLName: com.skyam25.agentbrief.pair
             CFBundleURLSchemes:
               - agentbrief
-        NSMicrophoneUsageDescription: Agent Brief listens while you press Talk and turns your speech into text on this iPad.
-        NSSpeechRecognitionUsageDescription: Agent Brief turns what you say into text on this iPad and sends the text to your Mac.
+        NSMicrophoneUsageDescription: Agent Brief listens while you press Talk and turns your speech into text on this device.
+        NSSpeechRecognitionUsageDescription: Agent Brief turns what you say into text on this device and sends the text to your Mac.
         NSLocalNetworkUsageDescription: Agent Brief talks to the Mac you paired with on this network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

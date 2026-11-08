@@ -60,19 +60,24 @@ final class HandoffFlowTests: XCTestCase {
     let talkError = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'speech' OR label CONTAINS[c] 'microphone' OR label CONTAINS[c] 'dictation'")).firstMatch
     XCTAssertTrue(listening, "Talk showed no status. \(talkError.exists ? talkError.label : "no error shown")")
 
-    draw(app, from: CGVector(dx: 0.3, dy: 0.4), to: CGVector(dx: 0.7, dy: 0.6))
-    draw(app, from: CGVector(dx: 0.3, dy: 0.7), to: CGVector(dx: 0.7, dy: 0.5))
+    draw(app, from: CGVector(dx: 0.3, dy: 0.25), to: CGVector(dx: 0.7, dy: 0.4))
+    draw(app, from: CGVector(dx: 0.3, dy: 0.4), to: CGVector(dx: 0.7, dy: 0.25))
     sleep(UInt32(env["AB_TALK_SECONDS"] ?? "4") ?? 4)
     shot(app, "3-talking")
     app.buttons["talk-button"].tap()
     XCTAssertTrue(app.buttons["talk-button"].waitForExistence(timeout: 5))
 
-    app.buttons["note-button"].tap()
-    let note = app.textViews["note-editor"]
+    let tab = app.webViews.firstMatch.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Note'")).firstMatch
+    XCTAssertTrue(tab.waitForExistence(timeout: 5), "the panel has no Note tab")
+    tab.tap()
+    let note = app.webViews.firstMatch.textViews["Anything the drawing doesn't say"]
     XCTAssertTrue(note.waitForExistence(timeout: 5))
     note.tap()
     note.typeText("Check the second step")
     shot(app, "4-note")
+    // On a narrow screen the keyboard pushes Send into the toolbar's overflow, so put it away first.
+    let keyboardDone = app.toolbars.buttons["Done"]
+    if keyboardDone.exists { keyboardDone.tap() }
 
     app.buttons["send-button"].tap()
     XCTAssertTrue(app.staticTexts["banner"].waitForExistence(timeout: 30), "no message from the Mac")

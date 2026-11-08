@@ -128,21 +128,23 @@ final class ScreenTourTests: XCTestCase {
 
     app.buttons["talk-button"].tap()
     XCTAssertTrue(app.staticTexts["live-words"].waitForExistence(timeout: 60))
-    draw(app, from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.7, dy: 0.7))
+    draw(app, from: CGVector(dx: 0.3, dy: 0.35), to: CGVector(dx: 0.7, dy: 0.5))
     sleep(3)
     shot(app, "12-board-talking")
     app.buttons["talk-button"].tap()
     sleep(2)
 
-    app.buttons["note-button"].tap()
-    let note = app.textViews["note-editor"]
+    let tab = app.webViews.firstMatch.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Note'")).firstMatch
+    XCTAssertTrue(tab.waitForExistence(timeout: 5), "the panel has no Note tab")
+    tab.tap()
+    let note = app.webViews.firstMatch.textViews["Anything the drawing doesn't say"]
     XCTAssertTrue(note.waitForExistence(timeout: 5))
     sleep(1)
     shot(app, "13-note-empty")
     note.tap()
     note.typeText("Check the second step")
     shot(app, "14-note")
-    app.buttons["note-button"].tap()
+    app.webViews.firstMatch.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Comments'")).firstMatch.tap()
     sleep(1)
 
     flag("slow", on: true)

@@ -18,6 +18,30 @@ export interface HeardWord {
 /** The overall note, as a voice target. */
 export const OVERALL = '';
 
+/**
+ * Each word goes to the target the voice pointed at when it began. Without word times, the whole phrase does.
+ * `aims` is in time order and not empty.
+ */
+export function routeWords(aims: readonly { at: number; target: string }[], text: string, at: number, words?: readonly HeardWord[]): Map<string, string> {
+  const aimedAt = (ms: number) => {
+    let target = aims[0]!.target;
+    for (const a of aims) if (a.at <= ms) target = a.target;
+    return target;
+  };
+  const runs: { target: string; words: string[] }[] = [];
+  for (const w of words ?? []) {
+    const target = aimedAt(w.atMs);
+    if (runs.at(-1)?.target === target) runs.at(-1)!.words.push(w.text);
+    else runs.push({ target, words: [w.text] });
+  }
+
+  // One run keeps the text as printed.
+  if (runs.length < 2) return new Map(text.trim() ? [[runs[0]?.target ?? aimedAt(at), text.trim()]] : []);
+  const routed = new Map<string, string>();
+  for (const run of runs) routed.set(run.target, [routed.get(run.target), ...run.words].filter(Boolean).join(' '));
+  return routed;
+}
+
 /** How far back a click's time counts, enough for the pane to catch up after the click. */
 const AIM_LAG_MS = 2000;
 
@@ -211,7 +235,7 @@ export class ReviewVoice {
           },
           (text, at, words) => {
             if (this.aims !== aims) return;
-            this.settling = this.route(aims, text, at, words);
+            this.settling = routeWords(aims, text, at, words);
             this.emit();
           },
         );
@@ -284,29 +308,8 @@ export class ReviewVoice {
   }
 
   private heard(aims: { at: number; target: string }[], text: string, at: number, words?: HeardWord[]): void {
-    for (const [target, said] of this.route(aims, text, at, words)) this.opts.onText(target, said);
+    for (const [target, said] of routeWords(aims, text, at, words)) this.opts.onText(target, said);
     this.emit();
-  }
-
-  /** Each word goes to the target the voice pointed at when it began. Without word times, the whole phrase does. */
-  private route(aims: { at: number; target: string }[], text: string, at: number, words?: HeardWord[]): Map<string, string> {
-    const aimedAt = (ms: number) => {
-      let target = aims[0]!.target;
-      for (const a of aims) if (a.at <= ms) target = a.target;
-      return target;
-    };
-    const runs: { target: string; words: string[] }[] = [];
-    for (const w of words ?? []) {
-      const target = aimedAt(w.atMs);
-      if (runs.at(-1)?.target === target) runs.at(-1)!.words.push(w.text);
-      else runs.push({ target, words: [w.text] });
-    }
-
-    // One run keeps the text as printed.
-    if (runs.length < 2) return new Map(text.trim() ? [[runs[0]?.target ?? aimedAt(at), text.trim()]] : []);
-    const routed = new Map<string, string>();
-    for (const run of runs) routed.set(run.target, [routed.get(run.target), ...run.words].filter(Boolean).join(' '));
-    return routed;
   }
 
   /** Marks `target` as still turning into text until `work` ends. */

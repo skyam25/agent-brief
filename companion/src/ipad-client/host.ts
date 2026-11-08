@@ -17,7 +17,12 @@ declare global {
   }
 }
 
-export type NativeMessage = { type: 'ready' } | { type: 'saveComments'; board: string; json: string } | { type: 'saveBoard'; board: string; json: string } | { type: 'log'; level: 'error'; text: string };
+export type NativeMessage =
+  | { type: 'ready' }
+  | { type: 'saveComments'; board: string; json: string }
+  | { type: 'saveBoard'; board: string; json: string }
+  | { type: 'saveNotes'; board: string; text: string }
+  | { type: 'log'; level: 'error'; text: string };
 
 export function toNative(message: NativeMessage): void {
   window.webkit?.messageHandlers?.agentBrief?.postMessage(message);
@@ -68,6 +73,7 @@ export class IpadHost implements BoardHost {
   async saveNotes(name: string, text: string) {
     const held = this.boards.get(name);
     this.boards.set(name, { scene: held?.scene ?? null, notes: text });
+    toNative({ type: 'saveNotes', board: name, text });
   }
 
   onTheme(fn: (theme: Theme) => void) {

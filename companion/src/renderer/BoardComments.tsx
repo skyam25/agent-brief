@@ -4,7 +4,7 @@
  */
 
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { boxOf, type Shaped } from '../board/geometry';
 import { pinSpot, pinTarget, type Pinnable } from '../board/pin';
 import { pinLabel, type BoardPin } from '../shared/board-comments';
@@ -174,15 +174,27 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
       })}
       {tool && (
         <div className="review-hint" data-testid="comment-hint">
-          {touchFirst() ? 'Tap to pin. Tap Comment again to draw.' : <>Click to pin · <kbd>Esc</kbd> to draw</>}
+          {touchFirst() ? 'Tap to pin. Tap Done to draw.' : <>Click to pin · <kbd>Esc</kbd> to draw</>}
         </div>
       )}
     </div>
   );
 }
 
-/** The comment column beside the board: an overall note, one card per pin, then `children`. */
-export function CommentColumn(props: { comments: BoardCommentsStore; board: string; voice: ColumnVoice; onSendKeys: (e: KeyboardEvent) => void; foot?: string; children?: ReactNode }) {
+/**
+ * The comment column beside the board: an overall note, one card per pin, then `children`.
+ * `compact` folds every card but the selected one to a line, for narrow screens.
+ */
+export function CommentColumn(props: {
+  comments: BoardCommentsStore;
+  board: string;
+  voice: ColumnVoice;
+  onSendKeys: (e: KeyboardEvent) => void;
+  foot?: string;
+  compact?: boolean;
+  className?: string;
+  children?: ReactNode;
+}) {
   const { comments, board, voice } = props;
   useStore(comments);
   useStore(voice);
@@ -196,9 +208,17 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
     comments.remove(board, id);
   };
 
+  const overallFolded = props.compact && comments.selected !== undefined && !voice.settling.has(OVERALL);
+
   return (
-    <aside className="review-notes board-comments" aria-label="Comments" data-testid="board-comments">
+    <aside className={`review-notes board-comments${props.compact ? ' compact' : ''} ${props.className ?? ''}`.trim()} aria-label="Comments" data-testid="board-comments">
       {comments.saveError && <p className="error" role="alert">Could not save comments: {comments.saveError}. Retrying…</p>}
+      {overallFolded ? (
+        <button className="review-fold" onClick={() => select(undefined)} data-testid="board-overall-folded">
+          <span className="section-head">Overall</span>
+          <span className="review-fold-text">{overall.trim() || 'Anything about the board as a whole'}</span>
+        </button>
+      ) : (
       <label className={comments.selected === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
         <span className="section-head">Overall</span>
         <textarea
@@ -211,12 +231,13 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
         />
         <VoiceState voice={voice} target={OVERALL} />
       </label>
+      )}
       <h3 className="section-head">
         Comments{pins.length > 0 && <span className="count">{pins.length}</span>}
       </h3>
       {pins.length === 0 ? (
         <p className="muted review-empty" data-testid="board-comments-empty">
-          {touchFirst() ? 'Tap' : 'Click'} anything on the board to pin a comment, then type or talk.
+          {comments.tool ? `${touchFirst() ? 'Tap' : 'Click'} anything on the board to pin a comment, then type or talk.` : 'Tap Pin, then tap the board where you want a comment.'}
         </p>
       ) : (
         <ol className="review-cards">
@@ -226,6 +247,7 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
               pin={p}
               n={i + 1}
               active={p.id === comments.selected}
+              folded={props.compact && p.id !== comments.selected && !voice.settling.has(p.id)}
               voice={voice}
               onSelect={() => select(p.id)}
               onEdit={(text) => comments.edit(board, p.id, text)}
@@ -236,9 +258,11 @@ export function CommentColumn(props: { comments: BoardCommentsStore; board: stri
         </ol>
       )}
       {props.children}
-      <footer className="muted review-foot">
-        {props.foot ?? (pins.length > 0 ? 'Send hands Claude each pin with its element. ⌘↩ sends.' : 'Draw as well as pin. Send takes both.')}
-      </footer>
+      {!props.compact && (
+        <footer className="muted review-foot">
+          {props.foot ?? (pins.length > 0 ? 'Send hands Claude each pin with its element. ⌘↩ sends.' : 'Draw as well as pin. Send takes both.')}
+        </footer>
+      )}
     </aside>
   );
 }
@@ -247,6 +271,8 @@ function PinCard(props: {
   pin: BoardPin;
   n: number;
   active: boolean;
+  /** Shows one line in place of the text box. */
+  folded?: boolean;
   voice: ColumnVoice;
   onSelect: () => void;
   onEdit: (text: string) => void;
@@ -255,8 +281,27 @@ function PinCard(props: {
 }) {
   const { pin: p } = props;
   const listening = props.voice.recording && props.voice.target === p.id;
+  const settling = props.voice.settling.get(p.id);
+  const card = useRef<HTMLLIElement>(null);
+
+  // The selected card stays in sight as it opens and as words arrive, even in a short docked panel.
+  useEffect(() => {
+    if (props.active) card.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [props.active, settling, p.text]);
+
+  if (props.folded) {
+    return (
+      <li className="review-card folded" data-pin={p.id} data-testid="board-comment-card">
+        <button className="review-fold" onClick={props.onSelect} title="Select this pin">
+          <span className="pin-badge">{props.n}</span>
+          <span className="review-fold-text">{p.text.trim() || pinLabel(p, 40)}</span>
+        </button>
+      </li>
+    );
+  }
   return (
     <li
+      ref={card}
       className={`review-card${props.active ? ' active' : ''}${listening ? ' listening' : ''}`}
       data-pin={p.id}
       data-testid="board-comment-card"

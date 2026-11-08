@@ -20,6 +20,10 @@ const sayText = 'Circle the sign up button. This step needs a clearer error.';
 spawnSync('say', ['-o', audio, '--data-format=LEI16@16000', sayText]);
 
 const useCanned = process.env.AB_CANNED !== '0';
+
+// AB_ONLY narrows the run to a comma-separated list of tests, such as HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs. The checks below then report what those tests skipped.
+const allTests = ['CommentFlowTests', 'StackHandoffTests', 'HandoffFlowTests/testPairDrawTalkNoteSend', 'HandoffFlowTests/testSendWaitsSurvivesKillThenLands', 'HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', 'HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs'];
+const onlyTesting = (process.env.AB_ONLY?.split(',') ?? allTests).map((t) => `-only-testing:AgentBriefUITests/${t}`);
 const stub = await startStub({ dir });
 const stubA = await startStub({ dir: join(dir, 'mac-a'), macName: 'First Stub Mac', promptPrefix: 'First Mac: ' });
 const stubB = await startStub({ dir: join(dir, 'mac-b'), macName: 'Second Stub Mac', promptPrefix: 'Second Mac: ' });
@@ -42,7 +46,7 @@ const result = await new Promise((resolve) => {
   import('node:child_process').then(({ spawn }) => {
     const child = spawn(
       'xcodebuild',
-      ['test', '-project', 'AgentBrief.xcodeproj', '-scheme', 'AgentBrief', '-destination', simulator, '-derivedDataPath', 'build', '-parallel-testing-enabled', 'NO', '-only-testing:AgentBriefUITests/CommentFlowTests', '-only-testing:AgentBriefUITests/StackHandoffTests', '-only-testing:AgentBriefUITests/HandoffFlowTests/testPairDrawTalkNoteSend', '-only-testing:AgentBriefUITests/HandoffFlowTests/testSendWaitsSurvivesKillThenLands', '-only-testing:AgentBriefUITests/HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', '-only-testing:AgentBriefUITests/HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs', 'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM='],
+      ['test', '-project', 'AgentBrief.xcodeproj', '-scheme', 'AgentBrief', '-destination', simulator, '-derivedDataPath', 'build', '-parallel-testing-enabled', 'NO', ...onlyTesting, 'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM='],
       { cwd: ios, env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let tail = '';

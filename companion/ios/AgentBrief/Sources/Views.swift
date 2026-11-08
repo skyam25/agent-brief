@@ -114,6 +114,9 @@ struct MainView: View {
     } detail: {
       WorkView()
     }
+    // At the root, so the message stays when a narrow screen goes back to the inbox after Send.
+    .overlay(alignment: .top) { BannerPill() }
+    .animation(.snappy, value: model.banner)
   }
 }
 
@@ -257,42 +260,37 @@ struct HandoffRow: View {
 
 struct WorkView: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.horizontalSizeClass) private var sizeClass
+  @State private var boardSpace = BoardSpace()
+
+  /// The board page docks its panel under the board at this width or less. ipad.css holds the same number.
+  private static let dockWidth: CGFloat = 700
+
+  /// Compact width keeps toolbar icons alone.
+  private var narrow: Bool { sizeClass == .compact }
+  /// The panel sits under the board, so the talk strip moves to the top.
+  private var docked: Bool { boardSpace.fold.map { $0.width > $0.height } ?? (boardSpace.width <= Self.dockWidth) }
 
   var body: some View {
-    @Bindable var model = model
     ZStack {
-      BoardWebView(board: model.web).ignoresSafeArea(.container, edges: .bottom)
+      BoardWebView(board: model.web)
+        .ignoresSafeArea(.container, edges: .bottom)
+        .onGeometryChange(for: BoardSpace.self) { BoardSpace($0) } action: { space in
+          boardSpace = space
+          Task { await model.web.setFold(space.fold) }
+        }
       if model.openId == nil { placeholder }
       if let id = model.openId, let state = model.outbox[id] { SentCover(id: id, state: state) }
     }
-    .overlay(alignment: .bottom) { TalkStrip().padding(.bottom, 76).padding(.horizontal, 20) }
+    .overlay(alignment: docked ? .top : .bottom) {
+      TalkStrip()
+        .padding(docked ? .top : .bottom, docked ? 12 : 76)
+        .padding(.horizontal, 20)
+    }
     .safeAreaInset(edge: .top, spacing: 0) { promptLine }
-    .overlay(alignment: .top) { bannerPill }
-    .animation(.snappy, value: model.banner)
     .navigationTitle(model.open?.sessionLabel ?? "")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar { if model.openId != nil { tools } }
-    .inspector(isPresented: $model.notePresented) {
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Note").font(.headline)
-        TextEditor(text: $model.noteText)
-          .scrollContentBackground(.hidden)
-          .padding(8)
-          .background(.background, in: .rect(cornerRadius: 12))
-          .overlay(alignment: .topLeading) {
-            if model.noteText.isEmpty {
-              Text("Anything the drawing doesn't say")
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 16)
-                .allowsHitTesting(false)
-            }
-          }
-          .disabled(sending || model.openId == nil)
-          .accessibilityIdentifier("note-editor")
-      }
-      .padding()
-    }
   }
 
   private var sending: Bool { model.openId.flatMap { model.outbox[$0] } != nil }
@@ -310,20 +308,13 @@ struct WorkView: View {
       .accessibilityIdentifier("talk-button")
 
       Button {
-        model.toggleComment()
+        model.panelOpen.toggle()
       } label: {
-        toolLabel("Comment", icon: model.commenting ? "text.bubble.fill" : "text.bubble")
+        // From the size class, not the measured width, so the toolbar never feeds back into the board's size.
+        Image(systemName: narrow ? "rectangle.bottomhalf.inset.filled" : "sidebar.trailing")
+          .accessibilityLabel(model.panelOpen ? "Hide Comments and Note" : "Show Comments and Note")
       }
-      .tint(model.commenting ? .accentColor : nil)
-      .disabled(sending)
-      .accessibilityIdentifier("comment-button")
-
-      Button {
-        model.notePresented.toggle()
-      } label: {
-        toolLabel("Note", icon: "note.text")
-      }
-      .accessibilityIdentifier("note-button")
+      .accessibilityIdentifier("panel-button")
     }
 
     ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -340,13 +331,18 @@ struct WorkView: View {
     }
   }
 
-  /// The toolbar drops a Label's title, so these spell out both parts.
+  /// The toolbar drops a Label's title, so these spell out both parts. Narrow screens keep the icon alone.
+  @ViewBuilder
   private func toolLabel(_ title: String, icon: String) -> some View {
-    HStack(spacing: 6) {
-      Image(systemName: icon)
-      Text(title)
+    if narrow {
+      Image(systemName: icon).accessibilityLabel(title)
+    } else {
+      HStack(spacing: 6) {
+        Image(systemName: icon)
+        Text(title)
+      }
+      .padding(.horizontal, 4)
     }
-    .padding(.horizontal, 4)
   }
 
   @ViewBuilder
@@ -362,8 +358,27 @@ struct WorkView: View {
     }
   }
 
-  @ViewBuilder
-  private var bannerPill: some View {
+  private var placeholder: some View {
+    ZStack {
+      Color(uiColor: .systemBackground).ignoresSafeArea()
+      if model.isLoadingBoard {
+        ProgressView("Opening the board…")
+      } else if let error = model.boardError {
+        ContentUnavailableView("The board didn't open", systemImage: "exclamationmark.triangle", description: Text(error))
+      } else if model.handoffs.isEmpty {
+        ContentUnavailableView("No hand-offs yet", systemImage: "tray", description: Text("Use the iPad button in a Claude Code session, or run `/sketch --ipad` there."))
+      } else {
+        ContentUnavailableView("Pick a hand-off", systemImage: "tray", description: Text("What you send goes back to the Claude Code session that asked."))
+      }
+    }
+  }
+}
+
+/// A short message from the Mac or about a Send.
+struct BannerPill: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
     if let banner = model.banner {
       Text(banner)
         .font(.callout.weight(.medium))
@@ -378,19 +393,20 @@ struct WorkView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
   }
+}
 
-  private var placeholder: some View {
-    ZStack {
-      Color(uiColor: .systemBackground).ignoresSafeArea()
-      if model.isLoadingBoard {
-        ProgressView("Opening the board…")
-      } else if let error = model.boardError {
-        ContentUnavailableView("The board didn't open", systemImage: "exclamationmark.triangle", description: Text(error))
-      } else if model.handoffs.isEmpty {
-        ContentUnavailableView("No hand-offs yet", systemImage: "tray", description: Text("Use the iPad button in a Claude Code session, or run `/sketch --ipad` there."))
-      } else {
-        ContentUnavailableView("Pick a hand-off", systemImage: "tray", description: Text("What you send goes back to the Claude Code session that asked."))
-      }
+/// The board's width, and the fold across it when the device is partly folded.
+struct BoardSpace: Equatable {
+  var width: CGFloat = 0
+  /// The active fold, in the board's own coordinates.
+  var fold: CGRect?
+
+  init() {}
+
+  init(_ proxy: GeometryProxy) {
+    width = proxy.size.width
+    if #available(iOS 27.1, *) {
+      fold = proxy.reservedRegions(kind: .division).first(where: \.isActive)?.frame
     }
   }
 }
@@ -464,7 +480,7 @@ struct TalkStrip: View {
         .pill()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("talk-error")
-      } else if model.talk != .idle || (lingering && !model.liveWords.isEmpty) {
+      } else if model.talk != .idle && (!model.liveInPanel || model.liveWords.isEmpty) || (lingering && !model.liveWords.isEmpty && !model.liveInPanel) {
         HStack(spacing: 10) {
           Image(systemName: model.talk == .idle ? "checkmark" : "waveform")
             .foregroundStyle(model.talk == .idle ? Color.secondary : Color.red)

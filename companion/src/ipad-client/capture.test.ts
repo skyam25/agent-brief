@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrokeEvent } from '../voice/types';
-import { deliveryOf, onOneClock, toBase64, targetAt } from './capture';
+import { deliveryOf, onOneClock, toBase64 } from './capture';
 
 const stroke = (t: number, tEnd = t + 50): StrokeEvent => ({
   t,
@@ -46,6 +46,12 @@ describe('deliveryOf', () => {
     expect(out).toEqual({ pngBase64: 'AQID', scene: { elements: [] }, bounds, strokes: [], utterances: [] });
   });
 
+  it('carries the note, and leaves out a blank one', () => {
+    const payload = { boardName: 'a', png: new Uint8Array(), scene: {}, strokes: [], bounds: { x: 0, y: 0, width: 0, height: 0 } };
+    expect(deliveryOf({ ...payload, notes: 'Use the blue' }, undefined, [], 'a').notes).toBe('Use the blue');
+    expect(deliveryOf({ ...payload, notes: '  ' }, undefined, [], 'a')).not.toHaveProperty('notes');
+  });
+
   it('refuses a canvas that holds another board', () => {
     const payload = { boardName: 'b', png: new Uint8Array(), scene: {}, strokes: [], bounds: { x: 0, y: 0, width: 0, height: 0 } };
     expect(() => deliveryOf(payload, undefined, [], 'a')).toThrow('not the one being sent');
@@ -54,16 +60,5 @@ describe('deliveryOf', () => {
   it('encodes pictures larger than one chunk', () => {
     const bytes = new Uint8Array(0x10001).fill(65);
     expect(atob(toBase64(bytes))).toBe('A'.repeat(0x10001));
-  });
-});
-
-describe('targetAt', () => {
-  const aims = [{ at: 100, target: 'p1' }, { at: 200, target: undefined }, { at: 300, target: 'p2' }];
-
-  it('finds what the voice pointed at when a phrase began', () => {
-    expect(targetAt(aims, 50)).toBeUndefined();
-    expect(targetAt(aims, 150)).toBe('p1');
-    expect(targetAt(aims, 250)).toBeUndefined();
-    expect(targetAt(aims, 300)).toBe('p2');
   });
 });

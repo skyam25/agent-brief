@@ -49,6 +49,7 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   let webView: WKWebView
   var onSave: (_ board: String, _ json: String) -> Void = { _, _ in }
   var onComments: (_ board: String, _ json: String) -> Void = { _, _ in }
+  var onNotes: (_ board: String, _ text: String) -> Void = { _, _ in }
   var onReady: () -> Void = {}
   var onCrash: () -> Void = {}
   private var ready = false
@@ -88,6 +89,8 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
       if let board = body["board"] as? String, let json = body["json"] as? String { onSave(board, json) }
     case "saveComments":
       if let board = body["board"] as? String, let json = body["json"] as? String { onComments(board, json) }
+    case "saveNotes":
+      if let board = body["board"] as? String, let text = body["text"] as? String { onNotes(board, text) }
     case "log":
       print("[board] \(body["text"] ?? "")")
     default:
@@ -121,21 +124,39 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     return Data(json.utf8)
   }
 
-  func setCommenting(_ on: Bool) async {
-    await whenReady()
-    _ = try? await webView.callAsyncJavaScript("window.__ipad.setCommenting(on);", arguments: ["on": on], contentWorld: .page)
-  }
-
   func setListening(_ on: Bool) async {
     await whenReady()
     _ = try? await webView.callAsyncJavaScript("window.__ipad.setListening(on);", arguments: ["on": on], contentWorld: .page)
   }
 
-  /// Offers a heard phrase to the comments. True means a comment took it.
-  func heard(_ phrase: Phrase) async -> Bool {
+  func setPanel(_ open: Bool) async {
     await whenReady()
+    _ = try? await webView.callAsyncJavaScript("window.__ipad.setPanel(open);", arguments: ["open": open], contentWorld: .page)
+  }
+
+  /// Tells the page where the fold runs, so the panel takes one side of it. Nil when the screen is flat.
+  func setFold(_ fold: CGRect?) async {
+    await whenReady()
+    let arg: Any = fold.map { ["x": $0.minX, "y": $0.minY, "width": $0.width, "height": $0.height] } ?? NSNull()
+    _ = try? await webView.callAsyncJavaScript("window.__ipad.setFold(fold ?? undefined);", arguments: ["fold": arg], contentWorld: .page)
+  }
+
+  /// Offers a finished phrase to the comments. True means a comment took it.
+  func heard(_ phrase: Phrase) async -> Bool {
+    await offer("heard", phrase)
+  }
+
+  /// Offers words still settling. True means a comment shows them.
+  func live(_ phrase: Phrase) async -> Bool {
+    await offer("live", phrase)
+  }
+
+  private func offer(_ call: String, _ phrase: Phrase) async -> Bool {
+    await whenReady()
+    let words: Any = phrase.words.map { $0.map { ["text": $0.text, "atMs": $0.atMs] } } ?? NSNull()
     let result = try? await webView.callAsyncJavaScript(
-      "return window.__ipad.heard(text, t);", arguments: ["text": phrase.text, "t": phrase.atMs], contentWorld: .page)
+      "return window.__ipad.\(call)(text, t, words ?? undefined);",
+      arguments: ["text": phrase.text, "t": phrase.atMs, "words": words], contentWorld: .page)
     return (result as? Bool) ?? false
   }
 

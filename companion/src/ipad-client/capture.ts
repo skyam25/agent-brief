@@ -24,19 +24,6 @@ export function onOneClock(
   };
 }
 
-/** Where the voice pointed from `at` on. Undefined is the overall note. */
-export interface VoiceAim {
-  at: number;
-  target: string | undefined;
-}
-
-/** The target a phrase belongs to: the one the voice pointed at when the phrase began. Later clicks do not move it. */
-export function targetAt(aims: readonly VoiceAim[], t: number): string | undefined {
-  let target: string | undefined;
-  for (const aim of aims) if (aim.at <= t) target = aim.target;
-  return target;
-}
-
 export function toBase64(bytes: Uint8Array): string {
   const chunk = 0x8000;
   let binary = '';
@@ -45,11 +32,11 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * The delivery the native app stores in its outbox. It adds `notes`, which it keeps itself.
+ * The delivery the native app stores in its outbox.
  * Throws unless the canvas holds `board`, because a sent hand-off's work is deleted.
  */
 export function deliveryOf(
-  payload: { boardName: string; png: Uint8Array; scene: unknown; strokes: StrokeEvent[]; bounds: IpadDelivery['bounds'] },
+  payload: { boardName: string; png: Uint8Array; scene: unknown; notes?: string; strokes: StrokeEvent[]; bounds: IpadDelivery['bounds'] },
   strokeOrigin: number | undefined,
   spoken: readonly IpadUtterance[],
   board: string,
@@ -60,6 +47,7 @@ export function deliveryOf(
     pngBase64: toBase64(payload.png),
     scene: payload.scene,
     bounds: payload.bounds,
+    ...(payload.notes?.trim() ? { notes: payload.notes } : {}),
     ...onOneClock(payload.strokes, strokeOrigin, spoken),
     ...(comments ? { comments } : {}),
   };

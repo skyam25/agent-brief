@@ -74,12 +74,17 @@ final class DeviceLoopTests: XCTestCase {
     app.buttons["talk-button"].tap()
     sleep(3)
 
-    app.buttons["note-button"].tap()
-    let note = app.textViews["note-editor"]
+    let tab = app.webViews.firstMatch.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Note'")).firstMatch
+    XCTAssertTrue(tab.waitForExistence(timeout: 5), "the panel has no Note tab")
+    tab.tap()
+    let note = app.webViews.firstMatch.textViews["Anything the drawing doesn't say"]
     XCTAssertTrue(note.waitForExistence(timeout: 5))
     note.tap()
     note.typeText("Check the second step")
     keep(app, "6-note")
+    // On a narrow screen the keyboard pushes Send into the toolbar's overflow, so put it away first.
+    let keyboardDone = app.toolbars.buttons["Done"]
+    if keyboardDone.exists { keyboardDone.tap() }
 
     app.buttons["send-button"].tap()
     let banner = app.staticTexts["banner"]

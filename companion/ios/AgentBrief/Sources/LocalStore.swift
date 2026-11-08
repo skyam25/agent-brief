@@ -1,10 +1,17 @@
 import Foundation
 
-/// A phrase of speech, in epoch ms on this iPad's clock.
+/// A phrase of speech, in epoch ms on this device's clock.
 struct Phrase: Codable, Equatable {
   let text: String
   let atMs: Double
   let endMs: Double
+  /// Each word and when it began, so words can follow taps made mid-phrase.
+  var words: [SpokenWord]?
+}
+
+struct SpokenWord: Codable, Equatable {
+  let text: String
+  let atMs: Double
 }
 
 /// Everything saved on this iPad: the inbox, each hand-off's work, and the outbox.
