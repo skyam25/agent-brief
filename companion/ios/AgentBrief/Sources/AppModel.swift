@@ -160,6 +160,11 @@ final class AppModel {
     Task { await pair(link) }
   }
 
+  /// The person chose to scan, so a scanned code pairs without asking again.
+  func pair(scanned link: PairLink) {
+    Task { await pair(link) }
+  }
+
   /// Any app or web page can open a pairing link, so a link waits for the person to say yes.
   func handle(url: URL) {
     guard let link = PairLink(url: url) else { return }

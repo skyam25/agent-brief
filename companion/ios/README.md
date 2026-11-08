@@ -18,7 +18,7 @@ xcrun devicectl device install app --device <udid> build/Build/Products/Debug-ip
 
 ## Pair
 
-On the Mac, choose Pair iPad… in Agent Brief. Point the iPad's Camera app at the QR code and tap the link, or paste the link into the app.
+On the Mac, choose Pair iPad… in Agent Brief. On the iPad, tap Scan QR Code and point the camera at the code. The Camera app also works, and so does pasting the link into the app.
 
 ## Test
 

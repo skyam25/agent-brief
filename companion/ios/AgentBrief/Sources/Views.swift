@@ -30,7 +30,12 @@ struct UnpairedView: View {
 
       VStack(alignment: .leading, spacing: 14) {
         PairStep(number: 1, text: "On the Mac, open Agent Brief and choose Pair iPad…")
-        PairStep(number: 2, text: "Point this iPad's Camera app at the QR code and tap the link it shows.")
+        if ScanButton.supported {
+          PairStep(number: 2, text: "Tap Scan QR Code and point the camera at the code on the Mac.")
+          ScanButton().padding(.leading, 38)
+        } else {
+          PairStep(number: 2, text: "Point the Camera app at the QR code and tap the link it shows.")
+        }
       }
 
       VStack(alignment: .leading, spacing: 10) {

@@ -42,7 +42,7 @@ export function IpadSheet(props: { host: IpadSheetHost; onClose: () => void }) {
             <li data-testid="ipad-network">
               {status.network ? `Join this Mac's network (${status.network}) on the iPad, and turn off any VPN.` : "Join this Mac's network on the iPad, and turn off any VPN."}
             </li>
-            <li>Point the iPad's Camera at the code and open it in Agent Brief.</li>
+            <li>In Agent Brief on the iPad, tap Scan QR Code and point it at this code.</li>
             <li>The code works once, for 10 minutes.</li>
           </ol>
           {/* The SVG comes from the qrcode library in main, not from a page. */}
