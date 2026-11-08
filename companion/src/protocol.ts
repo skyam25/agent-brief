@@ -157,6 +157,8 @@ export interface Handoff {
   prompt?: string;
   /** The board the iPad's work is saved as on the Mac. */
   boardName: string;
+  /** The name of the Mac board the iPad starts from. Absent for a blank hand-off. */
+  fromBoard?: string;
   createdAt: number;
   /** `filed` means the session had ended by Send, so the board waits on the Mac under that session. */
   state: HandoffState;

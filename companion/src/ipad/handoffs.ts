@@ -67,6 +67,7 @@ export class HandoffStore {
       sessionLabel: fields.sessionLabel,
       ...(fields.prompt ? { prompt: fields.prompt } : {}),
       boardName: `ipad-${id}`,
+      ...(fields.baseBoard ? { fromBoard: fields.baseBoard } : {}),
       createdAt: this.now(),
       state: 'open',
       ...(fields.baseBoard ? { baseBoard: fields.baseBoard } : {}),

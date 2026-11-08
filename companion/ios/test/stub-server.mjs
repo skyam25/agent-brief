@@ -4,8 +4,57 @@ import { createHash, X509Certificate } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { join } from 'node:path';
+import { deflateSync } from 'node:zlib';
 
-export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [] }) {
+/** A PNG of one colour, so a test can tell a drawn picture from Excalidraw's grey placeholder. */
+function solidPng(width, height, [r, g, b]) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf) => {
+    let c = 0xffffffff;
+    for (const byte of buf) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc(body));
+    return Buffer.concat([len, body, sum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => [r, g, b]).flat())]);
+  const pixels = deflateSync(Buffer.concat(Array.from({ length: height }, () => row)));
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', pixels), chunk('IEND', Buffer.alloc(0))]);
+  return `data:image/png;base64,${png.toString('base64')}`;
+}
+
+/**
+ * A Stack board as the Mac saves it after Claude adds screenshots while it is hidden: two pictures
+ * in one group, not yet laid out, so the layout runs when the iPad opens it.
+ */
+function unlaidStackScene() {
+  const el = { angle: 0, strokeColor: 'transparent', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 2, strokeStyle: 'solid', roughness: 1, opacity: 100, groupIds: [], roundness: null, seed: 1, version: 1, versionNonce: 1, isDeleted: false, boundElements: null, updated: 1, link: null, locked: false };
+  const dataURL = solidPng(400, 300, [59, 130, 246]);
+  const image = (id, x) => ({ ...el, id, type: 'image', x, y: 30, width: 400, height: 300, fileId: `f-${id}`, status: 'saved', scale: [1, 1], frameId: 'g1' });
+  return JSON.stringify({
+    type: 'excalidraw',
+    version: 2,
+    elements: [{ ...el, id: 'g1', type: 'frame', x: 0, y: 0, width: 880, height: 360, name: '1', frameId: null, customData: { stack: { index: 1 } } }, image('a', 20), image('b', 460)],
+    appState: { viewBackgroundColor: '#ffffff' },
+    files: Object.fromEntries(['a', 'b'].map((id) => [`f-${id}`, { id: `f-${id}`, mimeType: 'image/png', dataURL, created: 1 }])),
+    agentBrief: { layout: 'stack' },
+  });
+}
+
+export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [], stack = false }) {
   mkdirSync(dir, { recursive: true });
   const keyFile = join(dir, 'key.pem');
   const certFile = join(dir, 'cert.pem');
@@ -25,8 +74,9 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
   });
   const now = Date.now();
   const handoffs = new Map([
-    ['h1', { id: 'h1', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', prompt: `${promptPrefix}${promptPrefix ? 'mark' : 'Mark'} up the sign-up flow`, boardName: 'signup', createdAt: now - 120_000, state: 'open' }],
+    ['h1', { id: 'h1', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', prompt: `${promptPrefix}${promptPrefix ? 'mark' : 'Mark'} up the sign-up flow`, boardName: 'ipad-h1', fromBoard: 'signup', createdAt: now - 120_000, state: 'open' }],
     ['h2', { id: 'h2', sessionId: 's2', sessionLabel: 'other session', prompt: `${promptPrefix}Blank board, no base scene`, boardName: 'blank', createdAt: now - 60_000, state: 'open' }],
+    ...(stack ? [['hs', { id: 'hs', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', boardName: 'ipad-hs', fromBoard: 'checkout-shots', createdAt: now - 30_000, state: 'open' }]] : []),
     ...extra.map((h, i) => [h.id, { sessionId: `x${i}`, boardName: h.id, createdAt: now - 180_000 - i * 3_600_000, state: 'open', ...h }]),
   ]);
   const delivered = new Map();
@@ -68,7 +118,7 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
       if (req.method === 'GET' && detail) {
         const h = handoffs.get(detail[1]);
         if (!h) return reply(res, 404, { error: 'no such hand-off', code: 'not_found' });
-        return reply(res, 200, { handoff: h, scene: h.id === 'h1' ? baseScene : null, notes: '' });
+        return reply(res, 200, { handoff: h, scene: h.id === 'h1' ? baseScene : h.id === 'hs' ? unlaidStackScene() : null, notes: '' });
       }
       const deliver = /^\/v1\/handoffs\/([^/]+)\/deliver$/.exec(path);
       if (req.method === 'POST' && deliver) {

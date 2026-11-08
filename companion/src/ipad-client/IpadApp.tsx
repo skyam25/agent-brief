@@ -10,9 +10,11 @@ import { CommentColumn } from '../renderer/BoardComments';
 import { useStore } from '../renderer/hooks';
 import { OVERALL } from '../renderer/review-voice';
 import type { ColumnVoice } from '../renderer/VoiceState';
+import { fitBoard } from '../renderer/viewport';
 import { deliveryOf, targetAt, type VoiceAim } from './capture';
 import { IpadHost, toNative, type OpenBoard } from './host';
 import { keepPinch } from './pinch';
+import { refitWhileSettling } from './settle-fit';
 
 /** What the native app calls. `collect` answers JSON, because a delivery can hold many megabytes. */
 export interface IpadBridge {
@@ -97,6 +99,7 @@ export function IpadApp() {
       api.setActiveTool({ type: 'freedraw' });
       const root = document.querySelector<HTMLElement>('.ipad-board');
       if (root) keepPinch(root, api);
+      let settling: (() => void) | undefined;
       window.__ipad = {
         async open(board) {
           host.offer(board);
@@ -106,6 +109,9 @@ export function IpadApp() {
           aims.current = [];
           await controller.switchTo(board.boardName);
           api.setActiveTool({ type: 'freedraw' });
+          settling?.();
+          const view = document.querySelector<HTMLElement>('.ipad-board .excalidraw');
+          if (view) settling = refitWhileSettling(view, () => fitBoard(api, api.getSceneElements()));
         },
         async collect(spoken, board) {
           await comments.flush();

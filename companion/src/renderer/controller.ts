@@ -350,10 +350,11 @@ export class BoardController {
     this.markLoaded(loaded.elements);
     this.strokes.absorb(loaded.elements);
     api.updateScene({ elements: loaded.elements, appState: loaded.appState, captureUpdate: CaptureUpdateAction.NEVER });
+    // Pictures Claude added while the board was hidden join the stack now.
+    // The layout runs before the files go in, because Excalidraw redraws a loaded picture only for the elements it held when loading began.
+    this.reflow();
     const files = Object.values(loaded.files);
     if (files.length) api.addFiles(files);
-    // Pictures Claude added while the board was hidden join the stack now.
-    this.reflow();
     api.history.clear();
     fitBoard(api, loaded.elements.filter((e) => !e.isDeleted));
     await this.bridge.setCurrent(board);

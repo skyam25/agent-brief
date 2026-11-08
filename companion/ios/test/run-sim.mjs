@@ -24,6 +24,7 @@ const stub = await startStub({ dir });
 const stubA = await startStub({ dir: join(dir, 'mac-a'), macName: 'First Stub Mac', promptPrefix: 'First Mac: ' });
 const stubB = await startStub({ dir: join(dir, 'mac-b'), macName: 'Second Stub Mac', promptPrefix: 'Second Mac: ' });
 const stubC = await startStub({ dir: join(dir, 'mac-c'), macName: 'Comment Stub Mac' });
+const stubS = await startStub({ dir: join(dir, 'mac-s'), macName: 'Stack Stub Mac', stack: true });
 console.log(`stub on ${stub.port}, fingerprint ${stub.fingerprint}`);
 
 const env = {
@@ -32,6 +33,7 @@ const env = {
   TEST_RUNNER_AB_PAIR_URL_A: stubA.pairUrl,
   TEST_RUNNER_AB_PAIR_URL_B: stubB.pairUrl,
   TEST_RUNNER_AB_PAIR_URL_C: stubC.pairUrl,
+  TEST_RUNNER_AB_PAIR_URL_S: stubS.pairUrl,
   TEST_RUNNER_AB_STUB_DIR: dir,
   TEST_RUNNER_AB_TALK_SECONDS: process.env.AB_TALK_SECONDS ?? (useCanned ? '3' : '8'),
   ...(useCanned ? { TEST_RUNNER_AB_TEST_PHRASES: phrases } : { TEST_RUNNER_AB_TEST_AUDIO: audio }),
@@ -40,7 +42,7 @@ const result = await new Promise((resolve) => {
   import('node:child_process').then(({ spawn }) => {
     const child = spawn(
       'xcodebuild',
-      ['test', '-project', 'AgentBrief.xcodeproj', '-scheme', 'AgentBrief', '-destination', simulator, '-derivedDataPath', 'build', '-parallel-testing-enabled', 'NO', '-only-testing:AgentBriefUITests/CommentFlowTests', '-only-testing:AgentBriefUITests/HandoffFlowTests/testPairDrawTalkNoteSend', '-only-testing:AgentBriefUITests/HandoffFlowTests/testSendWaitsSurvivesKillThenLands', '-only-testing:AgentBriefUITests/HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', '-only-testing:AgentBriefUITests/HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs', 'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM='],
+      ['test', '-project', 'AgentBrief.xcodeproj', '-scheme', 'AgentBrief', '-destination', simulator, '-derivedDataPath', 'build', '-parallel-testing-enabled', 'NO', '-only-testing:AgentBriefUITests/CommentFlowTests', '-only-testing:AgentBriefUITests/StackHandoffTests', '-only-testing:AgentBriefUITests/HandoffFlowTests/testPairDrawTalkNoteSend', '-only-testing:AgentBriefUITests/HandoffFlowTests/testSendWaitsSurvivesKillThenLands', '-only-testing:AgentBriefUITests/HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', '-only-testing:AgentBriefUITests/HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs', 'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM='],
       { cwd: ios, env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let tail = '';
@@ -55,7 +57,7 @@ const result = await new Promise((resolve) => {
 });
 stub.server.close();
 stub.server.closeAllConnections();
-for (const other of [stubA, stubB, stubC]) {
+for (const other of [stubA, stubB, stubC, stubS]) {
   other.server.close();
   other.server.closeAllConnections();
 }

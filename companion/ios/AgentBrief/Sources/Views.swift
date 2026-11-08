@@ -220,9 +220,13 @@ struct HandoffRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(handoff.prompt?.isEmpty == false ? handoff.prompt! : "Sketch for this session").lineLimit(2)
+      Text(handoff.title).lineLimit(2)
       HStack(spacing: 4) {
         Text(handoff.sessionLabel).lineLimit(1)
+        if handoff.hasPrompt, let board = handoff.fromBoard {
+          Text("·")
+          Text(board).lineLimit(1).accessibilityIdentifier("handoff-board")
+        }
         Text("·")
         TimelineView(.periodic(from: .now, by: 30)) { _ in
           Text(handoff.created.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))).fixedSize()

@@ -196,8 +196,9 @@ describe('hand-offs', () => {
     const { ipad, link, credential } = await paired();
     const a = ipad.createHandoff({ sessionId: 's1', prompt: 'mark this up', board: 'flow' });
     const blank = ipad.createHandoff({ sessionId: 's1' });
-    expect(a).toMatchObject({ sessionLabel: 'label s1', prompt: 'mark this up', state: 'open', boardName: `ipad-${a.id}` });
+    expect(a).toMatchObject({ sessionLabel: 'label s1', prompt: 'mark this up', state: 'open', boardName: `ipad-${a.id}`, fromBoard: 'flow' });
     expect(a).not.toHaveProperty('baseBoard');
+    expect(blank).not.toHaveProperty('fromBoard');
     const list = await call(link, 'GET', '/v1/handoffs', { credential });
     expect(list.body.handoffs.map((h: Handoff) => h.id).sort()).toEqual([a.id, blank.id].sort());
     const detail = await call(link, 'GET', `/v1/handoffs/${a.id}`, { credential });

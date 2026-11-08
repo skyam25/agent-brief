@@ -245,6 +245,8 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - The iPad's Send updates the board a hand-off started from, and reloads it if it is open. If that board changed on the Mac since the hand-off, by a saved or pending edit, or a recording is running on it, the work becomes a new `ipad-<id>` board instead. A blank hand-off makes a new board, and the panel opens it if it is on that session in Sketch.
 - Comment on the iPad toolbar reuses the Mac's pin layer and comment column. A finger or Pencil tap pins, and a drag or pinch moves the view. Words go to the comment selected when they began and stay out of the timeline. Comments live with the hand-off's work on the iPad, and Send delivers them as `comments.md`. Comments on the Mac stay on the Mac.
 - `src/ipad-client/pinch.ts` lets a pinch zoom after a Pencil turned on Excalidraw's pen mode, which otherwise fixes the scale at 1 under the draw tool.
+- The inbox names a hand-off by its prompt, else by `fromBoard`, the Mac board it starts from.
+- `src/ipad-client/settle-fit.ts` fits an opened board again while the native view settles, until the first touch. On an iPhone the view changes size after the navigation push.
 - Hand-offs are store and forward, with no live sync. A second iPad's Send becomes its own delivery on its own board.
 - The iPad transcribes on device and sends phrases, not audio. Strokes and phrases share its clock, and `composeDelivery` uses them as `utterances`.
 - App source and test recipes live in `ios/README.md`. `node ios/test/run-sim.mjs` runs the simulator suite and `node ios/test/run-device.mjs <udid>` runs a real iPad.

@@ -39,8 +39,8 @@ test.afterAll(async () => {
   server?.close();
 });
 
-async function openBoard(comments: string | null = null): Promise<Page> {
-  const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+async function openBoard(comments: string | null = null, viewport = { width: 1100, height: 800 }, scene: object = BASE): Promise<Page> {
+  const page = await browser.newPage({ viewport });
   // Synthetic pointers have no real capture to take, and the call would throw.
   await page.addInitScript(() => {
     Element.prototype.setPointerCapture = () => {};
@@ -50,7 +50,7 @@ async function openBoard(comments: string | null = null): Promise<Page> {
   await page.waitForFunction(() => (window as any).__ipad);
   await page.evaluate(async ([scene, saved]) => {
     await (window as any).__ipad.open({ boardName: 'h1', scene, notes: '', comments: saved });
-  }, [JSON.stringify(BASE), comments] as const);
+  }, [JSON.stringify(scene), comments] as const);
   return page;
 }
 
@@ -90,6 +90,91 @@ test('a pinch zooms after an Apple Pencil has turned on pen mode, and the pen to
   await pinch(page);
   await expect.poll(() => zoom(page)).not.toBe('100%');
   await expect(drawing(page)).toBeChecked();
+  await page.close();
+});
+
+/** A Stack board as the Mac saves it after Claude adds pictures while it is hidden, before its layout runs. */
+async function unlaidStack(page: Page): Promise<object> {
+  const dataURL = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 400;
+    c.height = 300;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#3b82f6';
+    g.fillRect(0, 0, 400, 300);
+    return c.toDataURL('image/png');
+  });
+  const el = { ...BASE.elements[0], strokeColor: 'transparent' };
+  const frame = { ...el, id: 'g1', type: 'frame', x: 0, y: 0, width: 880, height: 360, name: '1', customData: { stack: { index: 1 } }, index: 'a0' };
+  const image = (id: string, x: number, index: string) => ({ ...el, id, type: 'image', x, y: 30, width: 400, height: 300, fileId: `f-${id}`, status: 'saved', scale: [1, 1], frameId: 'g1', index });
+  const file = (id: string) => ({ id: `f-${id}`, mimeType: 'image/png', dataURL, created: 1 });
+  return { type: 'excalidraw', version: 2, elements: [frame, image('a', 20, 'a1'), image('b', 460, 'a2')], appState: {}, files: { 'f-a': file('a'), 'f-b': file('b') }, agentBrief: { layout: 'stack' } };
+}
+
+/** How many pixels of the static canvas show the pictures' blue. */
+const bluePixels = (page: Page) =>
+  page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('canvas.excalidraw__canvas.static')!;
+    const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let blue = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] === 59 && data[i + 1] === 130 && data[i + 2] === 246) blue++;
+    return blue;
+  });
+
+test('a Stack board shows its pictures when its layout runs on open', async () => {
+  const blank = await browser.newPage();
+  await blank.goto(url);
+  const scene = await unlaidStack(blank);
+  await blank.close();
+  const page = await openBoard(null, undefined, scene);
+  await expect.poll(() => bluePixels(page), { timeout: 5000 }).toBeGreaterThan(10_000);
+  await page.close();
+});
+
+/** Long enough for a resize to reach Excalidraw, a refit to run, and the canvas to redraw. */
+const REDRAW_MS = 600;
+
+/** The box, in page pixels, of the static canvas's blue picture pixels. Top is Infinity when none show. */
+const blueBox = (page: Page) =>
+  page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('canvas.excalidraw__canvas.static')!;
+    const rect = canvas.getBoundingClientRect();
+    const ratio = canvas.width / rect.width;
+    const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let top = Infinity, bottom = -Infinity;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] !== 59 || data[i + 1] !== 130 || data[i + 2] !== 246) continue;
+      const y = Math.floor(i / 4 / canvas.width) / ratio + rect.top;
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
+    return { top, bottom, canvasTop: rect.top, canvasBottom: rect.bottom };
+  });
+
+test('the board fits again when its view changes size just after it opens, until a touch', async () => {
+  const blank = await browser.newPage();
+  await blank.goto(url);
+  const scene = await unlaidStack(blank);
+  await blank.close();
+  const inView = async (page: Page) => {
+    const box = await blueBox(page);
+    return Number.isFinite(box.top) && box.top >= box.canvasTop && box.bottom <= box.canvasBottom;
+  };
+
+  // The native view settles to a shorter size after the board opens.
+  const page = await openBoard(null, { width: 466, height: 1100 }, scene);
+  await expect.poll(() => inView(page)).toBe(true);
+  // The canvas keeps its old picture for a moment after a resize.
+  await page.setViewportSize({ width: 466, height: 520 });
+  await page.waitForTimeout(REDRAW_MS);
+  expect(await inView(page)).toBe(true);
+
+  // After a touch, a resize leaves the view where the person put it.
+  const before = await blueBox(page);
+  await tap(page, 'touch', 31, 40, 300);
+  await page.setViewportSize({ width: 466, height: 900 });
+  await page.waitForTimeout(REDRAW_MS);
+  expect((await blueBox(page)).top).toBe(before.top);
   await page.close();
 });
 

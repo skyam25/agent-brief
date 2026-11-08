@@ -47,10 +47,16 @@ struct Handoff: Codable, Identifiable, Hashable {
   let sessionLabel: String
   let prompt: String?
   let boardName: String
+  /// The Mac board the iPad starts from. Nil for a blank hand-off, and from a Mac older than 0.5.36.
+  var fromBoard: String? = nil
   let createdAt: Double
   let state: String
   /// The fingerprint of the Mac that made it. The iPad sets this, because ids are only unique per Mac.
   var macId: String?
+
+  var hasPrompt: Bool { prompt?.isEmpty == false }
+  /// The prompt, else the board it starts from, so two hand-offs from one session tell apart.
+  var title: String { hasPrompt ? prompt! : fromBoard ?? "Sketch for this session" }
 
   /// Identifies this hand-off across every paired Mac.
   var key: String { "\(macId ?? "")-\(id)" }
