@@ -19,6 +19,8 @@ const touchFirst = () => typeof matchMedia === 'function' && matchMedia('(hover:
 
 /** How far a press may move and still count as a tap. */
 const TAP_SLOP = 10;
+/** How far outside a shape, in screen pixels, a finger or Pencil tap still pins it. */
+const TOUCH_REACH = 24;
 
 const editable = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
@@ -97,7 +99,8 @@ export function PinLayer(props: { api: ExcalidrawImperativeAPI; root: HTMLElemen
     const drop = (e: PointerEvent) => {
       const { offsetLeft, offsetTop, scrollX, scrollY, zoom } = api.getAppState();
       const at: [number, number] = [(e.clientX - offsetLeft) / zoom.value - scrollX, (e.clientY - offsetTop) / zoom.value - scrollY];
-      const target = pinTarget(api.getSceneElements() as unknown as Pinnable[], at);
+      const reach = e.pointerType === 'mouse' ? 0 : TOUCH_REACH / zoom.value;
+      const target = pinTarget(api.getSceneElements() as unknown as Pinnable[], at, reach);
       comments.add(board, { x: at[0], y: at[1], ...target });
       // Focus moves to the new card, so typing goes straight in.
       requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-testid="board-comment-card"].active textarea')?.focus());

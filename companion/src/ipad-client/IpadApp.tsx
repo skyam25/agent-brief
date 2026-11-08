@@ -146,6 +146,16 @@ export function IpadApp() {
     });
   }, [comments, voice]);
 
+  // The keyboard shortens the screen after a box in the panel takes focus, so the box scrolls back into sight.
+  useEffect(() => {
+    const keep = () => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && focused.closest('.ipad-panel')) focused.scrollIntoView({ block: 'nearest' });
+    };
+    window.addEventListener('resize', keep);
+    return () => window.removeEventListener('resize', keep);
+  }, []);
+
   // The toolbar's Comment button and the board's tool follow the comment tool, whoever turned it.
   // Fingers still pan and pinch while pinning, and only a tap drops a pin.
   useEffect(() => {

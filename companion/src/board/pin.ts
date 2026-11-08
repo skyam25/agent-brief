@@ -31,6 +31,12 @@ const contains = (el: Pinnable, [x, y]: Point, slack = 0) => {
   return x >= b.x - slack && x <= b.x + b.width + slack && y >= b.y - slack && y <= b.y + b.height + slack;
 };
 
+/** How far `point` sits outside an element's box. Zero inside it. */
+const distance = (el: Pinnable, [x, y]: Point) => {
+  const b = boxOf(el);
+  return Math.hypot(Math.max(b.x - x, 0, x - (b.x + b.width)), Math.max(b.y - y, 0, y - (b.y + b.height)));
+};
+
 /** A frame's title as Excalidraw shows it. */
 const frameTitle = (f: Pinnable) => f.name?.trim() || 'Frame';
 
@@ -38,14 +44,16 @@ const frameTitle = (f: Pinnable) => f.name?.trim() || 'Frame';
  * The element a pin at `point` belongs to. Shapes, text and pictures win over
  * lines and arrows, which win over frames; within each, the topmost wins.
  * Text inside a shape pins the shape.
+ * `reach` lets a press just outside a shape pin it, the nearest first, since a finger lands less exactly than a mouse.
  */
-export function pinTarget(elements: readonly Pinnable[], point: Point): PinTarget | undefined {
+export function pinTarget(elements: readonly Pinnable[], point: Point, reach = 0): PinTarget | undefined {
   const live = elements.filter((e) => !e.isDeleted);
   const byId = new Map(live.map((e) => [e.id, e]));
   const top = [...live].reverse();
   const hit =
     top.find((e) => e.type !== 'frame' && !LINEAR.has(e.type) && contains(e, point)) ??
     top.find((e) => LINEAR.has(e.type) && contains(e, point, SLACK)) ??
+    nearest(top.filter((e) => e.type !== 'frame' && !LINEAR.has(e.type)), point, reach) ??
     top.find((e) => e.type === 'frame' && contains(e, point));
   if (!hit) return undefined;
   const el = (hit.containerId && byId.get(hit.containerId)) || hit;
@@ -62,6 +70,16 @@ export function pinTarget(elements: readonly Pinnable[], point: Point): PinTarge
     fx: inside(point[0], box.x, box.width),
     fy: inside(point[1], box.y, box.height),
   };
+}
+
+/** The element closest to `point` within `reach`, or none. */
+function nearest(elements: readonly Pinnable[], point: Point, reach: number): Pinnable | undefined {
+  let best: { el: Pinnable; d: number } | undefined;
+  for (const el of elements) {
+    const d = distance(el, point);
+    if (d <= reach && (!best || d < best.d)) best = { el, d };
+  }
+  return best?.el;
 }
 
 /** Where a pin sits now: on its element as it moved, or where it dropped when the element is gone. */

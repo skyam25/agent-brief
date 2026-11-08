@@ -148,6 +148,22 @@ body {
   }
 }
 
+/*
+ * The keyboard shortens a phone's screen while the docked panel takes typing. The panel then takes the height, and the board waits behind.
+ * It waits for the short screen, so the tap that brings up the keyboard never moves the box under the finger.
+ */
+@media (max-width: 700px) and (max-height: 500px) {
+  .ipad-board:not(.fold-side):has(.ipad-panel :is(textarea, input):focus) .ipad-panel {
+    flex: 1;
+    max-height: none;
+  }
+
+  .ipad-board:not(.fold-side):has(.ipad-panel :is(textarea, input):focus) > :is(.canvas, .ipad-page) {
+    flex: 0 0 0;
+    overflow: hidden;
+  }
+}
+
 .ipad-board.fold-under {
   flex-direction: column;
 }
@@ -225,4 +241,39 @@ body {
   background: rgb(255 255 255 / 0.18);
   color: #fff;
   font: inherit;
+}
+
+/* The board's width decides whether the lock and hand fit in the toolbar row. */
+.ipad-board > .canvas {
+  container: board / inline-size;
+}
+
+/* With room, the lock and hand join the end of the toolbar row instead of floating at the board's edge. */
+@container board (min-width: 500px) {
+  .ipad-board .excalidraw .mobile-misc-tools-container {
+    position: static;
+    flex-direction: row;
+    align-self: stretch;
+    margin-left: 6px;
+    border: 1px solid var(--sidebar-border-color);
+    border-radius: var(--border-radius-lg);
+  }
+
+  .ipad-board .excalidraw .mobile-misc-tools-container .ToolIcon__icon {
+    width: 2.25rem;
+    height: 100%;
+  }
+}
+
+/* A board a little short of room, such as an iPad's beside the inbox, tightens the row so the lock and hand still fit. */
+@container board (min-width: 500px) and (max-width: 559px) {
+  .ipad-board .excalidraw .App-toolbar-container .Stack_horizontal {
+    gap: 2px;
+  }
+
+  .ipad-board .excalidraw .App-toolbar-container .ToolIcon__icon,
+  .ipad-board .excalidraw .mobile-misc-tools-container .ToolIcon__icon {
+    width: 2rem;
+    height: 2rem;
+  }
 }

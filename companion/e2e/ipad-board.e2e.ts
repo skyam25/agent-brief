@@ -14,7 +14,7 @@ const WEB = resolve(HERE, '../ios/AgentBrief/Web');
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2' };
 const BASE = { type: 'excalidraw', version: 2, elements: [{ id: 'base1', type: 'rectangle', x: 300, y: 300, width: 200, height: 120, version: 1, versionNonce: 1, angle: 0, strokeColor: '#1971c2', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 2, strokeStyle: 'solid', roughness: 1, opacity: 100, groupIds: [], frameId: null, roundness: null, seed: 1, isDeleted: false, boundElements: null, updated: 1, link: null, locked: false, index: 'a0' }], appState: {}, files: {} };
 
-const PLAN = '<!doctype html><html><head><script src="/overlay.js"></script><title>Plan</title></head><body style="margin:0;font:16px sans-serif"><h1 style="margin:20px">Keep the cart when a card fails</h1><p style="margin:20px">Today a declined card empties the form.</p><table style="margin:20px"><thead><tr><th>Measure</th><th>Today</th><th>Pilot</th></tr></thead><tbody><tr><td>Recovered after decline</td><td>21.4%</td><td id="pilot">34.9%</td></tr></tbody></table></body></html>';
+const PLAN = '<!doctype html><html><head><script src="/overlay.js"></script><title>Plan</title></head><body style="margin:0;font:16px sans-serif"><h1 style="margin:20px">Keep the cart when a card fails</h1><p style="margin:20px">Today a declined card empties the form.</p><table style="margin:20px"><thead style="text-transform:uppercase"><tr><th>Measure</th><th>Today</th><th>Pilot</th></tr></thead><tbody><tr><td>Recovered after decline</td><td>21.4%</td><td id="pilot">34.9%</td></tr></tbody></table></body></html>';
 
 let server: Server;
 let browser: Browser;
@@ -310,6 +310,8 @@ test('on a page, Comment stays on pin after pin, each marker shows at once, and 
   await expect(marker).toBeVisible();
   await expect(page.getByTestId('page-pin-hint')).toBeVisible();
   await page.getByTestId('board-comment-card').locator('textarea').fill('Say what changed');
+  // The keyboard closes before the next tap on the page, which typing tucks away on a phone.
+  await page.getByTestId('board-comment-card').locator('textarea').blur();
   await frame.locator('p').click({ position: { x: 300, y: 8 } });
   await expect(marker).toHaveCount(2);
   await page.getByTestId('board-comment-delete').click();
@@ -482,6 +484,48 @@ test('hiding the panel keeps the comment tool on', async () => {
 });
 
 const box = async (page: Page, testId: string) => (await page.getByTestId(testId).boundingBox())!;
+
+test("the lock and hand join the toolbar row on an iPad's board, and float at the edge of a phone's", async () => {
+  const rowOf = (page: Page) =>
+    page.evaluate(() => {
+      const box = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+      const tools = box('.App-toolbar-container .Island');
+      const hand = box('[data-testid="toolbar-hand"]');
+      const board = box('.ipad-board > .canvas');
+      return { inRow: hand.top < tools.bottom && hand.bottom > tools.top, inside: tools.left >= board.left && hand.right <= board.right };
+    });
+  const ipad = await openBoard(null, { width: 834, height: 1100 });
+  await expect(ipad.locator('.excalidraw--mobile .mobile-misc-tools-container')).toHaveCount(1);
+  await expect.poll(() => rowOf(ipad)).toEqual({ inRow: true, inside: true });
+  await ipad.close();
+  // An iPad's board beside the inbox has less room, so the row tightens to keep them in it.
+  const split = await openBoard(null, { width: 514, height: 1000 });
+  await expect.poll(() => rowOf(split)).toEqual({ inRow: true, inside: true });
+  await split.close();
+  const phone = await openBoard(null, { width: 380, height: 760 });
+  await expect.poll(async () => (await rowOf(phone)).inRow).toBe(false);
+  await phone.close();
+});
+
+test('typing in the docked panel gives it the height the keyboard leaves, and the board comes back after', async () => {
+  // A tall screen keeps its layout when a box takes focus, so the tap that raises the keyboard moves nothing.
+  const tall = await openBoard(null, { width: 420, height: 800 });
+  const before = (await box(tall, 'ipad-panel')).height;
+  await tall.getByTestId('board-overall').focus();
+  expect(Math.round((await box(tall, 'ipad-panel')).height)).toBe(Math.round(before));
+  await tall.close();
+
+  // The keyboard leaves a short screen, and the panel takes it.
+  const page = await openBoard(null, { width: 420, height: 300 });
+  const panel = page.getByTestId('ipad-panel');
+  const docked = (await box(page, 'ipad-panel')).height;
+  await page.getByTestId('board-overall').focus();
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBeGreaterThan(280);
+  await expect(page.getByTestId('board-overall')).toBeInViewport();
+  await page.getByTestId('board-overall').blur();
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.height)).toBe(Math.round(docked));
+  await page.close();
+});
 
 test('a narrow screen docks the panel under the board and folds other comments to a line', async () => {
   const saved = JSON.stringify({ overall: '', pins: [{ id: 'p1', x: 400, y: 350, text: 'Move the header up', createdAt: 1 }, { id: 'p2', x: 300, y: 320, text: 'Darker', createdAt: 2 }] });

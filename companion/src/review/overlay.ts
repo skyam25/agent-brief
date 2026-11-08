@@ -205,7 +205,8 @@ function start(): void {
     const row = cell?.parentElement;
     const table = cell?.closest('table');
     if (!(cell instanceof HTMLTableCellElement) || !(row instanceof HTMLTableRowElement) || !table) return undefined;
-    const words = (c: Element | undefined | null) => (c && c !== cell ? cut(oneLine((c as HTMLElement).innerText ?? c.textContent ?? ''), 200) : '');
+    // The source's words, not as styled, so an uppercase header reads as the file has it.
+    const words = (c: Element | undefined | null) => (c && c !== cell ? cut(oneLine(c.textContent ?? ''), 200) : '');
 
     // Column positions count spans, so a header that spans two columns heads both.
     const at = (r: HTMLTableRowElement, c: HTMLTableCellElement) => [...r.cells].slice(0, c.cellIndex).reduce((n, x) => n + x.colSpan, 0);

@@ -21,6 +21,14 @@ describe('pinTarget', () => {
     expect(pinTarget(scene, [800, 500])).toMatchObject({ elementId: 'f', type: 'frame', label: 'Login flow' });
   });
 
+  it('takes the nearest shape within reach of a press just outside it, ahead of the frame', () => {
+    const other: Pinnable = { id: 'o', type: 'rectangle', x: 330, y: 100, width: 100, height: 100 };
+    expect(pinTarget([frame, box, other], [307, 120], 24)).toMatchObject({ elementId: 'r', fx: 1 });
+    expect(pinTarget([frame, box, other], [324, 120], 24)?.elementId).toBe('o');
+    expect(pinTarget([frame, box], [307, 120])?.elementId).toBe('f');
+    expect(pinTarget([box], [340, 120], 24)).toBeUndefined();
+  });
+
   it('finds nothing on empty board and skips deleted elements', () => {
     expect(pinTarget(scene, [2000, 2000])).toBeUndefined();
     expect(pinTarget([{ ...box, isDeleted: true }], [160, 150])).toBeUndefined();

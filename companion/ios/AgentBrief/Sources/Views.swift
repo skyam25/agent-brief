@@ -150,6 +150,7 @@ struct InboxView: View {
         }
       }
     }
+    .modifier(InboxListStyle(phone: UIDevice.current.userInterfaceIdiom == .phone))
     .navigationTitle("Inbox")
     .refreshable { await model.refresh() }
     .toolbar {
@@ -193,6 +194,19 @@ struct InboxView: View {
 
   private func deleteButton(_ handoff: Handoff) -> some View {
     Button("Delete", systemImage: "trash", role: .destructive) { Task { await model.delete(handoff) } }
+  }
+}
+
+/// A phone's inbox runs its rows edge to edge, lined up with the title. The iPad's sidebar keeps the platform's style, though its column is compact too.
+struct InboxListStyle: ViewModifier {
+  let phone: Bool
+
+  func body(content: Content) -> some View {
+    if phone {
+      content.listStyle(.plain)
+    } else {
+      content
+    }
   }
 }
 
