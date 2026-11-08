@@ -251,7 +251,7 @@ export interface UpdateStatus {
 }
 
 /** Where Send can start a new Claude Code session. `copy` puts a start command on the clipboard. */
-export type Launcher = 'ghostty' | 'terminal' | 'herdr' | 'copy';
+export type Launcher = 'ghostty' | 'terminal' | 'herdr' | 'herdr-app' | 'copy';
 
 export interface LaunchOptions {
   /** Launchers this Mac has, in menu order. `copy` is always last. */

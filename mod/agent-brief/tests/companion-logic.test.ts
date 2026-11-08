@@ -91,6 +91,18 @@ describe('session label', () => {
     expect(hostOf({ HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p2' })).toEqual({ herdrPane: 'w1:p2' })
   })
 
+  test('records the core terminal only for a session in the Herdr app', () => {
+    expect(hostOf({ TERM_PROGRAM: 'ghostty', __CFBundleIdentifier: 'dev.herdr.app', HC_TERMINAL_ID: 't13' })).toEqual({
+      terminal: 'ghostty',
+      bundleId: 'dev.herdr.app',
+      hcTerminal: 't13',
+    })
+    expect(hostOf({ TERM_PROGRAM: 'ghostty', __CFBundleIdentifier: 'com.mitchellh.ghostty', HC_TERMINAL_ID: 't1' })).toEqual({
+      terminal: 'ghostty',
+      bundleId: 'com.mitchellh.ghostty',
+    })
+  })
+
   test('summarizes the latest typed prompt, skipping commands and injected tags', () => {
     const user = (text: string) => ({ role: 'user', text })
     expect(summaryOf([])).toBeUndefined()

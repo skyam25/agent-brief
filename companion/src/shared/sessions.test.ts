@@ -4,6 +4,7 @@ import { activeAgo, herdrWorkspace, hostLabel, hueOf, modeLabel, portablePrompt,
 describe('session words', () => {
   it('names where a session runs, herdr first', () => {
     expect(hostLabel({ terminal: 'ghostty', herdrPane: 'w1:p1' })).toBe('herdr');
+    expect(hostLabel({ terminal: 'ghostty', bundleId: 'dev.herdr.app' })).toBe('Herdr');
     expect(hostLabel({ terminal: 'Apple_Terminal' })).toBe('Terminal');
     expect(hostLabel({ terminal: 'kitty' })).toBe('kitty');
     expect(hostLabel(undefined)).toBeUndefined();

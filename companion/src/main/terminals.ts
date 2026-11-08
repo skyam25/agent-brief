@@ -9,11 +9,18 @@ import { herdrWorkspace, isGhostty } from '../shared/sessions';
 import { findTool } from '../voice/compose';
 import { exec, focusSession, frontGhosttyTerminal, resumeCommand, resumeSession, startSession, type Exec } from './launch';
 
-export const LAUNCHER_NAMES: Record<Launcher, string> = { ghostty: 'Ghostty', terminal: 'Terminal', herdr: 'herdr', copy: 'the clipboard' };
+export const LAUNCHER_NAMES: Record<Launcher, string> = {
+  ghostty: 'Ghostty',
+  terminal: 'Terminal',
+  herdr: 'herdr',
+  'herdr-app': 'Herdr',
+  copy: 'the clipboard',
+};
 
 const PROMPT_FRESH_MS = 5000;
 
 const herdrPath = () => findTool('herdr', [join(homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']);
+const herdrAppPath = () => findTool('herdr-app', [join(homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']);
 
 /** Workspace id to sidebar number, from `herdr workspace list`. Empty when the output does not parse. */
 export function herdrNumbers(out: string): Map<string, number> {
@@ -52,9 +59,15 @@ export class Terminals {
 
   /** The ways this Mac can start a session, best first. */
   launchers(): Launcher[] {
-    if (this.opts.testMode) return ['ghostty', 'terminal', 'herdr', 'copy'];
+    if (this.opts.testMode) return ['ghostty', 'terminal', 'herdr', 'herdr-app', 'copy'];
     const ghostty = ['/Applications', join(homedir(), 'Applications')].some((d) => existsSync(join(d, 'Ghostty.app')));
-    return [...(ghostty ? (['ghostty'] as const) : []), 'terminal', ...(herdrPath() ? (['herdr'] as const) : []), 'copy'];
+    return [
+      ...(ghostty ? (['ghostty'] as const) : []),
+      'terminal',
+      ...(herdrPath() ? (['herdr'] as const) : []),
+      ...(herdrAppPath() ? (['herdr-app'] as const) : []),
+      'copy',
+    ];
   }
 
   /** Records the Ghostty terminal in front as the session's. Call it while the user is still typing there. */
@@ -83,7 +96,11 @@ export class Terminals {
   }
 
   async focus(session: SessionInfo): Promise<void> {
-    await focusSession(this.run, session, { herdr: herdrPath(), ghosttyTerminal: this.ghostty.get(session.sessionId) }).catch((err) =>
+    await focusSession(this.run, session, {
+      herdr: herdrPath(),
+      herdrApp: herdrAppPath(),
+      ghosttyTerminal: this.ghostty.get(session.sessionId),
+    }).catch((err) =>
       console.warn(`[companion] could not focus the session: ${(err as Error).message}`),
     );
   }
@@ -113,7 +130,7 @@ export class Terminals {
 
   /** Starts Claude Code in `cwd` on the prompt file. */
   start(via: Exclude<Launcher, 'copy'>, cwd: string, promptPath: string): Promise<void> {
-    return startSession(this.run, via, cwd, promptPath, herdrPath());
+    return startSession(this.run, via, cwd, promptPath, herdrPath(), herdrAppPath());
   }
 
   /** Resumes an ended session in `cwd`, or copies the command that does. */
@@ -125,7 +142,7 @@ export class Terminals {
     }
     if (!existsSync(cwd)) return { ok: false, message: `No folder at ${cwd}` };
     try {
-      await resumeSession(this.run, via, cwd, sessionId, herdrPath());
+      await resumeSession(this.run, via, cwd, sessionId, herdrPath(), herdrAppPath());
       return { ok: true, message: `Resuming the session in ${LAUNCHER_NAMES[via]}` };
     } catch (err) {
       return { ok: false, message: `Could not resume the session: ${(err as Error).message}` };

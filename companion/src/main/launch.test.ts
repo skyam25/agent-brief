@@ -52,6 +52,16 @@ describe('startSession', () => {
   it('says so when herdr is missing', async () => {
     await expect(startSession(recorder().run, 'herdr', '/p', '/p/x.md')).rejects.toThrow(/herdr is not installed/);
   });
+
+  it('brings the Herdr app forward and opens a tab that runs Claude Code', async () => {
+    const { calls, run } = recorder();
+    await startSession(run, 'herdr-app', '/p/app', '/p/app/prompt.md', undefined, '/bin/herdr-app');
+    expect(calls).toEqual([
+      ['open', '-b', 'dev.herdr.app'],
+      ['/bin/herdr-app', 'do', 'tab.new', '--name', 'sketch', '--folder', '/p/app', '--argv', JSON.stringify(['sh', '-c', `claude "$(cat '/p/app/prompt.md')"`])],
+    ]);
+    await expect(startSession(run, 'herdr-app', '/p', '/p/x.md')).rejects.toThrow(/Herdr is not installed/);
+  });
 });
 
 describe('resumeSession', () => {
@@ -88,6 +98,16 @@ describe('focusSession', () => {
     expect(calls[0]).toEqual(['/bin/herdr', 'agent', 'focus', 'w1:p2']);
     expect(calls[1]).toEqual(['osascript', '-e', ghosttyFocusScript('/p/app', 'T-1')]);
     expect(calls[1][2]).toContain('whose id is "T-1"');
+  });
+
+  it('focuses a Herdr app terminal and never scripts Ghostty for it', async () => {
+    const { calls, run } = recorder();
+    const host = { terminal: 'ghostty', bundleId: 'dev.herdr.app', hcTerminal: 't13' };
+    expect(await focusSession(run, { cwd: '/p/app', host }, { herdrApp: '/bin/herdr-app' })).toBe(true);
+    expect(calls).toEqual([
+      ['/bin/herdr-app', 'do', 'pane.focus', '--terminal', 't13'],
+      ['open', '-b', 'dev.herdr.app'],
+    ]);
   });
 
   it('brings any other app forward by its bundle id, and does nothing without a host', async () => {

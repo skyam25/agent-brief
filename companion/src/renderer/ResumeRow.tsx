@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Launcher, LaunchOptions, SessionBriefEntry } from '../shared/ipc';
-import { hostLabel, isGhostty } from '../shared/sessions';
+import { hostLabel, isGhostty, isHerdrApp } from '../shared/sessions';
 import { ChevronIcon } from './Icons';
 import { LAUNCHER_LABELS } from './SendTo';
 import { useEscape, usePointerOutside } from './hooks';
@@ -10,7 +10,15 @@ const openLabel = (l: Launcher) => (l === 'copy' ? LAUNCHER_LABELS.copy : `Open 
 /** The launcher the session ran in, when this Mac has it, else the first terminal. */
 export function preferredLauncher(brief: Pick<SessionBriefEntry, 'host'>, launchers: Launcher[]): Launcher | undefined {
   const host = brief.host;
-  const ran: Launcher | undefined = host?.herdrPane ? 'herdr' : isGhostty(host) ? 'ghostty' : host?.terminal === 'Apple_Terminal' ? 'terminal' : undefined;
+  const ran: Launcher | undefined = host?.herdrPane
+    ? 'herdr'
+    : isHerdrApp(host)
+      ? 'herdr-app'
+      : isGhostty(host)
+        ? 'ghostty'
+        : host?.terminal === 'Apple_Terminal'
+          ? 'terminal'
+          : undefined;
   if (ran && launchers.includes(ran)) return ran;
   return launchers.find((l) => l !== 'copy') ?? launchers[0];
 }

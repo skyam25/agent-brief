@@ -1,5 +1,5 @@
 import type { Delivery, SessionHost, SessionInfo } from './companion-protocol'
-import { defaultSocketPath } from './companion-protocol'
+import { defaultSocketPath, HERDR_APP_BUNDLE } from './companion-protocol'
 import { isLocalUrl, refSurface } from './generated/output-file'
 
 export const BACKOFF_MIN_MS = 5_000
@@ -98,6 +98,7 @@ export type HostEnv = {
   __CFBundleIdentifier?: string
   HERDR_ENV?: string
   HERDR_PANE_ID?: string
+  HC_TERMINAL_ID?: string
 }
 
 /** Where the session runs, from its environment. Undefined when nothing is known. */
@@ -106,6 +107,7 @@ export function hostOf(env: HostEnv): SessionHost | undefined {
     ...(env.TERM_PROGRAM ? { terminal: env.TERM_PROGRAM } : {}),
     ...(env.__CFBundleIdentifier ? { bundleId: env.__CFBundleIdentifier } : {}),
     ...(env.HERDR_ENV === '1' && env.HERDR_PANE_ID ? { herdrPane: env.HERDR_PANE_ID } : {}),
+    ...(env.__CFBundleIdentifier === HERDR_APP_BUNDLE && env.HC_TERMINAL_ID ? { hcTerminal: env.HC_TERMINAL_ID } : {}),
   }
   return Object.keys(host).length > 0 ? host : undefined
 }

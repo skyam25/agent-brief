@@ -1,5 +1,6 @@
 /** Words for a Claude Code session in the panel. */
 
+import { HERDR_APP_BUNDLE } from '../protocol';
 import type { PrototypeFidelity, SessionHost, SessionInfo, SessionMode } from '../protocol';
 
 const TERMINALS: Record<string, string> = {
@@ -30,12 +31,17 @@ const FIDELITIES: Record<PrototypeFidelity, string> = {
 
 const GHOSTTY_BUNDLE = 'com.mitchellh.ghostty';
 
-/** True for a session in Ghostty, including one under tmux there. */
-export const isGhostty = (host: SessionHost | undefined) => host?.bundleId === GHOSTTY_BUNDLE || host?.terminal === 'ghostty';
+/** True for a session in the Herdr desktop app. */
+export const isHerdrApp = (host: SessionHost | undefined) => host?.bundleId === HERDR_APP_BUNDLE;
 
-/** Where the session runs, such as `herdr` or `Ghostty`. */
+/** True for a session in Ghostty, including one under tmux there. */
+export const isGhostty = (host: SessionHost | undefined) =>
+  !isHerdrApp(host) && (host?.bundleId === GHOSTTY_BUNDLE || host?.terminal === 'ghostty');
+
+/** Where the session runs, such as `herdr`, `Herdr` or `Ghostty`. */
 export function hostLabel(host: SessionHost | undefined): string | undefined {
   if (host?.herdrPane) return 'herdr';
+  if (isHerdrApp(host)) return 'Herdr';
   if (!host?.terminal) return undefined;
   return TERMINALS[host.terminal] ?? host.terminal;
 }

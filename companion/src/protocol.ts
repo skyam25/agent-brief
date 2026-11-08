@@ -93,6 +93,9 @@ export interface ModePatch {
   fidelity?: PrototypeFidelity;
 }
 
+/** The Herdr desktop app. Its terminals report `TERM_PROGRAM=ghostty`, so the bundle id identifies them. */
+export const HERDR_APP_BUNDLE = 'dev.herdr.app';
+
 export interface SessionHost {
   /** `TERM_PROGRAM`, such as `ghostty`, `iTerm.app`, `Apple_Terminal` or `vscode`. */
   terminal?: string;
@@ -100,6 +103,8 @@ export interface SessionHost {
   bundleId?: string;
   /** herdr pane id, from `HERDR_PANE_ID`, when the session runs inside herdr. */
   herdrPane?: string;
+  /** herdr-core terminal address, from `HC_TERMINAL_ID`, when the session runs in the Herdr app. */
+  hcTerminal?: string;
 }
 
 /** POST /sessions answers with the full list. DELETE /sessions/:id answers with this. */

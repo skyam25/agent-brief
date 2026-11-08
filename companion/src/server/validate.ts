@@ -165,6 +165,7 @@ export function parseSession(body: unknown): SessionInfo {
       terminal: optString(h, 'terminal', 'body.host'),
       bundleId: optString(h, 'bundleId', 'body.host'),
       herdrPane: optString(h, 'herdrPane', 'body.host'),
+      hcTerminal: optString(h, 'hcTerminal', 'body.host'),
     };
   }
   return {

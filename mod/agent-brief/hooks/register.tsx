@@ -273,6 +273,7 @@ async function sessionExtras($: EngineInterface) {
     __CFBundleIdentifier: await settle($.env.get('__CFBundleIdentifier')),
     HERDR_ENV: await settle($.env.get('HERDR_ENV')),
     HERDR_PANE_ID: await settle($.env.get('HERDR_PANE_ID')),
+    HC_TERMINAL_ID: await settle($.env.get('HC_TERMINAL_ID')),
   }
   const messages = await $.session.messages().catch(() => [])
   const activeAt = (await read($, activeAtRef).catch(() => null)) ?? undefined

@@ -1,6 +1,7 @@
 /** Starts a new Claude Code session on a sketch, resumes an ended one, and brings a session's terminal forward. */
 
 import { execFile } from 'node:child_process';
+import { HERDR_APP_BUNDLE } from '../protocol';
 import type { SessionHost } from '../protocol';
 import type { Launcher } from '../shared/ipc';
 import { isGhostty } from '../shared/sessions';
@@ -82,17 +83,26 @@ async function runInHerdr(run: Exec, herdr: string, cwd: string, command: string
   await run(herdr, ['pane', 'run', pane, command]);
 }
 
+/** Brings the Herdr app forward and opens a tab in `cwd` that runs `command`. */
+async function runInHerdrApp(run: Exec, herdrApp: string, cwd: string, command: string, label: string): Promise<void> {
+  await run('open', ['-b', HERDR_APP_BUNDLE]);
+  await run(herdrApp, ['do', 'tab.new', '--name', label, '--folder', cwd, '--argv', JSON.stringify(['sh', '-c', command])]);
+}
+
 /** Runs `command` in `cwd` in a new window or tab of the chosen terminal. */
 async function runInTerminal(
   run: Exec,
   via: Exclude<Launcher, 'copy'>,
   cwd: string,
   command: string,
-  opts: { herdr?: string; label: string },
+  opts: { herdr?: string; herdrApp?: string; label: string },
 ): Promise<void> {
   if (via === 'ghostty') await run('osascript', ['-e', ghosttyScript(cwd, command)]);
   else if (via === 'terminal') await run('osascript', ['-e', terminalScript(cwd, command)]);
-  else {
+  else if (via === 'herdr-app') {
+    if (!opts.herdrApp) throw new Error('Herdr is not installed');
+    await runInHerdrApp(run, opts.herdrApp, cwd, command, opts.label);
+  } else {
     if (!opts.herdr) throw new Error('herdr is not installed');
     await runInHerdr(run, opts.herdr, cwd, command, opts.label);
   }
@@ -105,8 +115,9 @@ export function startSession(
   cwd: string,
   promptPath: string,
   herdr?: string,
+  herdrApp?: string,
 ): Promise<void> {
-  return runInTerminal(run, via, cwd, claudeCommand(promptPath), { herdr, label: 'sketch' });
+  return runInTerminal(run, via, cwd, claudeCommand(promptPath), { herdr, herdrApp, label: 'sketch' });
 }
 
 /** Resumes an ended session in its folder. */
@@ -116,8 +127,9 @@ export function resumeSession(
   cwd: string,
   sessionId: string,
   herdr?: string,
+  herdrApp?: string,
 ): Promise<void> {
-  return runInTerminal(run, via, cwd, claudeResume(sessionId), { herdr, label: 'resume' });
+  return runInTerminal(run, via, cwd, claudeResume(sessionId), { herdr, herdrApp, label: 'resume' });
 }
 
 /**
@@ -162,17 +174,18 @@ export async function frontGhosttyTerminal(run: Exec, cwd: string): Promise<stri
 }
 
 /**
- * Brings a session's terminal forward. A herdr pane is focused exactly. A
- * Ghostty terminal is focused when its id was captured or it is the only one in
- * that folder. Any other app is brought forward as a whole.
+ * Brings a session's terminal forward. A herdr pane or Herdr app terminal is
+ * focused exactly. A Ghostty terminal is focused when its id was captured or it
+ * is the only one in that folder. Any other app is brought forward as a whole.
  */
 export async function focusSession(
   run: Exec,
   session: { cwd: string; host?: SessionHost },
-  opts: { herdr?: string; ghosttyTerminal?: string } = {},
+  opts: { herdr?: string; herdrApp?: string; ghosttyTerminal?: string } = {},
 ): Promise<boolean> {
   const host = session.host ?? {};
   if (host.herdrPane && opts.herdr) await run(opts.herdr, ['agent', 'focus', host.herdrPane]).catch(() => undefined);
+  if (host.hcTerminal && opts.herdrApp) await run(opts.herdrApp, ['do', 'pane.focus', '--terminal', host.hcTerminal]).catch(() => undefined);
   if (isGhostty(host)) {
     await run('osascript', ['-e', ghosttyFocusScript(session.cwd, opts.ghosttyTerminal)]);
     return true;

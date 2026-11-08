@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { preferredLauncher } from './ResumeRow';
 
 describe('preferredLauncher', () => {
-  const all = ['ghostty', 'terminal', 'herdr', 'copy'] as const;
+  const all = ['ghostty', 'terminal', 'herdr', 'herdr-app', 'copy'] as const;
 
   it('picks the terminal the session ran in when this Mac has it', () => {
     expect(preferredLauncher({ host: { terminal: 'ghostty', herdrPane: 'w1:p1' } }, [...all])).toBe('herdr');
+    expect(preferredLauncher({ host: { terminal: 'ghostty', bundleId: 'dev.herdr.app' } }, [...all])).toBe('herdr-app');
     expect(preferredLauncher({ host: { terminal: 'Apple_Terminal' } }, [...all])).toBe('terminal');
     expect(preferredLauncher({ host: { terminal: 'ghostty' } }, [...all])).toBe('ghostty');
     expect(preferredLauncher({ host: { terminal: 'tmux', bundleId: 'com.mitchellh.ghostty' } }, [...all])).toBe('ghostty');

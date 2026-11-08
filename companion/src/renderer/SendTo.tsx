@@ -11,6 +11,7 @@ export const LAUNCHER_LABELS: Record<Launcher, string> = {
   ghostty: 'Ghostty',
   terminal: 'Terminal',
   herdr: 'herdr',
+  'herdr-app': 'Herdr',
   copy: 'Copy command',
 };
 
