@@ -228,7 +228,7 @@ struct HandoffRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(handoff.title).lineLimit(2)
+      Text(PromptText.plain(handoff.title)).lineLimit(2)
       HStack(spacing: 4) {
         Text(handoff.sessionLabel).lineLimit(1)
         if handoff.hasPrompt, let board = handoff.fromBoard {
@@ -267,6 +267,7 @@ struct WorkView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.horizontalSizeClass) private var sizeClass
   @State private var boardSpace = BoardSpace()
+  @State private var promptExpanded = false
 
   /// The board page docks its panel under the board at this width or less. ipad.css holds the same number.
   private static let dockWidth: CGFloat = 700
@@ -302,6 +303,26 @@ struct WorkView: View {
 
   @ToolbarContentBuilder
   private var tools: some ToolbarContent {
+    ToolbarItemGroup(placement: .primaryAction) {
+      Button {
+        model.undo()
+      } label: {
+        Image(systemName: "arrow.uturn.backward").accessibilityLabel("Undo")
+      }
+      .disabled(!model.canUndo || sending)
+      .accessibilityIdentifier("undo-button")
+
+      Button {
+        model.redo()
+      } label: {
+        Image(systemName: "arrow.uturn.forward").accessibilityLabel("Redo")
+      }
+      .disabled(!model.canRedo || sending)
+      .accessibilityIdentifier("redo-button")
+    }
+
+    ToolbarSpacer(.fixed, placement: .primaryAction)
+
     ToolbarItemGroup(placement: .primaryAction) {
       Button {
         model.toggleTalk()
@@ -350,16 +371,30 @@ struct WorkView: View {
     }
   }
 
+  /// Two lines leave the board room. A long prompt shows the rest on request, and its links open in the browser.
   @ViewBuilder
   private var promptLine: some View {
     if let prompt = model.open?.prompt, !prompt.isEmpty {
-      Text(prompt)
-        .font(.callout)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .accessibilityIdentifier("handoff-prompt")
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(PromptText.attributed(prompt))
+          .font(.callout)
+          .lineLimit(promptExpanded ? nil : 2)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityIdentifier("handoff-prompt")
+        if PromptText.isLong(prompt) {
+          Button {
+            promptExpanded.toggle()
+          } label: {
+            Image(systemName: promptExpanded ? "chevron.up" : "chevron.down")
+              .accessibilityLabel(promptExpanded ? "Show less" : "Show all")
+          }
+          .accessibilityIdentifier("prompt-more")
+        }
+      }
+      .padding(.horizontal, 20)
+      .padding(.vertical, 10)
+      .background(.bar)
+      .onChange(of: model.openId) { promptExpanded = false }
     }
   }
 

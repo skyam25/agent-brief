@@ -14,6 +14,7 @@ import { fitBoard } from '../renderer/viewport';
 import { deliveryOf } from './capture';
 import { IpadHost, toNative, type OpenBoard } from './host';
 import { keepPinch } from './pinch';
+import { press, watchHistory } from './history';
 import { refitWhileSettling } from './settle-fit';
 
 /** What the native app calls. `collect` answers JSON, because a delivery can hold many megabytes. */
@@ -33,6 +34,9 @@ export interface IpadBridge {
   heard(text: string, t: number, words?: HeardWord[]): boolean;
   /** Offers words still settling. True means a comment shows them. */
   live(text: string, t: number, words?: HeardWord[]): boolean;
+  /** Undoes the last change on the board, as the toolbar's Undo. */
+  undo(): void;
+  redo(): void;
 }
 
 declare global {
@@ -202,7 +206,14 @@ export function IpadApp() {
           voice.settle(routeWords(aims.current, text, t, words));
           return true;
         },
+        undo() {
+          if (root) press(root, 'undo');
+        },
+        redo() {
+          if (root) press(root, 'redo');
+        },
       };
+      if (root) watchHistory(root, (state) => toNative({ type: 'history', ...state }));
       toNative({ type: 'ready' });
     },
     [comments, controller, host, setCommenting, voice],

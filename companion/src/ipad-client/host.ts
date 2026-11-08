@@ -22,6 +22,7 @@ export type NativeMessage =
   | { type: 'saveComments'; board: string; json: string }
   | { type: 'saveBoard'; board: string; json: string }
   | { type: 'saveNotes'; board: string; text: string }
+  | { type: 'history'; undo: boolean; redo: boolean }
   | { type: 'log'; level: 'error'; text: string };
 
 export function toNative(message: NativeMessage): void {

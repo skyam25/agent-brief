@@ -17,9 +17,12 @@ body {
   display: flex;
 }
 
-/* The app's own toolbar holds these. */
+/* The app's own toolbar holds these. src/ipad-client/history.ts presses the hidden undo and redo. */
 .ipad-board .excalidraw .sidebar-trigger,
-.ipad-board .excalidraw .layer-ui__wrapper__footer-right {
+.ipad-board .excalidraw .layer-ui__wrapper__footer-right,
+.ipad-board .excalidraw .undo-redo-buttons,
+.ipad-board .excalidraw [data-testid='button-undo'],
+.ipad-board .excalidraw [data-testid='button-redo'] {
   display: none;
 }
 

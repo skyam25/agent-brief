@@ -51,6 +51,8 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   var onComments: (_ board: String, _ json: String) -> Void = { _, _ in }
   var onNotes: (_ board: String, _ text: String) -> Void = { _, _ in }
   var onReady: () -> Void = {}
+  /// Whether the board can undo and redo now.
+  var onHistory: (_ undo: Bool, _ redo: Bool) -> Void = { _, _ in }
   var onCrash: () -> Void = {}
   private var ready = false
   private var waiting: [CheckedContinuation<Void, Never>] = []
@@ -89,6 +91,8 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
       if let board = body["board"] as? String, let json = body["json"] as? String { onSave(board, json) }
     case "saveComments":
       if let board = body["board"] as? String, let json = body["json"] as? String { onComments(board, json) }
+    case "history":
+      onHistory(body["undo"] as? Bool ?? false, body["redo"] as? Bool ?? false)
     case "saveNotes":
       if let board = body["board"] as? String, let text = body["text"] as? String { onNotes(board, text) }
     case "log":
@@ -127,6 +131,16 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   func setListening(_ on: Bool) async {
     await whenReady()
     _ = try? await webView.callAsyncJavaScript("window.__ipad.setListening(on);", arguments: ["on": on], contentWorld: .page)
+  }
+
+  func undo() async {
+    await whenReady()
+    _ = try? await webView.callAsyncJavaScript("window.__ipad.undo();", arguments: [:], contentWorld: .page)
+  }
+
+  func redo() async {
+    await whenReady()
+    _ = try? await webView.callAsyncJavaScript("window.__ipad.redo();", arguments: [:], contentWorld: .page)
   }
 
   func setPanel(_ open: Bool) async {

@@ -22,13 +22,13 @@ spawnSync('say', ['-o', audio, '--data-format=LEI16@16000', sayText]);
 const useCanned = process.env.AB_CANNED !== '0';
 
 // AB_ONLY narrows the run to a comma-separated list of tests, such as HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs. The checks below then report what those tests skipped.
-const allTests = ['CommentFlowTests', 'StackHandoffTests', 'HandoffFlowTests/testPairDrawTalkNoteSend', 'HandoffFlowTests/testSendWaitsSurvivesKillThenLands', 'HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', 'HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs'];
+const allTests = ['CommentFlowTests', 'StackHandoffTests', 'BoardToolsTests', 'HandoffFlowTests/testPairDrawTalkNoteSend', 'HandoffFlowTests/testSendWaitsSurvivesKillThenLands', 'HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', 'HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs'];
 const onlyTesting = (process.env.AB_ONLY?.split(',') ?? allTests).map((t) => `-only-testing:AgentBriefUITests/${t}`);
 const stub = await startStub({ dir });
 const stubA = await startStub({ dir: join(dir, 'mac-a'), macName: 'First Stub Mac', promptPrefix: 'First Mac: ' });
 const stubB = await startStub({ dir: join(dir, 'mac-b'), macName: 'Second Stub Mac', promptPrefix: 'Second Mac: ' });
 const stubC = await startStub({ dir: join(dir, 'mac-c'), macName: 'Comment Stub Mac' });
-const stubS = await startStub({ dir: join(dir, 'mac-s'), macName: 'Stack Stub Mac', stack: true });
+const stubS = await startStub({ dir: join(dir, 'mac-s'), macName: 'Stack Stub Mac', stack: true, link: true });
 console.log(`stub on ${stub.port}, fingerprint ${stub.fingerprint}`);
 
 const env = {

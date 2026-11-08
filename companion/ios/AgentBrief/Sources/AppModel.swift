@@ -46,6 +46,8 @@ final class AppModel {
       if open != oldValue { inOrder { await self.web.setPanel(open) } }
     }
   }
+  private(set) var canUndo = false
+  private(set) var canRedo = false
   private(set) var talk: DictationStatus = .idle
   private(set) var liveWords = ""
   /// A comment in the panel shows the words, so the talk strip need not.
@@ -96,6 +98,10 @@ final class AppModel {
     web.onNotes = { [weak self] board, text in
       guard board != "__start" else { return }
       self?.store.saveNotes(board, text)
+    }
+    web.onHistory = { [weak self] undo, redo in
+      self?.canUndo = undo
+      self?.canRedo = redo
     }
     web.onCrash = { [weak self] in
       guard let self, let id = openId else { return }
@@ -378,6 +384,14 @@ final class AppModel {
   }
 
   // MARK: Talk
+
+  func undo() {
+    inOrder { await self.web.undo() }
+  }
+
+  func redo() {
+    inOrder { await self.web.redo() }
+  }
 
   func toggleTalk() {
     talkError = nil

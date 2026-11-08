@@ -192,6 +192,46 @@ test('the board fits again when its view changes size just after it opens, until
   await page.close();
 });
 
+test("the toolbar's Undo and Redo press the board's hidden buttons and follow their state", async () => {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+  await page.addInitScript(() => {
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    (window as any).__history = [];
+    (window as any).webkit = { messageHandlers: { agentBrief: { postMessage: (m: any) => m.type === 'history' && (window as any).__history.push(m) } } };
+  });
+  await page.goto(url);
+  await page.waitForFunction(() => (window as any).__ipad);
+  await page.evaluate(async (scene) => (window as any).__ipad.open({ boardName: 'h1', scene, notes: '', comments: null }), JSON.stringify(BASE));
+  const last = () => page.evaluate(() => (window as any).__history.at(-1));
+  const strokes = async () => (await collect(page)).scene.elements.filter((e: { type: string; isDeleted?: boolean }) => e.type === 'freedraw' && !e.isDeleted).length;
+  const shown = () => page.locator('.excalidraw [data-testid^="button-"]:is([data-testid$="undo"], [data-testid$="redo"]):visible').count();
+  expect(await shown()).toBe(0);
+  await expect.poll(last).toEqual({ type: 'history', undo: false, redo: false });
+
+  await pointer(page, 'pointerdown', 'pen', 21, 200, 200);
+  for (let x = 210; x <= 400; x += 20) await pointer(page, 'pointermove', 'pen', 21, x, 220);
+  await pointer(page, 'pointerup', 'pen', 21, 400, 220);
+  await expect.poll(strokes).toBe(1);
+  await expect.poll(last).toEqual({ type: 'history', undo: true, redo: false });
+
+  await page.evaluate(() => (window as any).__ipad.undo());
+  await expect.poll(strokes).toBe(0);
+  await expect.poll(last).toEqual({ type: 'history', undo: false, redo: true });
+
+  await page.evaluate(() => (window as any).__ipad.redo());
+  await expect.poll(strokes).toBe(1);
+  await expect.poll(last).toEqual({ type: 'history', undo: true, redo: false });
+
+  // A phone's narrow layout draws its own undo and redo, which stay hidden and still work.
+  await page.setViewportSize({ width: 466, height: 678 });
+  await expect(page.locator('.excalidraw--mobile')).toHaveCount(1);
+  expect(await shown()).toBe(0);
+  await page.evaluate(() => (window as any).__ipad.undo());
+  await expect.poll(strokes).toBe(0);
+  await page.close();
+});
+
 test('comments pin on a tap, not on a pinch, take words, and go out with the delivery', async () => {
   const page = await openBoard();
   const cards = page.getByTestId('board-comment-card');

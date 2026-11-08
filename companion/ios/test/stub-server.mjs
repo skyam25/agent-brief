@@ -54,7 +54,7 @@ function unlaidStackScene() {
   });
 }
 
-export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [], stack = false }) {
+export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [], stack = false, link = false }) {
   mkdirSync(dir, { recursive: true });
   const keyFile = join(dir, 'key.pem');
   const certFile = join(dir, 'cert.pem');
@@ -76,6 +76,7 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
   const handoffs = new Map([
     ['h1', { id: 'h1', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', prompt: `${promptPrefix}${promptPrefix ? 'mark' : 'Mark'} up the sign-up flow`, boardName: 'ipad-h1', fromBoard: 'signup', createdAt: now - 120_000, state: 'open' }],
     ['h2', { id: 'h2', sessionId: 's2', sessionLabel: 'other session', prompt: `${promptPrefix}Blank board, no base scene`, boardName: 'blank', createdAt: now - 60_000, state: 'open' }],
+    ...(link ? [['hl', { id: 'hl', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', prompt: 'https://claude.ai/artifact/abc123XYZ?sk=not-for-show review this\nand the strategy information. The audience is the board, and also the wider R&D org, so keep it short.', boardName: 'ipad-hl', createdAt: now - 20_000, state: 'open' }]] : []),
     ...(stack ? [['hs', { id: 'hs', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', boardName: 'ipad-hs', fromBoard: 'checkout-shots', createdAt: now - 30_000, state: 'open' }]] : []),
     ...extra.map((h, i) => [h.id, { sessionId: `x${i}`, boardName: h.id, createdAt: now - 180_000 - i * 3_600_000, state: 'open', ...h }]),
   ]);

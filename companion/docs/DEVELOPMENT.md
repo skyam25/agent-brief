@@ -248,6 +248,8 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - Comments reuse the Mac's pin layer and comment column, in its compact form, which folds every card but the selected one to a line. A finger or Pencil tap pins, and a drag or pinch moves the view. Comments live with the hand-off's work on the iPad, and Send delivers them as `comments.md`. Comments on the Mac stay on the Mac.
 - Each word goes to the comment selected when the word began, as on the Mac, so a tap mid-phrase splits the phrase. Words still settling show in their comment before the phrase ends. Words that go to comments stay out of the timeline.
 - `src/ipad-client/pinch.ts` lets a pinch zoom after a Pencil turned on Excalidraw's pen mode, which otherwise fixes the scale at 1 under the draw tool.
+- Undo and Redo sit in the app's toolbar. `src/ipad-client/history.ts` presses Excalidraw's own buttons, which `ipad.css` hides.
+- A prompt shows two lines with the rest on request. `PromptText.swift` shows each link as a short name, such as claude.ai artifact, that opens in the browser.
 - The inbox names a hand-off by its prompt, else by `fromBoard`, the Mac board it starts from.
 - `src/ipad-client/settle-fit.ts` fits an opened board again while the native view settles, until the first touch. On an iPhone the view changes size after the navigation push.
 - Hand-offs are store and forward, with no live sync. A second iPad's Send becomes its own delivery on its own board.
