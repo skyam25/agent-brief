@@ -46,6 +46,8 @@ final class AppModel {
       if open != oldValue { inOrder { await self.web.setPanel(open) } }
     }
   }
+  /// Page hand-offs by the token their page address carries. The address keeps the hand-off's key out of its host, which WebKit lowercases.
+  private var pageTokens: [String: String] = [:]
   private(set) var canUndo = false
   private(set) var canRedo = false
   private(set) var talk: DictationStatus = .idle
@@ -98,6 +100,12 @@ final class AppModel {
     web.onNotes = { [weak self] board, text in
       guard board != "__start" else { return }
       self?.store.saveNotes(board, text)
+    }
+    web.pages.load = { [weak self] token, path in
+      guard let self, let key = pageTokens[token], let handoff = handoffs.first(where: { $0.key == key }), let client = clients[handoff.macId ?? ""] else {
+        throw LanError.unreachable("This page's Mac isn't connected.")
+      }
+      return try await client.pageFile(id: handoff.id, path: path)
     }
     web.onHistory = { [weak self] undo, redo in
       self?.canUndo = undo
@@ -338,6 +346,16 @@ final class AppModel {
 
   // MARK: Opening a board
 
+  /// Where the web view loads a page hand-off's page from. Nil for a board.
+  private func pageAddress(for key: String) -> String? {
+    guard let page = handoffs.first(where: { $0.key == key })?.page else { return nil }
+    let token = pageTokens.first(where: { $0.value == key })?.key ?? UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+    pageTokens[token] = key
+    let segment = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+    let path = page.split(separator: "/").map { $0.addingPercentEncoding(withAllowedCharacters: segment) ?? String($0) }.joined(separator: "/")
+    return "abpage://\(token)/\(path)"
+  }
+
   func openSelected() async {
     openGeneration += 1
     let mine = openGeneration
@@ -369,7 +387,7 @@ final class AppModel {
     }
     guard mine == openGeneration else { return }
     do {
-      try await web.open(board: id, scene: store.scene(id), notes: store.notes(id), comments: store.comments(id))
+      try await web.open(board: id, scene: store.scene(id), notes: store.notes(id), comments: store.comments(id), page: pageAddress(for: id))
     } catch {
       if mine == openGeneration { boardError = "The board didn't open: \(error.localizedDescription)" }
       return

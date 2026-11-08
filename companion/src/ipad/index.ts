@@ -1,12 +1,16 @@
 /** Pairing, hand-offs and the LAN listener, tied together. The listener runs while the pair sheet is open or an iPad is paired. */
 
+import { realpathSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import QRCode from 'qrcode';
-import { BoardError, notFound } from '../board/errors';
+import { badRequest, BoardError, notFound } from '../board/errors';
+import { contentType, injectOverlay, resolveReviewPath } from '../main/review-protocol';
+import { cleanReview, isReviewable } from '../shared/review';
 import type { Handoff, HandoffRequest, IpadStatus } from '../protocol';
-import type { IpadSheetStatus, SendPayload } from '../shared/ipc';
-import { IPAD_LAN_PORT, pairUrl, type IpadDelivery, type IpadDeliveryResult, type LanHandoffDetail } from '../shared/ipad';
+import type { IpadSheetStatus, Outgoing, SendPayload, TextPayload } from '../shared/ipc';
+import { IPAD_LAN_PORT, pairUrl, type IpadDelivery, type IpadDeliveryResult, type IpadPageDelivery, type LanHandoffDetail } from '../shared/ipad';
 import { ensureCert, type LanCert } from './cert';
 import { boardMark, HandoffStore, publicHandoff, type StoredHandoff } from './handoffs';
 import { lanAddresses, macNames, networkLabel, type Interfaces } from './lan';
@@ -38,7 +42,11 @@ export interface IpadDeps {
   /** Fires when an answer to a blank hand-off made a new board for this session. */
   onNewBoard?(name: string, sessionId: string): void;
   /** Sends to exactly this session. */
-  send(payload: SendPayload, sessionId: string): Promise<{ ok: boolean; message: string }>;
+  send(payload: Outgoing, sessionId: string): Promise<{ ok: boolean; message: string }>;
+  /** The session's project folder, where a page hand-off's file lives. */
+  sessionRoot?(sessionId: string): string | undefined;
+  /** Keeps a page review whose session has ended, as a note under that session. */
+  fileReview?(sessionId: string, payload: TextPayload): void;
   /** Fires when the sheet's content changes. */
   onStatus?(status: IpadSheetStatus): void;
   /** Fires when an iPad is paired or forgotten. */
@@ -124,6 +132,7 @@ export class Ipad {
           },
           handoffs: () => ({ handoffs: this.handoffs.list({ open: true }).map(publicHandoff) }),
           detail: (id) => this.detail(id),
+          page: (id, path) => this.page(id, path),
           deliver: (id, deviceId, delivery) => this.deliver(id, deviceId, delivery),
           unpair: (deviceId) => {
             this.pairing.revoke(deviceId);
@@ -210,6 +219,7 @@ export class Ipad {
 
   createHandoff(req: HandoffRequest): Handoff {
     if (!this.pairing.paired) throw new BoardError('conflict', NOT_PAIRED);
+    if (req.page !== undefined) return this.createPageHandoff(req);
     const baseBoard = req.board ? this.deps.resolveBoard(req.board) : undefined;
     const baseMark = baseBoard ? boardMark(this.deps.loadBoard(baseBoard)) : undefined;
     return publicHandoff(
@@ -219,6 +229,27 @@ export class Ipad {
         ...(req.prompt ? { prompt: req.prompt } : {}),
         ...(baseBoard ? { baseBoard } : {}),
         ...(baseMark ? { baseMark } : {}),
+      }),
+    );
+  }
+
+  /** A hand-off that opens an HTML file of the session's project as a page to review. */
+  private createPageHandoff(req: HandoffRequest): Handoff {
+    if (req.board) throw badRequest('a hand-off takes a board or a page, not both');
+    const root = this.deps.sessionRoot?.(req.sessionId);
+    if (!root) throw notFound("this session's project folder is unknown");
+    const asked = (req.page ?? '').trim();
+    // Real paths on both sides, since a symlink such as macOS's /tmp can name one folder two ways.
+    const page = (isAbsolute(asked) ? relative(realPath(root), realPath(asked)) : asked).replace(/^\.\//, '').split(sep).join('/');
+    if (!isReviewable(page)) throw badRequest('page must be an .html file');
+    if (!resolveReviewPath(root, page.split('/').map(encodeURIComponent).join('/'))) throw notFound(`no page ${JSON.stringify(page)} in the session's project`);
+    return publicHandoff(
+      this.handoffs.create({
+        sessionId: req.sessionId,
+        sessionLabel: this.deps.sessionLabel(req.sessionId),
+        ...(req.prompt ? { prompt: req.prompt } : {}),
+        page,
+        pageRoot: root,
       }),
     );
   }
@@ -239,6 +270,18 @@ export class Ipad {
     return handoff;
   }
 
+  /** A file of a page hand-off's project folder. HTML gets the review overlay, which the device serves itself. */
+  private async page(id: string, path: string): Promise<{ body: Buffer | string; type: string }> {
+    const root = this.stored(id).pageRoot;
+    const file = root ? resolveReviewPath(root, path) : undefined;
+    if (!file) throw notFound('no such file');
+    const data = await readFile(file).catch(() => {
+      throw notFound('no such file');
+    });
+    const type = contentType(file);
+    return { body: type.startsWith('text/html') ? injectOverlay(data.toString('utf8')) : data, type };
+  }
+
   private detail(id: string): LanHandoffDetail {
     const handoff = this.stored(id);
     const base = handoff.baseBoard ? this.deps.loadBoard(handoff.baseBoard) : { scene: null, notes: '' };
@@ -249,7 +292,7 @@ export class Ipad {
    * The same iPad delivering twice gets its first result and writes nothing.
    * Another iPad's delivery is its own Send to the same session, on its own board.
    */
-  private deliver(id: string, deviceId: string, delivery: IpadDelivery): Promise<IpadDeliveryResult> {
+  private deliver(id: string, deviceId: string, delivery: IpadDelivery | IpadPageDelivery): Promise<IpadDeliveryResult> {
     const handoff = this.stored(id);
     const first = handoff.results?.[deviceId];
     if (first) return Promise.resolve(first);
@@ -258,7 +301,9 @@ export class Ipad {
     if (running) return running;
     const answered = Object.keys(handoff.results ?? {}).length > 0 || [...this.inFlight.keys()].some((k) => k.startsWith(`${id}:`));
     const board = answered ? `${handoff.boardName}-${deviceId.slice(0, 6)}` : handoff.boardName;
-    const work = this.settle(handoff, deviceId, board, !answered, delivery).finally(() => this.inFlight.delete(key));
+    const work = ('review' in delivery ? this.settlePage(handoff, deviceId, delivery) : this.settle(handoff, deviceId, board, !answered, delivery)).finally(() =>
+      this.inFlight.delete(key),
+    );
     this.inFlight.set(key, work);
     return work;
   }
@@ -269,6 +314,23 @@ export class Ipad {
     if (!baseBoard || !baseMark || !this.deps.updateBoard) return false;
     const unchanged = () => boardMark(this.deps.loadBoard(baseBoard)) === baseMark;
     return this.deps.updateBoard(baseBoard, scene, notes, unchanged).catch(() => false);
+  }
+
+  private async settlePage(handoff: StoredHandoff, deviceId: string, delivery: IpadPageDelivery): Promise<IpadDeliveryResult> {
+    const { id, sessionId, sessionLabel } = handoff;
+    const payload = toReviewPayload(handoff, delivery);
+    if (!payload) throw badRequest('Pin a comment or write a note first.');
+    let result: IpadDeliveryResult;
+    if (this.deps.isLive(sessionId)) {
+      const sent = await this.deps.send(payload, sessionId);
+      if (!sent.ok) throw new BoardError('unavailable', sent.message);
+      result = { ok: true, state: 'delivered', message: sent.message };
+    } else {
+      this.deps.fileReview?.(sessionId, payload);
+      result = { ok: true, state: 'filed', message: `"${sessionLabel}" has ended, so your review waits on the Mac as a note.` };
+    }
+    this.handoffs.settle(id, deviceId, result);
+    return result;
   }
 
   private async settle(handoff: StoredHandoff, deviceId: string, newBoard: string, mayUpdate: boolean, delivery: IpadDelivery): Promise<IpadDeliveryResult> {
@@ -294,6 +356,22 @@ export class Ipad {
     this.handoffs.settle(id, deviceId, result);
     return result;
   }
+}
+
+const realPath = (path: string) => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
+
+/** The review a page hand-off came back with, as a Send of review comments. */
+function toReviewPayload(handoff: StoredHandoff, d: IpadPageDelivery): TextPayload | undefined {
+  const review = cleanReview({ path: handoff.page, comments: d.review.comments });
+  const text = [d.review.body?.trim(), d.notes?.trim()].filter(Boolean).join('\n\n');
+  if (!review || (!review.comments.length && !text)) return undefined;
+  return { text, review: { ...review, ...(text ? { body: text } : {}) }, fileSessionId: handoff.sessionId };
 }
 
 function toSendPayload(board: string, d: IpadDelivery): SendPayload {

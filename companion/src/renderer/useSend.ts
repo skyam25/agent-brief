@@ -7,6 +7,7 @@ import { draftImages, inWrite } from '../shared/drafts';
 import { hasReviewContent } from '../shared/review';
 import type { NoteAnnotations } from '../shared/annotations';
 import type { CompanionApi, Decision, Draft, Launcher, Mode, Outgoing, SendResult } from '../shared/ipc';
+import { isLocalUrl } from '../shared/outputs';
 import { findSlots } from '../shared/slots';
 import type { BoardCommentsStore } from './board-comments';
 import type { BoardController } from './controller';
@@ -50,7 +51,7 @@ export interface PanelSend {
   sendNew: (cwd: string, via: Launcher) => Promise<void>;
   copyPrompt: (cwd: string) => Promise<void>;
   openChooser: (open: boolean) => void;
-  /** Hands the open board to the paired iPad. Its answer returns to `sessionId`. */
+  /** Hands the open board, or in Review the open page, to the paired iPad. Its answer returns to `sessionId`. */
   handOffToIpad: (sessionId: string) => Promise<void>;
   /** Hands a running session what `build` makes, or says why `build` made nothing. */
   sendText: (sessionId: string, build: () => Promise<FixedSend | string>) => Promise<void>;
@@ -82,6 +83,10 @@ const fromDraft = (draft: Draft) => {
     ...(annotations ? { annotations } : {}),
   };
 };
+
+/** The project HTML file a review draft shows, which an iPad can review as a page. Undefined for a dev server's page. */
+export const reviewPage = (draft: Draft | undefined): string | undefined =>
+  draft?.review && !isLocalUrl(draft.review.path) ? draft.review.path : undefined;
 
 export function useSend({ host, book, controller, comments, items, reviewVoice, modeRef, activeBrief, targetSessionId, notify, setChooserOpen }: SendDeps): PanelSend {
   /** The text whose empty slots were already pointed out, so a second Send goes through. */
@@ -260,6 +265,14 @@ export function useSend({ host, book, controller, comments, items, reviewVoice, 
     if (sending.current) return;
     sending.current = true;
     try {
+      const page = modeRef.current === 'review' ? reviewPage(book.selected) : undefined;
+      if (page) {
+        await host.setTarget(sessionId);
+        await host.ipadHandoff(sessionId, '', page);
+        setChooserOpen(false);
+        notify(book.selected?.review?.comments.length ? 'Sent the page to your iPad. Comments stay on this Mac.' : 'Sent the page to your iPad.');
+        return;
+      }
       const board = controller.board;
       await Promise.all([controller.flush(), comments.flush()]);
       await host.setTarget(sessionId);

@@ -87,7 +87,7 @@ const VALUE_FLAGS = new Set([
   'board', 'region', 'max-edge', 'out', 'file', 'prompt', 'session', 'caption', 'note', 'width', 'layout',
   'title', 'labels', 'url', 'path', 'status', 'limit', 'folder',
   'label', 'source', 'change', 'where', 'round', 'commit', 'date', 'items', 'id', 'output',
-  'target', 'kind', 'ops', 'initiative',
+  'target', 'kind', 'ops', 'initiative', 'page',
 ]);
 /** Value flags that may repeat. The last value also reads as the flag's one value. */
 const LIST_FLAGS = new Set(['src', 'related', 'option', 'text']);
@@ -710,9 +710,15 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<void>> = {
     if (!sessionId) throw new UsageError('handoff needs --session, or run it from Claude Code');
     const prompt = str(ctx.args, 'prompt');
     const board = str(ctx.args, 'board');
-    const body: HandoffRequest = { sessionId, ...(prompt ? { prompt } : {}), ...(board ? { board } : {}) };
+    const page = str(ctx.args, 'page');
+    if (board && page) throw new UsageError('handoff takes --board or --page, not both');
+    const body: HandoffRequest = { sessionId, ...(prompt ? { prompt } : {}), ...(board ? { board } : {}), ...(page ? { page: path.resolve(page) } : {}) };
     const handoff = await callJson<Handoff>(ctx.socket, 'POST', '/handoffs', body);
-    show(ctx, handoff, (h) => `Handed off to the iPad as ${h.id}. It comes back to this session when the user presses Send there.`);
+    show(ctx, handoff, (h) =>
+      h.page
+        ? `Handed ${h.page} to the iPad as ${h.id}. Its review comes back to this session as review.md when the user presses Send there.`
+        : `Handed off to the iPad as ${h.id}. It comes back to this session when the user presses Send there.`,
+    );
   },
 
   async 'herdr-pictures'(ctx) {

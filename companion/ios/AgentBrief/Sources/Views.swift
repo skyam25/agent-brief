@@ -303,25 +303,28 @@ struct WorkView: View {
 
   @ToolbarContentBuilder
   private var tools: some ToolbarContent {
-    ToolbarItemGroup(placement: .primaryAction) {
-      Button {
-        model.undo()
-      } label: {
-        Image(systemName: "arrow.uturn.backward").accessibilityLabel("Undo")
-      }
-      .disabled(!model.canUndo || sending)
-      .accessibilityIdentifier("undo-button")
+    // A page under review has no drawing to undo.
+    if model.open?.page == nil {
+      ToolbarItemGroup(placement: .primaryAction) {
+        Button {
+          model.undo()
+        } label: {
+          Image(systemName: "arrow.uturn.backward").accessibilityLabel("Undo")
+        }
+        .disabled(!model.canUndo || sending)
+        .accessibilityIdentifier("undo-button")
 
-      Button {
-        model.redo()
-      } label: {
-        Image(systemName: "arrow.uturn.forward").accessibilityLabel("Redo")
+        Button {
+          model.redo()
+        } label: {
+          Image(systemName: "arrow.uturn.forward").accessibilityLabel("Redo")
+        }
+        .disabled(!model.canRedo || sending)
+        .accessibilityIdentifier("redo-button")
       }
-      .disabled(!model.canRedo || sending)
-      .accessibilityIdentifier("redo-button")
+
+      ToolbarSpacer(.fixed, placement: .primaryAction)
     }
-
-    ToolbarSpacer(.fixed, placement: .primaryAction)
 
     ToolbarItemGroup(placement: .primaryAction) {
       Button {

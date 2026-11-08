@@ -220,6 +220,8 @@ When you drive a browser for the user, with Playwright or another browser tool, 
 
 When the user asks to work on their iPad, run `agent-brief handoff --session "$CLAUDE_CODE_SESSION_ID" [--board <name>] [--prompt <text>]`. Only do this when they ask. The hand-off lands in the iPad's inbox with `--board` as its starting point, or a blank board. Their Send arrives in this session as your next prompt. It also updates the `--board` board, unless that board changed on the Mac meanwhile. Then, and for a blank hand-off, the work is a new board, which the prompt names. With no iPad paired, the command says so, and you tell the user to choose Pair iPad… in the app.
 
+To have the user review an HTML page on their iPad or iPhone, run `agent-brief handoff --session "$CLAUDE_CODE_SESSION_ID" --page <file.html> [--prompt <text>]` with a file in this session's project. The device opens the live page itself, not a board, and the user pins comments on its elements and talks them through, as in Review on the Mac. Their Send arrives as your next prompt with review.md, the same file a Mac review writes. A claude.ai artifact or a dev server URL can't go this way. Hand off a local HTML file instead.
+
 ## Showing a picture in the chat
 
 The `show_image` tool draws a picture inline in the user's terminal, in Ghostty or kitty. The picture goes to their screen, not to you, so it costs no tokens. Use it so the user sees what you did without opening a file.

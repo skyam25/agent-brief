@@ -16,6 +16,8 @@ export interface StoredHandoff extends Handoff {
   baseBoard?: string;
   /** What `baseBoard` held at hand-off. Send updates that board only while it still holds this. */
   baseMark?: string;
+  /** The project folder a page hand-off's files load from. */
+  pageRoot?: string;
   /** Each iPad's answer, by device id. */
   results?: Record<string, IpadDeliveryResult>;
   settledAt?: number;
@@ -36,7 +38,7 @@ export function boardMark(board: { scene: string | null; notes: string }): strin
 }
 
 export function publicHandoff(h: StoredHandoff): Handoff {
-  const { baseBoard: _base, baseMark: _mark, results: _results, settledAt: _settled, ...rest } = h;
+  const { baseBoard: _base, baseMark: _mark, pageRoot: _root, results: _results, settledAt: _settled, ...rest } = h;
   return rest;
 }
 
@@ -59,7 +61,7 @@ export class HandoffStore {
     if (this.prune()) this.save();
   }
 
-  create(fields: { sessionId: string; sessionLabel: string; prompt?: string; baseBoard?: string; baseMark?: string }): StoredHandoff {
+  create(fields: { sessionId: string; sessionLabel: string; prompt?: string; baseBoard?: string; baseMark?: string; page?: string; pageRoot?: string }): StoredHandoff {
     const id = randomBytes(4).toString('hex');
     const handoff: StoredHandoff = {
       id,
@@ -68,10 +70,12 @@ export class HandoffStore {
       ...(fields.prompt ? { prompt: fields.prompt } : {}),
       boardName: `ipad-${id}`,
       ...(fields.baseBoard ? { fromBoard: fields.baseBoard } : {}),
+      ...(fields.page && fields.pageRoot ? { page: fields.page } : {}),
       createdAt: this.now(),
       state: 'open',
       ...(fields.baseBoard ? { baseBoard: fields.baseBoard } : {}),
       ...(fields.baseMark ? { baseMark: fields.baseMark } : {}),
+      ...(fields.page && fields.pageRoot ? { pageRoot: fields.pageRoot } : {}),
     };
     this.items.set(id, handoff);
     this.save();

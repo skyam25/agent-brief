@@ -36,6 +36,15 @@ function solidPng(width, height, [r, g, b]) {
   return `data:image/png;base64,${png.toString('base64')}`;
 }
 
+/** The project a page hand-off reviews: one page and the stylesheet beside it. */
+const PAGE_FILES = {
+  'site/plan.html': {
+    type: 'text/html; charset=utf-8',
+    body: '<!doctype html><html><head><script src="/__agent-brief__/overlay.js"></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>Plan</title><link rel="stylesheet" href="plan.css"></head><body><h1>Keep the cart when a card fails</h1><p>Today a declined card empties the payment form.</p></body></html>',
+  },
+  'site/plan.css': { type: 'text/css', body: 'body { font: 18px -apple-system, sans-serif; margin: 24px; } h1 { color: rgb(47, 91, 211); }' },
+};
+
 /**
  * A Stack board as the Mac saves it after Claude adds screenshots while it is hidden: two pictures
  * in one group, not yet laid out, so the layout runs when the iPad opens it.
@@ -54,7 +63,7 @@ function unlaidStackScene() {
   });
 }
 
-export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [], stack = false, link = false }) {
+export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [], stack = false, link = false, page = false }) {
   mkdirSync(dir, { recursive: true });
   const keyFile = join(dir, 'key.pem');
   const certFile = join(dir, 'cert.pem');
@@ -76,6 +85,7 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
   const handoffs = new Map([
     ['h1', { id: 'h1', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', prompt: `${promptPrefix}${promptPrefix ? 'mark' : 'Mark'} up the sign-up flow`, boardName: 'ipad-h1', fromBoard: 'signup', createdAt: now - 120_000, state: 'open' }],
     ['h2', { id: 'h2', sessionId: 's2', sessionLabel: 'other session', prompt: `${promptPrefix}Blank board, no base scene`, boardName: 'blank', createdAt: now - 60_000, state: 'open' }],
+    ...(page ? [['hp', { id: 'hp', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', page: 'site/plan.html', boardName: 'ipad-hp', createdAt: now - 10_000, state: 'open' }]] : []),
     ...(link ? [['hl', { id: 'hl', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', prompt: 'https://claude.ai/artifact/abc123XYZ?sk=not-for-show review this\nand the strategy information. The audience is the board, and also the wider R&D org, so keep it short.', boardName: 'ipad-hl', createdAt: now - 20_000, state: 'open' }]] : []),
     ...(stack ? [['hs', { id: 'hs', sessionId: 's1', sessionLabel: 'agent-brief: iPad build', boardName: 'ipad-hs', fromBoard: 'checkout-shots', createdAt: now - 30_000, state: 'open' }]] : []),
     ...extra.map((h, i) => [h.id, { sessionId: `x${i}`, boardName: h.id, createdAt: now - 180_000 - i * 3_600_000, state: 'open', ...h }]),
@@ -120,6 +130,14 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
         const h = handoffs.get(detail[1]);
         if (!h) return reply(res, 404, { error: 'no such hand-off', code: 'not_found' });
         return reply(res, 200, { handoff: h, scene: h.id === 'h1' ? baseScene : h.id === 'hs' ? unlaidStackScene() : null, notes: '' });
+      }
+      // A page hand-off's files, as the Mac serves them: HTML with the overlay as its first script.
+      const pageFile = /^\/v1\/handoffs\/hp\/page\/(.+)$/.exec(path);
+      if (req.method === 'GET' && pageFile && page) {
+        const file = PAGE_FILES[decodeURIComponent(pageFile[1])];
+        if (!file) return reply(res, 404, { error: 'no such file', code: 'not_found' });
+        res.writeHead(200, { 'Content-Type': file.type });
+        return res.end(file.body);
       }
       const deliver = /^\/v1\/handoffs\/([^/]+)\/deliver$/.exec(path);
       if (req.method === 'POST' && deliver) {

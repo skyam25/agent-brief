@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import type { ErrorBody } from '../protocol';
 import type { StrokeEvent } from '../voice/types';
-import { IPAD_MAX_BODY_BYTES, type IpadDelivery, type IpadDeliveryResult, type LanHandoffDetail, type LanHandoffsResponse, type PairResponse } from '../shared/ipad';
+import { IPAD_MAX_BODY_BYTES, IPAD_PAGE_SEGMENT, type IpadDelivery, type IpadDeliveryResult, type IpadPageDelivery, type LanHandoffDetail, type LanHandoffsResponse, type PairResponse } from '../shared/ipad';
 import type { LanCert } from './cert';
 import { isLocalPeer, stripMapped, type Interfaces } from './lan';
 import { DELIVER_RATE, MAX_SMALL_BODY_BYTES, PAIR_RATE, RateLimiter, REQUEST_RATE } from './limits';
@@ -19,7 +19,9 @@ export interface LanBackend {
   handoffs(): LanHandoffsResponse;
   /** Throws a `not_found` error for an unknown hand-off. */
   detail(id: string): LanHandoffDetail;
-  deliver(id: string, deviceId: string, delivery: IpadDelivery): Promise<IpadDeliveryResult>;
+  deliver(id: string, deviceId: string, delivery: IpadDelivery | IpadPageDelivery): Promise<IpadDeliveryResult>;
+  /** A file of a page hand-off's project. Throws a `not_found` error for anything it may not serve. */
+  page(id: string, path: string): Promise<{ body: Buffer | string; type: string }>;
   /** Removes this iPad from the Mac. */
   unpair(deviceId: string): void;
 }
@@ -91,8 +93,9 @@ function isStroke(v: unknown): v is StrokeEvent {
 }
 
 /** Checks a delivery body. Timeline code trusts these shapes. */
-export function parseIpadDelivery(raw: unknown): IpadDelivery {
+export function parseIpadDelivery(raw: unknown): IpadDelivery | IpadPageDelivery {
   if (!isRecord(raw)) throw bad('body must be an object');
+  if (raw.review !== undefined) return parsePageDelivery(raw);
   const { pngBase64, scene, notes, strokes, utterances, bounds, comments } = raw;
   if (typeof pngBase64 !== 'string' || !pngBase64.startsWith('iVBOR')) throw bad('pngBase64 must be a base64 PNG');
   if (!isRecord(scene) || !Array.isArray(scene.elements)) throw bad('scene must be an Excalidraw scene');
@@ -103,6 +106,24 @@ export function parseIpadDelivery(raw: unknown): IpadDelivery {
   }
   if (!isBox(bounds)) throw bad('bounds must have x, y, width and height');
   return { pngBase64, scene, ...(notes !== undefined ? { notes } : {}), strokes, utterances: utterances as IpadDelivery['utterances'], bounds, ...(comments !== undefined ? { comments } : {}) };
+}
+
+function isUtterance(u: unknown): boolean {
+  return isRecord(u) && isNum(u.t) && isNum(u.tEnd) && typeof u.text === 'string';
+}
+
+/** Checks a page review. The Mac cleans its comments again when it sends. */
+function parsePageDelivery(raw: Record<string, unknown>): IpadPageDelivery {
+  const { review, notes, utterances } = raw;
+  if (!isRecord(review) || !Array.isArray(review.comments)) throw bad('review must have comments');
+  if (review.body !== undefined && typeof review.body !== 'string') throw bad('review.body must be a string');
+  if (notes !== undefined && typeof notes !== 'string') throw bad('notes must be a string');
+  if (!Array.isArray(utterances) || !utterances.every(isUtterance)) throw bad('utterances must have t, tEnd and text');
+  return {
+    review: { comments: review.comments, ...(typeof review.body === 'string' ? { body: review.body } : {}) },
+    ...(notes !== undefined ? { notes } : {}),
+    utterances: utterances as IpadPageDelivery['utterances'],
+  };
 }
 
 function bearer(req: IncomingMessage): string | undefined {
@@ -118,6 +139,14 @@ export function createLanServer(opts: LanServerOptions): LanServer {
   const deliveries = new RateLimiter(DELIVER_RATE, opts.now);
 
   const limited = () => new LanError(429, 'unavailable', 'too many requests');
+
+  /** A file to send as is, in place of JSON. */
+  class FileReply {
+    constructor(
+      readonly body: Buffer | string,
+      readonly type: string,
+    ) {}
+  }
 
   async function route(req: IncomingMessage): Promise<unknown> {
     const parts = new URL(req.url ?? '/', 'https://mac').pathname.split('/').filter(Boolean).map(decodeURIComponent);
@@ -147,6 +176,10 @@ export function createLanServer(opts: LanServerOptions): LanServer {
     }
     if (root === 'handoffs' && parts.length === 2 && method === 'GET') return backend.handoffs();
     if (root === 'handoffs' && parts.length === 3 && method === 'GET') return backend.detail(id);
+    if (root === 'handoffs' && parts.length >= 5 && verb === IPAD_PAGE_SEGMENT && method === 'GET') {
+      const file = await backend.page(id, parts.slice(4).map(encodeURIComponent).join('/'));
+      return new FileReply(file.body, file.type);
+    }
     if (root === 'handoffs' && parts.length === 4 && verb === 'deliver' && method === 'POST') {
       if (!deliveries.take(device.id)) throw limited();
       return backend.deliver(id, device.id, parseIpadDelivery(await readJson(req, IPAD_MAX_BODY_BYTES)));
@@ -174,7 +207,13 @@ export function createLanServer(opts: LanServerOptions): LanServer {
 
   const server = https.createServer({ key: opts.cert.key, cert: opts.cert.cert, minVersion: 'TLSv1.2' }, async (req, res) => {
     try {
-      reply(res, 200, await route(req));
+      const answer = await route(req);
+      if (answer instanceof FileReply) {
+        res.writeHead(200, { 'Content-Type': answer.type, 'Content-Length': Buffer.byteLength(answer.body), 'Cache-Control': 'no-store' });
+        res.end(answer.body);
+        return;
+      }
+      reply(res, 200, answer);
     } catch (err) {
       if (res.headersSent || res.destroyed) return void res.destroy();
       const { status, body } = errorReply(err);

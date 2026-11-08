@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -58,7 +58,7 @@ function make(over: Partial<IpadDeps> = {}) {
 
 /** A client that pins the fingerprint, as the iPad does. */
 function call(link: PairLink, method: string, path: string, opts: { body?: unknown; raw?: Buffer; credential?: string; pin?: string } = {}) {
-  return new Promise<{ status: number; body: any }>((resolve, reject) => {
+  return new Promise<{ status: number; body: any; text: string; type?: string }>((resolve, reject) => {
     const payload = opts.raw ?? (opts.body === undefined ? undefined : Buffer.from(JSON.stringify(opts.body)));
     const req = https.request(
       {
@@ -76,7 +76,11 @@ function call(link: PairLink, method: string, path: string, opts: { body?: unkno
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c) => chunks.push(c));
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null') }));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const type = res.headers['content-type'];
+          resolve({ status: res.statusCode ?? 0, body: type?.startsWith('application/json') ? JSON.parse(text || 'null') : undefined, text, type });
+        });
       },
     );
     req.on('error', reject);
@@ -395,5 +399,104 @@ describe('the board a hand-off started from', () => {
     const blank = ipad.createHandoff({ sessionId: 's1' });
     await call(link, 'POST', `/v1/handoffs/${blank.id}/deliver`, { body: delivery(), credential });
     expect(onNewBoard).toHaveBeenCalledWith(blank.boardName, 's1');
+  });
+});
+
+describe('page hand-offs', () => {
+  /** A project with a page, a stylesheet beside it, and a dot folder that must stay private. */
+  function project() {
+    const root = mkdtempSync(join(tmpdir(), 'page-project-'));
+    mkdirSync(join(root, 'site'));
+    mkdirSync(join(root, '.git'));
+    writeFileSync(join(root, 'site/plan.html'), '<!doctype html><html><head><title>Plan</title></head><body><h1>Plan</h1></body></html>');
+    writeFileSync(join(root, 'site/plan.css'), 'h1 { color: red }');
+    writeFileSync(join(root, '.git/config'), 'secret');
+    writeFileSync(join(root, 'notes.txt'), 'not a page');
+    return root;
+  }
+
+  const review = (over: Record<string, unknown> = {}) => ({
+    review: {
+      comments: [{ id: 'c1', text: 'Shorter title', createdAt: 1, anchor: { selector: 'h1', tag: 'h1', text: 'Plan', fx: 0.5, fy: 0.5, rect: { x: 0, y: 0, width: 100, height: 40 }, scrollY: 0, viewport: { width: 400, height: 800 } } }],
+      body: 'Overall fine',
+    },
+    notes: 'from the note tab',
+    utterances: [],
+    ...over,
+  });
+
+  it('opens an HTML file of the session project, named relative to it', async () => {
+    const root = project();
+    const { ipad } = await paired({ sessionRoot: () => root });
+    const h = ipad.createHandoff({ sessionId: 's1', page: join(root, 'site/plan.html'), prompt: 'Review the plan' });
+    expect(h).toMatchObject({ page: 'site/plan.html', prompt: 'Review the plan' });
+    expect(h).not.toHaveProperty('pageRoot');
+    expect(ipad.createHandoff({ sessionId: 's1', page: './site/plan.html' }).page).toBe('site/plan.html');
+  });
+
+  it('takes an absolute path through a symlink to the project, as macOS /tmp is', async () => {
+    const root = project();
+    const link = join(mkdtempSync(join(tmpdir(), 'page-link-')), 'proj');
+    symlinkSync(root, link);
+    const { ipad } = await paired({ sessionRoot: () => link });
+    expect(ipad.createHandoff({ sessionId: 's1', page: join(root, 'site/plan.html') }).page).toBe('site/plan.html');
+  });
+
+  it('refuses a page that is not HTML, is missing, leaves the project, or comes with a board', async () => {
+    const root = project();
+    const { ipad } = await paired({ sessionRoot: () => root });
+    expect(() => ipad.createHandoff({ sessionId: 's1', page: 'notes.txt' })).toThrow(/html/);
+    expect(() => ipad.createHandoff({ sessionId: 's1', page: 'site/gone.html' })).toThrow(/no page/);
+    expect(() => ipad.createHandoff({ sessionId: 's1', page: '../other/x.html' })).toThrow(/no page/);
+    expect(() => ipad.createHandoff({ sessionId: 's1', page: 'site/plan.html', board: 'b' })).toThrow(/not both/);
+    const { ipad: rootless } = await paired();
+    expect(() => rootless.createHandoff({ sessionId: 's1', page: 'site/plan.html' })).toThrow(/project folder/);
+  });
+
+  it('serves the page with the review overlay, its files as they are, and nothing outside', async () => {
+    const root = project();
+    const { ipad, link, credential } = await paired({ sessionRoot: () => root });
+    const h = ipad.createHandoff({ sessionId: 's1', page: 'site/plan.html' });
+    const page = await call(link, 'GET', `/v1/handoffs/${h.id}/page/site/plan.html`, { credential });
+    expect(page.status).toBe(200);
+    expect(page.type).toContain('text/html');
+    expect(page.text).toContain('<head><script src="/__agent-brief__/overlay.js"></script><title>Plan</title>');
+    const css = await call(link, 'GET', `/v1/handoffs/${h.id}/page/site/plan.css`, { credential });
+    expect([css.status, css.text]).toEqual([200, 'h1 { color: red }']);
+    for (const path of ['.git/config', 'site/../.git/config', 'site/%2e%2e/.git/config', 'site/gone.css']) {
+      expect((await call(link, 'GET', `/v1/handoffs/${h.id}/page/${path}`, { credential })).status).toBe(404);
+    }
+    expect((await call(link, 'GET', `/v1/handoffs/${h.id}/page/site/plan.html`)).status).toBe(401);
+    const board = ipad.createHandoff({ sessionId: 's1' });
+    expect((await call(link, 'GET', `/v1/handoffs/${board.id}/page/site/plan.html`, { credential })).status).toBe(404);
+  });
+
+  it('sends the review to the session as a review of the page', async () => {
+    const root = project();
+    const { ipad, link, credential, sends } = await paired({ sessionRoot: () => root });
+    const h = ipad.createHandoff({ sessionId: 's1', page: 'site/plan.html' });
+    const reply = await call(link, 'POST', `/v1/handoffs/${h.id}/deliver`, { credential, body: review() });
+    expect(reply.body).toMatchObject({ ok: true, state: 'delivered' });
+    const [payload, to] = sends[0]! as unknown as [{ text: string; review: { path: string; comments: { text: string; anchor: { selector: string } }[]; body: string }; fileSessionId: string }, string];
+    expect(to).toBe('s1');
+    expect(payload).not.toHaveProperty('png');
+    expect(payload.text).toBe('Overall fine\n\nfrom the note tab');
+    expect(payload.review).toMatchObject({ path: 'site/plan.html', body: payload.text, comments: [{ text: 'Shorter title', anchor: { selector: 'h1' } }] });
+    expect(payload.fileSessionId).toBe('s1');
+  });
+
+  it('refuses an empty review, and keeps a review as a note once the session has ended', async () => {
+    const root = project();
+    const filed: [string, unknown][] = [];
+    const { ipad, link, credential, live, sends } = await paired({ sessionRoot: () => root, fileReview: (id, p) => void filed.push([id, p]) });
+    const h = ipad.createHandoff({ sessionId: 's1', page: 'site/plan.html' });
+    const empty = await call(link, 'POST', `/v1/handoffs/${h.id}/deliver`, { credential, body: review({ review: { comments: [] }, notes: '' }) });
+    expect(empty.status).toBe(400);
+    live.delete('s1');
+    const reply = await call(link, 'POST', `/v1/handoffs/${h.id}/deliver`, { credential, body: review() });
+    expect(reply.body).toMatchObject({ state: 'filed' });
+    expect(reply.body.message).toContain('waits on the Mac as a note');
+    expect(sends).toHaveLength(0);
+    expect(filed[0]).toMatchObject(['s1', { review: { path: 'site/plan.html' } }]);
   });
 });

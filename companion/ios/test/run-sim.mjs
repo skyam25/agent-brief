@@ -22,13 +22,13 @@ spawnSync('say', ['-o', audio, '--data-format=LEI16@16000', sayText]);
 const useCanned = process.env.AB_CANNED !== '0';
 
 // AB_ONLY narrows the run to a comma-separated list of tests, such as HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs. The checks below then report what those tests skipped.
-const allTests = ['CommentFlowTests', 'StackHandoffTests', 'BoardToolsTests', 'HandoffFlowTests/testPairDrawTalkNoteSend', 'HandoffFlowTests/testSendWaitsSurvivesKillThenLands', 'HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', 'HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs'];
+const allTests = ['CommentFlowTests', 'StackHandoffTests', 'BoardToolsTests', 'PageHandoffTests', 'HandoffFlowTests/testPairDrawTalkNoteSend', 'HandoffFlowTests/testSendWaitsSurvivesKillThenLands', 'HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', 'HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs'];
 const onlyTesting = (process.env.AB_ONLY?.split(',') ?? allTests).map((t) => `-only-testing:AgentBriefUITests/${t}`);
 const stub = await startStub({ dir });
 const stubA = await startStub({ dir: join(dir, 'mac-a'), macName: 'First Stub Mac', promptPrefix: 'First Mac: ' });
 const stubB = await startStub({ dir: join(dir, 'mac-b'), macName: 'Second Stub Mac', promptPrefix: 'Second Mac: ' });
 const stubC = await startStub({ dir: join(dir, 'mac-c'), macName: 'Comment Stub Mac' });
-const stubS = await startStub({ dir: join(dir, 'mac-s'), macName: 'Stack Stub Mac', stack: true, link: true });
+const stubS = await startStub({ dir: join(dir, 'mac-s'), macName: 'Stack Stub Mac', stack: true, link: true, page: true });
 console.log(`stub on ${stub.port}, fingerprint ${stub.fingerprint}`);
 
 const env = {
@@ -115,6 +115,13 @@ const pins = commented?.comments?.pins ?? [];
 check(pins.length === 1 && pins[0].text.includes('Make this bigger'), `the pin arrived after a relaunch: ${JSON.stringify(pins.map((p) => p.text))}`);
 check(pins[0]?.text.includes('Circle'), 'words said on a selected pin landed on it');
 check((commented?.utterances ?? []).length === 0, `words said on a pin stay out of the timeline: ${JSON.stringify(commented?.utterances)}`);
+
+const reviewed = stubS.received.find((r) => r.kind === 'deliver' && r.id === 'hp')?.payload;
+check(Boolean(reviewed?.review), 'the page hand-off delivered a review');
+const pagePins = reviewed?.review?.comments ?? [];
+check(pagePins.length === 1 && pagePins[0].anchor?.tag === 'h1', `the page comment sits on the heading: ${JSON.stringify(pagePins.map((c) => c.anchor?.tag))}`);
+check(pagePins[0]?.text.includes('Shorter title'), `the page comment kept its words: ${JSON.stringify(pagePins[0]?.text)}`);
+check(!('pngBase64' in (reviewed ?? {})), 'a page review carries no sketch');
 
 console.log(fail.length ? `\n${fail.length} failed` : '\nall passed');
 console.log(`screenshots and deliveries in ${dir}`);

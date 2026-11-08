@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import https from 'node:https';
 import { join } from 'node:path';
 import type { TLSSocket } from 'node:tls';
@@ -26,7 +27,10 @@ function lan(link: PairLink, method: string, path: string, credential?: string, 
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c) => chunks.push(c));
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({ status: res.statusCode ?? 0, body: res.headers['content-type']?.startsWith('application/json') ? JSON.parse(text) : text });
+        });
       },
     );
     req.on('error', reject);
@@ -188,6 +192,52 @@ test('the panel hands the open board to the iPad, and the answer belongs to the 
   await page.getByTestId(`ipad-forget-${device.id}`).click();
   await page.getByTestId('ipad-close').click();
   await expect(button).toHaveCount(0);
+  await app.close();
+});
+
+test('in Review, the panel hands the open page to the iPad, which loads it with the overlay and sends back review.md', async () => {
+  const dataDir = tempDataDir();
+  const socketPath = join(dataDir, 'companion.sock');
+  const { app, page } = await launch(dataDir, { COMPANION_IPAD_HOST: '127.0.0.1', COMPANION_IPAD_PORT: '0' });
+  await showPanel(app, page);
+  const cwd = mkdtempSync(join(tmpdir(), 'project-'));
+  mkdirSync(join(cwd, 'site'));
+  mkdirSync(join(cwd, '.feedback/outputs'), { recursive: true });
+  writeFileSync(join(cwd, 'site/index.html'), '<!doctype html><html><head><title>Landing</title></head><body><h1>Acme analytics</h1></body></html>');
+  const now = Date.now();
+  const output = { ref: 'site/index.html', title: 'Landing page', kind: 'html', tier: 'declared', status: 'ready', origin: 'created', declaredAt: now, firstWriteAt: now, lastWriteAt: now, writes: 1 };
+  writeFileSync(join(cwd, '.feedback/outputs/s1.json'), JSON.stringify({ version: 1, sessionId: 's1', outputs: [output] }));
+  await sock(socketPath, 'POST', '/sessions', { sessionId: 's1', cwd, title: 'Landing' });
+
+  await app.evaluate(() => globalThis.__companion.pairIpad());
+  const link = parsePairUrl((await page.getByTestId('ipad-qr').getAttribute('data-url'))!)!;
+  const credential: string = (await lan(link, 'POST', '/v1/pair', undefined, { code: link.code, deviceName: 'Test iPad' })).body.credential;
+  await page.getByTestId('ipad-close').click();
+
+  await sock(socketPath, 'POST', '/open', { sessionId: 's1' });
+  await page.getByTestId('mode-review').click();
+  await expect(page.getByTestId('review')).toBeVisible();
+  const button = page.getByTestId('ipad-handoff');
+  await expect(button).toBeVisible();
+  await button.click();
+  if (await page.getByTestId('send-chooser').isVisible()) await page.getByTestId('send-to-session').click();
+  await expect(page.getByText('Sent the page to your iPad.')).toBeVisible();
+
+  const [handoff] = (await sock<any>(socketPath, 'GET', '/handoffs?sessionId=s1')).body.handoffs;
+  expect(handoff).toMatchObject({ page: 'site/index.html' });
+  const served = await lan(link, 'GET', `/v1/handoffs/${handoff.id}/page/site/index.html`, credential);
+  expect(served.status).toBe(200);
+  expect(served.body).toContain('<script src="/__agent-brief__/overlay.js"></script>');
+
+  // The iPad's review reaches the session as review.md, through the same Send a Mac review uses.
+  const anchor = { selector: 'body > h1', tag: 'h1', text: 'Acme analytics', fx: 0.5, fy: 0.5, rect: { x: 0, y: 0, width: 300, height: 40 }, scrollY: 0, viewport: { width: 400, height: 800 } };
+  const reply = await lan(link, 'POST', `/v1/handoffs/${handoff.id}/deliver`, credential, { review: { comments: [{ id: 'c1', text: 'Name the product', createdAt: now, anchor }], body: '' }, utterances: [] });
+  expect(reply.body).toMatchObject({ ok: true, state: 'delivered' });
+  const sketches = join(cwd, '.feedback/sketches');
+  await expect.poll(() => readdirSync(sketches).length).toBe(1);
+  const reviewMd = readFileSync(join(sketches, readdirSync(sketches)[0]!, 'review.md'), 'utf8');
+  expect(reviewMd).toContain('# Review of site/index.html');
+  expect(reviewMd).toContain('Name the product');
   await app.close();
 });
 

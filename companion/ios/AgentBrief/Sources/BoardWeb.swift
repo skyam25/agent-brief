@@ -33,6 +33,52 @@ private final class BundleSchemeHandler: NSObject, WKURLSchemeHandler {
   func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 }
 
+/// Serves a page hand-off's files from its Mac over `abpage://<token>/<path>`, and the review overlay from the app.
+/// The Mac adds the overlay's script tag to each HTML page, as the Mac's own Review pane does.
+final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
+  /// Loads a file of the page hand-off a token names: its bytes and content type. `path` stays percent-encoded.
+  var load: (_ token: String, _ path: String) async throws -> (Data, String) = { _, _ in throw URLError(.resourceUnavailable) }
+  private var stopped = Set<ObjectIdentifier>()
+  private let overlay = Bundle.main.url(forResource: "Web", withExtension: nil)?.appendingPathComponent("overlay.js")
+
+  private func respond(_ task: WKURLSchemeTask, _ url: URL, _ data: Data, type: String) {
+    let headers = ["Content-Type": type, "Content-Length": String(data.count), "Cache-Control": "no-store"]
+    task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!)
+    task.didReceive(data)
+    task.didFinish()
+  }
+
+  func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+    guard let url = task.request.url, let token = url.host else {
+      task.didFailWithError(URLError(.badURL))
+      return
+    }
+    let path = String(url.path(percentEncoded: true).dropFirst())
+    if path == "__agent-brief__/overlay.js", let overlay, let data = try? Data(contentsOf: overlay) {
+      respond(task, url, data, type: "text/javascript; charset=utf-8")
+      return
+    }
+    let id = ObjectIdentifier(task)
+    Task { @MainActor in
+      defer { stopped.remove(id) }
+      do {
+        let (data, type) = try await load(token, path)
+        if !stopped.contains(id) { respond(task, url, data, type: type) }
+      } catch {
+        guard !stopped.contains(id) else { return }
+        let missing = HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/plain"])!
+        task.didReceive(missing)
+        task.didReceive(Data(error.localizedDescription.utf8))
+        task.didFinish()
+      }
+    }
+  }
+
+  func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
+    stopped.insert(ObjectIdentifier(task))
+  }
+}
+
 /// Keeps the web view from retaining its message handler forever.
 private final class WeakHandler: NSObject, WKScriptMessageHandler {
   weak var target: WKScriptMessageHandler?
@@ -51,6 +97,8 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   var onComments: (_ board: String, _ json: String) -> Void = { _, _ in }
   var onNotes: (_ board: String, _ text: String) -> Void = { _, _ in }
   var onReady: () -> Void = {}
+  /// Serves the open page hand-off, if any.
+  let pages = PageSchemeHandler()
   /// Whether the board can undo and redo now.
   var onHistory: (_ undo: Bool, _ redo: Bool) -> Void = { _, _ in }
   var onCrash: () -> Void = {}
@@ -60,6 +108,7 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
   override init() {
     let config = WKWebViewConfiguration()
     config.setURLSchemeHandler(BundleSchemeHandler(), forURLScheme: "abapp")
+    config.setURLSchemeHandler(pages, forURLScheme: "abpage")
     webView = WKWebView(frame: .zero, configuration: config)
     super.init()
     config.userContentController.add(WeakHandler(self), name: "agentBrief")
@@ -91,6 +140,10 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
       if let board = body["board"] as? String, let json = body["json"] as? String { onSave(board, json) }
     case "saveComments":
       if let board = body["board"] as? String, let json = body["json"] as? String { onComments(board, json) }
+    case "openLink":
+      if let href = body["href"] as? String, let url = URL(string: href), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+        UIApplication.shared.open(url)
+      }
     case "history":
       onHistory(body["undo"] as? Bool ?? false, body["redo"] as? Bool ?? false)
     case "saveNotes":
@@ -113,9 +166,10 @@ final class BoardWeb: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     await withCheckedContinuation { waiting.append($0) }
   }
 
-  func open(board: String, scene: String?, notes: String, comments: String?) async throws {
+  /// Opens a board, or with `page`, a page hand-off's page at that address.
+  func open(board: String, scene: String?, notes: String, comments: String?, page: String? = nil) async throws {
     await whenReady()
-    let arg: [String: Any] = ["boardName": board, "scene": scene ?? NSNull(), "notes": notes, "comments": comments ?? NSNull()]
+    let arg: [String: Any] = ["boardName": board, "scene": scene ?? NSNull(), "notes": notes, "comments": comments ?? NSNull(), "page": page ?? NSNull()]
     _ = try await webView.callAsyncJavaScript("await window.__ipad.open(arg);", arguments: ["arg": arg], contentWorld: .page)
   }
 

@@ -250,7 +250,9 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 - `src/ipad-client/pinch.ts` lets a pinch zoom after a Pencil turned on Excalidraw's pen mode, which otherwise fixes the scale at 1 under the draw tool.
 - Undo and Redo sit in the app's toolbar. `src/ipad-client/history.ts` presses Excalidraw's own buttons, which `ipad.css` hides.
 - A prompt shows two lines with the rest on request. `PromptText.swift` shows each link as a short name, such as claude.ai artifact, that opens in the browser.
-- The inbox names a hand-off by its prompt, else by `fromBoard`, the Mac board it starts from.
+- The inbox names a hand-off by its prompt, else by its page or `fromBoard`, the Mac board it starts from.
+- A page hand-off (`handoff --page`, or the panel's iPad button in Review) carries an HTML file of the session's project. The device loads it over `abpage://<token>/<path>`, which `PageSchemeHandler` proxies to `GET /v1/handoffs/:id/page/*`. The Mac serves files as the Review pane does, inside the project with no dot folders, and adds the overlay's script tag to HTML. The app serves `overlay.js` itself, built by `vite.ipad.config.ts`.
+- Pins on a page are board comments with their anchor kept beside them. Send delivers `{ review, notes }`, and the Mac sends it as a review, so the session gets review.md. A review whose session ended becomes a note under it.
 - `src/ipad-client/settle-fit.ts` fits an opened board again while the native view settles, until the first touch. On an iPhone the view changes size after the navigation push.
 - Hand-offs are store and forward, with no live sync. A second iPad's Send becomes its own delivery on its own board.
 - The iPad transcribes on device and sends phrases, not audio. Strokes and phrases share its clock, and `composeDelivery` uses them as `utterances`.

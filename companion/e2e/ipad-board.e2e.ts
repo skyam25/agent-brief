@@ -14,6 +14,8 @@ const WEB = resolve(HERE, '../ios/AgentBrief/Web');
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2' };
 const BASE = { type: 'excalidraw', version: 2, elements: [{ id: 'base1', type: 'rectangle', x: 300, y: 300, width: 200, height: 120, version: 1, versionNonce: 1, angle: 0, strokeColor: '#1971c2', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 2, strokeStyle: 'solid', roughness: 1, opacity: 100, groupIds: [], frameId: null, roundness: null, seed: 1, isDeleted: false, boundElements: null, updated: 1, link: null, locked: false, index: 'a0' }], appState: {}, files: {} };
 
+const PLAN = '<!doctype html><html><head><script src="/overlay.js"></script><title>Plan</title></head><body style="margin:0;font:16px sans-serif"><h1 style="margin:20px">Keep the cart when a card fails</h1><p style="margin:20px">Today a declined card empties the form.</p></body></html>';
+
 let server: Server;
 let browser: Browser;
 let url: string;
@@ -21,6 +23,12 @@ let url: string;
 test.beforeAll(async () => {
   execFileSync('pnpm', ['exec', 'vite', 'build', '--config', 'vite.ipad.config.ts'], { cwd: resolve(HERE, '..'), stdio: 'ignore' });
   server = createServer((req, res) => {
+    // A project page as the Mac serves it to a page hand-off: with the overlay as its first script.
+    if (req.url === '/project/plan.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(PLAN);
+      return;
+    }
     const path = join(WEB, req.url === '/' ? 'index.html' : (req.url ?? '').split('?')[0]);
     if (!path.startsWith(WEB) || !existsSync(path)) {
       res.writeHead(404).end();
@@ -229,6 +237,49 @@ test("the toolbar's Undo and Redo press the board's hidden buttons and follow th
   expect(await shown()).toBe(0);
   await page.evaluate(() => (window as any).__ipad.undo());
   await expect.poll(strokes).toBe(0);
+  await page.close();
+});
+
+test('a page hand-off shows the page, pins comments on its elements, takes words, and sends a review', async () => {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+  await page.addInitScript(() => {
+    (window as any).__saved = [];
+    (window as any).webkit = { messageHandlers: { agentBrief: { postMessage: (m: any) => m.type === 'saveComments' && (window as any).__saved.push(m.json) } } };
+  });
+  await page.goto(url);
+  await page.waitForFunction(() => (window as any).__ipad);
+  const open = (comments: string | null) =>
+    page.evaluate(async ([pageUrl, saved]) => (window as any).__ipad.open({ boardName: 'p1', scene: null, notes: '', comments: saved, page: pageUrl }), [`${url}project/plan.html`, comments] as const);
+  await open(null);
+  await expect(page.getByTestId('ipad-page')).toBeVisible();
+  await expect(page.locator('.ipad-board > .canvas')).toBeHidden();
+  const frame = page.frameLocator('[data-testid="ipad-page-frame"]');
+  await expect(frame.locator('h1')).toBeVisible();
+
+  // Pin turns on comment mode in the page, and a tap on the heading pins it.
+  await page.getByTestId('pin-toggle').click();
+  await expect.poll(() => frame.locator('agent-brief-overlay').count()).toBe(1);
+  await frame.locator('h1').click();
+  await expect(page.getByTestId('board-comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('board-comment-card')).toContainText('h1');
+  expect(await page.evaluate(() => (window as any).__ipad.heard('Make it shorter', Date.now()))).toBe(true);
+  await expect(page.getByTestId('board-comment-card').locator('textarea')).toHaveValue(/Make it shorter/);
+
+  const sent = JSON.parse(await page.evaluate(() => (window as any).__ipad.collect([], 'p1')));
+  expect(sent).not.toHaveProperty('pngBase64');
+  expect(sent.review.comments).toHaveLength(1);
+  expect(sent.review.comments[0]).toMatchObject({ text: expect.stringMatching(/Make it shorter/), anchor: { tag: 'h1', text: expect.stringContaining('Keep the cart') } });
+
+  // The pin and its place on the page come back with the saved comments.
+  await expect.poll(() => page.evaluate(() => (window as any).__saved.length)).toBeGreaterThan(0);
+  const saved = await page.evaluate(() => (window as any).__saved.at(-1));
+  expect(Object.values(JSON.parse(saved).anchors)).toHaveLength(1);
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__ipad);
+  await open(saved);
+  const again = JSON.parse(await page.evaluate(() => (window as any).__ipad.collect([], 'p1')));
+  expect(again.review.comments[0].anchor.selector).toBe(sent.review.comments[0].anchor.selector);
+  await expect.poll(() => page.frameLocator('[data-testid="ipad-page-frame"]').locator('agent-brief-overlay').count()).toBe(1);
   await page.close();
 });
 

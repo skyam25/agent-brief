@@ -521,7 +521,8 @@ export interface CompanionApi extends BoardHost {
   ipadSheetClose(): Promise<void>;
   ipadForget(id: string): Promise<IpadSheetStatus>;
   /** Hands a board to the paired iPad. Its answer returns to `sessionId`. */
-  ipadHandoff(sessionId: string, board: string): Promise<Handoff>;
+  /** Hands a board to the paired iPad, or with `page`, a project HTML file to review as a page. */
+  ipadHandoff(sessionId: string, board: string, page?: string): Promise<Handoff>;
   /** Fires when File › Pair iPad… is chosen. */
   onOpenIpadSheet(fn: () => void): Subscription;
   onIpadStatus(fn: (status: IpadSheetStatus) => void): Subscription;

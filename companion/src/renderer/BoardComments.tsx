@@ -194,8 +194,11 @@ export function CommentColumn(props: {
   compact?: boolean;
   className?: string;
   children?: ReactNode;
+  /** What the comments are on, in the column's hints. */
+  subject?: 'board' | 'page';
 }) {
   const { comments, board, voice } = props;
+  const subject = props.subject ?? 'board';
   useStore(comments);
   useStore(voice);
   const { overall, pins } = comments.of(board);
@@ -216,13 +219,13 @@ export function CommentColumn(props: {
       {overallFolded ? (
         <button className="review-fold" onClick={() => select(undefined)} data-testid="board-overall-folded">
           <span className="section-head">Overall</span>
-          <span className="review-fold-text">{overall.trim() || 'Anything about the board as a whole'}</span>
+          <span className="review-fold-text">{overall.trim() || `Anything about the ${subject} as a whole`}</span>
         </button>
       ) : (
       <label className={comments.selected === undefined && voice.recording ? 'review-overall listening' : 'review-overall'}>
         <span className="section-head">Overall</span>
         <textarea
-          placeholder="Anything about the board as a whole"
+          placeholder={`Anything about the ${subject} as a whole`}
           value={overall}
           onChange={(e) => comments.setOverall(board, e.target.value)}
           onFocus={() => select(undefined)}
@@ -237,7 +240,7 @@ export function CommentColumn(props: {
       </h3>
       {pins.length === 0 ? (
         <p className="muted review-empty" data-testid="board-comments-empty">
-          {comments.tool ? `${touchFirst() ? 'Tap' : 'Click'} anything on the board to pin a comment, then type or talk.` : 'Tap Pin, then tap the board where you want a comment.'}
+          {comments.tool ? `${touchFirst() ? 'Tap' : 'Click'} anything on the ${subject} to pin a comment, then type or talk.` : `Tap Pin, then tap the ${subject} where you want a comment.`}
         </p>
       ) : (
         <ol className="review-cards">

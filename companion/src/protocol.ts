@@ -145,6 +145,8 @@ export interface HandoffRequest {
   prompt?: string;
   /** Board the iPad starts from. Absent starts a blank one. */
   board?: string;
+  /** An HTML file in the session's project, relative to it. The device opens it as a page to review, in place of a board. */
+  page?: string;
 }
 
 export type HandoffState = 'open' | 'delivered' | 'filed';
@@ -159,6 +161,8 @@ export interface Handoff {
   boardName: string;
   /** The name of the Mac board the iPad starts from. Absent for a blank hand-off. */
   fromBoard?: string;
+  /** The project HTML file the device reviews as a page. Absent for a board. */
+  page?: string;
   createdAt: number;
   /** `filed` means the session had ended by Send, so the board waits on the Mac under that session. */
   state: HandoffState;

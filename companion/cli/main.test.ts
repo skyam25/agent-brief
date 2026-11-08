@@ -348,6 +348,15 @@ describe('ipad and handoff', () => {
     expect(app.seen[0]).toEqual({ method: 'POST', url: '/handoffs', body: { sessionId: 's9', prompt: 'Mark it up', board: 'flow' } });
   });
 
+  it('hands off a page by its absolute path, and refuses a page with a board', async () => {
+    app.handler = () => ({ json: { ...handoff, page: 'site/plan.html' } });
+    const r = await run(['handoff', '--page', 'site/plan.html', '--session', 's9']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('Handed site/plan.html to the iPad as h1');
+    expect(app.seen[0]).toEqual({ method: 'POST', url: '/handoffs', body: { sessionId: 's9', page: path.resolve('site/plan.html') } });
+    expect((await run(['handoff', '--page', 'a.html', '--board', 'b', '--session', 's9'])).code).toBe(2);
+  });
+
   it('needs a session', async () => {
     const r = await run(['handoff']);
     expect(r.code).toBe(2);

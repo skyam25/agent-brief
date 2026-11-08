@@ -283,7 +283,9 @@ export function parseHandoff(body: unknown): HandoffRequest {
   const prompt = optString(o, 'prompt', 'body')?.trim();
   if (prompt !== undefined && prompt.length > MAX_NOTE_TITLE * 20) fail('body.prompt is too long');
   const board = optString(o, 'board', 'body');
-  return { sessionId, ...(prompt ? { prompt } : {}), ...(board ? { board } : {}) };
+  const page = optString(o, 'page', 'body')?.trim();
+  if (page !== undefined && page.length > 1024) fail('body.page is too long');
+  return { sessionId, ...(prompt ? { prompt } : {}), ...(board ? { board } : {}), ...(page ? { page } : {}) };
 }
 
 export function parseNote(body: unknown): NoteRequest {

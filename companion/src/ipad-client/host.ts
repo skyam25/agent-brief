@@ -2,6 +2,7 @@
 
 import { cleanBoardComments, type BoardComments } from '../shared/board-comments';
 import type { BoardHost, Theme } from '../shared/ipc';
+import type { ReviewAnchor } from '../shared/review';
 
 const parsed = (json: string | null | undefined): unknown => {
   try {
@@ -23,6 +24,7 @@ export type NativeMessage =
   | { type: 'saveBoard'; board: string; json: string }
   | { type: 'saveNotes'; board: string; text: string }
   | { type: 'history'; undo: boolean; redo: boolean }
+  | { type: 'openLink'; href: string }
   | { type: 'log'; level: 'error'; text: string };
 
 export function toNative(message: NativeMessage): void {
@@ -35,18 +37,33 @@ export interface OpenBoard {
   notes: string;
   /** The board's saved comments as JSON. */
   comments?: string | null;
+  /** The address of the page a page hand-off reviews. Absent for a board. */
+  page?: string | null;
 }
 
 export class IpadHost implements BoardHost {
   private readonly boards = new Map<string, { scene: string | null; notes: string }>();
   private readonly themeListeners = new Set<(theme: Theme) => void>();
   private readonly comments: Record<string, BoardComments> = {};
+  /** Where each page comment sits on its page, by board and pin id. Saved with the comments. */
+  private readonly anchors = new Map<string, Record<string, ReviewAnchor>>();
 
   /** Holds what `open` asks the controller to load next. */
   offer(board: OpenBoard): void {
     this.boards.set(board.boardName, { scene: board.scene, notes: board.notes });
-    const saved = cleanBoardComments(parsed(board.comments));
+    const raw = parsed(board.comments);
+    const saved = cleanBoardComments(raw);
     if (saved) this.comments[board.boardName] = saved;
+    const anchors = (raw as { anchors?: unknown } | undefined)?.anchors;
+    if (anchors && typeof anchors === 'object') this.anchors.set(board.boardName, anchors as Record<string, ReviewAnchor>);
+  }
+
+  setAnchor(board: string, id: string, anchor: ReviewAnchor): void {
+    this.anchors.set(board, { ...this.anchors.get(board), [id]: anchor });
+  }
+
+  anchorOf(board: string, id: string): ReviewAnchor | undefined {
+    return this.anchors.get(board)?.[id];
   }
 
   async listBoardComments() {
@@ -54,7 +71,9 @@ export class IpadHost implements BoardHost {
   }
 
   async saveBoardComments(board: string, comments: BoardComments) {
-    toNative({ type: 'saveComments', board, json: JSON.stringify(comments) });
+    const all = this.anchors.get(board);
+    const anchors = all ? Object.fromEntries(comments.pins.flatMap((p) => (all[p.id] ? [[p.id, all[p.id]]] : []))) : undefined;
+    toNative({ type: 'saveComments', board, json: JSON.stringify(anchors ? { ...comments, anchors } : comments) });
   }
 
   setTheme(theme: Theme): void {

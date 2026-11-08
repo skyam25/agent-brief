@@ -5,7 +5,8 @@
  * POST /v1/pair                  PairRequest → PairResponse (no credential)
  * GET  /v1/handoffs              → LanHandoffsResponse
  * GET  /v1/handoffs/:id          → LanHandoffDetail
- * POST /v1/handoffs/:id/deliver  IpadDelivery → IpadDeliveryResult
+ * GET  /v1/handoffs/:id/page/*  → a file of a page hand-off's project, as is. HTML gets the review overlay.
+ * POST /v1/handoffs/:id/deliver  IpadDelivery or IpadPageDelivery → IpadDeliveryResult
  * POST /v1/unpair                → UnpairResponse. Removes the calling iPad from this Mac.
  *
  * Other routes send `Authorization: Bearer <credential>`. A bad credential answers 401.
@@ -117,6 +118,19 @@ export interface IpadDelivery {
   /** Comments pinned on the iPad. The Mac checks them when it sends. */
   comments?: unknown;
 }
+
+/**
+ * The finished review of a page hand-off. The Mac sends it as a review, so the session gets review.md.
+ * `comments` are review comments pinned to the page. `body` is the overall note.
+ */
+export interface IpadPageDelivery {
+  review: { comments: unknown; body?: string };
+  notes?: string;
+  utterances: IpadUtterance[];
+}
+
+/** The path a page hand-off's files load from: `/v1/handoffs/<id>/page/<project path>`. HTML comes with the review overlay added. */
+export const IPAD_PAGE_SEGMENT = 'page';
 
 export interface IpadDeliveryResult {
   ok: true;

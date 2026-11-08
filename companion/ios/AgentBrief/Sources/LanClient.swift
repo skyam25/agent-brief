@@ -138,11 +138,21 @@ final class LanClient: @unchecked Sendable {
     return try JSONDecoder().decode(IpadDeliveryResult.self, from: data)
   }
 
+  /// A file of a page hand-off's project, and its content type. `path` is already percent-encoded.
+  func pageFile(id: String, path: String) async throws -> (Data, String) {
+    let (data, response) = try await exchange("GET", "/v1/handoffs/\(escaped(id))/page/\(path)", timeout: 30)
+    return (data, response.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream")
+  }
+
   private func escaped(_ id: String) -> String {
     id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
   }
 
   private func request(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval, onlyWorking: Bool = false) async throws -> Data {
+    try await exchange(method, path, body: body, timeout: timeout, onlyWorking: onlyWorking).0
+  }
+
+  private func exchange(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval, onlyWorking: Bool = false) async throws -> (Data, HTTPURLResponse) {
     var lastFailure: Error?
     for host in onlyWorking ? Array(ordered.prefix(1)) : ordered {
       var parts = URLComponents()
@@ -165,7 +175,7 @@ final class LanClient: @unchecked Sendable {
           let said = (try? JSONDecoder().decode(ErrorBody.self, from: data))?.error
           throw LanError.rejected(status: http.statusCode, message: said ?? "The Mac answered with error \(http.statusCode).")
         }
-        return data
+        return (data, http)
       } catch let error as URLError {
         if delegate.takeMismatch() { throw LanError.certificateChanged }
         lastFailure = error

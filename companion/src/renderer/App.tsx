@@ -34,7 +34,7 @@ import { Toast, type ToastKind, type ToastMessage } from './Toast';
 import { PromptBanner, TopStrip } from './TopStrip';
 import { useBoards } from './useBoards';
 import { usePanelKeys } from './usePanelKeys';
-import { useSend } from './useSend';
+import { reviewPage, useSend } from './useSend';
 import { useWorkspace } from './useWorkspace';
 import { WriteView } from './WriteView';
 import { cleanError } from './ipc-error';
@@ -198,6 +198,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
     reviewing, commenting, recording, hasVoice, since, voiceMs, input, discardVoice, onMicrophone,
   } = useWorkspace({ host, info, controller, book, shelf, comments, board, notify, report });
   const micStarting = useSyncExternalStore((fn) => reviewVoice.subscribe(fn), () => reviewVoice.starting) && reviewing;
+  const openPage = useSyncExternalStore((fn) => book.subscribe(fn), () => reviewPage(book.selected));
   useCommentKeys(comments, mode === 'sketch');
   const sidebar = useSidebar();
   const boardList = useBoards(host, controller, briefs);
@@ -307,7 +308,7 @@ function Panel({ host, info, controller, scene, book, shelf, items, outputs, ini
       chooseFolder={() => host.chooseFolder()}
       decisions={mode === 'review' ? decisions : undefined}
       ipadPicking={ipadPicking}
-      onIpad={mode === 'sketch' && sessions.ipadPaired ? (id) => {
+      onIpad={sessions.ipadPaired && (mode === 'sketch' || (mode === 'review' && !!openPage)) ? (id) => {
         if (id) void handOffToIpad(id);
         else if (chooserOpen && ipadPicking) setChooserOpen(false);
         else {

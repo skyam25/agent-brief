@@ -15,6 +15,7 @@ import { deliveryOf } from './capture';
 import { IpadHost, toNative, type OpenBoard } from './host';
 import { keepPinch } from './pinch';
 import { press, watchHistory } from './history';
+import { PageFrame, pageComments } from './PageFrame';
 import { refitWhileSettling } from './settle-fit';
 
 /** What the native app calls. `collect` answers JSON, because a delivery can hold many megabytes. */
@@ -117,7 +118,10 @@ export function IpadApp() {
   const scene = useMemo(() => parseScene(null), []);
   const controller = useMemo(() => new BoardController(host, { board: START_BOARD, notes: '', scene }), [host, scene]);
   const comments = useMemo(() => new BoardCommentsStore(host), [host]);
-  const voice = useMemo(() => new NativeVoice(() => takesWords(comments, controller.board)), [comments, controller]);
+  /** The page a page hand-off reviews. A page's words always go to its comments. */
+  const pageRef = useRef<string | undefined>(undefined);
+  const [page, setPage] = useState<string>();
+  const voice = useMemo(() => new NativeVoice(() => !!pageRef.current || takesWords(comments, controller.board)), [comments, controller]);
   const board = useSyncExternalStore((fn) => controller.subscribe(fn), () => controller.board);
   const aims = useRef<Aim[]>(startAims());
   const api = useRef<ExcalidrawImperativeAPI>(undefined);
@@ -158,7 +162,7 @@ export function IpadApp() {
       const root = document.querySelector<HTMLElement>('.ipad-board');
       if (root) keepPinch(root, excalidraw);
 
-      const takes = () => takesWords(comments, controller.board);
+      const takes = () => !!pageRef.current || takesWords(comments, controller.board);
       let settling: (() => void) | undefined;
 
       window.__ipad = {
@@ -169,15 +173,22 @@ export function IpadApp() {
           comments.select(undefined);
           aims.current = startAims();
           voice.settle(new Map());
+          pageRef.current = board.page ?? undefined;
+          setPage(pageRef.current);
           await controller.switchTo(board.boardName);
           excalidraw.setActiveTool({ type: 'freedraw' });
           settling?.();
+          if (pageRef.current) return;
           const view = document.querySelector<HTMLElement>('.ipad-board .excalidraw');
           if (view) settling = refitWhileSettling(view, () => fitBoard(excalidraw, excalidraw.getSceneElements()));
         },
         async collect(spoken, board) {
           await comments.flush();
           const pinned = comments.of(board);
+          if (pageRef.current) {
+            if (controller.board !== board) throw new Error('The page on screen is not the one being sent.');
+            return JSON.stringify({ review: { comments: pageComments(host, comments, board), body: pinned.overall }, notes: controller.notes, utterances: [] });
+          }
           const reviewed = hasBoardComments(pinned);
           const payload = await controller.payload(reviewed ? pinned.pins : undefined);
           const events = controller.strokes.events;
@@ -220,7 +231,8 @@ export function IpadApp() {
   );
 
   return (
-    <div className={`ipad-board${placed ? ('side' in placed ? ' fold-side' : ' fold-under') : ''}`}>
+    <div className={`ipad-board${placed ? ('side' in placed ? ' fold-side' : ' fold-under') : ''}${page && board !== START_BOARD ? ' page-mode' : ''}`}>
+      {page && board !== START_BOARD && <PageFrame url={page} board={board} host={host} comments={comments} />}
       <BoardCanvas controller={controller} scene={scene} theme={theme} active onReady={onReady} comments={comments} board={board} />
       {panel && board !== START_BOARD && (
         <IpadPanel
@@ -228,6 +240,7 @@ export function IpadApp() {
           controller={controller}
           board={board}
           voice={voice}
+          page={!!page}
           onPin={() => setCommenting(!comments.tool)}
           style={placed ? ('side' in placed ? { width: placed.side } : { height: placed.under, maxHeight: 'none' }) : undefined}
         />
@@ -237,7 +250,7 @@ export function IpadApp() {
 }
 
 /** The side panel: pins and the note, one tab at a time. Narrow screens dock it under the board. */
-function IpadPanel(props: { comments: BoardCommentsStore; controller: BoardController; board: string; voice: NativeVoice; onPin: () => void; style?: CSSProperties }) {
+function IpadPanel(props: { comments: BoardCommentsStore; controller: BoardController; board: string; voice: NativeVoice; page: boolean; onPin: () => void; style?: CSSProperties }) {
   const { comments, controller, board, voice } = props;
   const [tab, setTab] = useState<'comments' | 'note'>('comments');
   const notes = useSyncExternalStore((fn) => controller.subscribe(fn), () => controller.notes);
@@ -262,11 +275,11 @@ function IpadPanel(props: { comments: BoardCommentsStore; controller: BoardContr
         )}
       </div>
       {tab === 'comments' ? (
-        <CommentColumn comments={comments} board={board} voice={voice} onSendKeys={() => {}} compact />
+        <CommentColumn comments={comments} board={board} voice={voice} onSendKeys={() => {}} compact subject={props.page ? 'page' : 'board'} />
       ) : (
         <textarea
           className="ipad-note"
-          placeholder="Anything the drawing doesn't say"
+          placeholder={props.page ? "Anything the page doesn't show" : "Anything the drawing doesn't say"}
           value={notes}
           onChange={(e) => controller.setNotes(e.target.value)}
           data-testid="note-editor"

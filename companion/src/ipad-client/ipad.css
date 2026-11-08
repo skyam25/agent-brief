@@ -184,3 +184,23 @@ body {
   font-style: normal;
   color: var(--fg);
 }
+
+/* A page hand-off shows the page in place of the board. The board stays mounted for its notes and comments. */
+.ipad-board.page-mode > .canvas {
+  display: none;
+}
+
+.ipad-page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: #fff;
+}
+
+.ipad-page iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
