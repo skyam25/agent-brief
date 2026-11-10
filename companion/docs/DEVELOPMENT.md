@@ -240,6 +240,9 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 ## iPad
 
 - `src/ipad/` serves a TLS LAN API on port 47613, IPv4 only, and refuses peers outside the Mac's subnets. `COMPANION_IPAD_HOST` and `COMPANION_IPAD_PORT` override the address.
+- Herdr Workspaces runs a copy of `src/ipad` as its phone listener on port 47614 and names itself `Herdr on <computer>`. This repo is the source for the phone app and the phone protocol.
+- The protocol stays add-only. Copy a change here to `surface/app/src/ipad` in the herdr-workspaces repo.
+- Inside Herdr, that repo's `surface/app` copy leads for the board, Write and Review.
 - The iPad pins the certificate fingerprint from the pairing QR. Pairing is many-to-many, and each hand-off stays bound to one Mac and one session.
 - The panel's iPad button shows on a board while an iPad is paired. It hands off a copy of the board's drawing and notes to the Send target, or to the session picked in the chooser. Board comments stay on the Mac.
 - The iPad's Send updates the board a hand-off started from, and reloads it if it is open. If that board changed on the Mac since the hand-off, by a saved or pending edit, or a recording is running on it, the work becomes a new `ipad-<id>` board instead. A blank hand-off makes a new board, and the panel opens it if it is on that session in Sketch.

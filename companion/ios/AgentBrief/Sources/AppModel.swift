@@ -174,7 +174,7 @@ final class AppModel {
   func pairFromField() {
     let text = pairText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let url = URL(string: text), let link = PairLink(url: url) else {
-      pairError = "That isn't a pairing link. On the Mac, choose Pair iPad… and copy the link again."
+      pairError = "That isn't a pairing link. Copy it from the Mac again."
       return
     }
     Task { await pair(link) }
@@ -526,7 +526,7 @@ final class AppModel {
   }
 
   /// Deletes a hand-off and its work here. One the Mac still has open leaves the Mac too, so it goes from every device.
-  /// A Mac that can't take the delete, because it runs an older Agent Brief or can't be reached, keeps it, so it is hidden here instead.
+  /// A Mac that can't take the delete, because it runs an older version or can't be reached, keeps it, so it is hidden here instead.
   func delete(_ handoff: Handoff) async {
     let macId = handoff.macId ?? ""
     let name = macs.first { $0.id == macId }?.macName ?? "The Mac"
@@ -538,7 +538,7 @@ final class AppModel {
         return
       } catch LanError.rejected(let status, _) where status == 404 {
         hide(handoff.key)
-        show("Deleted here. \(name) runs an older Agent Brief, so it still has this hand-off.")
+        show("Deleted here. \(name) runs an older version, so it still has this hand-off.")
         return
       } catch LanError.unreachable {
         hide(handoff.key)

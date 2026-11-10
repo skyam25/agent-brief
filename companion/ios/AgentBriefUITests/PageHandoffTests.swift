@@ -42,7 +42,7 @@ final class PageHandoffTests: XCTestCase {
     XCTAssertTrue(kept.waitForNonExistence(timeout: 10), "a hand-off an older Mac keeps stayed in the inbox")
     let banner = app.staticTexts["banner"]
     XCTAssertTrue(banner.waitForExistence(timeout: 5), "no word that the Mac still has it")
-    XCTAssertTrue(banner.label.contains("older Agent Brief"), "the banner says: \(banner.label)")
+    XCTAssertTrue(banner.label.contains("older version"), "the banner says: \(banner.label)")
     app.collectionViews.firstMatch.swipeDown()
     sleep(3)
     XCTAssertFalse(kept.exists, "a refresh brought back a hand-off deleted here")
