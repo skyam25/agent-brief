@@ -194,7 +194,8 @@ final class LanClient: @unchecked Sendable {
       return "This device has no network, or Local Network access is off in Settings. Agent Brief can't reach \(mac)."
     }
     let code = (error as? URLError).map { " (error \($0.errorCode))" } ?? ""
-    return "Can't reach \(mac). Check that it's awake, Agent Brief is open, and both are on the same network.\(code)"
+    let app = macName.hasPrefix("Herdr on ") ? "Herdr" : "Agent Brief"
+    return "Can't reach \(mac). Check that the Mac is awake, \(app) is open, and both are on the same network with no VPN on either.\(code)"
   }
 }
 

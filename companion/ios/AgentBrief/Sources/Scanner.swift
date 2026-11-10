@@ -67,7 +67,7 @@ private struct ScanSheet: View {
   }
 
   private var caption: some View {
-    Text(wrongCode ? "That isn't an Agent Brief pairing code." : "Point the camera at the code in Pair iPad… on the Mac.")
+    Text(wrongCode ? "That isn't a pairing code." : "Point the camera at the pairing code on the Mac.")
       .font(.callout)
       .padding(.horizontal, 16)
       .padding(.vertical, 10)
