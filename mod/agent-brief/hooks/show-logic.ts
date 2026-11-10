@@ -1,5 +1,7 @@
 /** Pure helpers for `show_image`, `/show` and the picture drawn in the transcript. */
 
+import { HERDR_APP_BUNDLE } from './companion-protocol'
+
 export const SHOW_TOOL = 'mcp__agent-brief__show_image'
 export const SHOW_SECTION = 'agent-brief:show'
 export const SHOW_PANE = 'agent-brief-show'
@@ -327,11 +329,25 @@ export function noticeOf(err: unknown, path: string, home = ''): ShowNotice {
   }
 }
 
-/** Why pictures can't draw here, once a draw has failed. */
-export type DrawCause = 'tmux' | 'herdr' | 'terminal' | 'background'
+/**
+ * Why pictures can't draw here, once a draw has failed. `herdr` is the Herdr
+ * TUI (`HERDR_ENV`); `herdrApp` is a terminal in the Herdr desktop app.
+ */
+export type DrawCause = 'tmux' | 'herdr' | 'herdrApp' | 'terminal' | 'background'
 
-export const causeOf = (isTmux: boolean, terminal: string, isHerdr = false): DrawCause =>
-  isHerdr ? 'herdr' : isTmux ? 'tmux' : /^(ghostty|kitty)$/.test(terminal) ? 'background' : 'terminal'
+export const causeOf = (isTmux: boolean, terminal: string, isHerdr = false, isHerdrApp = false): DrawCause =>
+  isHerdr
+    ? 'herdr'
+    : isHerdrApp
+      ? 'herdrApp'
+      : isTmux
+        ? 'tmux'
+        : /^(ghostty|kitty)$/.test(terminal)
+          ? 'background'
+          : 'terminal'
+
+/** A terminal in the Herdr desktop app: its bundle id plus a herdr-core terminal address. */
+export const isHerdrAppEnv = (bundle: string, terminalId: string) => bundle === HERDR_APP_BUNDLE && terminalId !== ''
 
 /** A clear 1×1 PNG. The band draws it once to learn whether pictures draw here. */
 export const CLEAR_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
@@ -353,8 +369,24 @@ const HERDR_FORCE = 'CLAUDE_CODE_FORCE_TERMINAL_IMAGES'
 export const resumeCommand = (sessionId: string) =>
   `CLAUDE_CODE_DISABLE_AGENT_VIEW=1 claude --resume${sessionId ? ` ${sessionId}` : ''}`
 
-/** The notice for a picture that couldn't draw, and the line Claude reads. */
-export function cantDraw(cause: DrawCause, name: string, sessionId: string) {
+/** A path as one shell word. */
+const shellWord = (path: string) => (/^[\w@%+=:,./~-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`)
+
+/**
+ * The notice for a picture that couldn't draw, and the line Claude reads.
+ * `files` are the picture's files, which the Herdr app notice names.
+ */
+export function cantDraw(cause: DrawCause, name: string, sessionId: string, files: string[] = [], home = '') {
+  if (cause === 'herdrApp') {
+    const where = files.map(f => shortPath(f, home)).join(', ')
+    return {
+      title: "Herdr can't show pictures here yet",
+      text: `"${name}" is ready${where ? ` at ${where}` : ''}, but Claude Code doesn't draw pictures in Herdr app terminals yet. Open the file to see it:`,
+      command: `open ${files.map(shellWord).join(' ')}`,
+      label: 'Copy command',
+      claude: `Claude Code doesn't draw pictures in Herdr app terminals yet, so the user saw a notice instead of ${name}.${where ? ` The file is at ${where}.` : ''}`,
+    }
+  }
   if (cause === 'tmux') {
     return {
       title: 'tmux is blocking pictures',
@@ -424,5 +456,6 @@ export function showInstructions(canImage: boolean, cause: DrawCause, sessionId:
   }
   const why = cantDraw(cause, 'it', sessionId).claude.replace(/, so the user saw a notice instead of it\./, '.')
   const how = isCli ? 'agent-brief show' : 'show_image'
-  return `Pictures can't draw in this session (${why}) Anything shown with ${how} was not seen: the user saw a notice instead. Don't say they saw it.`
+  const path = cause === 'herdrApp' ? ' Give the file path so they can open it.' : ''
+  return `Pictures can't draw in this session (${why}) Anything shown with ${how} was not seen: the user saw a notice instead. Don't say they saw it.${path}`
 }

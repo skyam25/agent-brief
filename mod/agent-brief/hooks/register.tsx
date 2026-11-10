@@ -152,7 +152,7 @@ import {
   startShow,
 } from './show'
 import type { ShowEnvironment } from './show'
-import { CLEAR_PIXEL } from './show-logic'
+import { CLEAR_PIXEL, isHerdrAppEnv } from './show-logic'
 import {
   DICTATE_ARGV,
   DICTATION_EMPTY,
@@ -1303,7 +1303,7 @@ async function inboxNote($: EngineInterface, config: Config): Promise<string> {
   return `\n${n === 1 ? '1 recording waits' : `${n} recordings wait`} in the inbox. Ask the user to run /apply-feedback in the project it belongs to.`
 }
 
-/** The terminal and tmux facts the picture hooks need. A tmux with passthrough off is known before the first picture. */
+/** The terminal, tmux and Herdr facts the picture hooks need. A tmux with passthrough off is known before the first picture. */
 async function showEnvironment($: EngineInterface, cwd: string, nodePath: string): Promise<ShowEnvironment> {
   const missing = () => undefined
   const term = (await $.env.get('TERM').catch(missing)) ?? ''
@@ -1322,6 +1322,10 @@ async function showEnvironment($: EngineInterface, cwd: string, nodePath: string
     isTmux,
     isPassthroughOff,
     isHerdr: (await $.env.get('HERDR_ENV').catch(missing)) === '1',
+    isHerdrApp: isHerdrAppEnv(
+      (await $.env.get('__CFBundleIdentifier').catch(missing)) ?? '',
+      (await $.env.get('HC_TERMINAL_ID').catch(missing)) ?? '',
+    ),
     nodePath,
   }
 }

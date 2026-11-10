@@ -64,6 +64,7 @@ let drawCause: DrawCause = 'background'
 let terminal = ''
 let inTmux = false
 let inHerdr = false
+let inHerdrApp = false
 
 /** How one transcript row or the pane shows its pictures. */
 type View = {
@@ -98,6 +99,9 @@ function log($: EngineInterface, text: string): void {
 }
 
 const redraw = ($: EngineInterface) => $.ui.invalidate('ui.render')
+
+/** The files a show names, as the user knows them. */
+const filesOf = (shown: Shown) => shown.items.map(i => i.source)
 
 const exists = ($: EngineInterface, file: string) => $.fs.stat(file).then(() => true, () => false)
 
@@ -270,7 +274,7 @@ export function noteProbe(deny: string | undefined): boolean {
   isProbed = true
   if (deny) {
     canImage = false
-    drawCause = causeOf(inTmux, terminal, inHerdr)
+    drawCause = causeOf(inTmux, terminal, inHerdr, inHerdrApp)
   }
   return true
 }
@@ -403,7 +407,7 @@ async function Viewer(
   const drawn: ShownItem = active ?? { ...sheet!, source: sheet!.path, title: shown.title }
 
   if (!canImage) {
-    const w = cantDraw(drawCause, shown.title, sessionId)
+    const w = cantDraw(drawCause, shown.title, sessionId, filesOf(shown), home)
     return NoticeBox(ui, $, room, { ...w, copy: w.command })
   }
   for (const file of [...shown.items.map(i => i.path), ...(sheet ? [sheet.path] : [])]) {
@@ -542,8 +546,10 @@ export type ShowEnvironment = {
   isTmux: boolean
   /** tmux answered `off` to allow-passthrough, so no picture can get through. */
   isPassthroughOff: boolean
-  /** Inside a Herdr pane, where Claude Code draws no pictures. */
+  /** Inside a Herdr TUI pane, where Claude Code draws no pictures. */
   isHerdr?: boolean
+  /** Inside a Herdr desktop app terminal, which answers no picture query. */
+  isHerdrApp?: boolean
   /** The node that runs the wireframe renderer. */
   nodePath: string
 }
@@ -558,6 +564,7 @@ export function startShow(env: ShowEnvironment): void {
   terminal = terminalOf(env.program, env.term)
   inTmux = env.isTmux
   inHerdr = env.isHerdr === true
+  inHerdrApp = env.isHerdrApp === true
   canImage = !env.isPassthroughOff
   isProbed = env.isPassthroughOff
   drawCause = env.isPassthroughOff ? 'tmux' : 'background'
@@ -629,7 +636,7 @@ async function showFor($: EngineInterface, request: unknown): Promise<{ result: 
     }
     void storeDir($).then(dir => (dir ? trimStore($, dir) : undefined))
     const opening = !canImage
-      ? `Not shown: ${cantDraw(drawCause, shown.title, sessionId).claude} Don't say it was shown.`
+      ? `Not shown: ${cantDraw(drawCause, shown.title, sessionId, filesOf(shown), home).claude} Don't say it was shown.`
       : isProbed
         ? shownText(shown, cwd)
         : `${shownText(shown, cwd)} ${UNCONFIRMED_NOTE}`
