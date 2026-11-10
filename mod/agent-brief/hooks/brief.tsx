@@ -3,6 +3,7 @@ import type { ElementTable, RenderElement } from 'claude-code'
 import type { AttachedInitiative, BriefAnswer, BriefBoard, BriefItems, BriefOutput, BriefView, PrototypeFidelity, SessionMode } from '../types'
 import { AGREE_TEXT, ago, briefCounts, inlineSummary, itemRows, outputRows } from './brief-logic'
 import type { ItemRow, OutputRow } from './brief-logic'
+import { isHerdrReviewable } from './herdr-logic'
 import { DEFAULT_FIDELITY, FIDELITY_IDS, MODE_IDS, fidelityLabel, modeLabel } from './modes'
 
 export type BriefPaneView = {
@@ -14,6 +15,8 @@ export type BriefPaneView = {
   fidelity: PrototypeFidelity | null
   isTracking: boolean
   outputs: BriefOutput[]
+  /** In the Herdr app, Open shows an HTML or Markdown output with `hws review`, so In Agent Brief leaves its row. */
+  isHerdr: boolean
   /** The boards the app files under this session. */
   boards: BriefBoard[]
   /** Epoch ms the pane draws at, for each output's age. */
@@ -170,9 +173,10 @@ function headerTree(table: ElementTable, pane: BriefPaneView, act: BriefActions)
   )
 }
 
-function outputRowTree(table: ElementTable, row: OutputRow, now: number, act: BriefActions) {
+function outputRowTree(table: ElementTable, row: OutputRow, now: number, isHerdr: boolean, act: BriefActions) {
   const { Box, Button, Text } = table
   const tab = row.feedback === undefined ? undefined : 'feedback'
+  const hasApp = row.canBrief && !(isHerdr && tab === undefined && isHerdrReviewable(row.ref))
   return (
     <Box key={`output-${row.ref}`} flexDirection="column">
       <Box columnGap={1}>
@@ -182,7 +186,7 @@ function outputRowTree(table: ElementTable, row: OutputRow, now: number, act: Br
         {row.status !== undefined && <Text dimColor>{row.status}</Text>}
         {row.at !== undefined && <Text dimColor>{ago(now - row.at)}</Text>}
         <Button key={`output-open-${row.ref}`} plain dimColor label="Open" onPress={() => void act.open(row.ref)} />
-        {row.canBrief && (
+        {hasApp && (
           <Button key={`output-app-${row.ref}`} plain dimColor label="In Agent Brief" onPress={() => void act.openInApp(row.ref, tab)} />
         )}
       </Box>
@@ -214,7 +218,7 @@ function outputsTree(table: ElementTable, pane: BriefPaneView, act: BriefActions
     <Box flexDirection="column" marginTop={1}>
       <Text bold>Outputs</Text>
       {declared.length === 0 && boards.length === 0 && touched.length === 0 && <Text dimColor>No outputs yet.</Text>}
-      {declared.map(row => outputRowTree(table, row, pane.now, act))}
+      {declared.map(row => outputRowTree(table, row, pane.now, pane.isHerdr, act))}
       {boards.map(board => boardRowTree(table, board, pane.now, act))}
       {touched.length > 0 && (
         <Button
@@ -225,7 +229,7 @@ function outputsTree(table: ElementTable, pane: BriefPaneView, act: BriefActions
           onPress={() => void act.fold('touched')}
         />
       )}
-      {isOpen && touched.map(row => outputRowTree(table, row, pane.now, act))}
+      {isOpen && touched.map(row => outputRowTree(table, row, pane.now, pane.isHerdr, act))}
     </Box>
   )
 }

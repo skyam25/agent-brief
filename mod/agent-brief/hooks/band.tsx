@@ -32,6 +32,8 @@ export type BandView = {
   choices: { id: string; title: string }[]
   /** The iPad button shows only while the app says an iPad is paired. */
   ipadPaired: boolean
+  /** In the Herdr app the picker offers Sketch and Write only, and the iPad button never shows. */
+  isHerdr: boolean
   /** What the open picker shows: the last of Sketch, Stack and Write picked in this session. */
   lastOpen: OpenTarget
   /** False on a surface that may draw no Select, as mobile. The row then has one button each. */
@@ -72,6 +74,7 @@ export function bandFocusKey(row: BandRow, view: Pick<BandView, 'mode' | 'fideli
 
 /**
  * One row with the open picker, Talk, Mode and Brief, and an iPad button at the end while an iPad is paired.
+ * In the Herdr app the picker drops Stack and the iPad button never shows.
  * The picker shows the last of Sketch, Stack and Write picked. Enter opens it, and its list opens the others.
  * A focused Select takes every key, so the band's focus starts on Brief and the hotkeys keep working.
  * Mode shows until the session's first prompt; then the Brief pane's Select and /mode set it.
@@ -82,7 +85,10 @@ export function bandFocusKey(row: BandRow, view: Pick<BandView, 'mode' | 'fideli
 export function bandTree(table: ElementTable, view: BandView, act: BandActions) {
   const { Box, Button, Text } = table
   const { Image, Select } = table as Partial<ElementTable<'terminal'>>
-  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, initiative, choices, ipadPaired, lastOpen, hasFields, probe } = view
+  const { ingesting, hasPrompted, briefLabel, mode, fidelity, picking, voice, initiative, choices, ipadPaired, isHerdr, lastOpen, hasFields, probe } = view
+  const opens = isHerdr ? OPEN_OPTIONS.filter(o => o.value !== 'stack') : OPEN_OPTIONS
+  const shown = opens.some(o => o.value === lastOpen) ? lastOpen : opens[0]!.value
+  const hasIpad = ipadPaired && !isHerdr
   const current = (isCurrent: boolean) => (isCurrent ? { variant: 'primary' as const, autoFocus: true as const } : {})
 
   if (picking === 'mode') {
@@ -142,12 +148,12 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
       {hasFields && Select ? (
         <Select
           key="open"
-          value={lastOpen}
-          options={OPEN_OPTIONS.map(({ value, label }) => ({ value, label }))}
+          value={shown}
+          options={opens.map(({ value, label }) => ({ value, label }))}
           onSelect={value => void act.open(value as OpenTarget)}
         />
       ) : (
-        OPEN_OPTIONS.map(({ value, label, hotkey }) => (
+        opens.map(({ value, label, hotkey }) => (
           <Box key={`open-${value}`}>
             <Button key={value} label={label} hotkey={hotkey} onPress={() => void act.open(value)} />
             <Text> </Text>
@@ -182,8 +188,8 @@ export function bandTree(table: ElementTable, view: BandView, act: BandActions) 
       {initiative === null && choices.length > 0 && (
         <Button key="initiative-attach" plain dimColor label="attach initiative" hotkey="i" onPress={() => void act.pick('initiative')} />
       )}
-      {ipadPaired && <Text> </Text>}
-      {ipadPaired && <Button key="ipad" label="↗ iPad" hotkey="p" onPress={() => void act.ipad()} />}
+      {hasIpad && <Text> </Text>}
+      {hasIpad && <Button key="ipad" label="↗ iPad" hotkey="p" onPress={() => void act.ipad()} />}
       {voice?.phase === 'listening' && <Text dimColor>{` Listening ${clockText(voice.seconds)}`}</Text>}
       {voice?.phase === 'finishing' && <Text dimColor> Transcribing…</Text>}
       {ingesting !== null && <Text dimColor> Transcribing feedback: {ingesting}…</Text>}

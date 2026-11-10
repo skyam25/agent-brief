@@ -110,6 +110,19 @@ import {
 } from './modes'
 import type { ModeChoice } from './modes'
 import { registerModeGuard } from './mode-guard'
+import {
+  HERDR_SKETCH_OPENED,
+  HERDR_WRITE_OPENED,
+  HWS_CHECK_MS,
+  HWS_OPEN_MS,
+  herdrTerminalOf,
+  hwsCandidates,
+  hwsFailureText,
+  isHerdrReviewable,
+  reviewArgv,
+  surfaceArgv,
+} from './herdr-logic'
+import type { HerdrHost } from './herdr-logic'
 import { isUrlRef, opensInApp, refSurface } from './generated/output-file'
 import { DECLARE_TOOL, OUTPUTS_SECTION, outputsInstructions, parseOutputsFile } from './outputs'
 import { registerOutputs } from './outputs-file'
@@ -189,6 +202,8 @@ const hasPromptedRef = atom({ plugin: 'agent-brief', key: 'hasPrompted' } as con
 /** The app's last answer on whether an iPad is paired. Each registration refreshes it. */
 const ipadPairedRef = atom({ plugin: 'agent-brief', key: 'ipadPaired' } as const, false)
 const lastOpenRef = atom({ plugin: 'agent-brief', key: 'lastOpen' } as const, 'sketch')
+/** Set once the session-start check finds the Herdr app and a working `hws`. The band and the Brief pane draw from it. */
+const herdrRef = atom({ plugin: 'agent-brief', key: 'herdr' } as const, null)
 const outputsRef = atom({ plugin: 'agent-brief', key: 'outputs' } as const, [])
 const boardsRef = atom({ plugin: 'agent-brief', key: 'boards' } as const, [])
 const itemsRef = atom({ plugin: 'agent-brief', key: 'items' } as const, null)
@@ -208,6 +223,9 @@ type CompanionConfig = {
 type Reply = { ok: boolean; status: number; body: unknown }
 
 const delivered = new Set<string>()
+
+/** The session-start Herdr check. Commands, opens and the system prompt wait on it. */
+let herdrCheck: Promise<HerdrHost | null> = Promise.resolve(null)
 
 /** Set when the engine refused to register declare_output, as an organization's plugin policy does. */
 let isDeclareRefused = false
@@ -568,6 +586,53 @@ async function readyApp($: EngineInterface): Promise<string | undefined> {
 }
 
 /**
+ * The Herdr app terminal and the `hws` that runs there, or null. Runs nothing outside the Herdr app.
+ * `~/.local/bin/hws` comes first, then `hws` on PATH, each given a short `--help` run.
+ */
+async function detectHerdr($: EngineInterface): Promise<HerdrHost | null> {
+  const settle = (value: Promise<string | undefined>) => value.catch(() => undefined)
+  const terminal = herdrTerminalOf({
+    __CFBundleIdentifier: await settle($.env.get('__CFBundleIdentifier')),
+    HC_TERMINAL_ID: await settle($.env.get('HC_TERMINAL_ID')),
+  })
+  let host: HerdrHost | null = null
+  if (terminal !== undefined) {
+    for (const hws of hwsCandidates((await settle($.env.get('HOME'))) ?? '')) {
+      const ran = await $.process.run([hws, '--help'], { timeoutMs: HWS_CHECK_MS }).catch(() => undefined)
+      if (ran?.exitCode === 0) {
+        host = { terminal, hws }
+        break
+      }
+    }
+    if (host === null) log($, 'in the Herdr app, but hws did not run')
+  }
+  await update($, herdrRef, () => host)
+  return host
+}
+
+/** Runs one `hws` command. Undefined when it worked, else its first stderr line. Never starts Agent Brief. */
+async function runHws($: EngineInterface, argv: string[]): Promise<string | undefined> {
+  const ran = await $.process.run(argv, { timeoutMs: HWS_OPEN_MS }).catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
+  if (ran.exitCode === 0) return undefined
+  log($, `${argv.slice(1, 3).join(' ')} failed: ${ran.stderr.trim()}`)
+  return hwsFailureText(ran)
+}
+
+/** Runs one `hws` command for a press, and toasts its failure. */
+async function pressHws($: EngineInterface, argv: string[]): Promise<void> {
+  const failed = await runHws($, argv)
+  if (failed !== undefined) $.ui.toast(failed, { timeoutMs: 8000 })
+}
+
+/** Opens an HTML or Markdown output with `hws review` beside this terminal. False outside Herdr and for other refs. */
+async function reviewInHerdr($: EngineInterface, ref: string): Promise<boolean> {
+  const host = await herdrCheck
+  if (host === null || !isHerdrReviewable(ref)) return false
+  await pressHws($, reviewArgv(host, openTarget(await homeCwd($), ref)))
+  return true
+}
+
+/**
  * Answers `/sketch`, `/stack` and `/write`: starts the app when needed, then opens the panel in that mode.
  * `tookText` says the app started the note with `text`; an app before 0.2.3 drops it.
  */
@@ -593,6 +658,13 @@ async function openCompanion(
   return { message: mode === 'write' ? WRITE_OPENED : layout === 'stack' ? STACK_OPENED : SKETCH_OPENED, tookText }
 }
 
+/** Answers `/sketch` without `--ipad`. In Herdr it opens a sketch surface titled with the ask. */
+async function sketchCommand($: EngineInterface, prompt: string): Promise<string> {
+  const host = await herdrCheck
+  if (host !== null) return (await runHws($, surfaceArgv(host, 'board', prompt))) ?? HERDR_SKETCH_OPENED
+  return (await openCompanion($, 'sketch', { prompt })).message
+}
+
 /** Answers `/sketch --ipad` and the iPad button: asks the paired iPad for a sketch tied to this session. */
 async function handOffToIpad($: EngineInterface, prompt: string): Promise<string> {
   const failed = await readyApp($)
@@ -601,8 +673,13 @@ async function handOffToIpad($: EngineInterface, prompt: string): Promise<string
   return handoffText(await call($, 'POST', '/handoffs', body))
 }
 
-/** `/write last` takes Claude's newest reply; anything else after `/write` starts the note. */
+/**
+ * `/write last` takes Claude's newest reply; anything else after `/write` starts the note.
+ * In Herdr a bare `/write` opens a note surface. `hws` takes no note text, so the other forms keep Agent Brief.
+ */
 async function writeCommand($: EngineInterface, args: string): Promise<string> {
+  const host = args === '' ? await herdrCheck : null
+  if (host !== null) return (await runHws($, surfaceArgv(host, 'note'))) ?? HERDR_WRITE_OPENED
   if (args.toLowerCase() !== 'last') return (await openCompanion($, 'write', { text: args })).message
   const reply = lastReply(await $.session.messages().catch(() => []))
   if (reply === undefined) return 'Claude has not replied yet in this session.'
@@ -719,15 +796,20 @@ function toggleBrief($: EngineInterface): Promise<void> {
   })
 }
 
-/** Opens an output in its default app, or a URL in the browser. */
+/** Opens an output in its default app, or a URL in the browser. In Herdr an HTML or Markdown file opens with `hws review`. */
 async function openOutput($: EngineInterface, ref: string): Promise<void> {
+  if (await reviewInHerdr($, ref)) return
   const target = openTarget(await homeCwd($), ref)
   const ran = await $.process.run(['open', target]).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
   if (ran.exitCode !== 0) $.ui.toast(`Could not open ${ref}: ${ran.stderr.trim() || `open exited ${ran.exitCode}`}`, { timeoutMs: 8000 })
 }
 
-/** Opens a Markdown/HTML output in the app, or another file's Feedback view. */
+/**
+ * Opens a Markdown/HTML output in the app, or another file's Feedback view.
+ * In Herdr an HTML or Markdown file opens with `hws review`. The Feedback view keeps Agent Brief.
+ */
 async function openOutputInApp($: EngineInterface, ref: string, tab?: 'feedback'): Promise<void> {
+  if (tab === undefined && (await reviewInHerdr($, ref))) return
   const failed = await readyApp($)
   if (failed !== undefined) {
     $.ui.toast(failed, { timeoutMs: 8000 })
@@ -1266,6 +1348,11 @@ export const register: Register = (on, options) => {
       const cwd = await homeCwd($)
       await update($, homeRef, () => cwd).catch(() => undefined)
     }
+    // The Herdr check runs beside the setup below. Commands, opens and the system prompt wait on it.
+    herdrCheck = detectHerdr($).catch(err => {
+      log($, `herdr check failed: ${String(err)}`)
+      return null
+    })
     // A reload ends yap with the old module, so a kept listening state is stale.
     if (dictation === undefined) await update($, voiceRef, () => null).catch(() => undefined)
     // The loop registers the session, and the band's iPad button waits on that answer, so it starts before the slower setup below.
@@ -1464,11 +1551,13 @@ export const register: Register = (on, options) => {
   // The picker shows the last of Sketch, Stack and Write picked. Enter opens it, and Down lists the others.
   // iPad shows at the row's end while an iPad is paired and does what /sketch --ipad does, with the prompt box's text as the ask. It leaves the box as it is.
   // Write takes the prompt box's draft, or Claude's last reply when the box is empty.
+  // In the Herdr app, Sketch and Write open empty surfaces glued to this terminal through `hws`, and Stack and iPad do not show.
   // Talk dictates into the prompt box until pressed again. Mode shows until the first prompt.
   // Brief opens and closes the Brief pane. An attached initiative adds `◆ <title>`, and none adds `attach initiative`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const mode = await read($, modeRef)
+    const herdr = await read($, herdrRef)
     const { initiative, choices } = await initiativeView($)
     const counts = briefCounts(await read($, outputsRef), (await read($, itemsRef))?.text ?? null, (await read($, questionsRef)).length)
     const view: BandView = {
@@ -1482,6 +1571,7 @@ export const register: Register = (on, options) => {
       initiative,
       choices,
       ipadPaired: await read($, ipadPairedRef),
+      isHerdr: herdr !== null,
       lastOpen: await read($, lastOpenRef),
       hasFields: e.surface !== 'mobile',
       ...(e.surface === 'terminal' && needsProbe() ? { probe: { key: PROBE_KEY, png: CLEAR_PIXEL } } : {}),
@@ -1514,6 +1604,7 @@ export const register: Register = (on, options) => {
     return bandTree($.ui.resolve(e), view, {
       open: async target => {
         await update($, lastOpenRef, () => target)
+        if (herdr !== null && target !== 'stack') return pressHws($, surfaceArgv(herdr, target === 'write' ? 'note' : 'board'))
         const result =
           target === 'write'
             ? await writeFromBox($)
@@ -1570,6 +1661,7 @@ export const register: Register = (on, options) => {
       fidelity: await read($, fidelityRef),
       isTracking: await read($, trackingRef),
       outputs: await read($, outputsRef),
+      isHerdr: (await read($, herdrRef)) !== null,
       boards: await read($, boardsRef),
       now,
       feedback: await read($, feedbackRef),
@@ -1793,7 +1885,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'sketch' }, async ($, e) => {
     const { isIpad, prompt } = sketchArgs(e.args)
-    return { text: isIpad ? await handOffToIpad($, prompt) : (await openCompanion($, 'sketch', { prompt })).message }
+    return { text: isIpad ? await handOffToIpad($, prompt) : await sketchCommand($, prompt) }
   })
   on('command.run', { command: 'stack' }, async ($, e) => ({ text: (await openCompanion($, 'sketch', { prompt: e.args.trim(), layout: 'stack' })).message }))
   on('command.run', { command: 'write' }, async ($, e) => ({ text: await writeCommand($, e.args.trim()) }))
@@ -1830,7 +1922,7 @@ export const register: Register = (on, options) => {
     }
     try {
       const isCli = isDeclareRefused && !e.tools.includes(DECLARE_TOOL)
-      added.push({ id: OUTPUTS_SECTION, scope: 'session', text: outputsInstructions(isCli) })
+      added.push({ id: OUTPUTS_SECTION, scope: 'session', text: outputsInstructions(isCli, (await herdrCheck) !== null) })
     } catch (err) {
       log($, `outputs section failed: ${String(err)}`)
     }

@@ -194,14 +194,28 @@ export function declareResultText(record: OutputRecord, cwd: string): string {
 /**
  * The system prompt section: when to declare an output, and where text the user pastes elsewhere goes.
  * `isCli` swaps the declare_output tool for `agent-brief output` in Bash.
+ * `isHerdr` gives the shorter section for the Herdr app, whose workspace instructions teach review and the phone.
  */
-export function outputsInstructions(isCli = false): string {
+export function outputsInstructions(isCli = false, isHerdr = false): string {
   const declare = isCli
     ? 'run `agent-brief output "<title>" --path <file> --status drafting` with Bash for it (the declare_output tool is off here)'
     : 'call the `declare_output` tool for it'
   const where = isCli
     ? 'Pass `--path` relative to the project for a file. Pass `--url` for an artifact or a published page.'
     : 'Pass `path` relative to the project for a file. Pass `url` for an artifact or a published page.'
+  if (isHerdr) {
+    return `# Outputs (Agent Brief)
+
+The Brief pane lists this session's deliverables.
+When the user asks for a doc, brief, report, spec, page, deck or artifact, ${declare}.
+${where}
+Declare it with status \`drafting\` when you start the deliverable. Declare it again with \`ready\` when it is done, and name its path in your reply. The row under the reply offers to open it.
+Declare one primary output per request, usually. Pick the one the user will read first.
+Never declare code, config, tests or files that serve the code.
+Never declare the items file or anything under .feedback.
+
+This session runs in Herdr. Herdr's workspace instructions cover showing a page for comments and sending it to the phone. Never open an output on your own.`
+  }
   return `# Outputs (Agent Brief)
 
 The Agent Brief panel lists this session's deliverables. The user opens them there to review.

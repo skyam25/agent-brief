@@ -140,6 +140,8 @@ declare module 'claude-code' {
       hasPrompted: boolean
       /** The app's last answer on whether an iPad is paired. The band's iPad button shows while it is true. */
       ipadPaired: boolean
+      /** The Herdr app terminal and the `hws` that runs, once the session-start check finds both. Null outside Herdr. */
+      herdr: { terminal: string; hws: string } | null
       /** The last of Sketch, Stack and Write picked from the band. Its open picker shows it. */
       lastOpen: 'sketch' | 'stack' | 'write'
       /** The session's outputs file records, kept current by each write. */

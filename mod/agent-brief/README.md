@@ -118,6 +118,23 @@ Starting text needs Agent Brief 0.2.3 or newer.
 
 The band above the prompt has a button for each panel mode, **✎ Sketch**, **▤ Stack** and **¶ Write**, a **🎙 Talk** button for dictation, a **◇ Mode** button that picks the session mode until the session's first prompt, and a **▣ Brief** button that opens the Brief pane. While an iPad is paired, **▭ iPad** does what `/sketch --ipad` does, with the prompt box's text as the ask. While the session is attached to an initiative, the band ends with **◆ Pricing**, which opens the pick. Without one, it ends with **attach initiative** whenever there are initiatives to pick.
 
+### In the Herdr app
+
+A session counts as in the Herdr app when `__CFBundleIdentifier` is `dev.herdr.app`, `HC_TERMINAL_ID` is set, and `hws` runs (`~/.local/bin/hws` first, then `hws` on PATH, checked once at start). There Herdr Workspaces owns the hand-offs, so the mod steps back.
+
+| Route | In the Herdr app |
+|---|---|
+| Band **✎ Sketch**, **¶ Write** | `hws surface open --type board\|note --terminal <HC_TERMINAL_ID>`, empty |
+| Band **▤ Stack**, **▭ iPad** | Not shown |
+| `/sketch [ask]` | A board surface titled with the ask |
+| `/write` | A note surface |
+| `/write <text>`, `/write last`, **Open as note**, `/stack`, `/sketch --ipad` | As elsewhere, since `hws` takes no note text |
+| Open on an `.html`, `.htm` or `.md` output, from the reply row or the Brief pane | `hws review <file> --terminal <HC_TERMINAL_ID>`. The pane drops **In Agent Brief** on those rows |
+| Outlines, briefs, items, notes, Feedback views, URLs | As elsewhere |
+| Outputs prompt section | Shorter. Keeps the declare rules and leaves review and the phone to Herdr's instructions |
+
+A failed `hws` shows its first stderr line, as a toast or as the command's reply. No Herdr route starts the Agent Brief app.
+
 ### Dictation
 
 **🎙 Talk** puts what you say into the prompt box. It needs no app, only yap (`brew install yap`). Speech is transcribed on this Mac with Apple's on-device model.
@@ -330,4 +347,5 @@ It prints one JSON line, either `{ ok: true, name, dir, reportPath, screenshots,
 - `claude plugin validate .` checks the mod.
 - `claude plugin test .` runs the tests in `tests/`.
 - `node tests/live/run-live.mjs` runs a live check. It starts a real companion server and an interactive Claude Code in tmux, and checks registration, fill delivery, typed-text safety, `/sketch` and exit. It needs tmux and the companion repo's esbuild, and it sends nothing to the model. It uses a temp inbox so it never touches `~/Downloads/feedback-inbox`.
+- `node tests/live/herdr-band.mjs` runs one session with the Herdr app's variables and a stub `hws`, and one without. It checks that the first band has no Stack and no iPad and that Sketch runs the stub with the surface flags, and that the second band is unchanged. A temporary HOME keeps the real `hws` out of reach, so that session is signed out. `COLS=130` sets the width.
 - `node tests/live/initiative.mjs` checks the band's **◆ <title>** and **attach initiative**, the pick row, the Brief pane's Initiative Select and `/initiative off` and `refresh` against a stub app, then stops the stub and checks `/initiative` still answers. `COLS=110` sets the width. It sends nothing to the model, and stops a model turn if one starts.

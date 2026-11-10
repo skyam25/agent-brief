@@ -18,6 +18,11 @@ export const COMPANION = process.env.COMPANION_DIR ?? resolve(MOD, '../../compan
 const ESBUILD = join(COMPANION, 'node_modules/.bin/esbuild')
 const TMUX = process.env.TMUX_BIN ?? '/opt/homebrew/bin/tmux'
 
+/** What marks a session as running in the Herdr app. */
+const HERDR_VARS = ['__CFBundleIdentifier', 'HC_TERMINAL_ID', 'HERDR_ENV', 'HERDR_PANE_ID']
+
+const quote = value => `'${String(value).replaceAll("'", `'\\''`)}'`
+
 export const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 export async function until(fn, timeoutMs, stepMs = 300) {
@@ -66,9 +71,15 @@ export function terminal(session) {
     keys: (...k) => tmux('send-keys', '-t', session, ...k),
     type: text => tmux('send-keys', '-t', session, '-l', text),
 
-    /** Starts claude with this checkout's mod and gets past the folder trust prompt. */
-    async start({ cwd, cols = 117, rows = 50, args = '' }) {
-      tmux('new-session', '-d', '-s', session, '-x', String(cols), '-y', String(rows), '-c', cwd, `claude --plugin-dir ${MOD} ${args}`)
+    /**
+     * Starts claude with this checkout's mod and gets past the folder trust prompt.
+     * The Herdr app's variables are dropped, so a check run from a Herdr terminal never reaches it. `env` sets variables.
+     */
+    async start({ cwd, cols = 117, rows = 50, args = '', env = {} }) {
+      const unset = HERDR_VARS.flatMap(name => ['-u', name])
+      const set = Object.entries(env).map(([name, value]) => `${name}=${quote(value)}`)
+      const command = ['env', ...unset, ...set, 'claude', '--plugin-dir', MOD].join(' ')
+      tmux('new-session', '-d', '-s', session, '-x', String(cols), '-y', String(rows), '-c', cwd, `${command} ${args}`)
       return until(async () => {
         term.capture()
         if (/Yes, I trust this folder/.test(term.pane)) {
@@ -77,7 +88,7 @@ export function terminal(session) {
           term.keys('Enter')
           return false
         }
-        return /Try "|\? for shortcuts/.test(term.pane)
+        return /Try "|\? for shortcuts|Not logged in/.test(term.pane)
       }, 60_000, 1000)
     },
 
