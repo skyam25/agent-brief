@@ -1,7 +1,22 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { SHOW_TOOL, fit, optionTitle, requestedOf, sheetOf, shownOf, sizeFor, thumbnailCrop, toolLine, viewBoxOf } from '../hooks/show-logic'
+import {
+  SHOW_TOOL,
+  cantDraw,
+  causeOf,
+  fit,
+  isHerdrAppEnv,
+  optionTitle,
+  requestedOf,
+  sheetOf,
+  showInstructions,
+  shownOf,
+  sizeFor,
+  thumbnailCrop,
+  toolLine,
+  viewBoxOf,
+} from '../hooks/show-logic'
 import { bashRequestLine } from '../hooks/companion-protocol'
 import { BAND, COMPOSE, CWD, SESSION, command, textOf, worldOf } from './world'
 import type { World } from './world'
@@ -296,6 +311,69 @@ describe('knowing whether pictures draw', () => {
     expect(textOf(await ui.drawn())).toContain('Turn on pictures for Herdr')
     expect(await ui.find({ type: 'Image' })).toBeUndefined()
     await ui.unmount()
+  })
+})
+
+const HERDR_APP_ENV = { TERM_PROGRAM: 'ghostty', TERM: 'xterm-256color', __CFBundleIdentifier: 'dev.herdr.app', HC_TERMINAL_ID: 't7' }
+
+describe('why pictures do not draw', () => {
+  test('names the Herdr TUI, the Herdr app, tmux, a background session and other terminals apart', () => {
+    expect(causeOf(false, 'ghostty', true)).toBe('herdr')
+    expect(causeOf(false, 'ghostty', false, true)).toBe('herdrApp')
+    expect(causeOf(true, 'ghostty', false, true)).toBe('herdrApp')
+    expect(causeOf(true, 'ghostty')).toBe('tmux')
+    expect(causeOf(false, 'ghostty')).toBe('background')
+    expect(causeOf(false, 'kitty')).toBe('background')
+    expect(causeOf(false, 'apple_terminal')).toBe('terminal')
+  })
+
+  test('knows a Herdr app terminal by its bundle id and terminal address', () => {
+    expect(isHerdrAppEnv('dev.herdr.app', 't7')).toBe(true)
+    expect(isHerdrAppEnv('dev.herdr.app', '')).toBe(false)
+    expect(isHerdrAppEnv('com.mitchellh.ghostty', 't7')).toBe(false)
+  })
+
+  test('the Herdr app notice says where the file is and keeps the user in Herdr', () => {
+    const w = cantDraw('herdrApp', 'Pricing page', 'abc', ['/Users/me/app/shots/page one.png'], '/Users/me')
+    expect(w.title).toBe("Herdr can't show pictures here yet")
+    expect(w.text).toContain('"Pricing page" is ready at ~/app/shots/page one.png')
+    expect(w.command).toBe("open '/Users/me/app/shots/page one.png'")
+    expect(w.claude).toContain('The file is at ~/app/shots/page one.png.')
+    for (const text of [w.title, w.text, w.command, w.claude]) {
+      expect(text).not.toMatch(/background|Ghostty|resume/i)
+    }
+  })
+
+  test('a background session outside Herdr keeps its resume notice', () => {
+    const w = cantDraw('background', 'Pricing page', 'abc')
+    expect(w.title).toBe("Can't show pictures in a background session")
+    expect(w.command).toBe('CLAUDE_CODE_DISABLE_AGENT_VIEW=1 claude --resume abc')
+  })
+
+  test('the system prompt in a Herdr app terminal names the cause and asks for the file path', () => {
+    const text = showInstructions(false, 'herdrApp', 'abc')
+    expect(text).toBe(
+      "Pictures can't draw in this session (Claude Code doesn't draw pictures in Herdr app terminals yet.) " +
+        "Anything shown with show_image was not seen: the user saw a notice instead. Don't say they saw it. Give the file path so they can open it.",
+    )
+    expect(showInstructions(false, 'background', 'abc')).toContain('runs as a background session')
+  })
+
+  test('in a Herdr app terminal the first call says it was not shown and where the file is, and the row draws the Herdr notice', async ($, on) => {
+    await setup($, on, { [SHOT]: 'png' }, { probe: 'alt', env: HERDR_APP_ENV })
+    const reply = await call($, { path: SHOT, title: 'Pricing page' })
+    const first = reply.result?.split('\n')[0] ?? ''
+    expect(first).toMatch(/^Not shown: Claude Code doesn't draw pictures in Herdr app terminals yet/)
+    expect(first).toContain(SHOT)
+    expect(first).not.toMatch(/background/i)
+    const ui = await $.ui.mount(resultRow(reply.result))
+    const drawn = textOf(await ui.drawn())
+    expect(drawn).toContain("Herdr can't show pictures here yet")
+    expect(drawn).not.toMatch(/background session|Ghostty tab/)
+    expect(await ui.find({ type: 'Image' })).toBeUndefined()
+    await ui.unmount()
+    const section = (await $.prompt.compose({ ...COMPOSE, tools: [SHOW_TOOL] })).sections.find(s => s.id === 'agent-brief:show')
+    expect(section?.text).toContain('Herdr app terminals')
   })
 })
 
