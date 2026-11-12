@@ -51,7 +51,9 @@ targets:
         NSCameraUsageDescription: Agent Brief uses the camera to scan the pairing code your Mac shows.
         NSMicrophoneUsageDescription: Agent Brief listens while you press Talk and turns your speech into text on this device.
         NSSpeechRecognitionUsageDescription: Agent Brief turns what you say into text on this device and sends the text to your Mac.
-        NSLocalNetworkUsageDescription: Agent Brief talks to the Mac you paired with on this network.
+        NSLocalNetworkUsageDescription: Agent Brief finds the Mac you paired with and talks to it, on your network or directly over Wi-Fi.
+        NSBonjourServices:
+          - _agentbrief._tcp
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
   AgentBriefUITests:

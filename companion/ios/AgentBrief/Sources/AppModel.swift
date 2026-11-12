@@ -214,6 +214,7 @@ final class AppModel {
       startPolling()
     } catch {
       pairError = error.localizedDescription
+      if !macs.contains(where: { $0.id == link.fingerprint }) { PeerBridges.remove(link.fingerprint) }
     }
   }
 
@@ -233,7 +234,13 @@ final class AppModel {
 
   /// Tells the Mac when it can be reached. This iPad forgets it either way.
   func forget(_ mac: Pairing) {
-    if let client = clients[mac.id] { Task { try? await client.unpair() } }
+    if let client = clients[mac.id] {
+      // The unpair may travel over the peer route, so its bridge closes after it.
+      Task {
+        try? await client.unpair()
+        if !macs.contains(where: { $0.id == mac.id }) { PeerBridges.remove(mac.id) }
+      }
+    }
     remove(mac.id)
   }
 
@@ -247,6 +254,7 @@ final class AppModel {
   /// Drops one Mac and its rows. Edited or unsent work stays until it is discarded or that Mac pairs again.
   private func remove(_ macId: String) {
     PairingStore.remove(macId)
+    PeerBridges.remove(macId)
     macs.removeAll { $0.id == macId }
     clients[macId] = nil
     connections[macId] = nil
@@ -266,6 +274,7 @@ final class AppModel {
       startPolling()
     } else {
       stopPolling()
+      PeerBridges.stopAll()
       Task { await stopTalking() }
     }
   }

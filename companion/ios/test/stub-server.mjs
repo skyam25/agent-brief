@@ -1,5 +1,5 @@
 // A stand-in for the Mac's LAN API, for testing the iPad app. Never used in the product.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash, X509Certificate } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
@@ -63,7 +63,7 @@ function unlaidStackScene() {
   });
 }
 
-export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [], stack = false, link = false, page = false }) {
+export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub Mac', promptPrefix = '', extra = [], stack = false, link = false, page = false, peer = false }) {
   mkdirSync(dir, { recursive: true });
   const keyFile = join(dir, 'key.pem');
   const certFile = join(dir, 'cert.pem');
@@ -164,10 +164,36 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
     });
   });
 
+  // With `peer`, the stub stands in for the Mac's peer-to-peer service. It listens on every address, since Bonjour
+  // resolves to the Mac's own addresses, and registers under the name the app derives from the fingerprint.
+  // An `unadvertised` file in `dir` withdraws the service until the file goes.
+  // The pairing link's hosts never answer. One fails at once and one would hang, so the test also times the fallback.
   return new Promise((resolve) => {
-    server.listen(port, host, () => {
+    server.listen(port, peer ? '::' : host, () => {
       const actual = server.address().port;
-      const q = new URLSearchParams({ h: host, p: String(actual), c: code, f: fingerprint, m: 'Stub Mac' });
+      let hosts = host;
+      if (peer) {
+        const name = `ab-${fingerprint.slice(0, 16)}`;
+        let advert = null;
+        const sync = () => {
+          const wanted = !existsSync(join(dir, 'unadvertised'));
+          if (wanted && !advert) advert = spawn('dns-sd', ['-R', name, '_agentbrief._tcp', 'local.', String(actual)], { stdio: 'ignore' });
+          if (!wanted && advert) {
+            advert.kill();
+            advert = null;
+          }
+        };
+        sync();
+        const watch = setInterval(sync, 250);
+        const stop = () => {
+          clearInterval(watch);
+          advert?.kill();
+        };
+        server.on('close', stop);
+        process.on('exit', stop);
+        hosts = 'stub-gone.invalid,192.0.2.1';
+      }
+      const q = new URLSearchParams({ h: hosts, p: String(actual), c: code, f: fingerprint, m: 'Stub Mac' });
       resolve({ server, port: actual, fingerprint, received, pairUrl: `agentbrief://pair?${q}` });
     });
   });
