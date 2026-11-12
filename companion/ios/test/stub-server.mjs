@@ -177,7 +177,13 @@ export function startStub({ dir, port = 0, host = '127.0.0.1', macName = 'Stub M
         let advert = null;
         const sync = () => {
           const wanted = !existsSync(join(dir, 'unadvertised'));
-          if (wanted && !advert) advert = spawn('dns-sd', ['-R', name, '_agentbrief._tcp', 'local.', String(actual)], { stdio: 'ignore' });
+          if (wanted && !advert) {
+            // AB_PEER_HELPER names the Mac's real helper, which then advertises and forwards in place of dns-sd.
+            const helper = process.env.AB_PEER_HELPER;
+            advert = helper
+              ? spawn(helper, ['--name', name, '--port', String(actual)], { stdio: ['pipe', 'ignore', 'ignore'] })
+              : spawn('dns-sd', ['-R', name, '_agentbrief._tcp', 'local.', String(actual)], { stdio: 'ignore' });
+          }
           if (!wanted && advert) {
             advert.kill();
             advert = null;

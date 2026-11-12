@@ -32,6 +32,8 @@ When no saved host answers, the app reaches the Mac over Apple peer-to-peer Wi-F
 
 The simulator has no peer-to-peer Wi-Fi. `PeerRouteTests` stands in with a stub that registers its port under the derived name with `dns-sd -R` on the Mac's own network, and a pairing link whose hosts never answer. It pairs, lists, opens and sends over the bridge, and fails if the list takes 8 s or more.
 
+`AB_PEER_HELPER=$PWD/bin/agent-brief-peer AB_ONLY=PeerRouteTests node ios/test/run-sim.mjs` puts the Mac's real helper in front of the stub in place of `dns-sd`, so the app's bridge and the helper meet.
+
 ## Test
 
 `node ios/test/run-sim.mjs` runs the UI test on a simulator against `ios/test/stub-server.mjs` and checks what the stub received. `src/ipad-client/capture.test.ts` runs in `pnpm test`.
