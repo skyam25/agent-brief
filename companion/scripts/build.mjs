@@ -1,4 +1,4 @@
-// Builds main and preload with esbuild, the renderer with Vite, the companion CLI and the dictation helper.
+// Builds main and preload with esbuild, the renderer with Vite, the companion CLI and the Swift helpers.
 import { execFileSync } from 'node:child_process';
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { build as esbuild, context } from 'esbuild';
@@ -48,15 +48,27 @@ export async function watchMain(onRebuild) {
 
 const DICTATE_SRC = 'native/dictate.swift';
 const DICTATE_BIN = 'bin/agent-brief-dictate';
+const PEER_SRC = 'native/peer.swift';
+const PEER_BIN = 'bin/agent-brief-peer';
 
-/** Compiles the Swift dictation helper when its source is newer. Without swiftc, voice falls back to clips. */
-export function buildDictate() {
-  if (existsSync(DICTATE_BIN) && statSync(DICTATE_BIN).mtimeMs >= statSync(DICTATE_SRC).mtimeMs) return;
+/** Compiles a Swift helper when its source is newer. Without swiftc it warns and skips. */
+function buildSwift(src, bin) {
+  if (existsSync(bin) && statSync(bin).mtimeMs >= statSync(src).mtimeMs) return;
   try {
-    execFileSync('swiftc', ['-O', '-target', 'arm64-apple-macos26.0', DICTATE_SRC, '-o', DICTATE_BIN], { stdio: 'inherit' });
+    execFileSync('swiftc', ['-O', '-target', 'arm64-apple-macos26.0', src, '-o', bin], { stdio: 'inherit' });
   } catch (err) {
-    console.warn(`skipped ${DICTATE_BIN}: ${err.message}`);
+    console.warn(`skipped ${bin}: ${err.message}`);
   }
+}
+
+/** Compiles the Swift dictation helper. Without it, voice falls back to clips. */
+export function buildDictate() {
+  buildSwift(DICTATE_SRC, DICTATE_BIN);
+}
+
+/** Compiles the peer-to-peer Wi-Fi helper. Without it, the phone reaches the Mac only on a shared subnet. */
+export function buildPeer() {
+  buildSwift(PEER_SRC, PEER_BIN);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -75,5 +87,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     logLevel: 'warning',
   });
   buildDictate();
-  console.log(`built out/, bin/agent-brief.mjs${existsSync(DICTATE_BIN) ? ` and ${DICTATE_BIN}` : ''}`);
+  buildPeer();
+  const helpers = [DICTATE_BIN, PEER_BIN].filter((bin) => existsSync(bin));
+  console.log(`built out/, bin/agent-brief.mjs${helpers.length ? `, ${helpers.join(', ')}` : ''}`);
 }

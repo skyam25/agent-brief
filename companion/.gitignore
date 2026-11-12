@@ -8,3 +8,4 @@ playwright-report/
 .feedback/
 bin/agent-brief.mjs
 bin/agent-brief-dictate
+bin/agent-brief-peer

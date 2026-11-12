@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import electron from 'electron';
 import { createServer } from 'vite';
-import { buildDictate, watchMain } from './build.mjs';
+import { buildDictate, buildPeer, watchMain } from './build.mjs';
 
 const server = await createServer({ configFile: 'vite.config.ts' });
 await server.listen();
@@ -19,4 +19,5 @@ function restart() {
 }
 
 buildDictate();
+buildPeer();
 await watchMain(restart);
