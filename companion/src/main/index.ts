@@ -77,6 +77,7 @@ import { SessionNames } from './session-names';
 import { forgetMarks, mark, renameMarks } from './board-marks';
 import { SessionFiles, webUrl, type Opener } from './session-files';
 import { Ipad } from '../ipad';
+import { macNames } from '../ipad/lan';
 import { SessionModes } from './session-modes';
 import { TemplateStore } from './templates';
 import { Terminals } from './terminals';
@@ -510,6 +511,7 @@ async function start(): Promise<void> {
     ...(process.env.COMPANION_IPAD_HOST ? { host: process.env.COMPANION_IPAD_HOST } : {}),
     ...(ipadPort ? { port: Number(ipadPort) } : {}),
     ...(peerArgv ? { peerArgv } : {}),
+    ...(process.env.COMPANION_IPAD_NAME ? { names: () => ({ ...macNames(), computer: process.env.COMPANION_IPAD_NAME! }) } : {}),
   });
   const createHandoff = async (req: HandoffRequest) => {
     // The brief outlives the session, so an answer after it ends still has somewhere to file.

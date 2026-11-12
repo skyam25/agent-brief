@@ -6,3 +6,5 @@ test/.run/
 build-device/
 test/.run-device/
 test/.tour/
+test/.run-device-peer-*/
+test/.run-sim-peer/

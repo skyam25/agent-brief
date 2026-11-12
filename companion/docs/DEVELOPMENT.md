@@ -239,7 +239,7 @@ On a fresh checkout or worktree, run `pnpm setup:worktree`. Electron's own insta
 
 ## iPad
 
-- `src/ipad/` serves a TLS LAN API on port 47613, IPv4 only, and refuses peers outside the Mac's subnets. `COMPANION_IPAD_HOST` and `COMPANION_IPAD_PORT` override the address.
+- `src/ipad/` serves a TLS LAN API on port 47613, IPv4 only, and refuses peers outside the Mac's subnets. `COMPANION_IPAD_HOST` and `COMPANION_IPAD_PORT` override the address, and `COMPANION_IPAD_NAME` the name the device shows.
 - A second route runs over Apple peer-to-peer Wi-Fi, so a phone needs no shared network. `bin/agent-brief-peer` advertises Bonjour `_agentbrief._tcp` as `ab-` plus the first 16 characters of the certificate fingerprint, and passes raw TCP to the listener on `127.0.0.1`. The phone derives the name from the pairing QR.
 - TLS, the pinned fingerprint and the credential are the same on both routes. `src/ipad/peer.ts` runs the helper exactly while the listener runs, and restarts it a few times if it dies. A listener bound to another host skips it.
 - With the peer route up and no private address, the pairing link carries the `.local` name alone, and the pair sheet says the iPad can connect with Wi-Fi and Bluetooth on.

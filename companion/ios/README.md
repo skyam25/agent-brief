@@ -34,6 +34,8 @@ The simulator has no peer-to-peer Wi-Fi. `PeerRouteTests` stands in with a stub 
 
 `AB_PEER_HELPER=$PWD/bin/agent-brief-peer AB_ONLY=PeerRouteTests node ios/test/run-sim.mjs` puts the Mac's real helper in front of the stub in place of `dns-sd`, so the app's bridge and the helper meet.
 
+`node ios/test/run-device-peer.mjs <udid>` runs `DevicePeerTests` on a real, unlocked device against `live/ipad-stub.mjs` with the helper. The Mac side listens on loopback alone, so the helper is the one way in. The device keeps its pairings: the test adds a Mac named Peer Check Mac and forgets only that one. The runner prints which Mac interface carried the device's connections. `--sim` runs the same test on a simulator.
+
 ## Test
 
 `node ios/test/run-sim.mjs` runs the UI test on a simulator against `ios/test/stub-server.mjs` and checks what the stub received. `src/ipad-client/capture.test.ts` runs in `pnpm test`.
