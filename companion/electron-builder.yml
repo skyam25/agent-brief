@@ -30,6 +30,9 @@ extraResources:
   # Live dictation on Apple's speech engine. pnpm build compiles it from native/.
   - from: bin/agent-brief-dictate
     to: bin/agent-brief-dictate
+  # Advertises the phone API over peer-to-peer Wi-Fi and forwards it to the LAN listener.
+  - from: bin/agent-brief-peer
+    to: bin/agent-brief-peer
   # The Claude Code plugin, laid out as a marketplace. Claude Code reads it in
   # place, so it updates with the app. The filter matches what a git clone holds.
   - from: ../.claude-plugin
@@ -67,3 +70,7 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: Records your voice while you sketch so Claude hears what you mean.
     NSAppleEventsUsageDescription: Opens Claude Code sessions in your terminal and brings them forward when you click a session.
+    # The peer helper advertises this service. macOS asks for local network access in the app's name.
+    NSLocalNetworkUsageDescription: Lets your paired iPhone or iPad reach this Mac over Wi-Fi, even without a shared network.
+    NSBonjourServices:
+      - _agentbrief._tcp
