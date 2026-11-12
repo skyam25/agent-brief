@@ -1,7 +1,7 @@
 // End-to-end check on a simulator: the XCUITest pairs, draws, talks, notes and sends, and this asserts what the stub received.
 // Run from companion/: node ios/test/run-sim.mjs
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startStub } from './stub-server.mjs';
@@ -22,13 +22,14 @@ spawnSync('say', ['-o', audio, '--data-format=LEI16@16000', sayText]);
 const useCanned = process.env.AB_CANNED !== '0';
 
 // AB_ONLY narrows the run to a comma-separated list of tests, such as HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs. The checks below then report what those tests skipped.
-const allTests = ['CommentFlowTests', 'StackHandoffTests', 'BoardToolsTests', 'PageHandoffTests', 'HandoffFlowTests/testPairDrawTalkNoteSend', 'HandoffFlowTests/testSendWaitsSurvivesKillThenLands', 'HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', 'HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs'];
+const allTests = ['CommentFlowTests', 'StackHandoffTests', 'BoardToolsTests', 'PageHandoffTests', 'HandoffFlowTests/testPairDrawTalkNoteSend', 'HandoffFlowTests/testSendWaitsSurvivesKillThenLands', 'HandoffFlowTests/testTwoMacsKeepTheirOwnHandoffs', 'HandoffFlowTests/testWrongFingerprintRefusedThenDeepLinkPairsThenRevokeUnpairs', 'PeerRouteTests'];
 const onlyTesting = (process.env.AB_ONLY?.split(',') ?? allTests).map((t) => `-only-testing:AgentBriefUITests/${t}`);
 const stub = await startStub({ dir });
 const stubA = await startStub({ dir: join(dir, 'mac-a'), macName: 'First Stub Mac', promptPrefix: 'First Mac: ' });
 const stubB = await startStub({ dir: join(dir, 'mac-b'), macName: 'Second Stub Mac', promptPrefix: 'Second Mac: ' });
 const stubC = await startStub({ dir: join(dir, 'mac-c'), macName: 'Comment Stub Mac' });
 const stubS = await startStub({ dir: join(dir, 'mac-s'), macName: 'Stack Stub Mac', stack: true, link: true, page: true });
+const stubP = await startStub({ dir: join(dir, 'mac-p'), macName: 'Peer Stub Mac', promptPrefix: 'Peer Mac: ', peer: true });
 console.log(`stub on ${stub.port}, fingerprint ${stub.fingerprint}`);
 
 const env = {
@@ -38,6 +39,7 @@ const env = {
   TEST_RUNNER_AB_PAIR_URL_B: stubB.pairUrl,
   TEST_RUNNER_AB_PAIR_URL_C: stubC.pairUrl,
   TEST_RUNNER_AB_PAIR_URL_S: stubS.pairUrl,
+  TEST_RUNNER_AB_PAIR_URL_P: stubP.pairUrl,
   TEST_RUNNER_AB_STUB_DIR: dir,
   TEST_RUNNER_AB_TALK_SECONDS: process.env.AB_TALK_SECONDS ?? (useCanned ? '3' : '8'),
   ...(useCanned ? { TEST_RUNNER_AB_TEST_PHRASES: phrases } : { TEST_RUNNER_AB_TEST_AUDIO: audio }),
@@ -61,7 +63,7 @@ const result = await new Promise((resolve) => {
 });
 stub.server.close();
 stub.server.closeAllConnections();
-for (const other of [stubA, stubB, stubC, stubS]) {
+for (const other of [stubA, stubB, stubC, stubS, stubP]) {
   other.server.close();
   other.server.closeAllConnections();
 }
@@ -124,6 +126,13 @@ check(pagePins[0]?.text.includes('Shorter title'), `the page comment kept its wo
 check(!('pngBase64' in (reviewed ?? {})), 'a page review carries no sketch');
 check(stubS.received.some((r) => r.kind === 'remove' && r.id === 'h2'), 'deleting a hand-off in the inbox removed it on the Mac');
 check(!stubS.received.some((r) => r.kind === 'remove' && r.id === 'h1'), 'an older Mac kept the hand-off deleted on the device');
+
+check(stubP.received.some((r) => r.kind === 'pair'), 'pairing crossed the peer route');
+check(stubP.received.some((r) => r.kind === 'deliver' && r.id === 'h1'), 'a Send crossed the peer route');
+const timings = { 'peer-seconds.txt': 'listed hand-offs over the peer route', 'peer-gone-seconds.txt': 'showed the missing peer service', 'peer-back-seconds.txt': 'reconnected over the peer route' };
+for (const [file, what] of Object.entries(timings)) {
+  if (existsSync(join(dir, file))) console.log(`     ${what} in ${readFileSync(join(dir, file), 'utf8')} s`);
+}
 
 console.log(fail.length ? `\n${fail.length} failed` : '\nall passed');
 console.log(`screenshots and deliveries in ${dir}`);
