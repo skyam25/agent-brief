@@ -28,6 +28,9 @@ export function IpadSheet(props: { host: IpadSheetHost; onClose: () => void }) {
   };
   const error = failure ?? status?.error;
 
+  // With no network to name, the peer route is the way in and takes the first step.
+  const peerOnly = status?.peer && !status.network;
+
   return createPortal(
     <div className="popover-panel cleanup ipad-sheet" role="dialog" aria-label="Pair iPad" data-escape-owner data-testid="ipad-sheet">
       <h2>Pair iPad</h2>
@@ -39,15 +42,24 @@ export function IpadSheet(props: { host: IpadSheetHost; onClose: () => void }) {
       {status?.url && (
         <div className="ipad-pairing">
           <ol>
-            <li data-testid="ipad-network">
-              {status.network ? `Join this Mac's network (${status.network}) on the iPad, and turn off any VPN.` : "Join this Mac's network on the iPad, and turn off any VPN."}
-            </li>
+            {peerOnly ? (
+              <li data-testid="ipad-peer">Turn on Wi-Fi and Bluetooth on both devices. They need no shared network.</li>
+            ) : (
+              <li data-testid="ipad-network">
+                {status.network ? `Join this Mac's network (${status.network}) on the iPad, and turn off any VPN.` : "Join this Mac's network on the iPad, and turn off any VPN."}
+              </li>
+            )}
             <li>In Agent Brief on the iPad, tap Scan QR Code and point it at this code.</li>
             <li>The code works once, for 10 minutes.</li>
           </ol>
           {/* The SVG comes from the qrcode library in main, not from a page. */}
           <div className="ipad-qr" data-testid="ipad-qr" data-url={status.url} dangerouslySetInnerHTML={{ __html: status.qrSvg ?? '' }} />
         </div>
+      )}
+      {status?.url && status.peer && !peerOnly && (
+        <p className="muted" data-testid="ipad-peer">
+          The iPad can also connect with no shared network, as long as both devices have Wi-Fi and Bluetooth on.
+        </p>
       )}
       {status?.url && <p className="muted">If macOS asks whether Agent Brief may accept incoming connections, choose Allow.</p>}
       {status?.refused && (

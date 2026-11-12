@@ -6,7 +6,7 @@ import https from 'node:https';
 import { join } from 'node:path';
 import type { TLSSocket } from 'node:tls';
 import { parsePairUrl, type IpadDelivery, type PairLink } from '../src/shared/ipad';
-import { launch, RESULTS, sceneElements, showPanel, sock, tempDataDir } from './helpers';
+import { launch, RESULTS, ROOT, sceneElements, showPanel, sock, tempDataDir } from './helpers';
 
 const NEUTRAL_BOUNDS = { x: 0, y: 0, width: 400, height: 300 };
 
@@ -127,6 +127,35 @@ test('pair iPad: the sheet, a full hand-off through the real Sender, and Forget'
   await expect(sheet).toContainText('No iPad yet.');
   expect((await lan(link, 'GET', '/v1/handoffs', credential)).status).toBe(401);
   await app.close();
+});
+
+test('the pair sheet names the peer route while the helper runs, and quitting ends the helper', async () => {
+  const dataDir = tempDataDir();
+  const peerLog = join(dataDir, 'peer.jsonl');
+  const { app, page } = await launch(dataDir, {
+    COMPANION_IPAD_HOST: '127.0.0.1',
+    COMPANION_IPAD_PORT: '0',
+    COMPANION_TEST_PEER: join(ROOT, 'e2e/fixtures/fake-peer.mjs'),
+    FAKE_PEER_LOG: peerLog,
+  });
+  await showPanel(app, page);
+  await app.evaluate(() => globalThis.__companion.pairIpad());
+  await expect(page.getByTestId('ipad-qr').locator('svg')).toBeVisible();
+  await expect(page.getByTestId('ipad-peer')).toContainText('Wi-Fi and Bluetooth');
+  await page.screenshot({ path: join(RESULTS, 'ipad-sheet-peer.png') });
+
+  const link = parsePairUrl((await page.getByTestId('ipad-qr').getAttribute('data-url'))!)!;
+  const launched = JSON.parse(readFileSync(peerLog, 'utf8').trim().split('\n')[0]!);
+  expect(launched.args).toEqual(['--name', `ab-${link.fingerprint.slice(0, 16)}`, '--port', String(link.port)]);
+  await app.close();
+  await expect.poll(() => {
+    try {
+      process.kill(launched.pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }).toBe(false);
 });
 
 test('the panel hands the open board to the iPad, and the answer belongs to the session picked', async () => {

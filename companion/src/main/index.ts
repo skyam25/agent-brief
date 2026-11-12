@@ -209,12 +209,15 @@ async function start(): Promise<void> {
     for (const d of dictations.values()) d.kill();
   };
 
-  /** The dictation helper. Test runs use COMPANION_TEST_DICTATE, or clips without it. */
-  const dictationArgv = (): string[] | undefined => {
-    if (testMode) return process.env.COMPANION_TEST_DICTATE ? [process.env.COMPANION_TEST_DICTATE] : undefined;
-    const helper = join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/agent-brief-dictate');
+  /** A bundled helper in `bin/`, or the test stand-in an environment variable names. */
+  const helperArgv = (name: string, testVar: string): string[] | undefined => {
+    if (testMode) return process.env[testVar] ? [process.env[testVar]!] : undefined;
+    const helper = join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin', name);
     return existsSync(helper) ? [helper] : undefined;
   };
+
+  /** The dictation helper. Test runs use COMPANION_TEST_DICTATE, or clips without it. */
+  const dictationArgv = () => helperArgv('agent-brief-dictate', 'COMPANION_TEST_DICTATE');
   // Test runs keep the log in their own data folder.
   const dictationLog = join(testMode ? app.getPath('userData') : app.getPath('logs'), 'dictation.log');
   const dictator = new Dictator({
@@ -463,6 +466,9 @@ async function start(): Promise<void> {
     },
   });
 
+  // The peer route runs only where the helper exists. Test runs use COMPANION_TEST_PEER, or go without it.
+  const peerArgv = helperArgv('agent-brief-peer', 'COMPANION_TEST_PEER');
+
   // The paired iPad's hand-offs. Its LAN listener is separate from the socket server.
   const ipadPort = process.env.COMPANION_IPAD_PORT;
   const ipad = new Ipad({
@@ -503,6 +509,7 @@ async function start(): Promise<void> {
     onPairedChange: () => server.refreshSessions(),
     ...(process.env.COMPANION_IPAD_HOST ? { host: process.env.COMPANION_IPAD_HOST } : {}),
     ...(ipadPort ? { port: Number(ipadPort) } : {}),
+    ...(peerArgv ? { peerArgv } : {}),
   });
   const createHandoff = async (req: HandoffRequest) => {
     // The brief outlives the session, so an answer after it ends still has somewhere to file.

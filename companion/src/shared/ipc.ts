@@ -493,6 +493,8 @@ export interface IpadSheetStatus {
   error?: string;
   /** A device the listener turned away for being on another network. */
   refused?: string;
+  /** The peer-to-peer route is up, so a phone can connect with no shared network. */
+  peer?: boolean;
 }
 
 export interface CompanionApi extends BoardHost {

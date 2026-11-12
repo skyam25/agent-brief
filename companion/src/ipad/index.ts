@@ -1,4 +1,7 @@
-/** Pairing, hand-offs and the LAN listener, tied together. The listener runs while the pair sheet is open or an iPad is paired. */
+/**
+ * Pairing, hand-offs and the LAN listener, tied together. The listener runs while the pair sheet is open or an iPad is paired.
+ * The peer helper runs exactly while the listener does, and carries it over peer-to-peer Wi-Fi.
+ */
 
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -10,12 +13,13 @@ import { contentType, injectOverlay, resolveReviewPath } from '../main/review-pr
 import { cleanReview, isReviewable } from '../shared/review';
 import type { Handoff, HandoffRequest, IpadStatus } from '../protocol';
 import type { IpadSheetStatus, Outgoing, SendPayload, TextPayload } from '../shared/ipc';
-import { IPAD_LAN_PORT, pairUrl, type IpadDelivery, type IpadDeliveryResult, type IpadPageDelivery, type LanHandoffDetail } from '../shared/ipad';
+import { IPAD_LAN_PORT, pairUrl, peerInstanceName, type IpadDelivery, type IpadDeliveryResult, type IpadPageDelivery, type LanHandoffDetail } from '../shared/ipad';
 import { ensureCert, type LanCert } from './cert';
 import { boardMark, HandoffStore, publicHandoff, type StoredHandoff } from './handoffs';
 import { lanAddresses, macNames, networkLabel, type Interfaces } from './lan';
 import { createLanServer, type LanServer } from './lan-server';
 import { PairingStore } from './pairing';
+import { Peer } from './peer';
 
 export const NO_LAN = "This Mac isn't on a private network. Join the same Wi-Fi as the iPad, then try again.";
 export const NOT_PAIRED = 'No iPad is paired. On the Mac, choose Pair iPad… from the File menu.';
@@ -54,6 +58,11 @@ export interface IpadDeps {
   /** Binds here instead of every interface, and names it in the QR code. */
   host?: string;
   port?: number;
+  /**
+   * The peer helper's command line. Without it there is no peer route.
+   * The helper forwards to 127.0.0.1, so a `host` other than `0.0.0.0` or `127.0.0.1` skips it.
+   */
+  peerArgv?: readonly string[];
   interfaces?: () => Interfaces;
   names?: () => { computer: string; local?: string };
 }
@@ -64,6 +73,8 @@ export class Ipad {
   private readonly interfaces: () => Interfaces;
   private readonly names: () => { computer: string; local?: string };
   private readonly inFlight = new Map<string, Promise<IpadDeliveryResult>>();
+  private readonly peer?: Peer;
+  private peerUp = false;
   private cert?: LanCert;
   private server?: LanServer;
   private port?: number;
@@ -80,6 +91,16 @@ export class Ipad {
     this.handoffs = new HandoffStore({ file: join(dir, 'handoffs.json') });
     this.interfaces = deps.interfaces ?? networkInterfaces;
     this.names = deps.names ?? macNames;
+    const loopbackReach = !deps.host || deps.host === '0.0.0.0' || deps.host === '127.0.0.1';
+    if (deps.peerArgv?.length && loopbackReach) {
+      this.peer = new Peer({
+        argv: deps.peerArgv,
+        onChange: (up) => {
+          this.peerUp = up;
+          this.publish();
+        },
+      });
+    }
     let paired = this.pairing.paired;
     this.pairing.onChange(() => {
       if (paired !== this.pairing.paired) {
@@ -147,13 +168,24 @@ export class Ipad {
       this.error = undefined;
     } catch (err) {
       this.error = `Could not start the iPad listener: ${(err as Error).message}`;
+      return;
     }
+    await this.startPeer();
+  }
+
+  /** A helper that fails leaves the listener up and the sheet without the peer line. */
+  private async startPeer(): Promise<void> {
+    if (!this.peer || !this.cert || this.port === undefined) return;
+    const started = await this.peer.start(peerInstanceName(this.cert.fingerprint), this.port).catch(() => ({ ok: false }));
+    this.peerUp = started.ok;
   }
 
   private async stopServer(): Promise<void> {
     const server = this.server;
     this.server = undefined;
     this.port = undefined;
+    this.peerUp = false;
+    await this.peer?.stop();
     await server?.close();
   }
 
@@ -179,7 +211,11 @@ export class Ipad {
     if (!this.server || !this.cert || this.port === undefined) return this.publish();
     const addresses = lanAddresses(this.interfaces());
     const names = this.names();
-    const hosts = this.deps.host ? [this.deps.host] : [...(names.local && addresses.length ? [names.local] : []), ...addresses];
+
+    // With the peer route up, the `.local` name alone makes a link, since the phone finds the Mac by Bonjour.
+    const local = names.local && (addresses.length || this.peerUp) ? [names.local] : [];
+    const hosts = this.deps.host ? [this.deps.host] : [...local, ...addresses];
+
     if (!hosts.length) {
       this.error = NO_LAN;
       return this.publish();
@@ -203,6 +239,7 @@ export class Ipad {
       ...(this.link ?? {}),
       ...(this.error ? { error: this.error } : {}),
       ...(this.refused ? { refused: this.refused } : {}),
+      ...(this.peerUp ? { peer: true } : {}),
     };
   }
 

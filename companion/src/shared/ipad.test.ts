@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pairUrl, parsePairUrl, type PairLink } from './ipad';
+import { IPAD_PEER_SERVICE, pairUrl, parsePairUrl, peerInstanceName, type PairLink } from './ipad';
 
 const link: PairLink = {
   hosts: ['simons-mac.local', '192.168.1.20'],
@@ -23,5 +23,13 @@ describe('pair links', () => {
     'not a url',
   ])('rejects %s', (url) => {
     expect(parsePairUrl(url)).toBeUndefined();
+  });
+});
+
+describe('peer service', () => {
+  it('names the instance after the first 16 characters of the fingerprint', () => {
+    expect(IPAD_PEER_SERVICE).toBe('_agentbrief._tcp');
+    expect(peerInstanceName('Ab_-0123456789xyTAIL-ignored')).toBe('ab-Ab_-0123456789xy');
+    expect(peerInstanceName('Ab_-0123456789xyTAIL-ignored')).toHaveLength(19);
   });
 });

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -508,5 +508,103 @@ describe('page hand-offs', () => {
     expect(reply.body.message).toContain('waits on the Mac as a note');
     expect(sends).toHaveLength(0);
     expect(filed[0]).toMatchObject(['s1', { review: { path: 'site/plan.html' } }]);
+  });
+});
+
+describe('peer route', () => {
+  const FAKE_PEER = join(__dirname, '../../e2e/fixtures/fake-peer.mjs');
+  const peerArgv = [process.execPath, FAKE_PEER];
+  const en0 = [{ address: '192.168.1.20', netmask: '255.255.255.0', family: 'IPv4', internal: false }] as never;
+
+  /** Scripts the fake helper and returns what each launch was given. */
+  const fakePeer = (script: object = {}) => {
+    const log = join(mkdtempSync(join(tmpdir(), 'peer-')), 'launches.jsonl');
+    process.env.FAKE_PEER = JSON.stringify(script);
+    process.env.FAKE_PEER_LOG = log;
+    return (): { args: string[]; pid: number }[] =>
+      existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  };
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  afterEach(() => {
+    delete process.env.FAKE_PEER;
+    delete process.env.FAKE_PEER_LOG;
+  });
+
+  it('runs the helper with the listener, named for the certificate and pointed at its port', async () => {
+    const launches = fakePeer();
+    const { ipad } = make({ peerArgv });
+    const status = await ipad.openSheet();
+    const link = parsePairUrl(status.url!)!;
+    expect(status.peer).toBe(true);
+    const [launch] = launches();
+    expect(launch!.args).toEqual(['--name', `ab-${link.fingerprint.slice(0, 16)}`, '--port', String(link.port)]);
+    expect(alive(launch!.pid)).toBe(true);
+
+    await ipad.closeSheet();
+    expect(alive(launch!.pid)).toBe(false);
+    expect(ipad.sheetStatus().peer).toBeUndefined();
+  });
+
+  it('ends the helper on quit', async () => {
+    const launches = fakePeer();
+    const { ipad } = await paired({ peerArgv });
+    await ipad.closeSheet();
+    expect(alive(launches()[0]!.pid)).toBe(true);
+    await ipad.stop();
+    expect(alive(launches()[0]!.pid)).toBe(false);
+  });
+
+  it('leaves the listener up when the helper fails', async () => {
+    fakePeer({ fail: 'no Bonjour' });
+    const { ipad } = make({ peerArgv });
+    const status = await ipad.openSheet();
+    expect(status.error).toBeUndefined();
+    expect(status.peer).toBeUndefined();
+    const link = parsePairUrl(status.url!)!;
+    expect((await call(link, 'GET', '/v1/handoffs')).status).toBe(401);
+  });
+
+  it('skips the helper when the listener binds a host it cannot reach on loopback', async () => {
+    const launches = fakePeer();
+    const { ipad } = make({ peerArgv, host: 'localhost' });
+    const status = await ipad.openSheet();
+    expect(status.url).toBeDefined();
+    expect(status.peer).toBeUndefined();
+    expect(launches()).toHaveLength(0);
+  });
+
+  it('makes a link from the .local name alone with no private address, while the helper is up', async () => {
+    fakePeer();
+    const { ipad } = make({ peerArgv, host: undefined, interfaces: () => ({}) });
+    const status = await ipad.openSheet();
+    expect(status.error).toBeUndefined();
+    expect(parsePairUrl(status.url!)!.hosts).toEqual(['the-mac.local']);
+    expect(status.network).toBeUndefined();
+    expect(status.peer).toBe(true);
+  });
+
+  it('keeps the LAN hosts and network when there is a LAN', async () => {
+    fakePeer();
+    const { ipad } = make({ peerArgv, host: undefined, interfaces: () => ({ en0 }) });
+    const status = await ipad.openSheet();
+    expect(parsePairUrl(status.url!)!.hosts).toEqual(['the-mac.local', '192.168.1.20']);
+    expect(status.network).toBe('192.168.1.x');
+    expect(status.peer).toBe(true);
+  });
+
+  it('still refuses to make a code with no network when the helper failed', async () => {
+    fakePeer({ fail: 'no Bonjour' });
+    const { ipad } = make({ peerArgv, host: undefined, interfaces: () => ({}) });
+    const status = await ipad.openSheet();
+    expect(status.url).toBeUndefined();
+    expect(status.error).toBe(NO_LAN);
   });
 });

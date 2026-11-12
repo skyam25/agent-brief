@@ -22,6 +22,17 @@ import type { StrokeEvent } from '../voice/types';
 
 export const IPAD_LAN_PORT = 47613;
 
+/**
+ * The Bonjour service that carries the LAN API over Apple peer-to-peer Wi-Fi, for a phone with no shared network.
+ * `agent-brief-peer` advertises it and passes raw TCP to the listener on loopback, so TLS stays end to end.
+ */
+export const IPAD_PEER_SERVICE = '_agentbrief._tcp';
+
+/** The peer service's instance name. The phone derives it from the fingerprint in the pairing QR code. */
+export function peerInstanceName(fingerprint: string): string {
+  return `ab-${fingerprint.slice(0, 16)}`;
+}
+
 /** Largest delivery body. Board pictures travel inside the scene. */
 export const IPAD_MAX_BODY_BYTES = 64 * 1024 * 1024;
 
